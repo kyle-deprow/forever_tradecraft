@@ -1,0 +1,14 @@
+## Interface: 16001
+## Title: Crowley
+## Notes: Auction house scanner and trade executor
+## Author: Kyle DeProw
+## Version: 0.1.0
+## SavedVariables: CrowleyDB
+## Dependencies: Auctionator, Crowley_Data
+
+Core.lua
+Context.lua
+Probe.lua
+Scanner.lua
+Bridge.lua
+Commands.lua
