@@ -1,7 +1,7 @@
 # Crowley
 
 Auction house data platform and addon for **WoW Forever**. Scan the AH in game, store the
-full history per house on a server, compute gold-making strategies, and push the results
+retained observation history per house on a server, compute gold-making strategies, and push the results
 back into the game (and into Auctionator shopping lists).
 
 ```
@@ -15,6 +15,10 @@ deploy/              docker compose (db + server), companion systemd unit
 
 See [docs/HANDOFF.md](docs/HANDOFF.md) for requirements, history and roadmap, and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical design.
+
+The [first-run watchlist](docs/WATCHLIST.md) contains the reviewed item catalog, its
+management commands and delivery path. The addon consumes the immutable format-2 plan and
+performs targeted 900-second watchlist sweeps with bounded retained depth.
 
 ## Quickstart (server and game on one Linux machine)
 
@@ -41,12 +45,22 @@ The addon requires Auctionator. In game:
 | Command | What it does |
 |---|---|
 | `/crowley probe` | Records the client's AH API surface. **Run this first on the beta.** |
-| `/crowley status` | Current house, scan cooldown, stored scans, strategy data age |
-| `/crowley scan` | Full AH scan (AH must be open; once per 15 min) |
+| `/crowley status` | Current house, next due time, loaded plan, cursor, stored sweeps and failures |
+| `/crowley scan` | Targeted watchlist sweep (AH must be open; starts are 15 minutes apart) |
 | `/crowley set faction neutral` | Override house detection (`region`/`ruleset`/`faction`, or `auto`) |
 | `/crowley lists` | Push Crowley shopping lists into Auctionator |
 
-Scans reach the server after `/reload` or logout, because that is when WoW writes SavedVariables.
+Sweeps reach the server after `/reload` or logout, because that is when WoW writes SavedVariables.
+At six pending sweeps the addon pauses and never evicts unacknowledged evidence. The first
+reload lets the companion upload and write acknowledgements; a second reload loads those
+acknowledgements and resumes collection.
+
+Format 2 is the only accepted upload format. Its compressed JSON payload carries the unchanged
+canonical `planJSON` and `planHash`, one object observation per planned item, and a separately
+gated owned snapshot. Exact reduced rational unit prices, raw item variants, tagged unknowns,
+coverage cutoffs and witnesses prevent fractional copper rounding or missing data being treated
+as zero supply. Public-market churn is an uncalibrated proxy; an observed disappearance is not a
+confirmed sale. Confirmed own sales are recorded separately only after a full owned query.
 
 ## Game and server on different machines (Tailscale)
 

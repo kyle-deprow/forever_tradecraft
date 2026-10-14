@@ -4,6 +4,28 @@ Written 2026-10-14 by the agent that started the project, for the agent taking o
 server. Read this fully before changing anything. `docs/ARCHITECTURE.md` is the shorter
 technical reference; this document adds requirements, history, research and next steps.
 
+### Continuation on the server
+
+The companion now retries stable SavedVariables after transport failures; successful
+uploads are not repeated. The first-run item catalog and server delivery are implemented;
+see [WATCHLIST.md](WATCHLIST.md) for the canonical data, coverage and management commands.
+The scan plan is delivered in addon data and the Lua scanner now performs targeted,
+bounded-depth format-2 sweeps with explicit per-item coverage and plan identity. The earlier
+assumption that ForeverWowCraft has no backend history is not
+established; only its public current plans were inspected. Recipe data must be verified
+against Forever's build rather than copied from Classic.
+
+### Format-2 cutover
+
+Before deploying this format-2 addon and server together, run the old addon against the old
+server until its SavedVariables have been uploaded and acknowledged. Reload once to write the
+old pending scans, let the companion write acknowledgements, then reload a second time and
+confirm the old addon's pending queue is empty. Only after that acknowledgement check should
+the addon and server be upgraded as one coordinated change. The new server accepts format 2
+only; it preserves the already-flushed legacy rows and archives but has no legacy decoder or
+full-scan fallback. If the old queue cannot be emptied, stop the cutover and fix that upload
+path before collecting new sweeps.
+
 ---
 
 ## 1. What we are building and why
@@ -11,7 +33,7 @@ technical reference; this document adds requirements, history, research and next
 The user (Kyle) wants a private gold-making platform for the auction house in
 **World of Warcraft: Forever**, plus an addon to act on it in game:
 
-1. **Pull live AH data** and store it with full history.
+1. **Pull live AH data** and store retained observation history with explicit coverage.
 2. **Make gold from it** using:
    - arbitrage, including faction houses vs neutral houses and vendor flips
    - high-demand items
@@ -20,7 +42,7 @@ The user (Kyle) wants a private gold-making platform for the auction house in
 3. **Execute in game seamlessly** through the **Auctionator** addon: buy and sell lists the
    backend computes, ready to use the next time the user is at the AH.
 
-The first milestone, done, was the foundation: scanning, storing live data, and the round
+The first milestone was the foundation: targeted scanning, retained observations, and the round
 trip between game and server. Strategies come next.
 
 ### Explicit user requirements (from the conversation)
@@ -78,8 +100,9 @@ reported by fans or the press.
   in 12.1.5". Beta interface 16001, build 1.60.x. The TOC suffix is currently `_Camelot`,
   which Blizzard says will be renamed. Some old globals such as `GetItemInfo` are gone; use
   `C_Item.*`. Midnight-style combat addon restrictions apply.
-- **AH API:** retail-style (commodities bought by quantity), so `C_AuctionHouse`.
-  `ReplicateItems` full scans are throttled to about one per 15 minutes per client.
+- **AH API:** retail-style (commodities bought by quantity), so `C_AuctionHouse` targeted
+  item-key queries are used. Result event freshness, metadata and pagination behavior remain
+  beta assumptions until a live client test.
 - **No Blizzard Game Data API for Forever auctions.** Nothing documents one, and the client
   "exposes no API". All data has to come from in-game scans. The classic API was also
   unreliable (frequent 404s), and a realmless game doesn't fit its "connected-realm" model.
@@ -146,17 +169,7 @@ v321 (May 2026) from a downloaded copy. Key facts:
 - **Import format** (paste into Auctionator's import box): one list per line,
   `ListName^item1^item2...`.
 - Its own price database is thin: one minimum price and maximum quantity per day, partly
-  stored as compressed binary (CBOR). **Don't use it as a data source**; we store full
-  scans ourselves.
-- How Auctionator's full scan works, which our scanner mirrors:
-  - `ReplicateItems()` → `REPLICATE_ITEM_LIST_UPDATE` → `GetNumReplicateItems()`.
-  - Indices are **0-based**.
-  - `GetReplicateItemInfo(i)` returns count at [3], buyout **for the whole auction** at
-    [10], itemID at [17], and hasAllInfo at [18].
-  - Uncached items are requested with `C_Item.RequestLoadItemDataByID`.
-  - Auctions for items that don't exist are skipped via `C_Item.DoesItemExistByID`.
-  - Closing the AH aborts the scan.
-
+  stored as compressed binary (CBOR). **Don't use it as a data source**; Crowley stores targeted retained observations.
 ---
 
 ## 4. Design decisions (and why)
@@ -168,10 +181,10 @@ v321 (May 2026) from a downloaded copy. Key facts:
 | Companion **polls** file mtime and size, and waits until they hold still for one interval | Wine prefixes and network mounts make inotify unreliable, and we must never read a half-written file |
 | Upload acknowledgement through `Data.lua` (`ackedScans`); the addon prunes acked scans on load and keeps at most 6 unacked | Keeps SavedVariables small without the companion ever writing to the game's own file |
 | House = `(region, ruleset, faction)` with faction in alliance/horde/neutral. The key looks like `us-normal-horde`, is decided **in game at scan time** (auto-detected, overridable with `/crowley set`), and is stored on every scan | Realmless game, plus the user's requirement to switch houses freely. Raw client context is stored too so attribution can be audited |
-| Items keyed by `itemKey` = item ID, plus `:s<suffix>` for random-suffix gear, plus `:b<sorted bonus ids>`. Never by name | Names are locale-dependent and ambiguous (foreverwowcraft's weakness) |
-| Store **every listing**, plus per-item stats per scan | Needed for inferring sales, depth-aware costing, anomaly detection and ML |
-| Market value = quantity-weighted mean of the cheapest 15% of units | Similar to TSM, and resists a single cheap outlier |
-| Rows are raw-deflated and base64-encoded in SavedVariables | About 20,000 auctions take roughly 290KB |
+| Items keyed by `itemKey` = item ID, plus `:s<suffix>` for random-suffix gear, `:b<sorted bonus ids>`, `:l<itemLevel>`, and `:p<battlePetSpeciesID>` when nonzero. Never by name | Names are locale-dependent and ambiguous (foreverwowcraft's weakness); raw key fields remain alongside the canonical key |
+| Store the cheapest 20 distinct unit-price levels plus every row at the retained boundary | Preserves explicit bounded coverage and row identity without claiming whole-market supply |
+| Public listing churn is a separate uncalibrated proxy; own Sold evidence is separate | A disappearance is not a confirmed sale and no sale probability is inferred |
+| Rows are raw-deflated and base64-encoded in SavedVariables | Payload size depends on retained rows, variants, links and owners; the representative 428-item sample is documented in WATCHLIST.md |
 | Python 3.12, FastAPI, psycopg3, **PostgreSQL 16 + TimescaleDB 2.17.2** | Python suits ML. Timescale gives time-partitioned tables plus compression for listing data |
 | Docker Compose for db + server; the companion runs on the game machine under systemd | The companion must sit next to the Wine game folder |
 | Single bearer token, compared in constant time | Single user over Tailscale |
@@ -189,10 +202,10 @@ v321 (May 2026) from a downloaded copy. Key facts:
 ### Built and tested
 ```
 addon/Crowley/          Core.lua (events, SavedVariables, prune), Context.lua (house detection),
-                        Scanner.lua (ReplicateItems scan), Bridge.lua (Auctionator lists),
+                        Scanner.lua (targeted watchlist scan), Bridge.lua (Auctionator lists),
                         Probe.lua (/crowley probe), Commands.lua (/crowley ...)
 addon/Crowley_Data/     Data.lua placeholder; the companion overwrites it
-src/crowley/core/       savedvars.py (parser), scanformat.py (decode + stats), house.py, luawriter.py
+src/crowley/core/       savedvars.py (parser), scanformat.py (strict format-2 validation), volume.py, house.py, luawriter.py
 src/crowley/server/     app.py (FastAPI), ingest.py, db.py (migration runner), migrations/001_init.sql
 src/crowley/companion/  sync.py (poll/upload/write Data.lua), config.py, __main__.py (CLI)
 deploy/                 docker-compose.yml, Dockerfile, .env.example, crowley-companion.service
@@ -208,17 +221,19 @@ tests/                  wow_harness.py runs the REAL addon Lua under Lua 5.1 (lu
   - `GET /v1/houses`
   - `GET /v1/houses/{key}/latest?search=&limit=`
   - `GET /v1/houses/{key}/items/{item_key}/history?days=`
-  - `POST /v1/addon-data`: returns `{generatedAt, ackedScans, shoppingLists}`.
+  - `GET /v1/houses/{key}/items/{item_key}/volume?hours=`
+  - `POST /v1/addon-data`: returns `{generatedAt, ackedScans, scanPlan, shoppingLists}`.
     `shoppingLists` is always empty until the strategy engine exists.
 - **Companion CLI:** `crowley-companion run|once|doctor|install-addon`.
   - Config is in `~/.config/crowley/companion.toml`, or the file named by
     `CROWLEY_COMPANION_CONFIG`. Fields: `wow_dir`, `server_url`, `api_token`,
     `poll_seconds`, `refresh_minutes`.
   - State is in `~/.local/state/crowley/companion-state.json`.
-- **Tests:** 16 pass, and ruff is clean.
-  - The database tests need `CROWLEY_TEST_DATABASE_URL`; see the README.
-  - An end-to-end run (20,000-auction scan generated by the real addon code → companion →
-    server → Timescale → `Data.lua`) passed.
+- **Tests:** the real Lua addon harness covers structured API calls, fresh result barriers,
+  depth boundaries, paging, throttle/cap behavior, logout/closure, owned completion and
+  SavedVariables lifecycle. Run `uv run pytest`; database tests require
+  `CROWLEY_TEST_DATABASE_URL` as described in the README. A live Forever client capture is
+  still required before treating client event ordering as verified.
 
 ### Not yet verified against the real client
 Nothing has run in the real game yet. See §6.
@@ -241,11 +256,13 @@ add a second one.
 | Assumption | Code | Symptom if wrong |
 |---|---|---|
 | Interface 16001; the plain `Crowley.toc` loads | `addon/*/*.toc` | Addon missing or marked out of date |
-| `C_AuctionHouse.ReplicateItems` exists; 0-based indices; buyout is per auction; time-left band 0–3 | `Scanner.lua` | Lua error during `/crowley scan`, or wrong prices |
+| `MakeItemKey`, `GetItemKeyInfo`, `SendSellSearchQuery`, matching result events and owned-query APIs exist | `Scanner.lua` | Lua error or explicitly incomplete observations |
+| Search result events carry the active item key; stale, unrelated or no-payload events are ignored | `Scanner.lua` | The item remains incomplete until a matching response arrives or its timer expires |
 | `GetCurrentRegionName()` returns e.g. "US" | `Context.lua` | Server rejects the house |
 | `GetRealmName()` returns the ruleset, e.g. "PvP" or "Normal" (lowercased, letters only) | `Context.lua` | Server rejects the house (`unknown ruleset`). Fix the detection; meanwhile `/crowley set ruleset ...` |
 | English zone or subzone text identifies the neutral houses | `Context.lua` | Neutral scans saved under a faction house |
-| `C_EncodingUtil.CompressString(s, Enum.CompressionMethod.Deflate)` gives **raw** deflate; `EncodeBase64` is standard base64 | `Scanner.lua`, `scanformat.decode_rows` | Server returns 422 and the companion stops on that scan |
+| `C_EncodingUtil.SerializeJSON`, raw-deflate `CompressString` and standard `EncodeBase64` work | `Scanner.lua`, `scanformat.py` | Server returns 422 and the companion stops on that sweep |
+| The client JSON codec preserves empty keyed collections as JSON objects | `Scanner.lua` | The strict server rejects an empty rows/observations/owned collection encoded as an array |
 | SavedVariables strings use `\n` or backslash-newline and `\ddd` escapes | `savedvars.py` | Companion stops with a parse error and line number |
 | Auctionator v1 API as described in §3.3 | `Bridge.lua` | Lua error when the AH opens and lists exist |
 
@@ -253,12 +270,12 @@ add a second one.
 1. Install and configure the companion (§7).
 2. In game, run `/crowley probe`, then `/reload`. The probe lands in the `client_probes`
    table. Inspect `probe->'namespaces'` and `probe->'context'`, including the realm string.
-3. At an auctioneer, run `/crowley status`, check the house key, then `/crowley scan`.
-   Wait for "scan saved", then `/reload`.
+3. At an auctioneer, run `/crowley status`, check the house key and loaded plan, then
+   `/crowley scan`. Wait for "sweep saved", then `/reload`.
 4. Check the companion log and `GET /v1/houses`.
 5. Repeat at a neutral house and on the other faction.
-6. Keep one or two real raw scans from `data_dir/raw` as **test fixtures** (copy them into
-   `tests/fixtures/`), and add a test that parses them.
+6. Keep one or two real raw format-2 sweeps from `data_dir/raw` as **test fixtures** (copy
+   them into `tests/fixtures/`), and add a test that validates exact coverage and identity.
 
 ---
 
@@ -317,9 +334,10 @@ docker compose -f deploy/docker-compose.yml down -v          # DESTROYS ALL DATA
   - SavedVariables are written only on `/reload`, logout or exit, so a scan reaches the
     server only after one of those.
   - `Data.lua` reaches the game only on the next login or `/reload`.
-- **Scan cooldown:** the addon enforces 15 minutes. `/crowley scan force` bypasses it, but
-  if the server is still throttling, no data event arrives. The scan then sits as "running"
-  until the AH closes, which aborts it.
+- **Cadence and caps:** starts are 15 minutes apart while the AH is open. A force scan starts
+  the same serialized pipeline immediately but still respects the 100-message rolling throttle,
+  30-second per-item budget, 10-page cap and 600-second sweep cap. Capped, timed-out, logout and
+  closure work is retained as incomplete or unqueried coverage and the rotating cursor advances.
 - **The companion is strict by design:** a parse error or a rejected upload (4xx/5xx) stops
   it, and systemd restarts it. Only connection failures are retried quietly. Fix the root
   cause rather than adding tolerance.
@@ -328,8 +346,9 @@ docker compose -f deploy/docker-compose.yml down -v          # DESTROYS ALL DATA
 - `/v1/houses/{key}/items/{item_key}/history` defaults to the last 7 days.
 - **Auctionator search strings** take max price in gold, not copper.
 - **Neutral houses** cost 15%, not 5%. Every arbitrage calculation must use `House.ah_cut`.
-- **Market prices in the stats:** `item_stats.min_unit` and the other percentile columns
-  are `NULL` when every auction for that item is bid-only.
+- **Market reports:** new volume reports expose explicit coverage, bounded depth and null
+  rates where grouping or evidence is unknown. Legacy `item_stats` rows remain historical and
+  are not used for new observation comparisons.
 
 ---
 
@@ -344,12 +363,12 @@ Priority order:
 3. **Inferred sales:** compare consecutive scans of a house. An auction that disappears
    before its time-left band could have expired counts as a probable sale; one that
    expires doesn't. This gives sell-through rate and sales per day per item, which is the
-   demand signal. Needs per-auction identity: match on
-   (item_key, owner, quantity, buyout) across scans, or check whether replicate data
-   exposes an auction ID (verify with the probe).
+   demand signal. Needs stable captured result IDs plus owner, quantity, price and variant
+   identity across scans; Crowley currently reports this as an uncalibrated public-market
+   proxy and never calls it confirmed sales.
 4. **Strategy engine (server), each producing shopping lists in `/v1/addon-data`:**
    - **Vendor flip:** buyout per unit below the vendor sell price. Needs vendor prices;
-     check what `GetReplicateItemInfo` or `C_Item` exposes, or ship a table.
+     add a reviewed vendor-price table; client result fields do not provide vendor prices.
    - **Deals:** listings well below the house market value or a rolling median.
      Robust z-score / MAD.
    - **Faction vs neutral arbitrage:** buy in one house, sell in another, net of 5%/15% cuts

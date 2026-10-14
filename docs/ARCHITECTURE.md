@@ -3,8 +3,10 @@
 ## Constraints that shape everything
 
 - **No official data feed.** Blizzard's Game Data API has no Forever auction endpoint, so
-  every price we have comes from our own in-game scans. Data is only as fresh as our scans
-  (one full scan per 15 minutes, while a character stands at an auctioneer).
+  every price we have comes from our own in-game observations. Starts are 900 seconds apart
+  while a character stands at an auctioneer; all 428 items may not finish every sweep. Each item
+  has a 30-second query budget, each sweep has a 600-second budget, and the client permits at
+  most 100 throttled sends in any rolling 60 seconds.
 - **Addons cannot do I/O.** The only way out is SavedVariables, written on `/reload`,
   logout or exit. The only way in is an addon file loaded at login or `/reload`. The
   companion bridges both directions; this is the same pattern as the TSM desktop app.
@@ -23,13 +25,18 @@
 | Assumption | Where | If wrong |
 |---|---|---|
 | Interface 16001; a plain `Crowley.toc` loads | `addon/*/*.toc` | Addon missing from the list |
-| `C_AuctionHouse.ReplicateItems` full scan, 0-based indices, buyout per auction | `Scanner.lua` | Lua error on `/crowley scan` |
+| `MakeItemKey` + `SendSellSearchQuery` and matching result events | `Scanner.lua` | Lua error or incomplete observation on `/crowley scan` |
+| `SendSellSearchQuery` uses a structured cleared `ItemKey`, and matching ADDED/UPDATED events arrive after the throttled-message sent and response barriers; `hooksecurefunc` observes `SendSellSearchQuery`, `SendSearchQuery`, and pagination calls so stale, unrelated, foreign same-key and no-payload events are ignored | `Scanner.lua` | The item remains incomplete until its response timeout |
 | `GetRealmName()` returns the ruleset (e.g. "PvP") | `Context.lua` | Server rejects the house as unknown |
 | English zone names identify neutral houses | `Context.lua` | Use `/crowley set faction neutral` |
-| `C_EncodingUtil.CompressString(s, Enum.CompressionMethod.Deflate)` is raw deflate | `Scanner.lua`, `scanformat.py` | Server can't decompress rows |
+| `C_EncodingUtil.SerializeJSON` preserves keyed collections and `CompressString(s, Enum.CompressionMethod.Deflate)` is raw deflate | `Scanner.lua`, `scanformat.py` | Server rejects the strict payload or can't decompress rows |
 | Auctionator is installed (hard dependency) | `Crowley.toc` | Addon doesn't load |
 
-`/crowley probe` saves the client's API surface for checking these.
+`/crowley probe` saves the client's API surface for checking these. The scanner uses the
+client's `hooksecurefunc` callbacks to flag an Auctionator or user search that overlaps an
+active Crowley request. The Auction House result events have no request identifier, so a
+foreign same-key query is conservatively recorded as incomplete rather than attributed to
+Crowley; this correlation limit remains a live-client beta assumption.
 
 ## Data flow
 
@@ -44,21 +51,25 @@ WoW (Wine) ── /crowley scan ──▶ CrowleyDB.scans (SavedVariables, compr
      └─ next /reload: prune acked scans, sync lists ──▶ crowley-server ──▶ TimescaleDB
 ```
 
-The addon keeps at most 6 un-acknowledged scans. The companion acknowledges uploaded scans
-through Data.lua, and the addon prunes them on the next load. Uploads are idempotent on
-the addon-generated scan id.
+The addon keeps at most 6 unacknowledged sweeps. The companion acknowledges uploaded sweeps
+through Data.lua, and the addon prunes them on the next load. At capacity it pauses and never
+evicts evidence. Uploads are idempotent on the addon-generated sweep ID.
 
-## Scan format (v1)
+## Scan format (v2)
 
-`CrowleyDB.scans[id]` holds the house, raw client context (realm string, zone, build), and
-`rows`: raw-deflated, base64-encoded, newline-separated
-`itemId,itemKey,quantity,buyout,minBid,bid,timeLeft,owner`. `buyout` is for the whole
-auction in copper (0 = bid only), `timeLeft` is 1 (short) to 4 (very long), and `owner` is
-empty when the seller is hidden. Rows are only saved once the client has the item's data.
-
-`itemKey` identifies what is being sold: the item ID, plus `:s<suffix>` for random-suffix
-gear and `:b<bonus.ids>` for bonus IDs. Items are never keyed by name; names are stored
-separately per item key.
+`CrowleyDB.scans[id]` holds an envelope with `format=2`, integer sweep bounds, house/context,
+row and observation counts, and one raw-deflated/base64 JSON payload. The payload has exactly
+`planHash`, canonical string `planJSON`, object-keyed `observations`, and object-keyed `owned`.
+Each planned item has a query window, kind, coverage (`full`, `bounded`, `incomplete` or
+`unqueried`), source completeness, rational cutoff/witness and retained `row:<n>` objects.
+Commodity price is unit copper; item price is whole-auction copper and quantity, represented as
+a reduced rational unit price. Unsafe cross-products produce `numeric_range`; bid-only rows do
+not become zero-price listings. Noncommodity keys preserve parsed link bonuses plus raw level,
+suffix and pet identity. Successful full/bounded scopes prove every retained rational pair and
+the higher witness; incomplete captures retain safe partial rows, sort them when comparisons are
+safe, and leave the cutoff unknown otherwise. Unknown links/owners are tagged unknown rather
+than guessed. Owned collection remains `unqueried` until its own query is sent; a house change
+before completion makes that batch incomplete and prevents cross-house evidence.
 
 ## Storage (TimescaleDB)
 
@@ -71,11 +82,30 @@ separately per item key.
 | `items` | latest name, quality and level per item key |
 | `client_probes` | `/crowley probe` reports |
 
-Raw payloads are also archived as gzip JSON under `data_dir/raw/<house>/<day>/` so stats and
-models can be recomputed from source. Market value is the quantity-weighted mean of the
-cheapest 15% of units, similar to TSM's approach.
+Migration 002 adds `market_plans`, `market_sweeps`, `market_observations`,
+`market_captured_rows`, `owned_observations` and deduplicated `own_sale_evidence`. Legacy
+scans/listings/item_stats stay separate and are returned under `legacy_full_scan` sections;
+the volume endpoint reads only the new observation tables. Public churn is an uncalibrated
+proxy. A disappearing listing is never a confirmed sale, and own Sold evidence is reported
+separately only after a full owned result.
+
+`GET /v1/houses/{house}/items/{item_key}/volume?hours=24` accepts 1–168 hours and compares
+only new observations whose end windows fall inside the request. It reports actual compared
+seconds, common proved price scope, excluded intervals, commodity depletion/replenishment,
+individual candidate units per observed hour labelled `UNCALIBRATED`, and a separate own-Sold
+evidence section. Market actual-sales estimates and confidence intervals remain null.
+
+Format-2 envelopes are archived as gzip JSON under content-addressed
+`data_dir/raw/format2/<digest-prefix>/<digest>.json.gz` so observations can be replayed without
+trusting a UID path. Legacy archives remain where they were written. New depth and volume
+reports never use legacy whole-market statistics.
 
 ## Roadmap
+
+The [first-run item catalog](WATCHLIST.md) defines the selective-scanning universe. It is
+packaged on the server and delivered as `scanPlan` through addon data. The scanner uses
+targeted queries, bounded depth, plan identity and per-item coverage. Partial depth is not
+ingested as legacy whole-market statistics.
 
 1. **Beta (until Oct 21):** run `/crowley probe` and real scans, confirm the API surface,
    field layout, throttle and compression, and keep real scans as test fixtures.

@@ -1,8 +1,8 @@
 local _, ns = ...
 
 local HELP = {
-  "/crowley scan [force] - full AH scan into the current house",
-  "/crowley status - current house, cooldown, stored scans, data age",
+  "/crowley scan [force] - targeted watchlist sweep into the current house",
+  "/crowley status - current house, next sweep, stored sweeps, data age",
   "/crowley set <region|ruleset|faction> <value|auto> - override house detection",
   "/crowley lists - push Crowley shopping lists into Auctionator",
   "/crowley probe - record which AH APIs this client has",
@@ -15,9 +15,14 @@ local function status()
   local stored = 0
   for _ in pairs(ns.db.scans) do stored = stored + 1 end
   local wait = ns.Scanner.CooldownRemaining()
-  ns.Print(("stored scans: %d, scan cooldown: %s%s"):format(stored,
+  local plan = CROWLEY_DATA.scanPlan
+  local planText = plan and plan.planHash and plan.planHash:sub(1, 12) or "none"
+  ns.Print(("stored sweeps: %d, next sweep: %s%s, plan: %s, cursor: %s, last: %d/%d attempted, %d failed"):format(stored,
     wait > 0 and ("%dm%02ds"):format(math.floor(wait / 60), wait % 60) or "ready",
-    ns.Scanner.InProgress() and " (scan running)" or ""))
+    ns.Scanner.InProgress() and " (scan running)" or "", planText, ns.db.cursorItemID or "start",
+    ns.db.lastSweepAttempted or 0, ns.db.lastSweepPlanned or 0, ns.db.lastSweepFailures or ns.db.failureCount or 0))
+  if ns.db.storageBlocked then ns.Print("storage blocked: upload acknowledged sweeps, then /reload again to resume") end
+  ns.Print("sweeps upload from SavedVariables on /reload; loaded acknowledgements resume collection after a second /reload")
 
   if CROWLEY_DATA.generatedAt > 0 then
     ns.Print(("strategy data: %d min old"):format(math.floor((time() - CROWLEY_DATA.generatedAt) / 60)))
@@ -32,16 +37,19 @@ local function set(field, value)
     return ns.Print("usage: /crowley set <region|ruleset|faction> <value|auto>")
   end
   value = value and value:lower() or ""
+  local setting
   if value == "auto" then
-    ns.db.settings[field] = nil
+    setting = nil
   elseif valid[value] then
-    ns.db.settings[field] = value
+    setting = value
   else
     local options = {}
     for k in pairs(valid) do options[#options + 1] = k end
     table.sort(options)
     return ns.Print(("%s must be one of: %s, auto"):format(field, table.concat(options, ", ")))
   end
+  if ns.Scanner.InProgress() then ns.Scanner.Abort("house_changed") end
+  ns.db.settings[field] = setting
   ns.Print(("house is now |cffffd200%s|r"):format(ns.Context.House().key))
 end
 

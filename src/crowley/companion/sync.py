@@ -86,8 +86,6 @@ class Companion:
                 continue
             if self._pending.get(path) == sig:
                 ready.append(path)
-                self._signatures[path] = sig
-                del self._pending[path]
             else:
                 self._pending[path] = sig
         return ready
@@ -151,6 +149,9 @@ class Companion:
         changed = self.changed_files()
         for path in changed:
             self.process_file(path)
+            # Commit the observed signature only after uploads and state saving succeed.
+            # A transport failure leaves the stable file pending for the next poll.
+            self._signatures[path] = self._pending.pop(path)
         refresh_due = time.time() - self._last_data_write >= self.settings.refresh_minutes * 60
         if changed or refresh_due:
             self.write_addon_data()
