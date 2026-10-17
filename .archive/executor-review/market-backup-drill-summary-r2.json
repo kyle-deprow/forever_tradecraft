@@ -1,0 +1,113 @@
+{
+  "schema": "crowley.market-backup-drill-summary",
+  "schema_version": 1,
+  "snapshot_id": "beta-20261017T065805Z-1d88c6e603e3",
+  "manifest_sha256": "5853c42b2db18ee7693bbd9da95b6fb49c3932315a68ab06503bcf4c0149770e",
+  "receipt_sha256": "3767f6b0edad98f80c56c914df6cd9cf7327c65d3a5abf2e2820577020670530",
+  "result": "restore_verified",
+  "aggregate_table_counts": {
+    "client_probes": 2,
+    "houses": 1,
+    "item_stats": 0,
+    "items": 0,
+    "listings": 0,
+    "market_captured_rows": 20243,
+    "market_observations": 5136,
+    "market_plans": 2,
+    "market_sweeps": 12,
+    "own_sale_evidence": 0,
+    "owned_observations": 12,
+    "scans": 0,
+    "schema_migrations": 2
+  },
+  "referenced_objects": 12,
+  "orphan_objects": 0,
+  "versions_match": true,
+  "migrations_match": true,
+  "api": {
+    "authenticated_read": true,
+    "health_probe": true
+  },
+  "operations": [
+    {
+      "name": "validate_snapshot",
+      "state": "passed"
+    },
+    {
+      "name": "create_disposable_resources",
+      "state": "passed"
+    },
+    {
+      "name": "start_disposable_database",
+      "state": "passed"
+    },
+    {
+      "name": "create_database_extension",
+      "state": "passed"
+    },
+    {
+      "name": "timescaledb_pre_restore",
+      "state": "passed"
+    },
+    {
+      "name": "pg_restore_single_job_no_owner",
+      "state": "passed"
+    },
+    {
+      "name": "timescaledb_post_restore",
+      "state": "passed"
+    },
+    {
+      "name": "analyze",
+      "state": "passed"
+    },
+    {
+      "name": "count_restored_tables",
+      "state": "passed"
+    },
+    {
+      "name": "extract_raw_archive",
+      "state": "passed"
+    },
+    {
+      "name": "validate_raw_references",
+      "state": "passed"
+    },
+    {
+      "name": "start_server",
+      "state": "passed"
+    },
+    {
+      "name": "health_probe",
+      "state": "passed"
+    },
+    {
+      "name": "authenticated_read",
+      "state": "passed"
+    },
+    {
+      "name": "cleanup_owned_resources",
+      "state": "passed"
+    }
+  ],
+  "cleanup": {
+    "verified": true,
+    "confirmed_removed_count": 7,
+    "parent_exact_project_absence": {
+      "containers": true,
+      "volumes": true,
+      "networks": true
+    }
+  },
+  "parent_verification": {
+    "actual_disposable_restore": "Executed final SolR2-reviewed tool, exit0; source resources read-only.",
+    "snapshot": "Canonical manifest/COMPLETE/dump/raw archive hashes validated.",
+    "receipt": "Deep typed success invariants validated against exact snapshot manifest; prior receipt left unchanged.",
+    "source_hashes": {
+      "tools/market_backup.py": "56f4a37bc981ab3379d364b00c29e57fe030bd6e0c8850e22fc81d72c413b939",
+      "tests/test_market_backup.py": "8334fb5b7bdae9f53641b5718fa35a35b9fc951b7d36f9823a6006b96fb1b5b3",
+      "docs/MARKET_RECOVERY.md": "ae096f23fea26d9f14960bc61c5bc9d6e38b857032aa3e295ec0401be1483509"
+    },
+    "tests": "88 passed in0.18s; Ruff/format/compile/diff passed."
+  }
+}

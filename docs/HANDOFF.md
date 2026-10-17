@@ -177,8 +177,13 @@ secrets; no opaque retry loop or live/source writes.
 Sol sourceR1 found four must-fixes: historical Docker IDs wrongly used as a
 compatibility gate, incomplete actual target image/mount validation, partial
 creation cleanup falsely verifiable, and shallow receipt success/type validation.
-The plan now includes the accepted correction contract. Preserve all prior
-receipts; reviewed corrections and new evidence precede committing this tool.
+All four were corrected. SolsourceR2READY and parent88tests/Ruff/format/compile
+passed. Parent executed the final reviewed tool against the same canonical
+snapshot: new private receiptSHA3767f6b0edad98f80c56c914df6cd9cf7327c65d3a5abf2e2820577020670530
+is restore_verified with15passed operations and12resolved raw references.
+Parent revalidated manifest/archive/strict receipt success semantics and exact
+project absence (containers/volumes/networks all empty). Historical receipt is
+unchanged. Sanitized public proof: `market-backup-drill-summary-r2.json`.
 
 **Deterministic runtime / Rust:** user resumed after an architecture discussion,
 wants routine observation/execution in deterministic code and a Rust rewrite
