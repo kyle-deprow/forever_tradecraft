@@ -128,6 +128,15 @@ previous miss's cause. Ninth timer-alone start1792224298 was operator-verified
 after continuous AHopen/no input, exactly900s aftereighth. GUI owner is released
 for ongoing ordinary collection without per-sweep approval.
 
+Ninth UID `beta-normal-alliance-1792224298-Arthur-2114` is independently
+verified against original payload, logical content digest, DB row and client
+loadedACK boot1792224890-823442/pending0. It captured2121rows/428queries,
+412full/16bounded/allok in476s. Timer-alone start was exactly900s aftereighth;
+finish-to-server24.106s (18.760s before Return,5.346s transport/ingest).
+Nine current-session sweeps total20303price rows. Tenth timer-alone start
+1792225198 was operator-verified with continuous AHopen/no input; completion
+and ACK are not yet claimed. Qualification remains operator-assisted.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -217,29 +226,24 @@ canonical manifest/COMPLETE/archive validation, manifestSHA
 This latest snapshot is not separately restored; final-tool restore qualification
 uses the earlier canonical snapshot and the retained new successful drill.
 
-**Deterministic runtime / Rust:** user resumed after an architecture discussion,
-wants routine observation/execution in deterministic code and a Rust rewrite
-plan if computation proves a bottleneck. Parent replay of a preserved real frame
-measured strict decode54.54ms median/60.65ms p95, PNG loading0.64ms median;
-this does not explain the full1.67s path or qualify live timing. Proposed
-`.archive/PLAN-deterministic-runtime-performance.md` separates CPU/I/O measurement,
-an audit of actual Luna calls and a conditional staged migration. No Rust code or
-runtime replacement is released. `_measure_pointer_anchor` and post-motion
-anchor refresh still use Luna for AH reopening; do not claim a zero-model-call
-whole scan cycle or replace fresh anchors with cached coordinates.
-Sol planR3 is READY at planSHA55f680dc1683c53dfddc5543384621875b7d1e8a4aa5280f7a921c427bef5f07.
-Phase1 can honestly return insufficient_evidence with exact missing paired
-stages/runs and a bounded next-evidence proposal. Implementation remains queued
-after native closure review as required by the plan.
-Parent released pure offline implementation in parallel with frozen native
-review; no capture/input/runtime edits. Corrected candidate is ONLY in the
-addon-schedule worktree (`tools/session_performance.py`, its test, performance
-doc and static audit); main still has an obsolete untracked earlier candidate
-until reviewed integration. Parent10tests/Ruff/format/compile pass. Actual100
-replays/5warmups of one preserved real frame:0failures, strict decode p95
-63.648ms wall/63.397ms processCPU; planner CPU p95<=0.208ms. Sol source review
-pending. Current artifacts cannot establish accepted matched live instrumentation,
-so decision is insufficient_evidence. Never infer defer/migrate from replay.
+**Deterministic runtime / Rust:** offline Phase1 is integrated after Sol source
+R2 READY (two review rounds) and parent15tests/Ruff/format/compile. It times the
+actual public strict decoder and pure planners, retains wall and processCPU
+separately, and bounds input/receipt reads. Real preserved frame100replays,
+5warmups,0failures: strict decode p95 63.648ms wall/63.397ms processCPU;
+planner CPU p95<=0.208ms. This is offline evidence, not a live bottleneck verdict.
+Current decision is `insufficient_evidence`: accepted live source/config/producer
+binding and paired capture/IPC/decode runs remain absent. The conditional Rust
+prototype planning gate and required repeatability remain in
+`.archive/PLAN-deterministic-runtime-performance.md`; no Rust source is created.
+See `docs/RUNTIME_PERFORMANCE.md` and `runtime-performance-parent-acceptance.json`.
+The static model-boundary audit is explicitly bound to preserved R4 source;
+AH reopening with visual pointer movement has five possible model calls
+(three named observations, anchor, post-motion refresh); an already-positioned
+pointer can omit refresh. These are source minima, not measured runtime counts.
+Future deterministic semantic observations need their own reviewed contract.
+A bounded live instrumentation plan follows accepted R5 native closure; ongoing
+ordinary collection does not depend on that qualification.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;

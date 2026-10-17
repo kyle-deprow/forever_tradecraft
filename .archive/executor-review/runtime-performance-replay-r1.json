@@ -1,0 +1,46 @@
+{
+  "artifact": "runtime-performance-replay-r1",
+  "status": "completed_offline_replay",
+  "fixture": "shared_lua_crs1_rendered_capture",
+  "command": "uv run python tools/session_performance.py --input <shared-lua-crs1-fixture.png> --samples 100 --warmups 5 --output <runtime-performance-replay-r1.json>",
+  "cli_report_sha256": "f3ee239c358d75c0bffb1cc8c5bc733b5afab83b3991a5e55917d934edfec6c5",
+  "input_sha256": "b505c49acaa79234a8e2b7bc59641807b1a7b8e0ca0ecf3baf34c01cc54a05e9",
+  "samples": 100,
+  "warmups": 5,
+  "strict_decode": {
+    "samples": 100,
+    "wall_p95_ms": 68.239977,
+    "cpu_p95_ms": 68.149709,
+    "wall_p99_ms": 74.06702399999999,
+    "cpu_p99_ms": 73.828354,
+    "failures": []
+  },
+  "unmeasured_stages": [
+    "pixel_extract_2x2_validation",
+    "cell_unpack",
+    "frame_inflate_json_schema_validation"
+  ],
+  "decision": "insufficient_evidence",
+  "reason_codes": [
+    "insufficient_eight_sample_runs",
+    "no_accepted_matching_region_instrumentation",
+    "no_preserved_timing_receipts",
+    "paired_cpu_and_end_to_end_intervals_unavailable"
+  ],
+  "measured_source_hashes": {
+    "src/crowley/session/decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739",
+    "src/crowley/session/executor.py": "642744e4695abebebcebd51d1f481754753a5da1b8e4fba5eee7260d99ea0573",
+    "src/crowley/session/protocol.py": "cf13dedd7a37e553ac799b87dd5429cc29b5910483661f994ffdec3b38a74d2f"
+  },
+  "receipt_counts": {
+    "supplied": 0,
+    "read": 0,
+    "refused": 0
+  },
+  "sanitization": {
+    "contains_image_payload": false,
+    "contains_input_path": false,
+    "contains_character_identity": false,
+    "contains_receipt_path": false
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "schema": "crowley.runtime-performance-parent-acceptance",
+  "schema_version": 1,
+  "source_hashes": {
+    "tools/session_performance.py": "23c0294b9037ef8edb39fd49d6af61a43216f4997298f590a6d92a838eb774fe",
+    "tests/test_session_performance.py": "a9133ed64f06591303f7c5849959cb4a281f16d1cc01afdbfa617fba756bab75",
+    "docs/RUNTIME_PERFORMANCE.md": "becbcbe0c6b9bf1154e1254661f5cc39f99dba87ae73f1c0c3d2ed38c3b62c5c",
+    ".archive/executor-review/runtime-model-boundary-luna-audit.md": "a188d3012403797a352537e37bb7766652bd64f4776ba777fd275bd87398ebd5"
+  },
+  "parent_verification": {
+    "tests": "15 passed in 3.96s after exact reviewed integration",
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "prior_candidate_tests": "15 passed in2.98s",
+    "offline_replay": {
+      "report": ".archive/executor-review/runtime-performance-parent-replay-r1.json",
+      "sha256": "17df74e9da169cdec2f73894749a58837fb1ed1538c793dfadc8d5ba278c83b8",
+      "samples": 100,
+      "warmups": 5,
+      "strict_successes": 100,
+      "failures": 0,
+      "strict_decode_wall_p95_ms": 63.647683,
+      "strict_decode_cpu_p95_ms": 63.396576,
+      "pure_planner_cpu_p95_max_ms": 0.207531
+    }
+  },
+  "review": {
+    "model": "gpt-5.6-sol",
+    "rounds": 2,
+    "final_status": "READY",
+    "report": ".archive/executor-review/runtime-performance-sol-source-r2.md",
+    "report_sha256": "74b422ca7813991750851bf019dfb16bbb03f1c97875b142dac22989aff50ad2"
+  },
+  "decision": "insufficient_evidence",
+  "limitations": [
+    "Offline replay does not establish a live bottleneck or qualify a Rust migration.",
+    "No accepted matched live instrumentation contract; live timing receipts remain diagnostic only.",
+    "Static model-boundary audit refers to preserved frozen R4 source; source call minima are not actual runtime counts.",
+    "Native R5 source remains isolated, unaccepted and undeployed."
+  ]
+}
