@@ -88,6 +88,8 @@ reasons and use distinct simultaneous failures when testing precedence.
 - Verify stages independently: addon loaded, house/plan correct, scan saved,
   original payload accepted, real retained prices stored, acknowledgement loaded.
   A successful probe or zero-row ingestion proves only the stages it exercised.
+  A typed `/reload` and logged Enter dispatch do not establish a reload: require
+  its actual boot transition and stable SavedVariables containing the exact UID.
   Reload writes the previous session before the new session consumes acknowledgements;
   a cleared in-memory queue can still appear in the saved file. Verify the written
   queue after a subsequent normal flush rather than claiming disk cleanup from chat.

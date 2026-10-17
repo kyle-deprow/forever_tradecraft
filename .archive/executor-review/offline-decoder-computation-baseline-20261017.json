@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "kind": "offline-preserved-pixel-replay",
+  "source_sha256": {
+    "src/crowley/session/decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739",
+    "src/crowley/session/protocol.py": "cf13dedd7a37e553ac799b87dd5429cc29b5910483661f994ffdec3b38a74d2f"
+  },
+  "cold_start_excluded": true,
+  "decoder_state": "fresh PixelDecoder per iteration; validates identical preserved real frame without claiming live freshness",
+  "results": {
+    "png_load": {
+      "samples": 100,
+      "wall_p50_ms": 0.6419860001187772,
+      "wall_p95_ms": 0.7239750011649448,
+      "wall_max_ms": 0.8513380016665906,
+      "cpu_p50_ms": 0.6404500000000146
+    },
+    "strict_decode": {
+      "samples": 100,
+      "wall_p50_ms": 54.53676249999262,
+      "wall_p95_ms": 60.650805997283896,
+      "wall_max_ms": 70.36678999793367,
+      "cpu_p50_ms": 54.41831399999941
+    }
+  },
+  "limitations": [
+    "Single existing frame, one host, warm filesystem; no desktop capture, model calls or input.",
+    "No end-to-end fast-region timing or runtime deployment qualification."
+  ],
+  "environment": {
+    "python": "3.12.12",
+    "pillow": "12.3.0",
+    "platform": "Linux-6.14.0-37-generic-x86_64-with-glibc2.41"
+  },
+  "warmups": 5,
+  "p95_definition": "sorted_samples[ceil(N * .95)-1]",
+  "input_sha256": "d124ac3647c4c43d80daabb13091d741c9c90004559cfc3cb65b336450cc3c64",
+  "input_size_bytes": 4842,
+  "input_dimensions": [
+    256,
+    256
+  ]
+}

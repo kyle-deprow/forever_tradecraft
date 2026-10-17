@@ -1,4 +1,4 @@
-# Crowley handoff
+# Forever Tradecraft handoff
 
 Written 2026-10-14 by the agent that started the project, for the agent taking over on the
 server. Read this fully before changing anything. The user revoked `AGENTS.md` instructions;
@@ -30,9 +30,10 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `ae9129b` (initial snapshot
+summaries were pushed to the new origin through `60eca5f` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
-foundation and collection receipt `ae9129b`). Raw runtime logs, captures and
+foundation and collection receipt `ae9129b`, recovery plans and corrected interval
+evidence `60eca5f`). Raw runtime logs, captures and
 private configuration remain local. The companion unit now invokes the installed
 tool without a checkout-specific working directory; parent systemd verification
 passed. No runtime service was changed by this source fix.
@@ -50,13 +51,21 @@ all reasons `ok`. Its companion upload and client-loaded exact-UID ACK also
 completed. Original envelopes establish a1239s start interval; screenshot-based
 click times and old chat status lines were not scan timestamps. Both uploads
 were144s after completion. These useful ordinary sweeps have not met the900s
-cadence or autonomous60s upload gate. A third ordinary sweep started1792218159
-and is in progress; verify its outcome from fresh telemetry and saved evidence.
+cadence or autonomous60s upload gate. Third UID
+`beta-normal-alliance-1792218159-Arthur-9399` ran1792218159→1792218636 (477s),
+queried428items, captured2304rows,410full/18bounded, all reasons `ok`. Parent
+validated its original SavedVariables and matched the read-only server row,
+received06:36:26.500347UTC. Operator verified its exact loaded ACK/pending0 in
+fresh boot1792219198-693987. A prepared reload dispatch had earlier failed to
+persist it; actual loading/new boot/disk change established the corrected reload.
+The third start interval was1074s and upload350.5s after finish (pause/recovery
+included). See `build-70450-third-scan-parent-verification.json`.
 Ordinal148/item6371 completed in1s; its earlier stale
 chat line did NOT establish a stalled scan. Parent receipt:
 `.archive/executor-review/build-70450-first-scan-parent-verification.json`.
 The first interval compared428items, with186showing observed listing/depth
-changes. Depletion/replenishment are liquidity proxies, not sales estimates;
+changes; the second interval had187changed items. Depletion/replenishment are
+liquidity proxies, not sales estimates;
 grouped scope suppresses individual turnover metrics. Receipt:
 `.archive/executor-review/build-70450-first-interval-parent-verification.json`.
 
@@ -71,7 +80,12 @@ composed with the real producer, and the diagnostic manufactured timing and
 retirement evidence. Fresh `luna_region_closure` owns the narrow R4 closure in
 `.archive/PLAN-region-composition-diagnostic-closure.md`: real default-daemon
 composition, config/IPC-bound eight-sample diagnostic, and truthful retirement
-evidence. No new live capture is released before parent/Sol/Opus review.
+evidence. Its composed test and eight-sample isolated runner passed, but parent
+found the runner's second DesktopDriver/private lease violates live ownership.
+The correction in `.archive/PLAN-region-owner-ipc-closure.md` uses capture IPC on
+the existing owning daemon; Sol planR2READY released expanded implementation,
+including narrow producer admission/revocation and bounded IPC framing.
+No new live capture is released before parent/Sol/Opus review.
 Capability remains default-off and undeployed.
 
 **Recipe foundation accepted:** three-file implementation, packaged normalized
@@ -89,6 +103,17 @@ database dump and raw archive, but is not restore-qualified. The revised
 now owns the three-file backup implementation and a real disposable restore
 drill. Live database/resources stay read-only; restore writes and cleanup must
 prove fresh disposable identities. No restore success is established yet.
+
+**Deterministic runtime / Rust:** user resumed after an architecture discussion,
+wants routine observation/execution in deterministic code and a Rust rewrite
+plan if computation proves a bottleneck. Parent replay of a preserved real frame
+measured strict decode54.54ms median/60.65ms p95, PNG loading0.64ms median;
+this does not explain the full1.67s path or qualify live timing. Proposed
+`.archive/PLAN-deterministic-runtime-performance.md` separates CPU/I/O measurement,
+an audit of actual Luna calls and a conditional staged migration. No Rust code or
+runtime replacement is released. `_measure_pointer_anchor` and post-motion
+anchor refresh still use Luna for AH reopening; do not claim a zero-model-call
+whole scan cycle or replace fresh anchors with cached coordinates.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;
@@ -108,7 +133,7 @@ Use that short window to probe exact launch realm/region/build identity.
 
 **Autonomous qualification objective:** finish HUD/executor qualification and demonstrate three
 real 428-item scans at seed/+900/+1800 seconds, uploads and loaded acknowledgements,
-then clean closeout without a fourth scan. Two ordinary70450 sweeps completed;
+then clean closeout without a fourth scan. Three ordinary70450 sweeps completed;
 the formal autonomous repeating-session qualification has not passed.
 Native/resource, actual human input, camera and movement-basis gates remain.
 

@@ -1,0 +1,20 @@
+{
+  "kind": "second-current-build-interval-validation",
+  "sweeps": [
+    "beta-normal-alliance-1792217085-Arthur-3539",
+    "beta-normal-alliance-1792218159-Arthur-9399"
+  ],
+  "build": "70450",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "start_interval_seconds": 1074,
+  "compared_items": 428,
+  "valid_comparisons": 428,
+  "valid_with_observed_changes": 187,
+  "commodity_depletion_units": 9834,
+  "commodity_replenishment_units": 11515,
+  "market_actual_sales_estimate": null,
+  "interpretation": "Observed listing/depth changes only; not sales or launch forecasts.",
+  "metric_exclusion_reason_counts": {
+    "grouped_scope": 37
+  }
+}

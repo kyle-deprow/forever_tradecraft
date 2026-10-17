@@ -1,0 +1,40 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792218159-Arthur-9399",
+  "saved_variables_sha256": "1e8c2c13363cb1b4a8402a86116474967313967a4912609bd47bcc75542e881e",
+  "payload_sha256": "a044f597a8920b9d4f2a87088455846aaab2c65f381ccf5707d78529c3133124",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "build": "70450",
+  "observations": 428,
+  "rows": 2304,
+  "coverage": {
+    "full": 410,
+    "bounded": 18
+  },
+  "reasons": {
+    "ok": 428
+  },
+  "startedAt": 1792218159,
+  "finishedAt": 1792218636,
+  "duration_seconds": 477,
+  "prior_start_interval_seconds": 1074,
+  "loaded_ack": {
+    "status": "operator verified fresh client HUD: exact UID in loaded.ackedIds, pending.count=0, AHclosed/scannerready",
+    "uid": "beta-normal-alliance-1792218159-Arthur-9399",
+    "boot": "1792219198-693987",
+    "verification": "operator decoded actual HUD; parent independently validated original envelope and database row, not the client ACK raster"
+  },
+  "qualification": "Ordinary beta data; cadence/upload qualification not established.",
+  "server_read_only_verification": {
+    "matched_uid": "beta-normal-alliance-1792218159-Arthur-9399",
+    "client_build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "num_observations": 428,
+    "num_rows": 2304,
+    "received_at": "2026-10-17T06:36:26.500347+00:00",
+    "raw_path": "/data/raw/format2/fd/fd1bdc831031e93bfe3cedde3568065fe86ef7e87b89ef51cf6b31d42c544678.json.gz",
+    "transaction": "BEGIN READ ONLY; SELECT; ROLLBACK",
+    "exit": 0
+  },
+  "finish_to_server_receipt_seconds": 350.5003468990326
+}

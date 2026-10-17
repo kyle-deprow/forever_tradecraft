@@ -1,0 +1,94 @@
+{
+  "label": "gnome-telemetry-region-r3",
+  "limitations": [
+    "No live desktop, profile opt-in, service activation, or native-100 run was performed.",
+    "Bubblewrap memfd EACCES namespace limitation from R2 remains unchanged and was not re-run."
+  ],
+  "owned_source_sha256": {
+    "src/crowley/session/driver.py": "5e7b155cd9e89adad36b00de322986418cf28a93901f6f92d83f519322502d57",
+    "tests/test_session_capture.py": "390a84e27291ba11524480b5f0c352dda9e9531223aa7fca138bed0320822906",
+    "tests/test_session_native.py": "6d3c70890119699e75be1a17e689d099183c818f7f862b0053ac38249e135627",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "57943d946128c8328187cfcef60752ef80bf0a8aefab1e014699dd94cd1aa66b",
+    "tools/gnome-telemetry-region/README.md": "fe81c05fe8141b075696feb36461d0d64c0a839b8ba2d872c8ad846ce10bb5e3",
+    "tools/gnome-telemetry-region/build-private.sh": "5682c5168105122af62d4087d4faf747a2ca5afaf311069c4213eb66a7d6d01e",
+    "tools/gnome-telemetry-region/manifest.example.json": "6614aa8d4a71fca6263bdce5feaee5d355c9deb62f6ae00d72e72d7208c9ce21",
+    "tools/gnome-telemetry-region/offline_harness.py": "448e92a976b57dec7a66bd8b1ad437c7d61ce7e1c501695a65c69f649725ef51"
+  },
+  "private_binary_sha256": "dc14892449eba9a1a90ed3a2486d6c47ff25ac3a3a805e0bf7437257fdc87292",
+  "private_cache": "/home/dev/.cache/crowley/gnome-telemetry-region-r3",
+  "private_cache_manifest": {
+    "archive_sha256": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597",
+    "binary_sha256": "dc14892449eba9a1a90ed3a2486d6c47ff25ac3a3a805e0bf7437257fdc87292",
+    "build_dependencies": [
+      "appstream",
+      "ca-certificates",
+      "desktop-file-utils",
+      "file",
+      "gettext",
+      "gcc",
+      "libglib2.0-dev",
+      "libgtk-3-dev",
+      "libhandy-1-dev",
+      "libx11-dev",
+      "libxext-dev",
+      "libxml2-utils",
+      "meson",
+      "ninja-build",
+      "patch",
+      "pkg-config",
+      "python3",
+      "xz-utils"
+    ],
+    "configure": {
+      "buildtype": "release",
+      "prefix": "/home/dev/.cache/crowley/gnome-telemetry-region-r3/prefix",
+      "x11": "disabled"
+    },
+    "container_image_digest": "sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+    "debian_archive_sha256": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d",
+    "default_binding": "stock-full-desktop-unless-explicit-profile-capability",
+    "installed_package_versions_log": "/home/dev/.cache/crowley/gnome-telemetry-region-r3/logs/installed-package-versions.log",
+    "logs": "/home/dev/.cache/crowley/gnome-telemetry-region-r3/logs",
+    "patch_sha256": "57943d946128c8328187cfcef60752ef80bf0a8aefab1e014699dd94cd1aa66b",
+    "producer": "gnome-screenshot",
+    "schema": 1,
+    "telemetry_options": {
+      "branch": "ScreenshotArea",
+      "exact_size": [
+        256,
+        256
+      ],
+      "flash": false
+    },
+    "version": "41.0"
+  },
+  "private_harness_sha256": "448e92a976b57dec7a66bd8b1ad437c7d61ce7e1c501695a65c69f649725ef51",
+  "r1_baseline_manifest": "/home/dev/repos/pegasus/.archive/executor-review/gnome-telemetry-region-r1-source-manifest.sha256",
+  "requirements": {
+    "build_provenance": "pinned digest, dependency list/package log, cache-only R3 build and distinct binary",
+    "diagnostic": "run_paused_diagnostic plus pure eight-sample validator self-check",
+    "failure_cleanup": "EOF-after-ACK prompt failure, process registry/reaper and retirement evidence",
+    "fragmented_ack": "bounded monotonic 15s C ACK loop; harness and Python producer tests",
+    "guardian": "X11Backend admission-health regression",
+    "identity_timestamps": "non-default origin and future capture_started/digest/size/schema variants",
+    "owner_and_forwarding": "C local registration/remote refusal plus active primary guard; harness refusal paths",
+    "production_composition": "compiled binary through sealed memfd/X11Backend and private external compositor; daemon stock/region routing batch"
+  },
+  "schema": 1,
+  "source_root": "/home/dev/repos/pegasus",
+  "status": "READY_FOR_PARENT_REVIEW",
+  "test_log": "/home/dev/repos/pegasus/.archive/executor-review/gnome-telemetry-region-r3-tests.log",
+  "test_log_sha256": "de50c432f6ea0a2b6b3124a972316dbafaea7e5514bdc4f7193ff153a750cc85",
+  "verification": {
+    "git_diff_check": "passed",
+    "gnome_patch_dry_run": "passed",
+    "host_affected_batch": "301 passed in 378.44s",
+    "host_focused_capture_native": "157 passed",
+    "json_manifest": "passed",
+    "offline_harness_self_check": "passed (including first target at +1s and eight monotonic boundary cases)",
+    "offline_harness_self_test": "passed (compiled producer, fragmented ACK, competing canonical owner refusal, private D-Bus/Xvfb, production X11Backend)",
+    "py_compile": "passed",
+    "ruff": "passed",
+    "ruff_format_check": "passed"
+  }
+}
