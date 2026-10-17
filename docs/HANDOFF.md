@@ -29,9 +29,11 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at10:55UTC:** nineteen current-session sweeps are persisted and
-exact-UID ACKed:42,326 price rows across428target items per sweep. Twentieth is
-collecting normally. Recent starts are exactly900s apart; uploads still
+**Current status at11:06UTC:** twenty current-session sweeps are persisted and
+exact-UID ACKed:44,729 price rows across428target items per sweep. Twenty-first
+started exactly on its11:05:03UTC timer. Twentieth completed428queries/2403rows,
+409full/19bounded/allok, in474s. Parent verified its original envelope, server
+row and exact loaded ACK; upload latency91.529s still misses60s. Recent starts are exactly900s apart; uploads still
 inconsistently meet60s. Luna remains the sole ordinary GUI operator. The formal
 autonomous three-sweep qualification, physical-input qualification and launch
 strategy engine remain unfinished.
@@ -48,14 +50,24 @@ The failed attempt remains preserved. The unit stays inactive/disabled.
 The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. The
 SolREADY live instrumentation plan now has a frozen four-file candidate in
 `/home/dev/.cache/crowley/worktrees/runtime-instrumentation-20261017`; parent
-reproduced69focused checks. Sol and actual CLI Opus sourceR1 reviews are running.
-Do not deploy this candidate before acceptance. Next: integrate the reviewed
+reproduced69focused checks. Sol and actual CLI Opus sourceR1 both require fixes
+(counter-baseline window, failure/cleanup provenance and real producer/evaluator
+compatibility among them). Luna owns the same four paths in successor worktree
+`runtime-instrumentation-r2-20261017`; R1 stays frozen. Do not deploy either
+candidate before acceptance. Next: integrate the reviewed
 instrumentation, start a fresh owner, bind the exact sources/config/producer,
 and retain every outcome in a predeclared16-run evidence batch. No live
 computation bottleneck or Rust rewrite is established yet.
 
+Fresh backup `beta-20261017T105809Z-38e4b9dd2ff4` passed snapshot and independent
+validation (manifestSHA08a38defd45bb6cb8e8f7047f90326e934531064b7977fd205960a67a0b9a391).
+It was not separately restored; the prior accepted-tool disposable restore drill
+remains the restore evidence. Global Codex CLI is now0.163.0; the actual private
+profile uses the cached0.162.1binary and passes the existing startup pin. Do not
+relax the adapter pin to make default-path test fixtures pass.
+
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `1e8c234` (initial snapshot
+summaries were pushed to the new origin through `8fe3aca` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance

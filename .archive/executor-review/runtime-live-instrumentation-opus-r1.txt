@@ -1,0 +1,70 @@
+# Runtime live instrumentation: Opus source review R1
+
+**Model:** `claude-opus-5-5` (Opus 5.5). The review was read-only: I made no edits and ran no tests, builds, Git, network or GUI commands. The only file I wrote is the review itself, saved as `/home/dev/.claude/plans/actual-claude-cli-opus-composed-sundae.md`. All 4 candidate hashes, the 3 read-only evaluator hashes, and the plan, freeze and delta artifact hashes match what you gave me.
+
+## STATUS: NEEDS WORK
+
+The biggest problem is that some failure receipts the harness writes are rejected outright by the unchanged evaluator, so they can't be kept as ineligible failures. No test runs the harness output through the evaluator, which is why nobody caught it.
+
+### MustFix
+1. **Decode results that come back but aren't usable produce receipts the evaluator rejects.**
+   - `offline_harness.py:1590` (a not-fresh result such as NO_CHANGE) and `:1599` (window fingerprint change) raise while the phase is still `strict_decode`, after `application_compute_cpu_seconds` is already set.
+   - The evaluator (`session_performance.py:1051-1056`) rejects a strict-decode failure that has CPU set. `PixelDecoder` *returns* NO_CHANGE rather than raising (`decoder.py:76`), so the NO_CHANGE fixture at `test_session_native.py:1694` produces a rejected receipt.
+   - Fix: record any not-fresh result as a strict-decode failure, with its timings only in the `partial_decode_*` fields. Check fingerprint continuity before the PNG load, as an `owner_capture` failure.
+2. **No `finally`, at either the attempt or the run level.** There is only `except Exception` (`:1625`), and `_atomic_receipt` (`:1649`) only runs on normal flow. A KeyboardInterrupt, SystemExit, or any failure outside the attempt `try` leaves no receipt. The `process_termination` reason is never actually produced.
+3. **The observer's after-hash is faked, and drift is hidden.**
+   - `:1431` starts `observer_source_hashes_after` as a copy of the before-hash, and the `except` at `:1645-1648` never changes it. A run whose after-hash failed therefore claims after equals before.
+   - On drift with all 8 attempts completed, the harness sets `run_state="failed"` with no failed attempt. The evaluator (`:1487`) then rejects it as `attempt_lifecycle_invalid` instead of keeping it as `source_binding_drift`.
+4. **`_live_owner_evidence` guesses cleanup, lease and clock values:**
+   - `lease_held` defaults to True (`:1380`) and `watchdog_healthy` to False.
+   - When `empty` is true, unknown counts become 0 (`:1324`). `attempt_retired` and `capture_process_reaped` are inferred rather than taken from the driver's real `process_retired` (`driver.py:3183-3192`).
+   - `response_ready` falls back to `owner_returned` (`:1347`), and `capture_returned` falls back to the daemon's clock (`:1346`). Both use `or`, so a value of 0.0 counts as missing.
+   - The daemon's early-failure cleanup substitutes empty `[]` lists (`daemon.py:3976-3990`), which then become counts of 0.
+5. **Existing Guardian, cleanup and status guards were removed.**
+   - The harness no longer fails a sample when cleanup isn't empty, the lease isn't held, the watchdog is unhealthy, or the Guardian is armed. `armed` now isn't represented anywhere.
+   - The final check after the run that the controller is still paused at the same generation was deleted, and the test was changed from 17 to 16 requests (`test:1573`).
+   - Fix: restore the per-sample checks (phase `cleanup`), and do the final status check inside attempt 7 before marking it completed.
+6. **The owner's original refusal is dropped, and malformed owner responses are hidden.**
+   - Strict validation of refusal responses was removed: the exact field set, the request-binding checks, and `_owner_png_bytes` on a failure sample.
+   - `owner_failure`, the late-response evidence and the owner receipt path are no longer kept.
+   - A malformed `producer_attempt` is reported as an ordinary `owner_capture` failure.
+   - Fix: restore the validation, and keep the owner's refusal in a private 0600 file next to the receipt, since schema2 doesn't allow extra keys.
+7. **Failure reasons are guessed or wrong.**
+   - `:1532` classifies by searching the raw phase and error text. `"source binding"` (with a space) never matches the daemon's `source_binding` token; it only works because the error message happens to contain those words. No daemon phase contains "producer", so producer mismatches are never classified as such.
+   - The owner's failure is always `owner_capture` (`:1520`), even when the attempt failure is reclassified.
+   - The phase stays `owner_ipc` (`:1492`) through response validation and PNG publication (`:1556`). As a result `png_publication`, `producer_binding`, `model_counter` and `cleanup` are never produced, and unknown phases are reported as `process_termination` (`:1299`).
+8. **The driver's `request_started` moved** (`driver.py:2755`). It is now stamped at function entry instead of just before the capture lock. The lock-wait interval therefore includes `resolve_identity` (an X11 round-trip), validation and mkdir, which changes the meaning of the accepted `TelemetryRegionReceipt.request_started`. Validation failures also now report the stage as `capture_lock_wait`.
+9. **Tests don't cover this and some were loosened.**
+   - Nothing feeds real schema2 output through the unchanged evaluator with a test-only binding, which the plan requires.
+   - The two new named tests only check hand-built dicts. One of them injects an owner failure (`strict_decode`, `:2396`) that no real path can produce.
+   - Assertions were weakened: phase checks now accept either of two values (`:1652`, `:1674`), `:1637` can't fail, and the identity-failure test lost its checks on the original phase, the not-started attempt, lease/armed state, and the persisted owner receipt.
+
+### ShouldFix
+- **Model-call counts:** `daemon.py:3801` takes the "before" counts a second time, after admission. Model activity between owner entry and that point is lost; for attempt 0 the inter-sample delta can't recover it. Take the snapshot once, at entry (`:3704`).
+- **`response_ready`:** it is stamped (`:3935`) before the success receipt is validated and written with fsync, so it is effectively the same moment as the `owner_returned` finalizer. If writing the receipt fails, it is re-stamped after `owner_returned` (`:4033`), which breaks the ordering.
+- **Owner config binding:** `semantic_sha256` is the request's own value echoed back (`harness:1363`), not the owner's loaded config hash. A config-mismatch failure therefore shows the owner as correctly bound.
+- **Observer source checks:**
+  - It never checks that the imported `crowley.session` modules come from `ROOT`.
+  - It never compares the owner's `source_binding` with its own before-hash on each sample; `_owner_png_bytes` only checks the shape.
+- **Preflight order:** the evidence directory is created (`:1401`) before preflight (`:1417`). A config, producer or hash refusal leaves an empty directory with no receipt.
+
+### Nits
+- Observer hashing has no file-type check on the opened file and no mtime/ctime/link-count comparison. Neither side rejects symlinked intermediate directories.
+- `daemon.py:149-153`: the path resolution sits outside the `DriverError` handling, so an unusual install path could crash ordinary owner startup.
+- For daemons built with `__new__` in tests, the lazy counter setup reports zero counts instead of unknown.
+- The receipt's `generation` is a placeholder 0 when the first status call fails.
+- A NaN from the owner would crash `_atomic_receipt` (`allow_nan=False`) and lose the receipt.
+- The test bound at `:1516` should measure to `sample_completed`.
+- A missing model method now raises `ModelError` instead of `AttributeError`.
+- Re-hashing the 7 source files twice per sample adds about 1 ms inside the measured owner and end-to-end wall time; record it as a limitation.
+
+### Confirmed OK
+- **Model counters:** all four model entry points go through `_call_model_adapter`, and there are no other call sites. The counters are lock-protected and only increase, succeeded plus failed never exceeds started, and return values and exceptions pass through unchanged.
+- **Owner source map:** fixed to the 7 files, taken at construction and rechecked before and after each sample. It holds digests only, with no paths. An ordinary owner just records `None` if the files can't be read.
+- **Driver snapshot:** the final attempt snapshot is written after the process is reaped and the attempt retired.
+- **Targets and decode timing:** targets are t0+i with target+1 deadlines, and there is no rebasing, retry, or continuing after a failure. CPU time covers only the `decode` call, and a decode that throws records only the `partial_*` fields.
+- **Unchanged code:** capture, admission, Guardian, nonce and digest handling and the 1-second deadline paths are unchanged apart from instrumentation, and the evaluator files are byte-identical.
+
+**For R2:** add a native test that runs real schema2 receipts through the unchanged evaluator. It should cover success, NO_CHANGE, boot change, owner identity refusal, config mismatch, source drift and an interrupted decode. Assert which are eligible versus kept as ineligible, the exact reasons, and that none is rejected as a schema or lifecycle error. Then re-run the 4 focused native tests, the 65 evaluator tests, Ruff, format, compile and `git diff --check`.
+
+CLAUDE_EXIT:0
