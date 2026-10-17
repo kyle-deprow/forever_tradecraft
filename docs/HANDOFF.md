@@ -30,7 +30,7 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `8ba9e0e` (initial snapshot
+summaries were pushed to the new origin through `23a4663` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
@@ -168,6 +168,14 @@ boot1792228519-335281/pending0. Upload54.357s meets60s. Thirteen sweeps total
 28717price rows. Fourteenth start1792228803 was operator-verified as exacttimer,
 AHopen/pending0/sameboot/stationary; it is collecting.
 
+Fourteenth UID `beta-normal-alliance-1792228803-Arthur-3400` is parent-verified:
+428queries/2121rows,410full/18bounded/allok,474s, exact900s timer-alone start.
+Original payload/logical digest matches the read-only DB/raw reference; fresh
+loadedACK boot1792229441-748166/pending0. Upload80.548s missed60s. Fourteen
+sweeps total30838price rows. Fifteenth timer-alone start1792229703 was
+operator-verified; completion and ACK remain pending. These are operator-assisted
+collections, not the formal autonomous three-sweep qualification.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -229,8 +237,9 @@ Parent exactcompilednode1passed4.68s/Ruff/format. SolR5R2 still requests entire
 post-start cleanup coverage. Actual CLI claude-opus-5-5R5 exited0/NEEDS WORK:
 telemetry GApplication Activate/action routes bypass command-line guard, plus
 one stale fake-backend regression. These are real fixes, not live failures:
-new source remains unopted-in. Parent's six-file frozenR5 broad hostbatch is
-running and already retains a failure; exact result pending. Concurrent3process
+new source remains unopted-in. Parent's six-file frozenR5 broad hostbatch finished
+319passed/1failed in419.77s: its sole failure is the stale fake-backend native
+acceptance test identified by Opus; production refusal is correct. Concurrent3process
 forwarding stress also retained one PNG-readiness failure; cause unresolved.
 R6 owns only eight scoped files in isolated `region-r6-20261017`, verified R5+
 forwardedtest overlay; plan `.archive/PLAN-region-r6-activation-closure.md` covers
@@ -309,16 +318,21 @@ AH reopening with visual pointer movement has five possible model calls
 pointer can omit refresh. These are source minima, not measured runtime counts.
 Future deterministic semantic observations need their own reviewed contract.
 The bounded live instrumentation plan `.archive/PLAN-runtime-live-instrumentation.md`
-is frozen after parent review at SHAcaabd905b1e591bb495715e3f8b6b68a31c2cda8d79f7ea08ccd58d5159f494d.
-It follows accepted R5 native closure: exact owner/observer source/config/producer
+follows accepted native closure (now R6): exact owner/observer source/config/producer
 binding, same-attempt decodeCPU, overlapping wall boundaries, all failures and
 actual model counters. No Rust or production instrumentation is implemented yet.
 Root released only the independent three-file offline evaluator while R5 is
 frozen for review, via `.archive/PLAN-runtime-instrumentation-offline-evaluator.md`.
 It works in `/home/dev/.cache/crowley/worktrees/runtime-evaluator-20261017`, based
-on5ed3fcb. Production instrumentation still waits for acceptedR5; no actual live
+on5ed3fcb. Production instrumentation still waits for the accepted native successor;
+no actual live
 binding/data or Rust verdict is created by fixture evaluator decisions.
 Ordinary collection does not depend on that qualification.
+The initial offline evaluator passed41parent checks, then SolsourceR1NEEDS WORK
+found malformed binding privacy leakage, missing causal boundaries/generation
+on failed decoded attempts, opaque cleanup failures and inconsistent cumulative
+model counters. Parent accepted all four findings; Luna is correcting only its
+three isolated files before another source review. No evaluator integration yet.
 
 **Next reduction of model dependence:** `.archive/PLAN-native-semantic-observations.md`
 is a bounded proposal, not an implemented capability. Current native telemetry

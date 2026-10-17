@@ -1,0 +1,43 @@
+{
+  "schema": "crowley.region-r5-forwarding-parent-verification",
+  "schema_version": 1,
+  "source_hashes": {
+    "deploy/crowley-session.example.toml": "858ce9d1efa39855598481ecf35b06bdc783cdc66ba2e01486614f58be03fd82",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/daemon.py": "424befa98c279156da1e9cc724cbf76619ffc6edf325947ff905342791d6c111",
+    "src/crowley/session/driver.py": "75b38b74dca59256f76c7a783ef13a56a62d50f634611ef04162c61b1c4dbb81",
+    "tests/test_session_capture.py": "9bc94bd112dbc8b293374d80126876e88bb7eb45e4072ab34526b5db4a77e893",
+    "tests/test_session_cli_motion.py": "082f7f6be6ac5aaf987b2cc07e0175f8d07bc5b971cf96704c1279c9c9214ace",
+    "tests/test_session_native.py": "47ac2cef30d234983609db3c08ad17c24487126abaf3d2b48dc4aeaa4ee15f9b",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "0cccf95ff69cff91986ab783d6f70b4a75722d31d933d794237f2c8d63662225",
+    "tools/gnome-telemetry-region/README.md": "211bb10e327aa4259926fb0af3dce3f1bd672458290a6f9dfdfb333eb8de6c26",
+    "tools/gnome-telemetry-region/build-private.sh": "e47fd778444c3b710295a2c69533e7cdb116f64e49ea1fc24f7da5fbb34abb81",
+    "tools/gnome-telemetry-region/manifest.example.json": "c3d75241ea23aab295960f5aa5ca70c20aab3b9a47dfa3aeb7e507c8758993f5",
+    "tools/gnome-telemetry-region/offline_harness.py": "9e466409dfc592368c266baf239ff22f6591db9dbec7efc69db41e984e6fbe27"
+  },
+  "forwarding_regression": {
+    "result": "1 passed in4.68s; exit0",
+    "ruff": "passed",
+    "format": "1file alreadyformatted",
+    "proof": "Actual distinct-runtime ordinary command forwarded to active primary; genuine primary cached stderr contains exact active-guard message once; no secondary output/Shell call, original capture completes."
+  },
+  "affected_host_batch": {
+    "result": "319 passed,1 failed in419.77s; exit1",
+    "files": [
+      "tests/test_session_capture.py",
+      "tests/test_session_native.py",
+      "tests/test_session_motion_integration.py",
+      "tests/test_session_preferences.py",
+      "tests/test_session_driver_actions.py",
+      "tests/test_session_cli_motion.py"
+    ],
+    "failure": "test_real_session_daemon_native_provider_route_and_stock_model_capture still expects fake-backend region acceptance; production intentionally requires X11. Included in R6 correction plan.",
+    "log_sha256": "2b028b8767b10b17e41427f00a3fa03a63192bab7a220d6379e962c31b65457d"
+  },
+  "limitations": [
+    "R5 source is not accepted/deployed; actual Opus found unguarded GApplication activation/action routes.",
+    "SolR5R2 test cleanup correction included in R6 plan.",
+    "Earlier worker3process concurrent PNG-readiness failure remains unresolved negative evidence; serial passing is not load/reliability qualification.",
+    "No actual live matched performance verdict or Rust code."
+  ]
+}
