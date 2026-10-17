@@ -1,0 +1,62 @@
+{
+  "artifact": "recipe-foundation-implementation-r1",
+  "date": "2026-10-17",
+  "status": "implementation complete; awaiting parent verification and Sol code review",
+  "approved_plan_sha256": "c4d57d567e69de4ab21dacf987d0ca6c82cb0889c328c1939a735a85b17ab720",
+  "archive_review_manifest_sha256": "d461bb66faa941a8c5340ce719b71e833003d8d7f4c311a616bdcd68dd79115b",
+  "embedded_normalized_manifest_sha256": "7da0a957d6d04a5e351a9cba7c54ef622d816fa519c0682501c481a114187378",
+  "frozen_snapshot_count": 6,
+  "validated_locator_count": 34,
+  "authored_production_and_test_paths": [
+    "src/crowley/core/recipes.py",
+    "src/crowley/data/recipe_foundation.json",
+    "tests/test_recipes.py"
+  ],
+  "verification": {
+    "recipe_tests": "uv run pytest -q tests/test_recipes.py: 17 passed",
+    "watchlist_integration": "uv run pytest -q tests/test_watchlist.py: 6 passed",
+    "ruff_check": "pass",
+    "ruff_format_check": "pass",
+    "compile_json_whitespace_and_diff_checks": "pass for all three owned paths",
+    "review_snapshot_helper": "all 6 raw snapshot hashes and 34 exact locators passed; normalized projection matched packaged manifest",
+    "disposable_wheel_resource_load": {
+      "result": "pass",
+      "wheel": "/tmp/crowley-recipe-wheel.iF6Nax/crowley-0.1.0-py3-none-any.whl",
+      "installed_module": "/tmp/crowley-recipe-wheel.iF6Nax/installed/crowley/__init__.py",
+      "packaged_resource_bytes": 24843,
+      "records_loaded": 2,
+      "network_runtime": false
+    }
+  },
+  "logs": [
+    ".archive/executor-review/recipe-foundation-implementation-r1.log",
+    ".archive/executor-review/recipe-foundation-wheel-r1.log"
+  ],
+  "files": [
+    {
+      "path": "src/crowley/core/recipes.py",
+      "sha256": "7e9e398ebbafcf132cfba367eab7a9a67bb97d050f45ac991be2686e837ce242",
+      "bytes": 34979
+    },
+    {
+      "path": "src/crowley/data/recipe_foundation.json",
+      "sha256": "e0fbd715ae757040e32b932e44cc2d948947fd69db088d324be4cb4876723dfd",
+      "bytes": 24843
+    },
+    {
+      "path": "tests/test_recipes.py",
+      "sha256": "b71db31c15cd4b73fd233a4d667e8e37887f1584809c11d849ad3d0851ae5dff",
+      "bytes": 17110
+    },
+    {
+      "path": ".archive/executor-review/recipe-foundation-implementation-r1.log",
+      "sha256": "04b86808d91c99f0c1ff417b7f65bfd5198bf14a208a1ff7de487c596c8ec358",
+      "bytes": 484
+    },
+    {
+      "path": ".archive/executor-review/recipe-foundation-wheel-r1.log",
+      "sha256": "901bf50494c6fbc143836dafc1edfcc2bc8f7fb6d3f702d313dd3c7184fd10ae",
+      "bytes": 868
+    }
+  ]
+}

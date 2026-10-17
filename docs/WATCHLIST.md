@@ -161,4 +161,21 @@ size, so verify capacity with real beta captures before relying on the six-sweep
 Missing observations are never interpreted as zero supply, and bounded depth is never
 reported as whole-market supply or a median. Preserve item variants when querying equipment.
 Targeted query sorting, pagination, throttle limits, metadata freshness and event payloads
-remain beta assumptions until the user validates them in the live client.
+require build-specific live evidence. The first retained build70450 sweep queried all428
+items with407full/21bounded observations and2183positive-price rows; this validates that
+run, rather than every possible item variant or future client build.
+
+## Recipe knowledge
+
+Recipe facts are maintained separately in
+[`recipe_foundation.json`](../src/crowley/data/recipe_foundation.json), with strict
+validation and coverage reporting in
+[`recipes.py`](../src/crowley/core/recipes.py). Its packaged source manifest binds
+known fields to reviewed evidence; raw snapshot checks run separately during review.
+Loading the installed package requires no network or archive directory.
+
+Coverage includes the eight crafting professions plus Mining. The initial Mining
+and Cooking records remain blocked: output quantities, server learnability and
+other requirements still need evidence. This is a recipe-data foundation, not a
+complete recipe graph or a producer of crafting margins or shopping lists. The
+544-item watchlist remains the independent scan catalog.

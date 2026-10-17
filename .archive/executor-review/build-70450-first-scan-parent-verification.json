@@ -1,0 +1,36 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792215846-Arthur-9942",
+  "payload_sha256": "3c943d9fc8de5f74b40b2b9f9794b0bcaf2ea740cddb20669f4e3e20fdfb7a30",
+  "saved_variables_sha256": "f30e1a4c547880041f1c2a9eb152ee0ca5ca419bd5a23ac78c2ee9b0d34f33f5",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "build": "70450",
+  "observations": 428,
+  "rows": 2183,
+  "coverage": {
+    "full": 407,
+    "bounded": 21
+  },
+  "reasons": {
+    "ok": 428
+  },
+  "startedAt": 1792215846,
+  "finishedAt": 1792216326,
+  "loaded_ack": {
+    "status": "operator verified client cleared1uploaded scan, loadedacks1,storedsweeps0,pending0 aftersecondreload",
+    "uid": "beta-normal-alliance-1792215846-Arthur-9942",
+    "evidence_directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/scan-upload-20261017T0554Z",
+    "verification": "exactUIDinDataLua; uniqueackloadedstatus; parentdidnotindependentlydecodeclientHUD"
+  },
+  "server_read_only_verification": {
+    "matched_uid": "beta-normal-alliance-1792215846-Arthur-9942",
+    "client_build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "num_observations": 428,
+    "num_rows": 2183,
+    "received_at": "2026-10-17T05:54:30.183993+00:00",
+    "raw_path": "/data/raw/format2/63/63f627444a755db3fb7ce551a89d982da5dded9a3ef9fa178f29a46fcfe7dd0a.json.gz",
+    "transaction": "BEGIN READ ONLY; SELECT; ROLLBACK",
+    "exit": 0
+  }
+}

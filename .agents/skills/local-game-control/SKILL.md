@@ -140,6 +140,9 @@ within existing authorization; respect any current movement limits.
   arming input, and retain ownership through confirmed termination and reaping.
   Live proof helpers use the production desktop lease; private lease paths are
   for isolated tests and cannot establish exclusive ownership of the desktop.
+  Before a broad namespace test run, prove the real sealed executable can exec
+  there. Namespace-only EACCES can affect both capture and input images; retain
+  the failure and compare an owned host fixture before attributing a regression.
   Check both process reaping and empty Guardian registries during cleanup.
   Retain handles and final summaries for long checks; collected test counts or
   silence after a tool session ends do not establish a completed passing run.
@@ -266,7 +269,11 @@ diagnostic fact needed. Do not end with an offer to continue work already reques
 For addon validation, distinguish command submission, an in-game success message,
 saved output, server ingestion, and loaded acknowledgement. Report the stages
 actually verified and preserve rejected data for the implementation worker.
+An advancing HUD sequence does not make an old chat status line current. Confirm
+a newly submitted status or decoded scanner fields before declaring a stalled scan.
 Opening the AH can start Crowley's scheduled scan before a manual scan command.
+Avoiding duplicate scan triggers does not forbid a bounded normal interaction
+retry after a verified failed click with the AH closed and no active sweep.
 Check status and actual start time before waiting or forcing another run; the
 sweep timeout is a maximum duration, not a required wait after every command.
 Before interpreting payload shapes or depth coverage, read

@@ -1,0 +1,95 @@
+Model ID: `claude-opus-5-5`
+
+# Review: GNOME telemetry-region R2
+
+This was a read-only review. I compared R2 against the R1 source tree and against the baseline `daemon.py`/`config.py` (from the `_wt/crowley-native-capabilities-20261016` worktree, whose hashes match the parent baseline). I also read the patched GNOME 41.0 source in the R2 cache. The hashes of `motion.py`, `calibration.py`, `input_tool.py` and `process_admission.py` match the baseline. The binary hash matches the freeze (`b69e9491…`).
+
+## Status of the R1 corrections
+
+| Requirement | Status in code |
+|---|---|
+| Spawn, registration and admission are atomic with respect to revocation | **Done.** `driver.py:2770-2799` does the epoch check, `Popen`, registration, a second epoch check and gate release, all under `_process_lock`. That is the same lock `release_held_input` uses to bump the epoch. |
+| Epoch checked during record waits and before ACK | **Done.** `_json_record` runs the check closure (`:410/:420/:428`). Before ACK, under the lock, it re-checks the epoch, the deadline and `poll()`, and repeats the kernel proof (`:2853-2858`). |
+| Strict protocol types | **Done.** Duplicate keys are rejected, key sets must match exactly, and bool/int types are strict. I checked the parent's key sets against the C emitters: they match exactly. |
+| Kernel proof of the exact executable object, PPID and PGID | **Done** (`_verify_admitted_process`, `:344-380`). It compares dev/ino and SHA-256 of `/proc/PID/fd/N` and `/proc/PID/exe` with the memfd, and checks PPID == `getpid()` and PGID == pid. **The primary-owner part does not prove anything** (Must-Fix 1). |
+| Child timestamp contained in the request interval | **Done, but weak** (Nit 6). |
+| Real compiled C producer, plus default daemon/provider routing coverage | **Partial** (Should-Fix 4). |
+| Build uses only the cache and is reproducible | **Partial.** Only the cache is mounted, but the build is not reproducible (Should-Fix 5). |
+| Staged eight-sample diagnostic | **Not in the source.** The plan defers it until after review. This is not a regression. `TelemetryRegionReceipt` will need request, ACK and return timestamps plus retirement evidence before that diagnostic can use it. |
+
+## Must-Fix
+
+**1. The owner/forwarding proof does not prove anything, and a forwarded invocation captures with no gate.**
+- **Where:** `0001-typed-telemetry-area.patch:111, :345, :382`; upstream `screenshot-application.c:943-945`; `driver.py:2843-2844`.
+- **Why the proof is empty:** The app is a unique `org.gnome.Screenshot` with `HANDLES_COMMAND_LINE`, and the patch never sets non-unique mode. `screenshot_telemetry_owner_ready()` runs inside the `command_line` handler. That handler only ever runs in the primary process, so `g_application_get_is_remote()` is always FALSE there. As a result, `primary_owner:true / remote:false` are effectively constants, and the parent's check of them verifies nothing.
+- **Trigger:** Any other `org.gnome.Screenshot` primary on the session bus at spawn time. Examples: a user-opened GNOME Screenshot window, or a stock `gnome-screenshot` still alive after `_run` handed it to `_reap_process_later`.
+- **Effect:**
+  - GApplication forwards the command line. The `--telemetry-*` options have `arg_data`, so they are parsed only locally. Only `file=<stage>` reaches the primary.
+  - The primary runs a stock full-screen `Screenshot` with **flash=TRUE** into the attempt directory.
+  - That writer is outside the admitted process group, so the ACK gate, the epoch fence and `killpg` cannot reach it.
+  - The parent fails closed ("protocol closed before completion"), so no bad sample is accepted. But the plan says a "remote/forwarded owner … must prevent capture", and that is not met.
+  - The private-bus harness cannot see this, because it never has another primary.
+- **Correct behaviour:**
+  - In telemetry mode, call `g_application_register()` in `handle_local_options`. Return `EXIT_FAILURE` on error or if `get_is_remote()` is TRUE, before anything is forwarded, and report that real result.
+  - Also make the telemetry primary refuse foreign command lines while a request is in flight.
+  - Do not use `G_APPLICATION_NON_UNIQUE`. As far as I know, GNOME Shell 41+ only accepts `Screenshot` calls from the owner of `org.gnome.Screenshot`, so non-unique mode would break capture.
+  - Add a harness case with a stub owner of `org.gnome.Screenshot` on the private bus.
+
+## Should-Fix
+
+**2. The region spawn skips the guardian admission-health gate.**
+- **Where:** `driver.py:2770-2799`, compared with `_run` at `:1642-1644`.
+- **Trigger:** The input watchdog has died.
+- **Effect:** A stock native capture goes through `spawn_and_release_gate`, which calls `guardian.admission_gate_ready()`. That raises "input watchdog is unhealthy" and latches `_watchdog_failed`. The region path never calls it, so it keeps returning FRESH samples. This breaks parity with the stock admission path.
+- **Fix:** Call `self._admission_health()` inside the locked admission block, before `admission_gate.release()`.
+
+**3. A Shell or producer failure after `capture_started` waits out the whole deadline while holding the global capture lock.**
+- **Where:** patch `:148`; upstream `screenshot-application.c:502`; `driver.py:2888-2893`.
+- **Why it hangs:** When non-interactive mode gets a NULL pixbuf, upstream logs `g_critical` and returns without releasing the GApplication hold, so the process never exits. On the parent side, `_wait_for_complete_png` watches neither process exit nor socket EOF.
+- **Trigger:** `ScreenshotArea` returns an error, or the child exits non-zero in `save_pixbuf_handle_success`.
+- **Effect:** The parent waits the full deadline: 15 s by default, or the whole motion budget. During that time it holds the GNOME capture lock, which blocks stock model captures. It then reports a misleading "did not become a complete PNG". The plan says a Shell failure is terminal. Stock has the same hang, so this is not a regression, but the new protocol is the place to fix it.
+- **Fix:** In telemetry mode, `exit(EXIT_FAILURE)` when the pixbuf is NULL. On the parent side, either read `capture_complete` first (EOF then fails immediately) or check `process.poll()` and EOF inside the PNG wait.
+
+**4. The tests miss boundaries the plan requires.**
+- **Default origin only:** Every region test uses the default `canvas_crop` (80, 48) with child origin (0, 0) (`test_session_capture.py:260/299/360`, `test_session_native.py:269`). The harness compositor also hard-codes 80/48 (`offline_harness.py:248`). An x/y swap or using `canvas_origin` by mistake would still pass. The plan explicitly requires a non-default origin.
+- **No negative cases** for:
+  - a wrong rectangle, `process_start`, `primary_owner` or `remote` in the records;
+  - `capture_started` outside the interval;
+  - a digest or byte-count mismatch in `capture_complete`;
+  - wrong-size, non-PNG or full-desktop output;
+  - identity drift before or after capture;
+  - deadline expiry;
+  - revocation after ACK;
+  - leftover `.X.telemetry-*` attempt directories.
+- **Misnamed revoke test:** `test_capture_native_region_revoke_before_owner_ack_publishes_nothing` revokes during the 0.6 s `owner_ready` wait. It never exercises the locked pre-ACK window it is named for.
+- **Opt-in paths not exercised:**
+  - With opt-in on, model and full-scene exclusion is never checked: `_capture_model` is only called on the stock daemon (`test_session_native.py:285`).
+  - `_capture_native_frame_with_capture` and bootstrap are never driven with the region enabled.
+- **No real binary under the production parent:** The compiled GNOME binary is never run through the production parent, `X11Backend.capture_native_region`. That path covers memfd exec through the wrapper, the kernel proof, the strict schema and parsing the `%.9f` timestamp. The harness pairs the real binary with its own lightweight parent (`offline_harness.py:299-388`). The production tests pair the real parent with a hand-written C stand-in (`test_session_capture.py:109-246`). The harness already has the private bus and Xvfb, so the composed case is cheap to add.
+
+**5. The build cannot be reproduced from source-controlled files.**
+- **Where:** `README.md:34-38`.
+- **Problem:** The README says the container "installs the dependencies listed above", but it only names `patch` and `xz-utils`. The actual `docker run` line and apt package list exist only in `.archive/…/r2-build-receipt.json`. Packages come from live bookworm mirrors with no version pin.
+- **Effect:** A rebuild after a Debian point release will produce a different ELF hash from the one pinned in the profile.
+- **Fix:** Check in the exact container invocation and package list. Pin packages via snapshot.debian.org, or record their versions in the manifest.
+
+## Nits
+
+6. The `capture_started` lower bound is `request_started` (`driver.py:2726/2884`), which is taken before the lock wait and the spawn. Bounding it by the monotonic time just before the ACK `sendall` (`:2858`) would let the parent prove the capture started after ACK.
+7. The `getattr` fallback in `_native_region_enabled` (`daemon.py:1770-1776`) is a test-fixture accommodation in production code, which contradicts the "No fallbacks" rule. It has no effect in production. Fix the fixtures and read the profile directly.
+8. The `/proc/{pgid}/task/{pid}` check (`driver.py:367`) only confirms the main thread exists, because pgid == pid. It is not a process-group membership proof.
+9. On the failure path, `_forget_process` runs even when termination was not confirmed (`driver.py:2979-2986`). Stock `_run` uses `_reap_process_later` instead. A producer that cannot be killed would silently drop out of the registry, so a later revoke would not see it. This is rare.
+10. The C pre-validator does not count short `-f`, so `--file A -f B` passes and GOption uses B. It also parses integers as base 10 while GOption uses base 0 (`010` becomes 10 versus 8). The driver cannot reach either case, because it emits canonical argv and re-checks the rectangle. However, the harness parser cases skip short options and run with the host `DISPLAY`/D-Bus environment (`offline_harness.py:557`); that environment should be scrubbed.
+11. `build-private.sh:40,47` call `tee` without `-a`, which truncates `build.log`.
+
+## Checked and correct
+
+- **Config and routing:** The capability is off by default in both config layers. At startup `validate()` checks lstat, owner, mode and hash. The memfd is sealed. The daemon routing matches the plan: bootstrap, native frame capture and `capture_status` use the region path; `_capture_model` and `_capture_client_crop` stay stock.
+- **Rectangle:** It is derived from fresh identity, the fingerprint covers `childGeometry`, and the identity check enforces a (0, 0) origin.
+- **Timestamps and publication:** The parent's own capture timestamp is never restamped. Publication happens under the lock with epoch and deadline checks. The attempt directory is retired only after the producer has been killed.
+
+The review is saved to `/home/dev/.claude/plans/state-your-exact-model-sparkling-whistle.md`.
+
+STATUS: NEEDS WORK
+
+CLAUDE_EXIT:0

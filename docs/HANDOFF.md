@@ -30,15 +30,44 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries are being preserved in Git. Raw runtime logs, captures and private
-configuration remain local. The GNOME telemetry-region R2 implementation is
-frozen but NOT accepted/deployed: parent focused tests14passed, compiled private
-producer harness and Ruff passed; full namespace batch reported275passed/21failed, then hung in teardown;
-parent terminated only the identity-bound isolated wrapper. Capture/input
-memfd execution was refused in that namespace; host focused tests pass.
-Actual Sol/Opus source reviews remain pending. Do not label the broad suite green. The last
-live status showed Arthur at the IF auctioneer, AH closed, a due428-item plan,
-zero stored/pending sweeps and zero loaded ACKs. No new70450 scan has started.
+summaries were pushed to the new origin through56787c8 (initial snapshotc000f1f,
+audit214a4e0, companion-unit portability56787c8). Raw runtime logs, captures and
+private configuration remain local. The companion unit now invokes the installed
+tool without a checkout-specific working directory; parent systemd verification
+passed. No runtime service was changed by this source fix.
+
+**First current-release data:** original SavedVariables and format2 envelope
+independently validated by parent for UID
+`beta-normal-alliance-1792215846-Arthur-9942`, build70450/current plan:428queried,
+2183positive-price rows,407full/21bounded, every reason `ok`. Sweep ran
+1792215846→1792216326 (480s). Companion accepted it and wrote the exact UID into
+Data.lua acknowledgements; second reload confirmed `cleared1`, loadedACKs1,
+pending0 and storedsweeps0. The second bounded AH interaction succeeded at
+06:06:22UTC, auto-starting the next sweep; a subsequent status showed286/428.
+No manual scan command was issued. The ordinary repeat started about1336s after
+the first start, so the manual sequence has not met the900s qualification cadence.
+Upload was144s after completion, so this is useful data but does not pass the
+autonomous60s upload gate. Ordinal148/item6371 completed in1s; its earlier stale
+chat line did NOT establish a stalled scan. Parent receipt:
+`.archive/executor-review/build-70450-first-scan-parent-verification.json`.
+
+**HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
+compiled private producer harness and Ruff also passed. Namespace batch had
+275passed/21failed (executable memfd EACCES), then hung in teardown; only the
+identity-bound isolated wrapper was terminated. Actual Sol and Opus
+(`claude-opus-5-5`, exit0) source reviews both NEEDS WORK. R3 implementation is
+released to `luna_native_capabilities` under `PLAN-gnome-telemetry-region-r3.md`:
+canonical-owner rejection, stream ACK framing, admission health, terminal failure
+cleanup, composed real-producer/default-daemon tests, reproducible build and an
+eight-sample diagnostic. Capability remains default-off and undeployed.
+
+**Recipe foundation accepted:** three-file implementation, packaged normalized
+manifest, nine-profession coverage (eight crafting plus Mining), two blocked
+Mining/Cooking source-fact candidates. No numeric margins, strategy shopping lists
+or network runtime. Parent23tests/Ruff/five frozen hashes and actual disposable
+wheel install passed; SolsourceR1READY/no findings. See recipe-foundation parent
+acceptance and source review under `.archive/executor-review/`, and
+`docs/WATCHLIST.md`. Further recipe facts and a strategy engine remain to build.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;
@@ -58,7 +87,8 @@ Use that short window to probe exact launch realm/region/build identity.
 
 **Autonomous qualification objective:** finish HUD/executor qualification and demonstrate three
 real 428-item scans at seed/+900/+1800 seconds, uploads and loaded acknowledgements,
-then clean closeout without a fourth scan. No qualified 70450 scan has run yet.
+then clean closeout without a fourth scan. One ordinary70450 sweep is validated;
+the formal autonomous repeating-session qualification has not passed.
 Native/resource, actual human input, camera and movement-basis gates remain.
 
 **Last verified operation:** Arthur was in world beside Auctioneer Buckler,

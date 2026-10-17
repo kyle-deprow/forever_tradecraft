@@ -35,5 +35,25 @@
       "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[wrong-release-target]"
     ],
     "diagnosis": "separate unchanged test with child stderr exposed PermissionError13 in admission wrapper os.execv; host focused run passed; namespace also rejects protected input memfd images. No broad green claim."
+  },
+  "host_affected_batch": {
+    "passed": 296,
+    "failed": 0,
+    "seconds": 374.27,
+    "exit": 0,
+    "log": ".archive/executor-review/gnome-telemetry-region-parent-r2-host.log",
+    "files": [
+      "tests/test_session_capture.py",
+      "tests/test_session_native.py",
+      "tests/test_session_motion_integration.py",
+      "tests/test_session_preferences.py",
+      "tests/test_session_driver_actions.py"
+    ]
+  },
+  "review_status": {
+    "sol": "NEEDS WORK",
+    "opus": "NEEDS WORK",
+    "opus_model": "claude-opus-5-5",
+    "opus_exit": 0
   }
 }

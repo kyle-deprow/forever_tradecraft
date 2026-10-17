@@ -1,0 +1,757 @@
+{
+  "schema_version": 1,
+  "catalog_id": "forever-recipe-foundation",
+  "revision": 1,
+  "target_client_build": "1.60.1.70450",
+  "reviewed_on": "2026-10-17",
+  "source_manifest": {
+    "sha256": "7da0a957d6d04a5e351a9cba7c54ef622d816fa519c0682501c481a114187378",
+    "manifest": {
+      "manifest_version": 2,
+      "collection_id": "recipe-foundation-sources-20261017",
+      "target_client_build": "1.60.1.70450",
+      "entries": [
+        {
+          "entry_id": "bof-cooking-profession-20261017",
+          "source_kind": "bind_on_forever",
+          "url": "https://bindonforever.com/professions/cooking",
+          "sha256": "40924b7d0a3381a4c92959f05517e36b0b16e35053abe81861f37ac63057f02a",
+          "retrieved_at": "2026-10-17T05:50:49.191992Z",
+          "title": "Cooking recipes · WoW Forever · Bind on Forever",
+          "claimed_build": "1.60.1.70450",
+          "locators": [
+            {
+              "locator_id": "cooking.apprentice-text",
+              "selector": "li#r-2538 .mt span:first-child",
+              "value_kind": "text",
+              "expected_value": "Every new cooking apprentice knows it.",
+              "field_paths": [
+                "/learnability/evidence_kind",
+                "/learnability/status"
+              ]
+            },
+            {
+              "locator_id": "cooking.fire-condition",
+              "selector": "li#r-2538 .mt span:nth-child(2)",
+              "value_kind": "text",
+              "expected_value": "Needs a cooking fire",
+              "field_paths": [
+                "/acquisition/conditions/0"
+              ]
+            },
+            {
+              "locator_id": "cooking.output-item-id",
+              "selector": "li#r-2538 .t a.nm[href]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "/item/2679",
+              "field_paths": [
+                "/output/item_id"
+              ]
+            },
+            {
+              "locator_id": "cooking.page-build",
+              "selector": "html",
+              "value_kind": "attribute",
+              "attribute": "data-build",
+              "expected_value": "1.60.1.70450",
+              "field_paths": [
+                "/source_build"
+              ]
+            },
+            {
+              "locator_id": "cooking.page-title",
+              "selector": "title",
+              "value_kind": "text",
+              "expected_value": "Cooking recipes · WoW Forever · Bind on Forever",
+              "field_paths": []
+            },
+            {
+              "locator_id": "cooking.profession",
+              "selector": "h1",
+              "value_kind": "text",
+              "expected_value": "Cooking",
+              "field_paths": [
+                "/profession"
+              ]
+            },
+            {
+              "locator_id": "cooking.reagent-item-id",
+              "selector": "li#r-2538 .rg a[href]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "/item/2672",
+              "field_paths": [
+                "/reagents/0/item_id"
+              ]
+            },
+            {
+              "locator_id": "cooking.reagent-quantity",
+              "selector": "li#r-2538 .rg",
+              "value_kind": "text",
+              "expected_value": "1 Stringy Wolf Meat",
+              "field_paths": [
+                "/reagents/0/optional",
+                "/reagents/0/quantity"
+              ]
+            },
+            {
+              "locator_id": "cooking.recipe-id",
+              "selector": "li#r-2538",
+              "value_kind": "attribute",
+              "attribute": "id",
+              "expected_value": "r-2538",
+              "field_paths": [
+                "/recipe_id"
+              ]
+            },
+            {
+              "locator_id": "cooking.skill-label",
+              "selector": "li#r-2538 .sk",
+              "value_kind": "attribute",
+              "attribute": "aria-label",
+              "expected_value": "Learn 1, yellow 45, green 65, grey 85",
+              "field_paths": [
+                "/skill_gate/gray",
+                "/skill_gate/green",
+                "/skill_gate/minimum",
+                "/skill_gate/yellow"
+              ]
+            }
+          ]
+        },
+        {
+          "entry_id": "bof-item-2672-20261017",
+          "source_kind": "bind_on_forever",
+          "url": "https://bindonforever.com/item/2672",
+          "sha256": "fdeb501336559a9cdec3e2246668b932066f4bd738d350748a88a60e3ab5bd6e",
+          "retrieved_at": "2026-10-17T05:50:49.507995Z",
+          "title": "Stringy Wolf Meat · WoW Forever item · Bind on Forever",
+          "claimed_build": "1.60.1.70450",
+          "locators": [
+            {
+              "locator_id": "stringy-wolf-meat.canonical-item-id",
+              "selector": "link[rel=\"canonical\"]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "https://bindonforever.com/item/2672",
+              "field_paths": [
+                "/reagents/0/item_id"
+              ]
+            },
+            {
+              "locator_id": "stringy-wolf-meat.page-build",
+              "selector": "html",
+              "value_kind": "attribute",
+              "attribute": "data-build",
+              "expected_value": "1.60.1.70450",
+              "field_paths": [
+                "/source_build"
+              ]
+            },
+            {
+              "locator_id": "stringy-wolf-meat.page-title",
+              "selector": "title",
+              "value_kind": "text",
+              "expected_value": "Stringy Wolf Meat · WoW Forever item · Bind on Forever",
+              "field_paths": []
+            }
+          ]
+        },
+        {
+          "entry_id": "bof-item-2679-20261017",
+          "source_kind": "bind_on_forever",
+          "url": "https://bindonforever.com/item/2679",
+          "sha256": "504404fdc17aadcc6f82b950a2ffb970b79b4b6db23088d6c7fc61aa1f3e03f1",
+          "retrieved_at": "2026-10-17T05:50:49.348994Z",
+          "title": "Charred Wolf Meat · WoW Forever item · Bind on Forever",
+          "claimed_build": "1.60.1.70450",
+          "locators": [
+            {
+              "locator_id": "charred-wolf-meat.canonical-item-id",
+              "selector": "link[rel=\"canonical\"]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "https://bindonforever.com/item/2679",
+              "field_paths": [
+                "/output/item_id"
+              ]
+            },
+            {
+              "locator_id": "charred-wolf-meat.made-by-recipe-id",
+              "selector": "a[href=\"/spell/2538\"]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "/spell/2538",
+              "field_paths": [
+                "/recipe_id"
+              ]
+            },
+            {
+              "locator_id": "charred-wolf-meat.page-build",
+              "selector": "html",
+              "value_kind": "attribute",
+              "attribute": "data-build",
+              "expected_value": "1.60.1.70450",
+              "field_paths": [
+                "/source_build"
+              ]
+            },
+            {
+              "locator_id": "charred-wolf-meat.page-title",
+              "selector": "title",
+              "value_kind": "text",
+              "expected_value": "Charred Wolf Meat · WoW Forever item · Bind on Forever",
+              "field_paths": []
+            }
+          ]
+        },
+        {
+          "entry_id": "bof-item-2770-20261017",
+          "source_kind": "bind_on_forever",
+          "url": "https://bindonforever.com/item/2770",
+          "sha256": "342769837e49e68d30f4248e0e07a0d6c54958944d383140a6cfb4c1a6eee48f",
+          "retrieved_at": "2026-10-17T05:50:49.004991Z",
+          "title": "Copper Ore · WoW Forever item · Bind on Forever",
+          "claimed_build": "1.60.1.70450",
+          "locators": [
+            {
+              "locator_id": "copper-ore.canonical-item-id",
+              "selector": "link[rel=\"canonical\"]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "https://bindonforever.com/item/2770",
+              "field_paths": [
+                "/reagents/0/item_id"
+              ]
+            },
+            {
+              "locator_id": "copper-ore.page-build",
+              "selector": "html",
+              "value_kind": "attribute",
+              "attribute": "data-build",
+              "expected_value": "1.60.1.70450",
+              "field_paths": [
+                "/source_build"
+              ]
+            },
+            {
+              "locator_id": "copper-ore.page-title",
+              "selector": "title",
+              "value_kind": "text",
+              "expected_value": "Copper Ore · WoW Forever item · Bind on Forever",
+              "field_paths": []
+            }
+          ]
+        },
+        {
+          "entry_id": "bof-item-2840-20261017",
+          "source_kind": "bind_on_forever",
+          "url": "https://bindonforever.com/item/2840",
+          "sha256": "9c3049d8f583e2bb9e5b38e8a0297639cef2c15f0904443172cc756db4cee81b",
+          "retrieved_at": "2026-10-17T05:50:48.821989Z",
+          "title": "Copper Bar · WoW Forever item · Bind on Forever",
+          "claimed_build": "1.60.1.70450",
+          "locators": [
+            {
+              "locator_id": "copper-bar.canonical-item-id",
+              "selector": "link[rel=\"canonical\"]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "https://bindonforever.com/item/2840",
+              "field_paths": [
+                "/output/item_id"
+              ]
+            },
+            {
+              "locator_id": "copper-bar.made-by-recipe-id",
+              "selector": "a[href=\"/spell/2657\"]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "/spell/2657",
+              "field_paths": [
+                "/recipe_id"
+              ]
+            },
+            {
+              "locator_id": "copper-bar.page-build",
+              "selector": "html",
+              "value_kind": "attribute",
+              "attribute": "data-build",
+              "expected_value": "1.60.1.70450",
+              "field_paths": [
+                "/source_build"
+              ]
+            },
+            {
+              "locator_id": "copper-bar.page-title",
+              "selector": "title",
+              "value_kind": "text",
+              "expected_value": "Copper Bar · WoW Forever item · Bind on Forever",
+              "field_paths": []
+            }
+          ]
+        },
+        {
+          "entry_id": "bof-mining-profession-20261017",
+          "source_kind": "bind_on_forever",
+          "url": "https://bindonforever.com/professions/mining",
+          "sha256": "fdbcb0053b3ca98dc4089b6a5ce55a3116e73cd93a0ecdaad1bbfb096e433a59",
+          "retrieved_at": "2026-10-17T05:50:48.662987Z",
+          "title": "Mining recipes · WoW Forever · Bind on Forever",
+          "claimed_build": "1.60.1.70450",
+          "locators": [
+            {
+              "locator_id": "mining.apprentice-text",
+              "selector": "li#r-2657 .mt span:first-child",
+              "value_kind": "text",
+              "expected_value": "Every new mining apprentice knows it.",
+              "field_paths": [
+                "/learnability/evidence_kind",
+                "/learnability/status"
+              ]
+            },
+            {
+              "locator_id": "mining.forge-condition",
+              "selector": "li#r-2657 .mt span:nth-child(2)",
+              "value_kind": "text",
+              "expected_value": "Needs a forge",
+              "field_paths": [
+                "/acquisition/conditions/0"
+              ]
+            },
+            {
+              "locator_id": "mining.output-item-id",
+              "selector": "li#r-2657 .mk a[href]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "/item/2840",
+              "field_paths": [
+                "/output/item_id"
+              ]
+            },
+            {
+              "locator_id": "mining.page-build",
+              "selector": "html",
+              "value_kind": "attribute",
+              "attribute": "data-build",
+              "expected_value": "1.60.1.70450",
+              "field_paths": [
+                "/source_build"
+              ]
+            },
+            {
+              "locator_id": "mining.page-title",
+              "selector": "title",
+              "value_kind": "text",
+              "expected_value": "Mining recipes · WoW Forever · Bind on Forever",
+              "field_paths": []
+            },
+            {
+              "locator_id": "mining.profession",
+              "selector": "h1",
+              "value_kind": "text",
+              "expected_value": "Mining",
+              "field_paths": [
+                "/profession"
+              ]
+            },
+            {
+              "locator_id": "mining.reagent-item-id",
+              "selector": "li#r-2657 .rg a[href]",
+              "value_kind": "attribute",
+              "attribute": "href",
+              "expected_value": "/item/2770",
+              "field_paths": [
+                "/reagents/0/item_id"
+              ]
+            },
+            {
+              "locator_id": "mining.reagent-quantity",
+              "selector": "li#r-2657 .rg",
+              "value_kind": "text",
+              "expected_value": "1 Copper Ore",
+              "field_paths": [
+                "/reagents/0/optional",
+                "/reagents/0/quantity"
+              ]
+            },
+            {
+              "locator_id": "mining.recipe-id",
+              "selector": "li#r-2657",
+              "value_kind": "attribute",
+              "attribute": "id",
+              "expected_value": "r-2657",
+              "field_paths": [
+                "/recipe_id"
+              ]
+            },
+            {
+              "locator_id": "mining.skill-label",
+              "selector": "li#r-2657 .sk",
+              "value_kind": "attribute",
+              "attribute": "aria-label",
+              "expected_value": "Learn 1, yellow 25, green 47, grey 70",
+              "field_paths": [
+                "/skill_gate/gray",
+                "/skill_gate/green",
+                "/skill_gate/minimum",
+                "/skill_gate/yellow"
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "recipes": [
+    {
+      "record_id": "rfs-20261017-cooking-2679-0",
+      "recipe_id": 2538,
+      "profession": "cooking",
+      "profession_kind": "crafting",
+      "output": {
+        "item_id": 2679,
+        "quantity": null,
+        "quantity_status": "unknown"
+      },
+      "reagents": [
+        {
+          "item_id": 2672,
+          "quantity": 1,
+          "quantity_status": "known",
+          "optional": false
+        }
+      ],
+      "skill_gate": {
+        "minimum": {
+          "value": 1,
+          "status": "known"
+        },
+        "yellow": {
+          "value": 45,
+          "status": "known"
+        },
+        "green": {
+          "value": 65,
+          "status": "known"
+        },
+        "gray": {
+          "value": 85,
+          "status": "known"
+        }
+      },
+      "learnability": {
+        "status": "client_file_only",
+        "evidence_kind": "displayed_client_data"
+      },
+      "cooldown": {
+        "status": "unknown",
+        "seconds": null,
+        "shared_group": null
+      },
+      "acquisition": {
+        "kind": "profession_window",
+        "status": "client_data_only",
+        "requirement_ids": [],
+        "conditions": [
+          "Needs a cooking fire"
+        ]
+      },
+      "vendor_components": [],
+      "binding_and_tradeability": {
+        "output_status": "unknown",
+        "reagent_restrictions": []
+      },
+      "source_build": "1.60.1.70450",
+      "provenance_claims": [
+        {
+          "claim_id": "claim-cooking-condition",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.fire-condition",
+          "field_paths": [
+            "/acquisition/conditions/0"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-learnability",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.apprentice-text",
+          "field_paths": [
+            "/learnability/evidence_kind",
+            "/learnability/status"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-output-item",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.output-item-id",
+          "field_paths": [
+            "/output/item_id"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-profession",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.profession",
+          "field_paths": [
+            "/profession"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-reagent-item",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.reagent-item-id",
+          "field_paths": [
+            "/reagents/0/item_id"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-reagent-quantity",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.reagent-quantity",
+          "field_paths": [
+            "/reagents/0/optional",
+            "/reagents/0/quantity"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-recipe-id",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.recipe-id",
+          "field_paths": [
+            "/recipe_id"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-skill-gate",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.skill-label",
+          "field_paths": [
+            "/skill_gate/gray",
+            "/skill_gate/green",
+            "/skill_gate/minimum",
+            "/skill_gate/yellow"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-cooking-source-build",
+          "manifest_entry_id": "bof-cooking-profession-20261017",
+          "locator_id": "cooking.page-build",
+          "field_paths": [
+            "/source_build"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        }
+      ],
+      "unknowns": [
+        "cooldown",
+        "item_binding",
+        "learnability_server_gate",
+        "output_quantity"
+      ],
+      "readiness": {
+        "status": "blocked",
+        "codes": [
+          "OUTPUT_QUANTITY_UNKNOWN",
+          "LEARNABILITY_NOT_CONFIRMED",
+          "COOLDOWN_UNKNOWN",
+          "TRADEABILITY_UNKNOWN"
+        ]
+      },
+      "review_status": "blocked",
+      "superseded_by": null
+    },
+    {
+      "record_id": "rfs-20261017-mining-2840-0",
+      "recipe_id": 2657,
+      "profession": "mining",
+      "profession_kind": "processing",
+      "output": {
+        "item_id": 2840,
+        "quantity": null,
+        "quantity_status": "unknown"
+      },
+      "reagents": [
+        {
+          "item_id": 2770,
+          "quantity": 1,
+          "quantity_status": "known",
+          "optional": false
+        }
+      ],
+      "skill_gate": {
+        "minimum": {
+          "value": 1,
+          "status": "known"
+        },
+        "yellow": {
+          "value": 25,
+          "status": "known"
+        },
+        "green": {
+          "value": 47,
+          "status": "known"
+        },
+        "gray": {
+          "value": 70,
+          "status": "known"
+        }
+      },
+      "learnability": {
+        "status": "client_file_only",
+        "evidence_kind": "displayed_client_data"
+      },
+      "cooldown": {
+        "status": "unknown",
+        "seconds": null,
+        "shared_group": null
+      },
+      "acquisition": {
+        "kind": "profession_window",
+        "status": "client_data_only",
+        "requirement_ids": [],
+        "conditions": [
+          "Needs a forge"
+        ]
+      },
+      "vendor_components": [],
+      "binding_and_tradeability": {
+        "output_status": "unknown",
+        "reagent_restrictions": []
+      },
+      "source_build": "1.60.1.70450",
+      "provenance_claims": [
+        {
+          "claim_id": "claim-mining-condition",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.forge-condition",
+          "field_paths": [
+            "/acquisition/conditions/0"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-learnability",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.apprentice-text",
+          "field_paths": [
+            "/learnability/evidence_kind",
+            "/learnability/status"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-output-item",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.output-item-id",
+          "field_paths": [
+            "/output/item_id"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-profession",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.profession",
+          "field_paths": [
+            "/profession"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-reagent-item",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.reagent-item-id",
+          "field_paths": [
+            "/reagents/0/item_id"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-reagent-quantity",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.reagent-quantity",
+          "field_paths": [
+            "/reagents/0/optional",
+            "/reagents/0/quantity"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-recipe-id",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.recipe-id",
+          "field_paths": [
+            "/recipe_id"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-skill-gate",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.skill-label",
+          "field_paths": [
+            "/skill_gate/gray",
+            "/skill_gate/green",
+            "/skill_gate/minimum",
+            "/skill_gate/yellow"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        },
+        {
+          "claim_id": "claim-mining-source-build",
+          "manifest_entry_id": "bof-mining-profession-20261017",
+          "locator_id": "mining.page-build",
+          "field_paths": [
+            "/source_build"
+          ],
+          "reviewer": "foundation-review",
+          "reviewed_on": "2026-10-17"
+        }
+      ],
+      "unknowns": [
+        "cooldown",
+        "item_binding",
+        "learnability_server_gate",
+        "output_quantity"
+      ],
+      "readiness": {
+        "status": "blocked",
+        "codes": [
+          "OUTPUT_QUANTITY_UNKNOWN",
+          "LEARNABILITY_NOT_CONFIRMED",
+          "COOLDOWN_UNKNOWN",
+          "TRADEABILITY_UNKNOWN"
+        ]
+      },
+      "review_status": "blocked",
+      "superseded_by": null
+    }
+  ]
+}

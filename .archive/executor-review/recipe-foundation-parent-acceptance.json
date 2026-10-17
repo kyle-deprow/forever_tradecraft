@@ -1,0 +1,23 @@
+{
+  "kind": "recipe-foundation-parent-acceptance",
+  "freeze_sha256": "f62cf9d7654916d357311f05a7261157f01e01f4895e94c2ed2178f4efbc9e94",
+  "tests": {
+    "command": "uv run pytest -q tests/test_recipes.py tests/test_watchlist.py",
+    "passed": 23,
+    "failed": 0,
+    "seconds": 0.73
+  },
+  "ruff": "passed",
+  "frozen_hashes": "all5match",
+  "wheel_install": "parentbuiltwheel/disposabletarget/outsidecheckoutisolatedinterpreter; packagedmodule/resourcehashverified;2blockedrecords9professionrows",
+  "wheel_log": ".archive/executor-review/recipe-foundation-parent-wheel-r1.log",
+  "review": {
+    "model": "Sol",
+    "status": "READY",
+    "artifact": ".archive/executor-review/recipe-foundation-sol-source-r1.md",
+    "must": 0,
+    "should": 0,
+    "nits": 0
+  },
+  "scope": "3ownedsource/testpaths; no runtime/network/marketstrategy behavior"
+}
