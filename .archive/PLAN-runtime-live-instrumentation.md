@@ -2,8 +2,12 @@
 
 Status: proposed bounded Phase 2 evidence slice. This plan authorizes no source
 change, build, test, service restart, desktop capture, input, deployment, or Rust
-work. Implementation starts only after the final R5 source/binary freeze passes
+work. Production instrumentation starts only after the final R5 source/binary freeze passes
 parent verification plus Sol and actual Opus review and is accepted into main.
+
+Parent separately releases the three-file offline evaluator in an isolated
+worktree via `.archive/PLAN-runtime-instrumentation-offline-evaluator.md` while
+R5 is frozen for review. This changes no production or live release gate.
 
 ## Fixed basis and sequencing
 

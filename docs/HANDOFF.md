@@ -154,6 +154,13 @@ this orchestration delay; it is not computation attribution. Eleven sweeps total
 24495price rows. Sole operator is probing native API/UI capability read-only at
 the normal quiet boundary before reopening AH; no protocol or binding changes.
 
+Twelfth UID `beta-normal-alliance-1792227003-Arthur-9021` is parent-verified:
+428queries/2114rows,410full/18bounded/allok,477s; start905s aftereleventh as
+AH reopened5s beyond due. Original logical content matches DB/raw reference;
+fresh exact loadedACK boot1792227648-134611/pending0. Upload81.306s missed60s.
+Twelve current-session sweeps total26609price rows. Thirteenth due1792227903;
+sole operator verified AHopen/pending0 after normal reload/reopen.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -195,6 +202,18 @@ blindly mutated an absent sample and masked that refusal with a thread KeyError.
 The worker is correcting external-fixture reporting and investigating under the
 unchanged one-second deadline. Earlier hermetic316pass/2fail were missing private
 input-tool fixture setup, not this failure. Preserve both kinds of evidence.
+
+R5 final source is frozen only in its isolated WT: freezeSHA
+307c6ef69ba4c8b7376af4307852b12fcb55a57da3c1df84c3ef1fc4ddda2bf2,
+binarySHA7f7080c82f0c403373480ac24e0f5ec22587c04716e9dc081a897751e2db46b3.
+Parent independently reproduced50focused hostchecks in50.54s, plus Ruff/format/
+compile/source diffcheck, all12source hashes and authentic build/manifest/patch,
+unchangedR3 and pin-only recipe delta. Valid unified-patch blank context marker
+is excluded from whitespace lint; the exact patch built successfully. Main's
+nativeR4source is still unchanged and uncommitted. SolsourceR5 and actual CLI
+OpusR5 are now reviewing the frozen delta; no integration/deployment/liveoptin.
+See `gnome-telemetry-region-r5-parent-focused-verification.json`. One appropriate
+broad host batch follows source closure. Prior R4 negative timing evidence remains.
 
 **Recipe foundation accepted:** three-file implementation, packaged normalized
 manifest, nine-profession coverage (eight crafting plus Mining), two blocked
@@ -243,6 +262,11 @@ canonical manifest/COMPLETE/archive validation, manifestSHA
 This latest snapshot is not separately restored; final-tool restore qualification
 uses the earlier canonical snapshot and the retained new successful drill.
 
+Latest fresh snapshot `beta-20261017T090505Z-649ec7a88199` completed after
+twelfth ingestion and passed canonical snapshot validation. It is not separately
+restored; the accepted tool's prior successful disposable restore proof remains
+the recovery qualification. No source service/database write occurred.
+
 **Deterministic runtime / Rust:** offline Phase1 is integrated after Sol source
 R2 READY (two review rounds) and parent15tests/Ruff/format/compile. It times the
 actual public strict decoder and pure planners, retains wall and processCPU
@@ -264,6 +288,11 @@ is frozen after parent review at SHAcaabd905b1e591bb495715e3f8b6b68a31c2cda8d79f
 It follows accepted R5 native closure: exact owner/observer source/config/producer
 binding, same-attempt decodeCPU, overlapping wall boundaries, all failures and
 actual model counters. No Rust or production instrumentation is implemented yet.
+Root released only the independent three-file offline evaluator while R5 is
+frozen for review, via `.archive/PLAN-runtime-instrumentation-offline-evaluator.md`.
+It works in `/home/dev/.cache/crowley/worktrees/runtime-evaluator-20261017`, based
+on5ed3fcb. Production instrumentation still waits for acceptedR5; no actual live
+binding/data or Rust verdict is created by fixture evaluator decisions.
 Ordinary collection does not depend on that qualification.
 
 **Next reduction of model dependence:** `.archive/PLAN-native-semantic-observations.md`
@@ -273,7 +302,16 @@ visibility, blocking modal/error state and defined readiness are missing. A
 read-only capability probe is delegated to the sole GUI operator at a normal
 quiet collection boundary. The plan retains separate fresh anchor/gesture proof
 and two-frame settlement; it never manufactures auctioneer identity from ahOpen.
-No call removal or zero-model full-cycle claim is accepted.
+No call removal or zero-model full-cycle claim is accepted. Read-only real-build
+probe now shows IsPlayerInWorld/function true, player exists/connected true,
+StaticPopup_Visible/function nil, GameMenuFrame hidden and UIParent shown in the
+closed-AH scene. AuctionHouseFrame is absent before AH opens but is table/shown
+while open; legacy AuctionFrame remains absent. These steady-state snapshots do
+not qualify modal completeness, loading/disconnect behavior or readiness.
+See `native-semantic-capability-probe-20261017.json`. A104byte query succeeded
+with exact fresh readback after an overlong probe was canceled. Agent's actual
+readback cap is128UTF8bytes, below the game's edit limit; skill now records this
+without changing addon/protocol behavior.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;

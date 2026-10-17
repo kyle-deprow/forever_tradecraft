@@ -1,0 +1,35 @@
+{
+  "schema": "crowley.region-r5-parent-verification",
+  "schema_version": 1,
+  "status": "focused_verified_source_reviews_pending_no_integration_or_deployment",
+  "candidate_freeze_sha256": "307c6ef69ba4c8b7376af4307852b12fcb55a57da3c1df84c3ef1fc4ddda2bf2",
+  "candidate_source_hashes": {
+    "deploy/crowley-session.example.toml": "858ce9d1efa39855598481ecf35b06bdc783cdc66ba2e01486614f58be03fd82",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/daemon.py": "424befa98c279156da1e9cc724cbf76619ffc6edf325947ff905342791d6c111",
+    "src/crowley/session/driver.py": "75b38b74dca59256f76c7a783ef13a56a62d50f634611ef04162c61b1c4dbb81",
+    "tests/test_session_capture.py": "9bc94bd112dbc8b293374d80126876e88bb7eb45e4072ab34526b5db4a77e893",
+    "tests/test_session_cli_motion.py": "082f7f6be6ac5aaf987b2cc07e0175f8d07bc5b971cf96704c1279c9c9214ace",
+    "tests/test_session_native.py": "169d0d3b6068d3ae42e762b7f3059348b42b5d988f012c8c520603da0978e764",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "0cccf95ff69cff91986ab783d6f70b4a75722d31d933d794237f2c8d63662225",
+    "tools/gnome-telemetry-region/README.md": "211bb10e327aa4259926fb0af3dce3f1bd672458290a6f9dfdfb333eb8de6c26",
+    "tools/gnome-telemetry-region/build-private.sh": "e47fd778444c3b710295a2c69533e7cdb116f64e49ea1fc24f7da5fbb34abb81",
+    "tools/gnome-telemetry-region/manifest.example.json": "c3d75241ea23aab295960f5aa5ca70c20aab3b9a47dfa3aeb7e507c8758993f5",
+    "tools/gnome-telemetry-region/offline_harness.py": "9e466409dfc592368c266baf239ff22f6591db9dbec7efc69db41e984e6fbe27"
+  },
+  "checks": {
+    "focused_host_result": "50 passed,3 multiprocessing fork deprecation warnings in50.54s; exit0",
+    "focused_log_sha256": "23d5352c100fcfc2c561ed01e6a66a1b60a1dd0768d70c92f5b139f5009d14b8",
+    "ruff": "passed",
+    "format": "7 files already formatted",
+    "py_compile": "passed",
+    "source_diff_check": "passed; valid unified-patch context marker separately excluded",
+    "identity_checks": "All12sourcehashes match, R4main/frozenbaseline preserved, R5binary/manifest/patch consistent, R3binary preserved, buildrecipe pin-only delta verified"
+  },
+  "limitations": [
+    "Sol and actual Opus R5 source reviews pending.",
+    "One broad host affected batch follows accepted source closure.",
+    "No live capture qualification, owner restart, profile opt-in, service change or Rust work.",
+    "Private fixture passing does not erase prior R4 owner deadline refusal."
+  ]
+}

@@ -1,0 +1,40 @@
+{
+  "schema": "crowley.native-semantic-capability-probe",
+  "schema_version": 1,
+  "build": "70450",
+  "observation_scope": "Stationary ordinary collection; closed AH snapshots and one open AH snapshot. Read-only Lua queries; no source, binding, target or configuration changes.",
+  "observed_by": "Sole authorized Luna GUI operator; parent independently checked retained FRESH command readback, identity/boot continuity and file hashes, not visual output transcription.",
+  "closed_ah_observed_values": {
+    "IsPlayerInWorld": {
+      "type": "function",
+      "value": true
+    },
+    "UnitExists_player": true,
+    "UnitIsConnected_player": true,
+    "AuctionFrame_type": "nil",
+    "AuctionHouseFrame_type": "nil",
+    "StaticPopup_Visible_type": "function",
+    "StaticPopup_Visible_result": "nil",
+    "GameMenuFrame_IsShown": false,
+    "UIParent_IsShown": true
+  },
+  "open_ah_observed_values": {
+    "AuctionFrame_type": "nil",
+    "AuctionHouseFrame_type": "table",
+    "AuctionHouseFrame_IsShown": true
+  },
+  "evidence_hashes": {
+    "operator_results": "705f7940df988ef2a5288da8964a09e3e5f9f794673292738df87c6888b0e39c",
+    "open_command_fresh_readback": "1d075cfa9ac22389bd43c0bd08598063cf9e9b2cea496850929c8c3ca3d3579e",
+    "open_result_fresh_receipt": "29af00ea34b9c2fa3ddfafa9fb1f38ab12c7736dfe30cd8792658199c312a67c",
+    "open_result_desktop": "c59b8c8433da7747e6b1bd99ed18b7cce8ec544f5a758bc162d0262134918a8f"
+  },
+  "open_command_bytes": 104,
+  "delivery_lesson": "Agent.activeEdit rejects text over128UTF8bytes with inactive projection; long probe canceled and shortened, exact readback then succeeded.",
+  "limitations": [
+    "Single steady-state snapshots do not qualify loading, disconnect, popup completeness, error codes or deterministic readiness.",
+    "No deterministic observation provider or protocol migration implemented.",
+    "Native anchor/gesture evidence remains a separate contract.",
+    "No model call removal or autonomous session qualification claimed."
+  ]
+}

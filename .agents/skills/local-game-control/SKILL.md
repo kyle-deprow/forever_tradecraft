@@ -194,8 +194,11 @@ within existing authorization; respect any current movement limits.
   Exercise the helper's real entry path in a dry run as well as its pure guards;
   read-only preflight can pass while receipt initialization still prevents the
   first production command from being reached.
-  Bound each diagnostic slash command to the client's edit limit; split long
-  probes into short statements. Desktop selection shortcuts and very fast typing
+  Bound diagnostic slash commands to both client and telemetry readback limits.
+  Crowley's current `Agent.activeEdit` rejects text over 128 bytes by returning an
+  inactive projection, even when the EditBox is visible; shorten the probe rather
+  than diagnosing focus loss or weakening the proof. Desktop selection shortcuts
+  and very fast typing
   are not established EditBox behavior. After malformed input, verify the whole
   buffer is empty before replacing it; Ctrl+U can leave a suffix after the cursor.
   Use verified paste or a measured typing rate and inspect both ends of a
