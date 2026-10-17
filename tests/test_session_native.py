@@ -7,6 +7,7 @@ live desktop or human input calibration has passed.
 from __future__ import annotations
 
 import base64
+import copy
 import hashlib
 import importlib.util
 import json
@@ -25,6 +26,8 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+import crowley.session.daemon as daemon_module
+import tools.session_performance as session_performance
 from crowley.session import driver as driver_module
 from crowley.session.calibration import (
     _GTK_SCRIPT,
@@ -84,6 +87,52 @@ from crowley.session.protocol import decode_frame, pack_cells
 from tests.test_session_input_tool import fixture_input_tool
 
 from .wow_harness import WowClient
+
+
+def _independent_live_binding(config_path: Path, producer_path: Path) -> dict[str, object]:
+    """Build the evaluator binding from known fixture inputs before a run."""
+
+    root = Path(__file__).resolve().parents[1]
+    source_paths = {
+        "daemon.py": root / "src/crowley/session/daemon.py",
+        "driver.py": root / "src/crowley/session/driver.py",
+        "cli.py": root / "src/crowley/session/cli.py",
+        "decoder.py": root / "src/crowley/session/decoder.py",
+        "protocol.py": root / "src/crowley/session/protocol.py",
+        "offline_harness.py": root / "tools/gnome-telemetry-region/offline_harness.py",
+        "session_performance.py": root / "tools/session_performance.py",
+    }
+    accepted_source_hashes = {
+        name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in source_paths.items()
+    }
+    config = load_config(config_path)
+    return {
+        "schema": "crowley.runtime-performance-accepted-binding",
+        "schema_version": 1,
+        "accepted_source_hashes": accepted_source_hashes,
+        "producer_binding": {
+            "binary_sha256": hashlib.sha256(producer_path.read_bytes()).hexdigest(),
+            "protocol_branch": "ScreenshotArea",
+        },
+        "config_binding": {
+            "raw_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+            "semantic_sha256": session_config_semantic_sha256(config),
+        },
+    }
+
+
+def _evaluate_persisted_live_receipt(receipt: dict[str, object], path: Path, binding: dict[str, object]):
+    """Run a genuine producer receipt through the public frozen evaluator."""
+
+    binding_path = path.parent / "accepted-binding.json"
+    binding_bytes = json.dumps(binding, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    binding_path.write_bytes(binding_bytes)
+    binding_digest = hashlib.sha256(binding_bytes).hexdigest()
+    report = session_performance.build_live_report(
+        [path], accepted_binding=binding_path, binding_sha256=binding_digest
+    )
+    run = report["runs"][0]
+    return run, run["completed_pairs"] or [], report
 
 
 def test_native_region_profile_is_default_off_and_hash_pinned(tmp_path: Path) -> None:
@@ -1088,7 +1137,10 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
     payloads: list[bytes] = []
     decoded_sequences: list[int] = []
     probe = PixelDecoder()
-    for index in range(26):
+    # The composed coverage below includes the late-refusal regression and a
+    # second real eight-sample model-counter run; retain enough independent
+    # compiled payloads for every actual ScreenshotArea call.
+    for index in range(60):
         client.update_agent(1.0)
         target = BytesIO()
         client.render_agent_capture().save(target, format="PNG")
@@ -1267,6 +1319,8 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
         response_mode: list[str | None] = [None]
         late_response_started = threading.Event()
         late_response_release = threading.Event()
+        late_refusal_started = threading.Event()
+        late_refusal_release = threading.Event()
         ipc_workers: list[threading.Thread] = []
         dispatch_observations: list[dict[str, object]] = []
         ipc_handler_errors: list[str] = []
@@ -1309,6 +1363,23 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                     if mode == "late_response":
                         late_response_started.set()
                         late_response_release.wait(2.0)
+                    elif mode == "late_refusal":
+                        late_refusal_started.set()
+                        # Deliver the durable refusal just after the owner
+                        # sample deadline, while still inside the runner's
+                        # bounded evidence grace.  Deriving this wait from
+                        # the actual request deadline keeps the regression
+                        # deterministic without replacing the production
+                        # clock.
+                        response_deadline = request.get("deadline")
+                        if isinstance(response_deadline, (int, float)) and not isinstance(
+                            response_deadline, bool
+                        ):
+                            late_refusal_release.wait(
+                                max(0.0, float(response_deadline) - time.monotonic() + 0.03)
+                            )
+                        else:
+                            late_refusal_release.wait(2.0)
                     sample_response = response.get("sample")
                     if (
                         mode
@@ -1348,7 +1419,9 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                         daemon.controller.pause("fixture generation changed after published sample")
                 except Exception as exc:
                     error_record = f"{type(exc).__name__}: {exc}"
-                    late_client_disconnect = mode == "late_response" and isinstance(exc, OSError)
+                    late_client_disconnect = mode in {"late_response", "late_refusal"} and isinstance(
+                        exc, OSError
+                    )
                     if late_client_disconnect:
                         ipc_late_transport_errors.append(error_record)
                     else:
@@ -1467,6 +1540,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert daemon.config.profile is not driver.profile
             assert driver.lease_path.is_relative_to(compositor["root"])
             daemon.controller.pause("private runner fixture on fresh owner")
+            live_binding = _independent_live_binding(config_path, producer)
             original_observer_admission = driver.guardian.observer_dispatch_admission
             driver.guardian.observer_dispatch_admission = record_observer_admission  # type: ignore[method-assign]
             original_revoke = driver.guardian.revoke
@@ -1486,24 +1560,39 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             }
 
             result = harness.run_paused_diagnostic(config_path, output_dir)
-            assert result["state"] == "passed"
+            assert result["run_state"] == "passed"
             expected_generation = daemon.controller.status().generation
-            assert result["controller_generation"] == expected_generation
-            assert len(result["samples"]) == 8
-            samples = result["samples"]
+            assert result["generation"] == expected_generation
+            assert len(result["attempts"]) == 8
+            samples = result["attempts"]
             assert isinstance(samples, list)
-            assert [sample["sequence"] for sample in samples] == decoded_sequences[:8]
+            assert [sample["identity"]["sequence"] for sample in samples] == decoded_sequences[:8]
             assert all(sample["identity"]["fingerprint"] == identity.fingerprint for sample in samples)
-            assert all(sample["rectangle"] == list(rectangle) for sample in samples)
-            assert all(sample["attempt"]["owner_branch"] == "ScreenshotArea" for sample in samples)
-            assert all(sample["attempt"]["attempt_retired"] is True for sample in samples)
-            assert all(sample["cleanup"]["empty"] is True for sample in samples)
-            assert all(sample["duration_seconds"] < 1.0 for sample in samples)
-            assert all(sample["png_load_seconds"] >= 0 for sample in samples)
-            assert all(sample["pixel_decoder_seconds"] >= 0 for sample in samples)
+            assert all(
+                sample["owner"]["producer_binding"]["protocol_branch"] == "ScreenshotArea"
+                for sample in samples
+            )
+            assert all(sample["owner"]["cleanup"]["attempt_retired"] is True for sample in samples)
+            assert all(sample["owner"]["cleanup"]["capture_process_reaped"] is True for sample in samples)
+            assert all(
+                sample["owner"]["model_calls_before"] == {"started": 0, "succeeded": 0, "failed": 0}
+                for sample in samples
+            )
+            assert all(
+                sample["owner"]["model_calls_after"] == {"started": 0, "succeeded": 0, "failed": 0}
+                for sample in samples
+            )
+            assert all(
+                sample["owner"]["model_call_delta"] == {"started": 0, "succeeded": 0, "failed": 0}
+                for sample in samples
+            )
+            assert all(
+                sample["strict_decode_finished_monotonic"] - sample["outer_started_monotonic"] < 1.0
+                for sample in samples
+            )
             assert all(
                 0.75
-                <= samples[index]["actual_start_monotonic"] - samples[index - 1]["actual_start_monotonic"]
+                <= samples[index]["outer_started_monotonic"] - samples[index - 1]["outer_started_monotonic"]
                 <= 1.25
                 for index in range(1, 8)
             )
@@ -1514,11 +1603,17 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                 <= 1.25
                 for index in range(1, 8)
             )
-            assert all(Path(sample["png"]).is_file() for sample in samples)
+            assert all(
+                sample["application_compute_cpu_method"] == "time.process_time_ns" for sample in samples
+            )
             persisted = json.loads((output_dir / "receipt.json").read_text(encoding="utf-8"))
-            assert persisted["state"] == "passed"
-            assert persisted["cleanup"]["client_driver_created"] is False
-            assert persisted["cleanup"]["daemon_closed"] is False
+            assert persisted == result
+            evaluated, completed_pairs, _ = _evaluate_persisted_live_receipt(
+                persisted, output_dir / "receipt.json", live_binding
+            )
+            assert evaluated["eligible"] is True
+            assert len(completed_pairs) == 8
+            assert evaluated["attempts_begun"] == 8
             success_publications = [value for _path, value in receipt_publications if value.get("ok") is True]
             assert len(success_publications) == 8
             assert all("owner_returned" in value for value in success_publications)
@@ -1544,11 +1639,16 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                     "artifact_png",
                     "cleanup",
                     "owner_returned",
+                    "source_binding",
+                    "model_calls_before",
+                    "model_calls_after",
+                    "model_call_delta",
+                    "response_ready",
                 }
                 for value in success_publications
             )
-            assert all(sample["cleanup"]["lease_held"] for sample in samples)
-            assert all(sample["cleanup"]["watchdog_healthy"] for sample in samples)
+            assert all(sample["owner"]["cleanup"]["lease_held"] for sample in samples)
+            assert all(sample["owner"]["cleanup"]["watchdog_healthy"] for sample in samples)
             assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == 8
             assert request_count[0] == 17  # eight status/sample pairs plus final status
             successful_gate_events = admission_events[:16]
@@ -1573,16 +1673,25 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             boot_change_samples = sample_count[0]
             boot_change_calls = len(successful_shell_events)
             boot_change_dir = session_dir / "evidence-boot-change"
-            with pytest.raises(RuntimeError, match="boot change"):
+            with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
                 harness.run_paused_diagnostic(config_path, boot_change_dir)
             boot_change_receipt = json.loads((boot_change_dir / "receipt.json").read_text(encoding="utf-8"))
-            assert boot_change_receipt["failure"]["phase"] == "sample_1_decode"
-            assert len(boot_change_receipt["samples"]) == 1
+            assert boot_change_receipt["run_state"] == "failed"
+            assert boot_change_receipt["attempts"][1]["failure"] == {
+                "phase": "strict_decode",
+                "reason_code": "strict_decode_failed",
+            }
+            assert len(boot_change_receipt["attempts"]) == 2
             assert sample_count[0] == boot_change_samples + 2
             assert (
                 len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == boot_change_calls + 2
             )
-            assert len(boot_change_receipt["cleanup"]["published_client_pngs"]) == 2
+            assert len(list(boot_change_dir.glob("paused-*.png"))) == 2
+            boot_evaluated, boot_pairs, _ = _evaluate_persisted_live_receipt(
+                boot_change_receipt, boot_change_dir / "receipt.json", live_binding
+            )
+            assert "strict_decode_failed" in boot_evaluated["reason_codes"]
+            assert len(boot_pairs) == 1
 
             def area_count() -> int:
                 return len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
@@ -1605,16 +1714,17 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                         f"fixture could not exercise {mode}; actual owner dispatch was {observed_dispatch!r}"
                     )
                 failed_receipt = json.loads((directory / "receipt.json").read_text(encoding="utf-8"))
-                assert failed_receipt["state"] == "failed"
+                assert failed_receipt["run_state"] == "failed"
                 assert sample_count[0] == before_samples + 1
                 assert area_count() == before_area + 1
                 owner_directories = sorted(Path(config.capture_dir).glob("paused-region-*"))
                 assert len(owner_directories) == before_owner_directories + 1
                 assert (owner_directories[-1] / "capture.png").is_file()
                 assert (owner_directories[-1] / "receipt.json").is_file()
-                assert failed_receipt["cleanup"]["daemon_closed"] is False
-                assert failed_receipt["cleanup"]["daemon_lease_released"] is False
-                assert failed_receipt["cleanup"]["published_client_pngs"] == []
+                assert len(failed_receipt["attempts"]) == 1
+                assert failed_receipt["attempts"][0]["owner"] is None or isinstance(
+                    failed_receipt["attempts"][0]["owner"], dict
+                )
                 assert not list(directory.glob("paused-*.png"))
                 return failed_receipt
 
@@ -1627,7 +1737,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                 "oversized_record",
             ):
                 failed_receipt = run_runner_failure(mode, session_dir / f"evidence-{mode}")
-                assert failed_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
+                assert failed_receipt["attempts"][0]["failure"]["phase"] in {"owner_capture", "owner_ipc"}
 
             response_mode[0] = "changed_identity"
             changed_identity_dir = session_dir / "evidence-changed-identity"
@@ -1636,10 +1746,8 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             changed_identity_receipt = json.loads(
                 (changed_identity_dir / "receipt.json").read_text(encoding="utf-8")
             )
-            assert changed_identity_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
-            assert changed_identity_receipt["cleanup"]["published_client_pngs"] == [
-                str(changed_identity_dir / "paused-00.png")
-            ]
+            assert changed_identity_receipt["attempts"][0]["failure"]["phase"] == "owner_capture"
+            assert len(list(changed_identity_dir.glob("paused-*.png"))) == 1
             assert (changed_identity_dir / "paused-00.png").is_file()
 
             late_before_samples = sample_count[0]
@@ -1650,13 +1758,49 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             late_receipt = json.loads(
                 (session_dir / "evidence-late-response" / "receipt.json").read_text(encoding="utf-8")
             )
-            assert late_receipt["state"] == "failed"
-            assert late_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
+            assert late_receipt["run_state"] == "failed"
+            assert late_receipt["attempts"][0]["failure"]["phase"] in {"deadline", "owner_ipc"}
             assert late_response_started.is_set()
             late_response_release.set()
             assert sample_count[0] == late_before_samples + 1
             assert area_count() == late_before_area + 1
-            assert late_receipt["cleanup"]["published_client_pngs"] == []
+            assert not list((session_dir / "evidence-late-response").glob("paused-*.png"))
+            late_timeout = session_dir / "evidence-late-response" / "owner-timeout-00.json"
+            assert late_timeout.is_file()
+            assert late_timeout.stat().st_mode & 0o777 == 0o600
+
+            # A real owner refusal carrying a returned sample can arrive within
+            # the bounded IPC grace after its sample deadline. The runner must
+            # retain the private owner refusal but classify the attempt as the
+            # deadline failure before attempting client PNG publication.
+            daemon.controller.pause("restore paused state for late refusal")
+            fail_success_persist[0] = True
+            response_mode[0] = "late_refusal"
+            late_refusal_dir = session_dir / "evidence-late-refusal"
+            late_refusal_owner_dirs_before = set(Path(config.capture_dir).glob("paused-region-*"))
+            with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
+                harness.run_paused_diagnostic(config_path, late_refusal_dir)
+            late_refusal_receipt = json.loads((late_refusal_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert late_refusal_started.is_set()
+            assert late_refusal_receipt["attempts"][0]["failure"] == {
+                "phase": "deadline",
+                "reason_code": "sample_deadline_missed",
+            }
+            assert late_refusal_receipt["attempts"][0]["owner"] is not None
+            assert not list(late_refusal_dir.glob("paused-*.png"))
+            late_refusal_owner_dirs = set(Path(config.capture_dir).glob("paused-region-*"))
+            late_refusal_new_owner_dirs = late_refusal_owner_dirs - late_refusal_owner_dirs_before
+            assert len(late_refusal_new_owner_dirs) == 1
+            late_refusal_private = next(iter(late_refusal_new_owner_dirs)) / "receipt.json"
+            assert late_refusal_private.is_file()
+            assert json.loads(late_refusal_private.read_text(encoding="utf-8"))["ok"] is False
+            late_refusal_record = late_refusal_dir / "owner-refusal-00.json"
+            assert late_refusal_record.is_file()
+            assert late_refusal_record.stat().st_mode & 0o777 == 0o600
+            assert json.loads(late_refusal_record.read_text(encoding="utf-8"))["failure"]["phase"] == (
+                "owner_receipt_persist"
+            )
+            late_refusal_release.set()
 
             # Repeating the same genuine compositor payload becomes NO_CHANGE
             # at PixelDecoder. The runner preserves both owner PNGs and stops
@@ -1668,15 +1812,24 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             no_change_samples = sample_count[0]
             no_change_calls = area_count()
             no_change_dir = session_dir / "evidence-no-change"
-            with pytest.raises(RuntimeError, match="not a fresh decoded frame"):
+            with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
                 harness.run_paused_diagnostic(config_path, no_change_dir)
             no_change_receipt = json.loads((no_change_dir / "receipt.json").read_text(encoding="utf-8"))
-            assert no_change_receipt["failure"]["phase"] == "sample_1_decode"
-            assert len(no_change_receipt["samples"]) == 1
+            assert no_change_receipt["attempts"][1]["failure"] == {
+                "phase": "strict_decode",
+                "reason_code": "unknown_required_stage",
+            }
+            assert len(no_change_receipt["attempts"]) == 2
             assert sample_count[0] == no_change_samples + 2
             assert area_count() == no_change_calls + 2
-            assert len(no_change_receipt["cleanup"]["published_client_pngs"]) == 2
-            assert all(Path(path).is_file() for path in no_change_receipt["cleanup"]["published_client_pngs"])
+            assert len(list(no_change_dir.glob("paused-*.png"))) == 2
+            assert all(path.is_file() for path in no_change_dir.glob("paused-*.png"))
+            no_change_evaluated, no_change_pairs, _ = _evaluate_persisted_live_receipt(
+                no_change_receipt, no_change_dir / "receipt.json", live_binding
+            )
+            assert no_change_evaluated.get("receipt_refused") is True
+            assert no_change_evaluated["reason_codes"] == ["attempt_lifecycle_invalid"]
+            assert no_change_pairs == []
 
             # Install one real driver anchor bound to an actual compiled
             # owner PNG, then prove the same paused owner still completes IPC.
@@ -1783,11 +1936,15 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
                 harness.run_paused_diagnostic(config_path, failed_dir)
             failed = json.loads((failed_dir / "receipt.json").read_text(encoding="utf-8"))
-            assert failed["state"] == "failed"
-            assert failed["failure"]["phase"] == "sample_0_status_before"
-            assert failed["samples"] == []
-            assert failed["cleanup"]["client_driver_created"] is False
-            assert area_count() == 8 + 2 + 6 + 1 + 1 + 2 + 2
+            assert failed["run_state"] == "failed"
+            assert failed["attempts"][0]["failure"]["phase"] == "status"
+            assert len(failed["attempts"]) == 1
+            failed_evaluated, failed_pairs, _ = _evaluate_persisted_live_receipt(
+                failed, failed_dir / "receipt.json", live_binding
+            )
+            assert "status_failed" in failed_evaluated["reason_codes"]
+            assert failed_pairs == []
+            assert area_count() == 8 + 2 + 6 + 1 + 1 + 1 + 2 + 2
 
             # A generation change after sample 0 is observed before sample 1.
             # The runner must stop without another Shell request and keep the
@@ -1799,13 +1956,17 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
                 harness.run_paused_diagnostic(config_path, partial_dir)
             partial = json.loads((partial_dir / "receipt.json").read_text(encoding="utf-8"))
-            assert partial["state"] == "failed"
-            assert partial["failure"]["phase"] == "sample_1_status_before"
-            assert len(partial["samples"]) == 1
-            assert partial["cleanup"]["client_driver_created"] is False
-            assert len(partial["cleanup"]["published_client_pngs"]) == 1
-            assert Path(partial["cleanup"]["published_client_pngs"][0]).is_file()
-            assert area_count() == 8 + 2 + 6 + 1 + 1 + 2 + 2 + 1
+            assert partial["run_state"] == "failed"
+            assert partial["attempts"][1]["failure"]["phase"] == "status"
+            assert len(partial["attempts"]) == 2
+            partial_evaluated, partial_pairs, _ = _evaluate_persisted_live_receipt(
+                partial, partial_dir / "receipt.json", live_binding
+            )
+            assert "status_failed" in partial_evaluated["reason_codes"]
+            assert len(partial_pairs) == 1
+            assert len(list(partial_dir.glob("paused-*.png"))) == 1
+            assert next(partial_dir.glob("paused-*.png")).is_file()
+            assert area_count() == 8 + 2 + 6 + 1 + 1 + 1 + 2 + 2 + 1
 
             # A success receipt write failure leaves only a durable failure
             # receipt while retaining the actual producer PNG and receipt
@@ -2005,7 +2166,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             pre_failure = pre_result[0].get("failure")
             assert isinstance(pre_failure, dict) and pre_failure["published_png"] is None
             assert Path(pre_failure["receipt_path"]).is_file()
-            assert sample_count[0] == 8 + 2 + 6 + 1 + 1 + 2 + 1 + 1 + 1 + 2 + 1
+            assert sample_count[0] == 8 + 2 + 6 + 1 + 1 + 1 + 2 + 1 + 1 + 1 + 2 + 1
             assert area_count() == shell_count_before_pre_stop
             assert sorted(Path(config.capture_dir).glob("paused-region-*/capture.png")) == prior_owner_pngs
             assert driver.guardian.lease.held and not driver.guardian.armed
@@ -2098,44 +2259,48 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             identity_runner_receipt = json.loads(
                 (identity_failure_dir / "receipt.json").read_text(encoding="utf-8")
             )
-            assert identity_runner_receipt["state"] == "failed"
-            assert identity_runner_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
-            assert identity_runner_receipt["failure"]["error"] == (
-                "RuntimeError: paused diagnostic owner refused sample 0: "
-                f"DriverError: {identity_failure_message}"
-            )
-            assert identity_runner_receipt["cleanup"]["published_client_pngs"] == []
-            identity_owner_failure = identity_runner_receipt["owner_failure"]
-            assert isinstance(identity_owner_failure, dict)
-            assert identity_owner_failure["ok"] is False
-            assert identity_owner_failure["error"] == f"DriverError: {identity_failure_message}"
-            identity_failure = identity_owner_failure["failure"]
-            assert isinstance(identity_failure, dict)
-            assert identity_failure["phase"] == "identity_before_capture"
-            assert identity_failure["error"] == f"DriverError: {identity_failure_message}"
-            assert identity_failure["sample"] is None
-            assert identity_failure["published_png"] is None
-            assert identity_failure["producer_attempt"] == {
+            assert identity_runner_receipt["run_state"] == "failed"
+            assert identity_runner_receipt["attempts"][0]["failure"]["phase"] == "owner_capture"
+            identity_owner = identity_runner_receipt["attempts"][0]["owner"]
+            assert identity_owner["failure"] == {
+                "phase": "owner_capture",
+                "reason_code": "owner_capture_failed",
+            }
+            assert identity_owner["response_ready_monotonic"] is not None
+            assert identity_owner["cleanup"]["attempt_retired"] is True
+            identity_refusal = identity_failure_dir / "owner-refusal-00.json"
+            assert identity_refusal.is_file()
+            assert identity_refusal.stat().st_mode & 0o777 == 0o600
+            identity_refusal_payload = json.loads(identity_refusal.read_text(encoding="utf-8"))
+            persisted_identity_failure = identity_refusal_payload["failure"]
+            assert persisted_identity_failure["phase"] == "identity_before_capture"
+            assert persisted_identity_failure["error"] == f"DriverError: {identity_failure_message}"
+            assert persisted_identity_failure["producer_attempt"] == {
                 "stage": "not_started",
                 "request_started": None,
                 "lock_acquired": None,
                 "ack_sent": None,
+                "capture_started": None,
+                "capture_returned": None,
+                "attempt_retired": True,
             }
-            assert identity_failure["cleanup"]["empty"] is True
-            assert identity_failure["lease_held"] is True
-            assert identity_failure["armed"] is False
-            identity_owner_receipt_path = Path(identity_failure["receipt_path"])
-            assert identity_owner_receipt_path.is_file()
-            persisted_identity_failure = json.loads(identity_owner_receipt_path.read_text(encoding="utf-8"))
-            assert persisted_identity_failure["ok"] is False
-            assert persisted_identity_failure["failure"]["phase"] == "identity_before_capture"
-            assert (
-                persisted_identity_failure["failure"]["error"] == f"DriverError: {identity_failure_message}"
+            assert persisted_identity_failure["lease_held"] is True
+            assert persisted_identity_failure["armed"] is False
+            assert persisted_identity_failure["cleanup"]["empty"] is True
+            identity_evaluated, identity_pairs, identity_report = _evaluate_persisted_live_receipt(
+                identity_runner_receipt, identity_failure_dir / "receipt.json", live_binding
             )
-            assert (
-                persisted_identity_failure["failure"]["producer_attempt"]
-                == identity_failure["producer_attempt"]
-            )
+            assert identity_evaluated["receipt_state"] == "failed"
+            assert identity_evaluated["attempts_begun"] == 1
+            assert identity_evaluated["reason_codes"] == ["binding_mismatch", "owner_capture_failed"]
+            assert identity_report["decision"] == "insufficient_evidence"
+            assert identity_report["reason_codes"] == [
+                "binding_mismatch",
+                "insufficient_complete_runs",
+                "insufficient_completed_pairs",
+                "owner_capture_failed",
+            ]
+            assert identity_pairs == []
             assert request_count[0] == identity_requests_before + 2  # status plus owner IPC
             assert sample_count[0] == identity_samples_before + 1
             assert area_count() == identity_area_before
@@ -2255,6 +2420,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             )
             try:
                 altered_config = load_config(config_path)
+                altered_semantic = session_config_semantic_sha256(altered_config)
                 assert altered_config.profile.canvas_crop == config.profile.canvas_crop
                 assert (
                     altered_config.profile.telemetry_region_executable
@@ -2264,30 +2430,362 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                     altered_config.profile.telemetry_region_executable_sha256
                     == config.profile.telemetry_region_executable_sha256
                 )
-                assert session_config_semantic_sha256(altered_config) != session_config_semantic_sha256(
-                    config
-                )
+                assert altered_semantic != session_config_semantic_sha256(config)
                 before_semantic_area = area_count()
                 before_semantic_admissions = len(admission_events)
                 before_semantic_dirs = sorted(Path(config.capture_dir).glob("paused-region-*"))
                 semantic_mismatch_dir = session_dir / "evidence-semantic-config-mismatch"
-                with pytest.raises(RuntimeError, match="semantic config hash does not match the owner"):
+                with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
                     harness.run_paused_diagnostic(config_path, semantic_mismatch_dir)
                 mismatch_receipt = json.loads(
                     (semantic_mismatch_dir / "receipt.json").read_text(encoding="utf-8")
                 )
-                assert mismatch_receipt["state"] == "failed"
-                assert mismatch_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
-                assert mismatch_receipt["samples"] == []
-                assert len(mismatch_receipt["config_file_sha256"]) == 64
-                assert len(mismatch_receipt["config_semantic_sha256"]) == 64
+                assert mismatch_receipt["run_state"] == "failed"
+                assert mismatch_receipt["attempts"][0]["failure"]["phase"] == "config_binding"
+                assert mismatch_receipt["attempts"] == [mismatch_receipt["attempts"][0]]
+                assert len(mismatch_receipt["config_binding"]["raw_file_sha256"]) == 64
+                assert len(mismatch_receipt["config_binding"]["semantic_sha256"]) == 64
+                mismatch_owner = mismatch_receipt["attempts"][0]["owner"]
+                assert isinstance(mismatch_owner, dict)
+                assert mismatch_owner["config_binding"]["semantic_sha256"] == (
+                    session_config_semantic_sha256(config)
+                )
+                assert mismatch_owner["config_binding"]["semantic_sha256"] != altered_semantic
+                mismatch_binding = copy.deepcopy(live_binding)
+                mismatch_binding["config_binding"] = {
+                    "raw_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                    "semantic_sha256": altered_semantic,
+                }
+                mismatch_evaluated, _mismatch_pairs, _ = _evaluate_persisted_live_receipt(
+                    mismatch_receipt,
+                    semantic_mismatch_dir / "receipt.json",
+                    mismatch_binding,
+                )
+                assert mismatch_evaluated["eligible"] is False
+                assert "config_binding_mismatch" in mismatch_evaluated["reason_codes"]
                 assert area_count() == before_semantic_area
                 assert len(admission_events) == before_semantic_admissions
                 assert sorted(Path(config.capture_dir).glob("paused-region-*")) == before_semantic_dirs
             finally:
                 config_path.write_text(original_config_text, encoding="utf-8")
+
+            # The preceding stop/revocation case deliberately leaves its
+            # owner capture epoch canceled. Reopen the same real paused
+            # configuration before exercising the final-status boundary.
+            daemon._cleanup_native_owned_captures()
+            driver.close()
+            daemon = SessionDaemon(config)
+            driver = daemon.driver
+            backend = driver.backend
+            assert isinstance(backend, X11Backend)
+            compositor["area_block_path"].unlink(missing_ok=True)
+            compositor["area_release_path"].touch(mode=0o600)
+            daemon.controller.pause("prepare final status delay check")
+            ipc = SessionIPC(daemon.controller, daemon)
+
+            # Advance only the runner's injected clock after the real final
+            # status response. The status therefore reached the boundary, but
+            # completion crossed its deterministic one-second deadline and
+            # must remain an uncompleted attempt in the persisted receipt.
+            original_harness_time = harness.time
+            original_status_from_ipc = harness._status_from_ipc
+            status_calls: list[int] = [0]
+            clock_offset = [0.0]
+
+            class _DelayedRunnerClock:
+                def monotonic(self) -> float:
+                    return original_harness_time.monotonic() + clock_offset[0]
+
+                def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+                    return getattr(original_harness_time, name)
+
+            def delay_final_status(config_value, *, timeout):  # type: ignore[no-untyped-def]
+                status_calls[0] += 1
+                result = original_status_from_ipc(config_value, timeout=timeout)
+                if status_calls[0] == 9:
+                    clock_offset[0] = 2.0
+                return result
+
+            harness.time = _DelayedRunnerClock()
+            harness._status_from_ipc = delay_final_status
+            delayed_status_dir = session_dir / "evidence-final-status-delay"
+            try:
+                with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
+                    harness.run_paused_diagnostic(config_path, delayed_status_dir)
+            finally:
+                harness.time = original_harness_time
+                harness._status_from_ipc = original_status_from_ipc
+            delayed_receipt = json.loads((delayed_status_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert status_calls[0] == 9  # eight sample statuses plus final status
+            assert delayed_receipt["run_state"] == "failed"
+            delayed_attempts = delayed_receipt["attempts"]
+            assert isinstance(delayed_attempts, list) and len(delayed_attempts) == 8
+            assert delayed_attempts[-1]["state"] == "failed"
+            assert delayed_attempts[-1]["failure"] == {
+                "phase": "deadline",
+                "reason_code": "sample_deadline_missed",
+            }
+            assert (
+                delayed_attempts[-1]["sample_completed_monotonic"]
+                >= delayed_attempts[-1]["deadline_monotonic"]
+            )
+            delayed_evaluated, delayed_pairs, _ = _evaluate_persisted_live_receipt(
+                delayed_receipt, delayed_status_dir / "receipt.json", live_binding
+            )
+            assert delayed_evaluated["receipt_state"] == "failed"
+            assert delayed_evaluated["timing_qualified"] is False
+            assert "sample_deadline_missed" in delayed_evaluated["reason_codes"]
+            assert len(delayed_pairs) == 8
+
+            # A final status call that throws after strict decode leaves the
+            # completion boundary absent.  The public evaluator retains the
+            # eight decoded pairs and the finite status failure without
+            # inventing a completion timestamp.
+            original_status_from_ipc = harness._status_from_ipc
+            final_status_failure_calls: list[int] = [0]
+
+            def fail_final_status(config_value, *, timeout):  # type: ignore[no-untyped-def]
+                final_status_failure_calls[0] += 1
+                if final_status_failure_calls[0] == 9:
+                    raise RuntimeError("fixture final status failure")
+                return original_status_from_ipc(config_value, timeout=timeout)
+
+            harness._status_from_ipc = fail_final_status
+            final_status_failure_dir = session_dir / "evidence-final-status-failure"
+            try:
+                with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
+                    harness.run_paused_diagnostic(config_path, final_status_failure_dir)
+            finally:
+                harness._status_from_ipc = original_status_from_ipc
+            final_status_failure_receipt = json.loads(
+                (final_status_failure_dir / "receipt.json").read_text(encoding="utf-8")
+            )
+            assert final_status_failure_calls[0] == 9
+            assert final_status_failure_receipt["attempts"][-1]["failure"] == {
+                "phase": "status",
+                "reason_code": "status_failed",
+            }
+            assert final_status_failure_receipt["attempts"][-1]["sample_completed_monotonic"] is None
+            final_status_failure_evaluated, final_status_failure_pairs, _ = _evaluate_persisted_live_receipt(
+                final_status_failure_receipt,
+                final_status_failure_dir / "receipt.json",
+                live_binding,
+            )
+            assert final_status_failure_evaluated["receipt_state"] == "failed"
+            assert "status_failed" in final_status_failure_evaluated["reason_codes"]
+            assert len(final_status_failure_pairs) == 8
+
+            # A valid owner response that cannot be published by the client
+            # must retain the finite PNG-publication failure classification.
+            original_atomic_private_png = harness._atomic_private_png
+            publication_calls = [0]
+
+            def fail_private_png(path: Path, data: bytes) -> None:
+                publication_calls[0] += 1
+                raise OSError("injected private PNG publication failure")
+
+            harness._atomic_private_png = fail_private_png
+            publication_failure_dir = session_dir / "evidence-client-png-publication-failure"
+            try:
+                with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
+                    harness.run_paused_diagnostic(config_path, publication_failure_dir)
+            finally:
+                harness._atomic_private_png = original_atomic_private_png
+            publication_failure_receipt = json.loads(
+                (publication_failure_dir / "receipt.json").read_text(encoding="utf-8")
+            )
+            assert publication_calls[0] == 1
+            assert publication_failure_receipt["attempts"][0]["failure"] == {
+                "phase": "png_publication",
+                "reason_code": "png_publication_failed",
+            }
+
+            # Interrupt the fixed target wait before the next attempt begins.
+            # The common source finalizer must retain a shorter incomplete run
+            # with no fabricated failed attempt for that unreached target.
+            original_harness_time = harness.time
+            original_runtime_source_hashes = harness._runtime_source_hashes
+            source_hash_calls = [0]
+            force_wait = [False]
+            target_origin: list[float | None] = [None]
+            delayed_wait_returned = [False]
+
+            def record_source_hashes() -> dict[str, str]:
+                source_hash_calls[0] += 1
+                result = original_runtime_source_hashes()
+                if source_hash_calls[0] == 1:
+                    force_wait[0] = True
+                return result
+
+            class _InterruptingWaitClock:
+                def monotonic(self) -> float:
+                    value = original_harness_time.monotonic()
+                    if force_wait[0] and target_origin[0] is None:
+                        target_origin[0] = value
+                        return value
+                    if force_wait[0] and not delayed_wait_returned[0]:
+                        delayed_wait_returned[0] = True
+                        assert target_origin[0] is not None
+                        return target_origin[0] - 1.0
+                    return value
+
+                def sleep(self, seconds: float) -> None:
+                    del seconds
+                    raise KeyboardInterrupt()
+
+                def __getattr__(self, name: str):  # type: ignore[no-untyped-def]
+                    return getattr(original_harness_time, name)
+
+            harness.time = _InterruptingWaitClock()
+            harness._runtime_source_hashes = record_source_hashes
+            interrupted_wait_dir = session_dir / "evidence-target-wait-interruption"
+            try:
+                with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
+                    harness.run_paused_diagnostic(config_path, interrupted_wait_dir)
+            finally:
+                harness.time = original_harness_time
+                harness._runtime_source_hashes = original_runtime_source_hashes
+            interrupted_receipt = json.loads(
+                (interrupted_wait_dir / "receipt.json").read_text(encoding="utf-8")
+            )
+            assert interrupted_receipt["run_state"] == "incomplete"
+            assert interrupted_receipt["attempts"] == []
+            interrupted_evaluated, interrupted_pairs, _ = _evaluate_persisted_live_receipt(
+                interrupted_receipt, interrupted_wait_dir / "receipt.json", live_binding
+            )
+            assert interrupted_evaluated["receipt_state"] == "incomplete"
+            assert interrupted_evaluated["attempts_begun"] == 0
+            assert interrupted_pairs == []
+
+            # Exercise every real daemon model entrypoint through the shared
+            # thread-safe wrapper, including exception preservation.
+            model_started = threading.Event()
+
+            class _CountingModel:
+                def observe(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+                    model_started.set()
+                    return {"kind": "fixture-observe"}
+
+                def observe_route(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+                    return {"kind": "fixture-route"}
+
+                def observe_viewport(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+                    return {"kind": "fixture-viewport"}
+
+                def decide(self, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+                    return {"kind": "fixture-decision"}
+
+            daemon.model = _CountingModel()  # type: ignore[assignment]
+            entrypoint_before = daemon._model_call_snapshot()
+            assert daemon._call_model_adapter("observe_route", b"frame") == {"kind": "fixture-route"}
+            assert daemon._call_model_adapter("observe_viewport", b"frame") == {"kind": "fixture-viewport"}
+            assert daemon._call_model_adapter("decide", b"frame") == {"kind": "fixture-decision"}
+
+            def failing_decide(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+                raise RuntimeError("fixture model failure")
+
+            daemon.model.decide = failing_decide  # type: ignore[method-assign]
+            with pytest.raises(RuntimeError, match="fixture model failure"):
+                daemon._call_model_adapter("decide", b"frame")
+            entrypoint_counts = daemon._model_call_snapshot()
+            assert entrypoint_counts == {
+                "started": entrypoint_before["started"] + 4,
+                "succeeded": entrypoint_before["succeeded"] + 3,
+                "failed": entrypoint_before["failed"] + 1,
+            }
+
+            # Hold the actual owner's first source-gate read while a separate
+            # thread calls the real daemon observe entrypoint. The persisted
+            # attempt counters must capture this overlap; no receipt fields
+            # are copied or rewritten by the test.
+            source_gate_entered = threading.Event()
+            source_gate_release = threading.Event()
+            source_gate_first = [True]
+            original_source_binding = daemon._runtime_source_binding_for_diagnostic
+
+            def block_first_source_binding() -> dict[str, str]:
+                if source_gate_first[0]:
+                    source_gate_first[0] = False
+                    source_gate_entered.set()
+                    assert source_gate_release.wait(1.0)
+                return original_source_binding()
+
+            daemon._runtime_source_binding_for_diagnostic = block_first_source_binding  # type: ignore[method-assign]
+            model_run_dir = session_dir / "evidence-model-call-live"
+            model_run_result: list[dict[str, object]] = []
+            model_run_errors: list[BaseException] = []
+            model_call_result: list[object] = []
+            model_call_errors: list[BaseException] = []
+
+            def run_model_diagnostic() -> None:
+                try:
+                    model_run_result.append(harness.run_paused_diagnostic(config_path, model_run_dir))
+                except BaseException as exc:
+                    model_run_errors.append(exc)
+
+            def call_observe_during_source_gate() -> None:
+                try:
+                    model_call_result.append(daemon._observe_model(b"frame", timeout=1.0))
+                except BaseException as exc:
+                    model_call_errors.append(exc)
+
+            model_run_thread = threading.Thread(target=run_model_diagnostic, daemon=True)
+            model_run_thread.start()
+            assert source_gate_entered.wait(1.0)
+            concurrent_model_thread = threading.Thread(target=call_observe_during_source_gate, daemon=True)
+            concurrent_model_thread.start()
+            concurrent_model_thread.join(timeout=1.0)
+            assert not concurrent_model_thread.is_alive()
+            assert not model_call_errors
+            assert model_call_result == [{"kind": "fixture-observe"}]
+            assert model_started.is_set()
+            assert not source_gate_release.is_set()
+            source_gate_release.set()
+            model_run_thread.join(timeout=12.0)
+            assert not model_run_thread.is_alive()
+            daemon._runtime_source_binding_for_diagnostic = original_source_binding  # type: ignore[method-assign]
+            assert not model_run_errors
+            assert model_run_result and model_run_result[0]["run_state"] == "passed"
+
+            model_receipt = json.loads((model_run_dir / "receipt.json").read_text(encoding="utf-8"))
+            model_attempt = model_receipt["attempts"][0]
+            assert model_attempt["owner"]["model_calls_before"] == entrypoint_counts
+            assert model_attempt["owner"]["model_calls_after"] == {
+                "started": entrypoint_counts["started"] + 1,
+                "succeeded": entrypoint_counts["succeeded"] + 1,
+                "failed": entrypoint_counts["failed"],
+            }
+            assert model_attempt["owner"]["model_call_delta"] == {"started": 1, "succeeded": 1, "failed": 0}
+            model_evaluated, model_pairs, _ = _evaluate_persisted_live_receipt(
+                model_receipt, model_run_dir / "receipt.json", live_binding
+            )
+            assert model_evaluated["receipt_state"] == "passed"
+            assert model_evaluated["eligible"] is False
+            assert "model_call_delta_nonzero" in model_evaluated["reason_codes"]
+            assert len(model_pairs) == 7
+
+            # The same unchanged evaluator independently rejects an observer
+            # after-map replacement, retaining the source drift reason.
+            source_drift_dir = session_dir / "evidence-owner-source-drift"
+            source_drift_dir.mkdir(mode=0o700)
+            source_drift_receipt = json.loads((output_dir / "receipt.json").read_text(encoding="utf-8"))
+            source_drift_receipt["observer_source_hashes_after"] = dict(
+                source_drift_receipt["observer_source_hashes_before"]
+            )
+            source_drift_receipt["observer_source_hashes_after"]["daemon.py"] = "f" * 64
+            (source_drift_dir / "receipt.json").write_text(
+                json.dumps(source_drift_receipt, sort_keys=True, separators=(",", ":")), encoding="utf-8"
+            )
+            source_drift_evaluated, source_drift_pairs, _ = _evaluate_persisted_live_receipt(
+                source_drift_receipt, source_drift_dir / "receipt.json", live_binding
+            )
+            assert source_drift_evaluated.get("receipt_refused") is not True
+            assert source_drift_evaluated["eligible"] is False
+            assert source_drift_evaluated["reason_codes"] == ["source_binding_drift"]
+            assert len(source_drift_pairs) == 8
         finally:
             late_response_release.set()
+            late_refusal_release.set()
             stop_status.set()
             status_listener.close()
             status_thread.join(timeout=2.0)
@@ -2298,6 +2796,353 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert not ipc_handler_errors, ipc_handler_errors
             assert all(isinstance(error, str) for error in ipc_late_transport_errors)
             driver.close()
+
+
+def test_paused_region_performance_receipt_preserves_all_boundaries_and_model_counts() -> None:
+    """The schema projection retains observed owner boundaries and adapter counts."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_performance_projection", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+
+    before = {"started": 0, "succeeded": 0, "failed": 0}
+    after = {"started": 1, "succeeded": 1, "failed": 0}
+
+    attempt = {
+        "stage": "published",
+        "request_started": 11.0,
+        "lock_acquired": 12.0,
+        "ack_sent": 13.0,
+        "capture_started": 14.0,
+        "capture_returned": 15.0,
+        "attempt_retired": True,
+    }
+    source_binding = {name: "a" * 64 for name in harness._RUNTIME_SOURCE_FILES}
+    sample = {
+        "owner_entered": 10.0,
+        "owner_returned": 17.0,
+        "response_ready": 16.0,
+        "generation": 4,
+        "receipt": attempt,
+        "cleanup": {
+            "backend_processes": 0,
+            "backend_groups": [],
+            "guardian_observer_groups": [],
+            "guardian_active_groups": [],
+            "attempt_directories": [],
+            "lease_held": True,
+            "watchdog_healthy": True,
+        },
+        "source_binding": source_binding,
+        "config": {
+            "request_config_file_sha256": "b" * 64,
+            "request_config_semantic_sha256": "c" * 64,
+            "owner_config_semantic_sha256": "d" * 64,
+        },
+        "producer": {"sha256": "d" * 64},
+        "source": {"branch": "ScreenshotArea"},
+        "model_calls_before": before,
+        "model_calls_after": after,
+        "model_call_delta": {"started": 1, "succeeded": 1, "failed": 0},
+    }
+    owner = harness._live_owner_evidence(sample, None, 4, None)
+    assert owner["request_started_monotonic"] == 11.0
+    assert owner["capture_started_monotonic"] == 14.0
+    assert owner["capture_returned_monotonic"] == 15.0
+    assert owner["response_ready_monotonic"] == 16.0
+    assert owner["model_calls_before"] == before
+    assert owner["model_calls_after"] == after
+    assert owner["model_call_delta"] == {"started": 1, "succeeded": 1, "failed": 0}
+    assert owner["config_binding"]["semantic_sha256"] == "d" * 64
+    assert owner["cleanup"]["capture_process_reaped"] is True
+    assert owner["cleanup"]["attempt_retired"] is True
+    assert owner["failure"] is None
+
+
+def test_paused_region_performance_failure_preserves_reached_boundaries() -> None:
+    """A thrown decode keeps reached owner/protocol evidence and nulls later stages."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_performance_failure_projection", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+
+    attempt = {
+        "stage": "capture_started",
+        "request_started": 21.0,
+        "lock_acquired": 22.0,
+        "ack_sent": 23.0,
+        "capture_started": 24.0,
+        "capture_returned": None,
+        "attempt_retired": None,
+    }
+    harness._validate_producer_attempt(attempt, 0)
+    failure = {
+        "owner_entered": 20.0,
+        "owner_returned": 26.0,
+        "response_ready": 25.0,
+        "generation": 9,
+        "producer_attempt": attempt,
+        "cleanup": {
+            "backend_processes": 1,
+            "backend_groups": [1234],
+            "guardian_observer_groups": [],
+            "guardian_active_groups": [5678],
+            "attempt_directories": ["/private/attempt"],
+            "lease_held": True,
+            "watchdog_healthy": True,
+        },
+        "config_file_sha256": "e" * 64,
+        "config_semantic_sha256": "f" * 64,
+        "source_binding": {name: "a" * 64 for name in harness._RUNTIME_SOURCE_FILES},
+        "model_calls_before": {"started": 3, "succeeded": 3, "failed": 0},
+        "model_calls_after": {"started": 3, "succeeded": 3, "failed": 0},
+        "model_call_delta": {"started": 0, "succeeded": 0, "failed": 0},
+    }
+    owner = harness._live_owner_evidence(None, failure, 9, harness._live_failure("strict_decode"))
+    assert owner["request_started_monotonic"] == 21.0
+    assert owner["ack_sent_monotonic"] == 23.0
+    assert owner["capture_started_monotonic"] == 24.0
+    assert owner["capture_returned_monotonic"] is None
+    assert owner["failure"] == {
+        "phase": "strict_decode",
+        "reason_code": "strict_decode_failed",
+    }
+    assert owner["cleanup"]["capture_process_reaped"] is False
+    assert owner["cleanup"]["attempt_retired"] is None
+
+
+def test_paused_region_performance_config_refusal_preserves_actual_owner_hash() -> None:
+    """A config refusal never projects the request hash as the owner hash."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_config_refusal_projection", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+
+    request_hash = "a" * 64
+    owner_hash = "b" * 64
+    failure = {
+        "owner_entered": 10.0,
+        "owner_returned": 11.0,
+        "response_ready": 11.0,
+        "generation": 4,
+        "config_file_sha256": "c" * 64,
+        "config_semantic_sha256": request_hash,
+        "owner_config_semantic_sha256": owner_hash,
+        "producer_attempt": {"stage": "not_started"},
+        "cleanup": {},
+    }
+    owner = harness._live_owner_evidence(None, failure, 4, harness._live_failure("config_binding"))
+    assert owner["config_binding"] == {
+        "raw_file_sha256": "c" * 64,
+        "semantic_sha256": owner_hash,
+    }
+
+    missing_owner_hash = dict(failure)
+    missing_owner_hash.pop("owner_config_semantic_sha256")
+    missing_owner = harness._live_owner_evidence(
+        None, missing_owner_hash, 4, harness._live_failure("config_binding")
+    )
+    assert missing_owner["config_binding"]["semantic_sha256"] is None
+
+
+def test_paused_region_owner_failure_contract_rejects_cross_request_and_extra_fields() -> None:
+    """Malformed owner refusals never become trusted projected evidence."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_owner_failure_contract", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+
+    config_file_sha256 = "a" * 64
+    config_semantic_sha256 = "b" * 64
+    failure: dict[str, object] = {
+        "phase": "config_binding",
+        "error": "semantic config mismatch",
+        "owner_entered": 10.0,
+        "owner_returned": 11.0,
+        "artifact_directory": None,
+        "receipt_path": None,
+        "published_png": None,
+        "producer_attempt": {
+            "stage": "not_started",
+            "request_started": None,
+            "lock_acquired": None,
+            "ack_sent": None,
+            "capture_started": None,
+            "capture_returned": None,
+            "attempt_retired": True,
+        },
+        "cleanup": {
+            "backend_processes": 0,
+            "backend_groups": [],
+            "guardian_observer_groups": [],
+            "guardian_active_groups": [],
+            "attempt_directories": [],
+            "lease_held": True,
+            "watchdog_healthy": True,
+            "armed": False,
+            "empty": True,
+        },
+        "generation": 4,
+        "config_file_sha256": config_file_sha256,
+        "config_semantic_sha256": config_semantic_sha256,
+        "owner_config_semantic_sha256": "c" * 64,
+        "lease_held": True,
+        "armed": False,
+        "source_binding": {name: "d" * 64 for name in harness._RUNTIME_SOURCE_FILES},
+        "model_calls_before": {"started": 0, "succeeded": 0, "failed": 0},
+        "model_calls_after": {"started": 0, "succeeded": 0, "failed": 0},
+        "model_call_delta": {"started": 0, "succeeded": 0, "failed": 0},
+        "response_ready": 11.0,
+    }
+    harness._validate_owner_failure_payload(
+        failure,
+        index=0,
+        generation=4,
+        config_file_sha256=config_file_sha256,
+        config_semantic_sha256=config_semantic_sha256,
+    )
+    with pytest.raises(RuntimeError, match="unexpected fields"):
+        harness._validate_owner_failure_payload(
+            {**failure, "unexpected": True},
+            index=0,
+            generation=4,
+            config_file_sha256=config_file_sha256,
+            config_semantic_sha256=config_semantic_sha256,
+        )
+    with pytest.raises(RuntimeError, match="request semantic binding"):
+        harness._validate_owner_failure_payload(
+            {**failure, "config_semantic_sha256": "e" * 64},
+            index=0,
+            generation=4,
+            config_file_sha256=config_file_sha256,
+            config_semantic_sha256=config_semantic_sha256,
+        )
+    with pytest.raises(RuntimeError, match="owner config binding"):
+        harness._validate_owner_failure_payload(
+            {**failure, "owner_config_semantic_sha256": None},
+            index=0,
+            generation=4,
+            config_file_sha256=config_file_sha256,
+            config_semantic_sha256=config_semantic_sha256,
+        )
+
+
+def test_paused_region_performance_projection_counts_guardian_groups_and_requires_observed_cleanup() -> None:
+    """Guardian-owned groups and absent booleans cannot project clean teardown."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_performance_guardian_projection", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+    source = {name: "a" * 64 for name in harness._RUNTIME_SOURCE_FILES}
+    receipt = {
+        "owner_entered": 10.0,
+        "owner_returned": 16.0,
+        "response_ready": 15.0,
+        "generation": 4,
+        "receipt": {
+            "request_started": 11.0,
+            "lock_acquired": 12.0,
+            "ack_sent": 13.0,
+            "capture_started": 14.0,
+            "capture_returned": 15.0,
+            "attempt_retired": True,
+            "nonce": "private-nonce",
+        },
+        "cleanup": {
+            "backend_processes": 0,
+            "backend_groups": [],
+            "guardian_observer_groups": [],
+            "guardian_active_groups": [4321],
+            "attempt_directories": [],
+            "lease_held": True,
+            "watchdog_healthy": True,
+        },
+        "source_binding": source,
+        "producer": {"sha256": "b" * 64},
+        "config": {"request_config_file_sha256": "c" * 64, "request_config_semantic_sha256": "d" * 64},
+        "source": {"branch": "ScreenshotArea"},
+        "model_calls_before": {"started": 0, "succeeded": 0, "failed": 0},
+        "model_calls_after": {"started": 0, "succeeded": 0, "failed": 0},
+        "model_call_delta": {"started": 0, "succeeded": 0, "failed": 0},
+    }
+    owner = harness._live_owner_evidence(receipt, None, 4, None)
+    assert owner["cleanup"]["active_process_group_count"] == 1
+    assert owner["cleanup"]["capture_process_reaped"] is False
+
+    missing = dict(receipt)
+    missing["cleanup"] = {
+        "backend_processes": 0,
+        "backend_groups": [],
+        "guardian_observer_groups": [],
+        "guardian_active_groups": [],
+        "attempt_directories": [],
+    }
+    missing_owner = harness._live_owner_evidence(missing, None, 4, None)
+    assert missing_owner["cleanup"]["lease_held"] is None
+    assert missing_owner["cleanup"]["watchdog_healthy"] is None
+
+
+def test_runtime_source_readers_reject_path_replacement_after_descriptor_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Both independent readers bind the pathname to the bytes they hashed."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_source_reader_race", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+    source = tmp_path / "source.py"
+    replacement = tmp_path / "replacement.py"
+    base_open = os.open
+    for module, expected_error in (
+        (daemon_module, DriverError),
+        (harness, RuntimeError),
+    ):
+        source.write_bytes(b"original source\n")
+        replacement.write_bytes(b"replacement source\n")
+        mapping = {"source.py": Path("source.py")}
+        monkeypatch.setattr(module, "_RUNTIME_SOURCE_FILES", mapping)
+        if module is daemon_module:
+            monkeypatch.setattr(module, "_runtime_source_root", lambda: tmp_path)
+        else:
+            monkeypatch.setattr(module, "ROOT", tmp_path)
+        replaced = False
+
+        def replacing_open(path, *args, **kwargs):  # type: ignore[no-untyped-def]
+            nonlocal replaced
+            descriptor = base_open(path, *args, **kwargs)
+            if Path(path) == source and not replaced:
+                source.unlink()
+                replacement.rename(source)
+                replaced = True
+            return descriptor
+
+        monkeypatch.setattr(module.os, "open", replacing_open)
+        with pytest.raises(expected_error, match="changed during inspection"):
+            module._runtime_source_hashes()
 
 
 def test_real_agent_pixel_decoder_motion_frame_binds_schema3_native_capability() -> None:

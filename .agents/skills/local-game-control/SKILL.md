@@ -221,6 +221,12 @@ within existing authorization; respect any current movement limits.
   Slash-command success does not prove shifted punctuation works. Compare the
   entire actual buffer, including parentheses and quotes, before Return; cancel
   malformed input and retain the refusal instead of trying another live route.
+  Pointer position can change during Wine capture. Compare actual positions before
+  and after capture; a tooltip in the image does not prove the current pointer
+  stayed there. Diagnose the change before any guarded final reposition/click.
+  A first post-click image can still carry the previous one-Hz addon payload.
+  Wait for advancing, settled post-action frames before declaring failure or
+  retrying an interaction.
 - After a black capture, establish whether the game is loading, obscured, disconnected,
   or uncaptured. Compare capture paths when needed: on GNOME, scrot or XImage can be black
   while gnome-screenshot captures a healthy visible application. A failed

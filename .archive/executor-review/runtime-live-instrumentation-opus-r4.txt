@@ -1,0 +1,39 @@
+**Model ID:** `claude-opus-5-5`
+
+The R4 delta closes what it claims and I found no regressions. There are no Must-Fix items. Two of the claimed closures have no regression test, which I've listed as Should-Fix. I made no edits and ran no tests, builds, network, GUI or input; only hashing and `git diff --no-index` on the worktrees.
+
+## Integrity
+- The closure diff SHA `625074838a00…bdbb5` and the freeze JSON SHA `0d2fbfe43079…dcad7` both match.
+- All 7 hashes listed in the freeze file match the R4 worktree.
+- I rebuilt the R3→R4 delta from the two worktrees and it matches the frozen SHA exactly.
+- `driver.py` and `session_performance.py` are byte-identical to R3. Only `daemon.py`, `offline_harness.py` and `test_session_native.py` differ.
+
+## Closure checks (new in R4 only)
+- **Model counter snapshot (`daemon.py:3983-3991`):** the "after" snapshot now comes after the final source re-hash, and it is still taken when that check fails. The counted window now runs from `daemon.py:3751` to `3986` and covers both source checks (3847 and 3978). A model call during the last attempt's final source check used to be missed entirely; now it is counted against that attempt. The gap between one attempt's "after" and the next attempt's "before" gets shorter, so no window goes uncounted.
+- **Late refusal (`offline_harness.py:1924`, `1959-1961`):** the private refusal record is written before any validation. A late refusal that carries both a failure payload and a sample is now classified as a deadline miss before `_owner_png_bytes` runs, so no client PNG is written. The new test would have failed on R3, which published `paused-00.png` first. Its timing is set from the real request deadline plus 0.03 s, inside the 0.25 s grace, and the injected persist failure fires only once.
+- **Concurrent model call test:** it blocks the daemon's first real source check (3847, after the "before" snapshot at 3751) and runs a real `_observe_model` call during it. `assert not source_gate_release.is_set()` proves the overlap happened. The delta it checks comes from the persisted receipt; the test no longer copies or rewrites receipt fields. The receipt then goes through the public evaluator: passed, not eligible, `model_call_delta_nonzero`, 7 pairs.
+- **Label change (`offline_harness.py:1089`):** a malformed `source` is now labelled `producer_binding`. That matches the existing checks on `source` values (`1253-1258`) and how `_live_owner_evidence` reports `source.branch` (1701).
+- **Final status failure:** the 9th `_status_from_ipc` call is the final one (`2098-2099`). The test leaves `sample_completed_monotonic` as `None` with phase `status` and keeps the 8 pairs. The patched function is restored in a `finally` block.
+
+## Must-Fix
+None.
+
+## Should-Fix
+1. **Two claimed closures have no regression test.** The preservation of simple and malformed refusals (`offline_harness.py:1924-1943`) and the `producer_binding` label (`offline_harness.py:1089`) are not exercised anywhere in `tests/`. Only the late refusal (`test_session_native.py:1797`) and the identity refusal (`2271`) check for `owner-refusal-NN.json`.
+   - Small unit cases would cover it: a plain `{"ok":false,"error":"…"}` refusal, one with an unexpected field, one where `failure` is not a dict, and a malformed `source`. Each should check the private record, its 0600 mode and the reason code.
+   - These paths only affect failed attempts, never pairs or timing boundaries, so this doesn't block.
+
+## Nits
+1. **Empty `error` is mislabelled (`offline_harness.py:1930`).** An empty-string `error` is accepted. A simple refusal then reaches `_owner_failure_phase(None, response)` (`1447-1449`), which maps it to `process_terminated` even though the owner returned a refusal. R4 makes this reachable: `cli.py:79` returns `{"ok": False, "error": str(exc)}`, and `str(exc)` can be empty. Fix: require a non-empty `error`.
+2. **`sample` is accepted without `failure` (`offline_harness.py:1932`, `1942`).** R3 rejected this shape, and the daemon never sends it (`daemon.py:4110-4121` always pairs `sample` with `failure`). The unvalidated sample still fills `attempt["owner"]` (`1946-1953`). The attempt still fails, so this is only a loss of strictness. Fix: reject `sample` when `failure` is absent.
+
+## Not raised, per your instructions
+- The local clock facade.
+- Retiring the empty owner-wide ledger before the producer starts.
+- Model calls during the success-receipt write, which is outside this delta.
+
+You reported a full-suite pass (199) for R3, but only the focused composition test and the 65 evaluator tests for R4. I found no other test that depended on the old refusal error messages.
+
+STATUS: READY
+
+CLAUDE_EXIT:0

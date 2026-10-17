@@ -29,18 +29,20 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at12:06UTC:** twenty-four current-session sweeps are persisted and
-exact-UID ACKed:54,726 price rows across428target items per sweep. Twenty-fourth
+**Current status at12:30UTC:** twenty-five current-session sweeps are persisted and
+exact-UID ACKed:57,229 price rows across428target items per sweep. Twenty-fourth
 completed428queries/2546rows,407full/21bounded/allok in474s; exact900s start
-interval, upload61.181s. Previous three ordinary sweeps uploaded in56.893s,
-37.148s and39.690s. Formal autonomous performance remains unqualified. After
-#24reload, overlapping characters obscured the auctioneer. Luna identified a
-fresh hover candidate but its click proof expired before dispatch; no button
-went down. A prepared-helper/fresh-proof recovery is underway. Do not infer a
-#25timer defect if its AH-open precondition was unavailable. Recent starts are exactly900s apart; uploads still
-inconsistently meet60s. Luna remains the sole ordinary GUI operator. The formal
-autonomous three-sweep qualification, physical-input qualification and launch
-strategy engine remain unfinished.
+interval, upload61.181s. After #24reload, crowded characters obscured the auctioneer.
+A fresh-proof guarded single right-click recovered the AH; #25 began1792239402,
+1599s after #24start (699s late because AH-open was unavailable). Its next due
+is1792240302. Do not attribute this delay to the addon timer. Pointer position
+changed during full-screen capture; pinned and system position tools agreed,
+but the actor/mechanism is unknown. Xwayland-relative-pointer is virtual, not
+proof of physical human input. The first post-click HUD was too early; a later
+advancing frame established AHopen/scanactive. Luna remains sole GUI operator.
+Scan25completed428queries/2503rows/407full/21bounded/allok in477s; upload53.609s.
+AHreopened with fresh proof and26scheduled1792240302. Formal autonomous three-sweep
+and physical-input qualification remain unfinished.
 
 Native R6 source is accepted and pushed447b40e: parent323broad checks, final
 compiled checks, Sol and actual OpusR3READY. A fresh manual owner now uses the
@@ -56,20 +58,28 @@ SolREADY live instrumentation plan now has a frozen four-file candidate in
 `/home/dev/.cache/crowley/worktrees/runtime-instrumentation-20261017`; parent
 reproduced69focused R1,71focused R2, and199native/evaluator R3 checks (189.30s).
 SolR3source READY. A separate test-only closure has parent1compiled check32.65s
-and Sol/actualOpus READY; production files unchanged. ActualOpusR3 still requires
-a late-refusal deadline-label fix and actual concurrent model-call regression.
-Luna owns bounded successor `runtime-instrumentation-r4-20261017`; driver remains
-R3-byte-identical, only daemon/harness/tests may change. Earlier freezes stay
-immutable. No instrumentation candidate is integrated or released. Next: integrate the reviewed
+and Sol/actualOpus READY. Bounded R4 now closes actualOpusR3 findings: late refusal
+classification, genuine concurrent model-call regression, original refusal detail,
+final source-check counter coverage and explicit final-status/public-evaluation
+assertions. Parent66focused compiled/evaluator checks passed62.58s plus Ruff,
+format and diff checks. R4 is frozen (0d2fbfe43079d58a0216aded1895209831083f238e0bc8759678c81f1c2dcad7),
+with driver byte-identical to R3; narrow Sol and actualOpus reviews both READY (OpusCLIexit0/modelclaude-opus-5-5).
+Earlier freezes remain immutable. Exact candidate integrated; parent integrated
+reproduction and fresh-owner transition pending. Nonblocking Opus failed-path
+test coverage/strictness observations are recorded in the R4 review. Next: integrate the reviewed
 instrumentation, start a fresh owner, bind the exact sources/config/producer,
-and retain every outcome in a predeclared16-run evidence batch. No live
+and retain every outcome in the predeclared16-run evidence batch
+`r4-live-performance-20261017T122938Z` (private bindingSHA
+5c566210954cd303b1c6f59c5b9c98eb832d884a55dab24a077ae7d6a7bd359e). No live
 computation bottleneck or Rust rewrite is established yet. Instrumentation's
 `response_ready` records finalized capture/cleanup content before receipt
 validation/fsync, not socket return or persistence completion; the observer's
 IPC-return clock includes that later work. Fourteen descriptor-bound source
 reads occur inside each owner's measured sample (seven before, seven after).
 Their overhead is included in wall time and excluded from strict-decode CPU;
-no separate overhead distribution has been measured.
+no separate overhead distribution has been measured. Refusals before the producer
+starts use the conservative owner-wide empty cleanup ledger to establish retirement;
+this is not a per-request producer-process observation.
 
 Fresh backup `beta-20261017T120034Z-ec9c55cdffcb` passed snapshot and independent
 validation (manifestSHA7d9a78395d45e411c370e82a8a6a33dac5c6ab9d7b7362f9b5a1f48a70f714a4).

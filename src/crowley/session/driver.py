@@ -2752,6 +2752,15 @@ class X11Backend:
     ) -> WindowIdentity:
         """Capture one exact profile-derived region through the private producer."""
 
+        self.last_region_attempt = {
+            "stage": "not_started",
+            "request_started": None,
+            "lock_acquired": None,
+            "ack_sent": None,
+            "capture_started": None,
+            "capture_returned": None,
+            "attempt_retired": None,
+        }
         executable = self.profile.telemetry_region_executable
         executable_sha256 = self.profile.telemetry_region_executable_sha256
         if executable is None or executable_sha256 is None:
@@ -2806,8 +2815,13 @@ class X11Backend:
         nonce = uuid.uuid4().hex
         output_path_digest = ""
         request_started = time.monotonic()
+        # A validation or admission failure retains the entry timestamp while
+        # every later boundary remains explicitly unreached.
         lock_acquired: float | None = None
         ack_sent: float | None = None
+        capture_started: float | None = None
+        capture_returned: float | None = None
+        attempt_retired: bool | None = None
         protocol_stage = "capture_lock_wait"
 
         def update_protocol_stage(stage_name: str) -> None:
@@ -2818,6 +2832,9 @@ class X11Backend:
                 "request_started": request_started,
                 "lock_acquired": lock_acquired,
                 "ack_sent": ack_sent,
+                "capture_started": capture_started,
+                "capture_returned": capture_returned,
+                "attempt_retired": attempt_retired,
             }
 
         update_protocol_stage(protocol_stage)
@@ -3017,6 +3034,7 @@ class X11Backend:
                     or float(started["capture_started"]) > time.monotonic()
                 ):
                     raise DriverError("telemetry capture-start proof is malformed")
+                capture_started = float(started["capture_started"])
                 update_protocol_stage("capture_complete")
                 _wait_for_complete_png(
                     stage,
@@ -3097,7 +3115,7 @@ class X11Backend:
                         request_started=request_started,
                         lock_acquired=lock_acquired,
                         ack_sent=ack_sent,
-                        capture_started=float(started["capture_started"]),
+                        capture_started=capture_started,
                         capture_returned=capture_returned,
                         output_path_digest=output_path_digest,
                         output_sha256=output_digest,
@@ -3151,6 +3169,7 @@ class X11Backend:
                     os.close(image_fd)
                 except OSError:
                     pass
+            directory_retired = attempt_dir is None
             if attempt_dir is not None:
                 retired_dir = attempt_dir.with_name(f".{attempt_dir.name}.retired-{uuid.uuid4().hex}")
                 try:
@@ -3161,21 +3180,35 @@ class X11Backend:
                     shutil.rmtree(attempt_dir, ignore_errors=True)
                 else:
                     shutil.rmtree(retired_dir, ignore_errors=True)
-                if self.last_region_receipt is not None and self.last_region_receipt.nonce == nonce:
-                    directory_retired = not attempt_dir.exists() and not retired_dir.exists()
-                    if owned_process is None:
-                        process_retired = True
-                    else:
-                        with self._process_lock:
-                            process_retired = (
-                                owned_process.poll() is not None
-                                and owned_process not in self._active_processes
-                                and owned_process.pid not in self._active_process_groups
-                            )
-                    self.last_region_receipt = replace(
-                        self.last_region_receipt,
-                        attempt_retired=directory_retired and process_retired,
+                directory_retired = not attempt_dir.exists() and not retired_dir.exists()
+            if owned_process is None:
+                process_retired = True
+            else:
+                with self._process_lock:
+                    process_retired = (
+                        owned_process.poll() is not None
+                        and owned_process not in self._active_processes
+                        and owned_process.pid not in self._active_process_groups
                     )
+            attempt_retired = directory_retired and process_retired
+            if self.last_region_receipt is not None and self.last_region_receipt.nonce == nonce:
+                self.last_region_receipt = replace(
+                    self.last_region_receipt,
+                    attempt_retired=attempt_retired,
+                )
+            # This snapshot is also the durable failure evidence.  It is
+            # written after process reap and attempt retirement, so a late
+            # failure cannot erase an earlier boundary or claim provisional
+            # cleanup as final.
+            self.last_region_attempt = {
+                "stage": protocol_stage,
+                "request_started": request_started,
+                "lock_acquired": lock_acquired,
+                "ack_sent": ack_sent,
+                "capture_started": capture_started,
+                "capture_returned": capture_returned,
+                "attempt_retired": attempt_retired,
+            }
 
     def synthetic_calibration(
         self, window_id: str, x: int, y: int, *, calibration_ticket: CalibrationTicket | None = None

@@ -9,6 +9,7 @@ import json
 import math
 import os
 import shutil
+import stat
 import tempfile
 import threading
 import time
@@ -131,6 +132,129 @@ def session_config_semantic_sha256(config: SessionConfig) -> str:
     return hashlib.sha256(_canonical_dataclass_json(config)).hexdigest()
 
 
+_RUNTIME_SOURCE_FILES = {
+    "daemon.py": Path("src/crowley/session/daemon.py"),
+    "driver.py": Path("src/crowley/session/driver.py"),
+    "cli.py": Path("src/crowley/session/cli.py"),
+    "decoder.py": Path("src/crowley/session/decoder.py"),
+    "protocol.py": Path("src/crowley/session/protocol.py"),
+    "offline_harness.py": Path("tools/gnome-telemetry-region/offline_harness.py"),
+    "session_performance.py": Path("tools/session_performance.py"),
+}
+_RUNTIME_SOURCE_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _runtime_source_root() -> Path:
+    """Derive the trusted project root from the installed daemon source."""
+
+    source = Path(__file__).absolute()
+    if source.is_symlink():
+        raise DriverError("runtime source descriptor is a symlink")
+    return source.resolve().parents[3]
+
+
+def _runtime_source_hashes() -> dict[str, str]:
+    """Read the exact seven bounded source descriptors, refusing drift."""
+
+    root = _runtime_source_root()
+    result: dict[str, str] = {}
+    for logical_name, relative in _RUNTIME_SOURCE_FILES.items():
+        path = root / relative
+        try:
+            before = path.lstat()
+            if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+                raise DriverError(f"runtime source {logical_name} is not a regular file")
+            if before.st_size > _RUNTIME_SOURCE_MAX_BYTES:
+                raise DriverError(f"runtime source {logical_name} exceeds its bounded size")
+            flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+            descriptor = os.open(path, flags)
+            try:
+                opened = os.fstat(descriptor)
+                if not stat.S_ISREG(opened.st_mode) or (
+                    opened.st_dev,
+                    opened.st_ino,
+                    opened.st_mode,
+                    opened.st_nlink,
+                    opened.st_size,
+                    opened.st_mtime_ns,
+                    opened.st_ctime_ns,
+                ) != (
+                    before.st_dev,
+                    before.st_ino,
+                    before.st_mode,
+                    before.st_nlink,
+                    before.st_size,
+                    before.st_mtime_ns,
+                    before.st_ctime_ns,
+                ):
+                    raise DriverError(f"runtime source {logical_name} changed during inspection")
+                digest = hashlib.sha256()
+                total = 0
+                while True:
+                    chunk = os.read(descriptor, min(1024 * 1024, _RUNTIME_SOURCE_MAX_BYTES + 1 - total))
+                    if not chunk:
+                        break
+                    total += len(chunk)
+                    if total > _RUNTIME_SOURCE_MAX_BYTES:
+                        raise DriverError(f"runtime source {logical_name} exceeds its bounded size")
+                    digest.update(chunk)
+                if total != opened.st_size:
+                    raise DriverError(f"runtime source {logical_name} exceeds its bounded size")
+                after = os.fstat(descriptor)
+                if (
+                    after.st_dev,
+                    after.st_ino,
+                    after.st_mode,
+                    after.st_nlink,
+                    after.st_size,
+                    after.st_mtime_ns,
+                    after.st_ctime_ns,
+                ) != (
+                    opened.st_dev,
+                    opened.st_ino,
+                    opened.st_mode,
+                    opened.st_nlink,
+                    opened.st_size,
+                    opened.st_mtime_ns,
+                    opened.st_ctime_ns,
+                ):
+                    raise DriverError(f"runtime source {logical_name} changed during inspection")
+                after_path = path.lstat()
+                if (
+                    stat.S_ISLNK(after_path.st_mode)
+                    or not stat.S_ISREG(after_path.st_mode)
+                    or (
+                        after_path.st_dev,
+                        after_path.st_ino,
+                        after_path.st_mode,
+                        after_path.st_nlink,
+                        after_path.st_size,
+                        after_path.st_mtime_ns,
+                        after_path.st_ctime_ns,
+                    )
+                    != (
+                        after.st_dev,
+                        after.st_ino,
+                        after.st_mode,
+                        after.st_nlink,
+                        after.st_size,
+                        after.st_mtime_ns,
+                        after.st_ctime_ns,
+                    )
+                ):
+                    raise DriverError(f"runtime source {logical_name} changed during inspection")
+            finally:
+                os.close(descriptor)
+        except FileNotFoundError as exc:
+            raise DriverError(f"runtime source {logical_name} is unavailable") from exc
+        except OSError as exc:
+            raise DriverError(f"runtime source {logical_name} cannot be inspected") from exc
+        result[logical_name] = digest.hexdigest()
+    if set(result) != set(_RUNTIME_SOURCE_FILES):
+        raise DriverError("runtime source descriptor map is incomplete")
+    return result
+
+
 def _driver_profile_matches_config(driver: Any, config: SessionConfig) -> bool:
     try:
         driver_profile = asdict(driver.profile)
@@ -244,6 +368,15 @@ class SessionDaemon:
         # anchors there after real actions.
         self.config = copy.deepcopy(config)
         self._loaded_config_semantic_sha256 = session_config_semantic_sha256(self.config)
+        self._model_counter_lock = threading.RLock()
+        self._model_call_counters = {"started": 0, "succeeded": 0, "failed": 0}
+        # Source evidence is optional for ordinary daemon operation. A source
+        # installation that cannot be inspected remains usable, but its
+        # paused diagnostic is refused when it reaches the qualification gate.
+        try:
+            self._runtime_source_binding = _runtime_source_hashes()
+        except DriverError:
+            self._runtime_source_binding = None
         self._motion_profiles = self._load_motion_profiles(self.config)
         self.capture_index = 0
         self._named_capture_sequence = 0
@@ -2051,6 +2184,55 @@ class SessionDaemon:
                 except FileNotFoundError:
                     pass
 
+    def _model_call_snapshot(self) -> dict[str, int]:
+        lock = getattr(self, "_model_counter_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._model_counter_lock = lock
+        with lock:
+            counters = getattr(self, "_model_call_counters", None)
+            if counters is None:
+                counters = {"started": 0, "succeeded": 0, "failed": 0}
+                self._model_call_counters = counters
+            return {key: int(counters[key]) for key in ("started", "succeeded", "failed")}
+
+    def _call_model_adapter(self, method_name: str, *args: Any, **kwargs: Any) -> Any:
+        """Count the real adapter call without holding the counter lock over it."""
+
+        adapter = self.model
+        method = getattr(adapter, method_name, None)
+        if not callable(method):
+            raise ModelError(f"model adapter has no {method_name} entrypoint")
+        lock = getattr(self, "_model_counter_lock", None)
+        if lock is None:
+            lock = threading.RLock()
+            self._model_counter_lock = lock
+        with lock:
+            counters = getattr(self, "_model_call_counters", None)
+            if counters is None:
+                counters = {"started": 0, "succeeded": 0, "failed": 0}
+                self._model_call_counters = counters
+            counters["started"] += 1
+        try:
+            result = method(*args, **kwargs)
+        except BaseException:
+            with lock:
+                counters["failed"] += 1
+            raise
+        else:
+            with lock:
+                counters["succeeded"] += 1
+            return result
+
+    def _runtime_source_binding_for_diagnostic(self) -> dict[str, str]:
+        initial = getattr(self, "_runtime_source_binding", None)
+        if not isinstance(initial, dict) or set(initial) != set(_RUNTIME_SOURCE_FILES):
+            raise DriverError("paused region diagnostic source binding is unavailable")
+        current = _runtime_source_hashes()
+        if current != initial:
+            raise DriverError("paused region diagnostic source binding drifted")
+        return dict(current)
+
     def _observe_model(
         self,
         image: bytes,
@@ -2074,7 +2256,7 @@ class SessionDaemon:
         # freshness bound; a type-based compatibility branch would silently
         # remove the deadline from an alternate production provider.
         kwargs["timeout"] = timeout
-        return self.model.observe(image, **kwargs)
+        return self._call_model_adapter("observe", image, **kwargs)
 
     def _require_interaction(self, generation: int) -> int:
         deadline_local = getattr(self, "_motion_deadline_local", None)
@@ -2388,7 +2570,8 @@ class SessionDaemon:
         remaining = self._remaining_motion_budget(deadline) - MOTION_POST_RELEASE_RESERVE_SECONDS
         if remaining <= 0:
             raise DriverError("route evidence left no post-release feedback reserve")
-        observation = self.model.observe_route(
+        observation = self._call_model_adapter(
+            "observe_route",
             image,
             target="game-client",
             verified_crop=self.config.profile.model_crop,
@@ -2444,7 +2627,8 @@ class SessionDaemon:
         observe_viewport = getattr(self.model, "observe_viewport", None)
         if not callable(observe_viewport):
             raise DriverError("model has no strict world viewport observation provider")
-        observation = observe_viewport(
+        observation = self._call_model_adapter(
+            "observe_viewport",
             image,
             target="game-client",
             verified_crop=self.config.profile.model_crop,
@@ -3484,8 +3668,11 @@ class SessionDaemon:
     def _recover_login(self) -> None:
         if self.recovery_attempts >= 4:
             raise ModelError("bounded login recovery attempt budget exhausted")
-        decision = self.model.decide(
-            self._capture_model(), target="game-client", verified_crop=self.config.profile.model_crop
+        decision = self._call_model_adapter(
+            "decide",
+            self._capture_model(),
+            target="game-client",
+            verified_crop=self.config.profile.model_crop,
         )
         if decision.action in self.recovery_actions:
             raise ModelError(f"login recovery action {decision.action} exceeded its one-attempt budget")
@@ -3540,6 +3727,28 @@ class SessionDaemon:
         failure_record: dict[str, Any] = {}
         capture_returned: float | None = None
         motion_fence = None
+        source_binding: dict[str, str] | None = None
+        model_calls_before: dict[str, int] | None = None
+        model_calls_after: dict[str, int] | None = None
+        model_call_delta: dict[str, int] | None = None
+        response_ready: float | None = None
+        driver = self.driver
+        backend = driver.backend
+        guardian = driver.guardian
+        owner_config_semantic_sha256 = self._loaded_config_semantic_sha256
+        if isinstance(getattr(backend, "last_region_attempt", None), dict):
+            backend.last_region_attempt = {
+                "stage": "not_started",
+                "request_started": None,
+                "lock_acquired": None,
+                "ack_sent": None,
+                "capture_started": None,
+                "capture_returned": None,
+                "attempt_retired": None,
+            }
+        if isinstance(self._runtime_source_binding, dict):
+            source_binding = dict(self._runtime_source_binding)
+        model_calls_before = self._model_call_snapshot()
         try:
             if (
                 isinstance(expected_generation, bool)
@@ -3566,11 +3775,11 @@ class SessionDaemon:
                     or any(character not in "0123456789abcdef" for character in digest)
                 ):
                     raise DriverError(f"paused region {label} is malformed")
-            driver = self.driver
-            owner_config_semantic_sha256 = self._loaded_config_semantic_sha256
             if not _driver_profile_matches_config(driver, self.config):
+                phase = "config_binding"
                 raise DriverError("owning driver profile does not match the daemon config")
             if config_semantic_sha256 != owner_config_semantic_sha256:
+                phase = "config_binding"
                 raise DriverError("paused region semantic config hash does not match the owner config")
             now = time.monotonic()
             if parent_started > now or now - parent_started > 1.0:
@@ -3585,8 +3794,6 @@ class SessionDaemon:
             with self.controller.lock:
                 self._check_paused_region_admission(expected_generation)
 
-            backend = driver.backend
-            guardian = driver.guardian
             if not isinstance(backend, X11Backend):
                 raise DriverError("paused region sample requires the configured production X11 backend")
             if backend._cancel_active.is_set():
@@ -3632,7 +3839,12 @@ class SessionDaemon:
                 "request_started": None,
                 "lock_acquired": None,
                 "ack_sent": None,
+                "capture_started": None,
+                "capture_returned": None,
+                "attempt_retired": None,
             }
+            phase = "source_binding"
+            source_binding = self._runtime_source_binding_for_diagnostic()
 
             phase = "identity_before_capture"
             if time.monotonic() >= deadline:
@@ -3672,9 +3884,11 @@ class SessionDaemon:
             capture_returned = time.monotonic()
             published = output.is_file() and not output.is_symlink()
             if not published:
+                phase = "png_publication"
                 raise DriverError("paused region producer returned without its PNG publication")
             output_bytes = output.read_bytes()
             if not output_bytes or len(output_bytes) > 131072:
+                phase = "png_publication"
                 raise DriverError("paused region PNG exceeds its bounded output size")
             receipt = backend.last_region_receipt
             if receipt is None or receipt is before_receipt:
@@ -3687,6 +3901,7 @@ class SessionDaemon:
                 or receipt.output_bytes != len(output_bytes)
                 or receipt.attempt_retired is not True
             ):
+                phase = "producer_binding"
                 raise DriverError("paused region producer receipt does not bind its published PNG")
             cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
             source = {
@@ -3720,6 +3935,11 @@ class SessionDaemon:
                 "artifact_directory": str(request_dir),
                 "artifact_png": str(output),
                 "cleanup": cleanup,
+                "source_binding": source_binding,
+                "model_calls_before": model_calls_before,
+                "model_calls_after": None,
+                "model_call_delta": None,
+                "response_ready": None,
             }
             if time.monotonic() >= deadline:
                 raise DriverError("paused region deadline expired before response serialization")
@@ -3727,9 +3947,13 @@ class SessionDaemon:
             identity_after = driver.resolve_identity(deadline_monotonic=deadline)
             if identity_after.fingerprint != identity.fingerprint:
                 raise DriverError("paused region client identity changed during capture")
-            self._check_paused_region_config_binding(
-                driver, owner_config_semantic_sha256, config_semantic_sha256
-            )
+            try:
+                self._check_paused_region_config_binding(
+                    driver, owner_config_semantic_sha256, config_semantic_sha256
+                )
+            except Exception:
+                phase = "config_binding"
+                raise
             with self.controller.lock:
                 self._check_paused_region_admission(expected_generation)
             if guardian.armed or not guardian.lease.held:
@@ -3737,6 +3961,7 @@ class SessionDaemon:
             guardian.admission_gate_ready()
             cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
             if cleanup["empty"] is not True:
+                phase = "cleanup"
                 raise DriverError("paused region capture did not retire its owner process and attempts")
             sample["identity_after"] = identity_after.fingerprint
             sample["cleanup"] = cleanup
@@ -3748,10 +3973,36 @@ class SessionDaemon:
                 backend = self.driver.backend
                 guardian = self.driver.guardian
                 cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+                if failure is None and source_binding is not None:
+                    try:
+                        if self._runtime_source_binding_for_diagnostic() != source_binding:
+                            raise DriverError("paused region diagnostic source binding drifted")
+                    except Exception as source_error:
+                        failure = source_error
+                        phase = "source_binding"
+                # The after snapshot closes the full owner interval, including
+                # the final source check.  A concurrent model call during that
+                # last verification must remain attributable to this sample.
+                model_calls_after = self._model_call_snapshot()
+                if model_calls_before is not None:
+                    model_call_delta = {
+                        key: model_calls_after[key] - model_calls_before[key]
+                        for key in ("started", "succeeded", "failed")
+                    }
+                response_ready = time.monotonic()
                 owner_returned = time.monotonic()
+                producer_attempt = dict(backend.last_region_attempt)
+                if producer_attempt.get("stage") == "not_started" and isinstance(cleanup.get("empty"), bool):
+                    # A pre-admission refusal has no producer receipt to retire.
+                    # Its terminal cleanup ledger is the only observation that
+                    # can truthfully establish that no attempt remains.
+                    producer_attempt["attempt_retired"] = cleanup["empty"]
                 if sample is not None:
                     sample["owner_returned"] = owner_returned
                     sample["cleanup"] = cleanup
+                    sample["model_calls_after"] = model_calls_after
+                    sample["model_call_delta"] = model_call_delta
+                    sample["response_ready"] = response_ready
                 failure_record = {
                     "phase": phase,
                     "error": f"{type(failure).__name__}: {failure}" if failure else "",
@@ -3762,7 +4013,7 @@ class SessionDaemon:
                     "published_png": str(output)
                     if published and output is not None and output.is_file()
                     else None,
-                    "producer_attempt": dict(backend.last_region_attempt),
+                    "producer_attempt": producer_attempt,
                     "cleanup": cleanup,
                     "generation": expected_generation,
                     "config_file_sha256": config_file_sha256,
@@ -3770,9 +4021,14 @@ class SessionDaemon:
                     "owner_config_semantic_sha256": owner_config_semantic_sha256,
                     "lease_held": guardian.lease.held,
                     "armed": guardian.armed,
+                    "source_binding": source_binding,
+                    "model_calls_before": model_calls_before,
+                    "model_calls_after": model_calls_after,
+                    "model_call_delta": model_call_delta,
                 }
                 if failure is not None:
                     failure_record["sample"] = sample
+                    failure_record["response_ready"] = response_ready
                     try:
                         self._persist_paused_region_receipt(
                             request_dir / "receipt.json", {"ok": False, "failure": failure_record}
@@ -3780,7 +4036,56 @@ class SessionDaemon:
                     except Exception as persist_error:
                         failure_record["receipt_persist_error"] = str(persist_error)
             else:
+                cleanup = None
+                try:
+                    cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+                except Exception:
+                    cleanup = {
+                        "backend_processes": None,
+                        "backend_groups": None,
+                        "guardian_observer_groups": None,
+                        "guardian_active_groups": None,
+                        "attempt_directories": None,
+                        "lease_held": None,
+                        "watchdog_healthy": None,
+                        "armed": None,
+                        "empty": False,
+                    }
+                model_calls_after = self._model_call_snapshot()
+                model_call_delta = {
+                    key: model_calls_after[key] - model_calls_before[key]
+                    for key in ("started", "succeeded", "failed")
+                }
+                response_ready = time.monotonic()
                 owner_returned = time.monotonic()
+                if failure is not None:
+                    producer_attempt = dict(getattr(backend, "last_region_attempt", {}))
+                    if producer_attempt.get("stage") == "not_started" and isinstance(
+                        cleanup.get("empty"), bool
+                    ):
+                        producer_attempt["attempt_retired"] = cleanup["empty"]
+                    failure_record = {
+                        "phase": phase,
+                        "error": f"{type(failure).__name__}: {failure}",
+                        "owner_entered": owner_entered,
+                        "owner_returned": owner_returned,
+                        "artifact_directory": None,
+                        "receipt_path": None,
+                        "published_png": None,
+                        "producer_attempt": producer_attempt,
+                        "cleanup": cleanup,
+                        "generation": expected_generation,
+                        "config_file_sha256": config_file_sha256,
+                        "config_semantic_sha256": config_semantic_sha256,
+                        "owner_config_semantic_sha256": owner_config_semantic_sha256,
+                        "lease_held": guardian.lease.held,
+                        "armed": guardian.armed,
+                        "source_binding": source_binding,
+                        "model_calls_before": model_calls_before,
+                        "model_calls_after": model_calls_after,
+                        "model_call_delta": model_call_delta,
+                        "response_ready": response_ready,
+                    }
             if motion_fence is not None:
                 motion_fence.release()
         if failure is None:
@@ -3793,6 +4098,8 @@ class SessionDaemon:
                 failure_record["phase"] = "owner_receipt_persist"
                 failure_record["error"] = f"{type(persist_error).__name__}: {persist_error}"
                 failure_record["sample"] = sample
+                sample["response_ready"] = response_ready
+                failure_record["response_ready"] = response_ready
                 try:
                     self._persist_paused_region_receipt(
                         request_dir / "receipt.json", {"ok": False, "failure": failure_record}
@@ -3803,7 +4110,7 @@ class SessionDaemon:
             result: dict[str, Any] = {"ok": False, "error": f"{type(failure).__name__}: {failure}"}
             if sample is not None:
                 result["sample"] = sample
-            if request_dir is not None:
+            if failure_record:
                 result["failure"] = {
                     key: (
                         {name: item for name, item in value.items() if name != "png_base64"}
@@ -3902,14 +4209,29 @@ class SessionDaemon:
             "artifact_png",
             "cleanup",
             "owner_returned",
+            "source_binding",
+            "model_calls_before",
+            "model_calls_after",
+            "model_call_delta",
+            "response_ready",
         }
         if set(sample) != expected_fields:
             raise DriverError("paused region success sample has an incomplete final schema")
-        timestamps = (sample["owner_entered"], sample["capture_returned"], sample["owner_returned"])
+        timestamps = (
+            sample["owner_entered"],
+            sample["capture_returned"],
+            sample["response_ready"],
+            sample["owner_returned"],
+        )
         if any(
             isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value))
             for value in timestamps
-        ) or not (sample["owner_entered"] <= sample["capture_returned"] <= sample["owner_returned"]):
+        ) or not (
+            sample["owner_entered"]
+            <= sample["capture_returned"]
+            <= sample["response_ready"]
+            <= sample["owner_returned"]
+        ):
             raise DriverError("paused region success timestamps are incomplete or out of order")
         receipt = {"ok": True, **sample}
         encoded = (json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode(

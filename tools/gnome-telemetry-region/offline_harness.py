@@ -23,6 +23,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import uuid
 import zlib
 from io import BytesIO
 from pathlib import Path
@@ -736,6 +737,112 @@ def _finite_time(value: object, label: str) -> float:
     return float(value)
 
 
+_RUNTIME_SOURCE_FILES = {
+    "daemon.py": Path("src/crowley/session/daemon.py"),
+    "driver.py": Path("src/crowley/session/driver.py"),
+    "cli.py": Path("src/crowley/session/cli.py"),
+    "decoder.py": Path("src/crowley/session/decoder.py"),
+    "protocol.py": Path("src/crowley/session/protocol.py"),
+    "offline_harness.py": Path("tools/gnome-telemetry-region/offline_harness.py"),
+    "session_performance.py": Path("tools/session_performance.py"),
+}
+_RUNTIME_SOURCE_MAX_BYTES = 4 * 1024 * 1024
+
+
+def _runtime_source_hashes() -> dict[str, str]:
+    """Hash the same seven trusted descriptors independently of the owner."""
+
+    result: dict[str, str] = {}
+    for logical_name, relative in _RUNTIME_SOURCE_FILES.items():
+        path = ROOT / relative
+        before = path.lstat()
+        if stat.S_ISLNK(before.st_mode) or not stat.S_ISREG(before.st_mode) or before.st_nlink != 1:
+            raise RuntimeError(f"observer source {logical_name} is not a regular file")
+        if before.st_size > _RUNTIME_SOURCE_MAX_BYTES:
+            raise RuntimeError(f"observer source {logical_name} exceeds its bounded size")
+        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            opened = os.fstat(descriptor)
+            if (
+                opened.st_dev,
+                opened.st_ino,
+                opened.st_mode,
+                opened.st_nlink,
+                opened.st_size,
+                opened.st_mtime_ns,
+                opened.st_ctime_ns,
+            ) != (
+                before.st_dev,
+                before.st_ino,
+                before.st_mode,
+                before.st_nlink,
+                before.st_size,
+                before.st_mtime_ns,
+                before.st_ctime_ns,
+            ):
+                raise RuntimeError(f"observer source {logical_name} changed during inspection")
+            digest = hashlib.sha256()
+            total = 0
+            while True:
+                chunk = os.read(descriptor, min(1024 * 1024, _RUNTIME_SOURCE_MAX_BYTES + 1 - total))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > _RUNTIME_SOURCE_MAX_BYTES:
+                    raise RuntimeError(f"observer source {logical_name} exceeds its bounded size")
+                digest.update(chunk)
+            after = os.fstat(descriptor)
+            after_path = path.lstat()
+            if (
+                total != opened.st_size
+                or (
+                    after.st_dev,
+                    after.st_ino,
+                    after.st_mode,
+                    after.st_nlink,
+                    after.st_size,
+                    after.st_mtime_ns,
+                    after.st_ctime_ns,
+                )
+                != (
+                    opened.st_dev,
+                    opened.st_ino,
+                    opened.st_mode,
+                    opened.st_nlink,
+                    opened.st_size,
+                    opened.st_mtime_ns,
+                    opened.st_ctime_ns,
+                )
+                or stat.S_ISLNK(after_path.st_mode)
+                or not stat.S_ISREG(after_path.st_mode)
+                or (
+                    after_path.st_dev,
+                    after_path.st_ino,
+                    after_path.st_mode,
+                    after_path.st_nlink,
+                    after_path.st_size,
+                    after_path.st_mtime_ns,
+                    after_path.st_ctime_ns,
+                )
+                != (
+                    after.st_dev,
+                    after.st_ino,
+                    after.st_mode,
+                    after.st_nlink,
+                    after.st_size,
+                    after.st_mtime_ns,
+                    after.st_ctime_ns,
+                )
+            ):
+                raise RuntimeError(f"observer source {logical_name} changed during inspection")
+        finally:
+            os.close(descriptor)
+        result[logical_name] = digest.hexdigest()
+    if set(result) != set(_RUNTIME_SOURCE_FILES):
+        raise RuntimeError("observer source descriptor map is incomplete")
+    return result
+
+
 def _status_from_ipc(config: object, *, timeout: float) -> dict[str, object]:
     from crowley.session.cli import _socket_request
 
@@ -799,7 +906,35 @@ def _identity_record(identity: object) -> dict[str, object]:
 
 def _atomic_receipt(path: Path, value: dict[str, object]) -> None:
     temporary = path.with_name(f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
-    encoded = (json.dumps(value, sort_keys=True, separators=(",", ":")) + "\n").encode("utf-8")
+    encoded = (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode(
+        "utf-8"
+    )
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(encoded)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, path)
+        directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        try:
+            temporary.unlink()
+        except FileNotFoundError:
+            pass
+
+
+def _atomic_private_json(path: Path, value: object) -> None:
+    """Persist non-schema owner refusal detail with private file permissions."""
+
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.{time.monotonic_ns()}.tmp")
+    encoded = (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode(
+        "utf-8"
+    )
     descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(descriptor, "wb") as stream:
@@ -834,6 +969,14 @@ def _atomic_private_png(path: Path, data: bytes) -> None:
         os.close(directory_fd)
 
 
+class _OwnerSampleValidationError(RuntimeError):
+    """A returned owner sample failed a binding-specific validation stage."""
+
+    def __init__(self, phase: str, message: str) -> None:
+        super().__init__(message)
+        self.phase = phase
+
+
 def _owner_png_bytes(
     sample: dict[str, object],
     profile: object,
@@ -845,6 +988,7 @@ def _owner_png_bytes(
     expected_deadline: float,
     capture_root: Path,
     index: int,
+    expected_source_binding: dict[str, str],
 ) -> bytes:
     expected_fields = {
         "generation",
@@ -866,7 +1010,14 @@ def _owner_png_bytes(
         "cleanup",
         "owner_returned",
     }
-    if set(sample) != expected_fields:
+    allowed_instrumentation_fields = {
+        "source_binding",
+        "model_calls_before",
+        "model_calls_after",
+        "model_call_delta",
+        "response_ready",
+    }
+    if set(sample) != expected_fields | allowed_instrumentation_fields:
         raise RuntimeError(f"paused diagnostic owner sample {index} has unexpected fields")
     encoded = sample.get("png_base64")
     if not isinstance(encoded, str) or len(encoded) > 4 * ((131072 + 2) // 3):
@@ -892,11 +1043,17 @@ def _owner_png_bytes(
     deadline = _finite_time(sample.get("deadline"), f"sample {index} deadline")
     owner_entered = _finite_time(sample.get("owner_entered"), f"sample {index} owner entry")
     capture_returned = _finite_time(sample.get("capture_returned"), f"sample {index} capture return")
+    response_ready = _finite_time(sample.get("response_ready"), f"sample {index} response ready")
     owner_returned = _finite_time(sample.get("owner_returned"), f"sample {index} owner return")
     if (
         parent_started != expected_parent_started
         or deadline != expected_deadline
-        or not parent_started <= owner_entered <= capture_returned <= owner_returned < deadline
+        or not parent_started
+        <= owner_entered
+        <= capture_returned
+        <= response_ready
+        <= owner_returned
+        < deadline
     ):
         raise RuntimeError(f"paused diagnostic owner sample {index} timestamps are not request-bound")
     identity = sample.get("identity")
@@ -928,7 +1085,9 @@ def _owner_png_bytes(
         raise RuntimeError(f"paused diagnostic owner sample {index} client geometry is malformed")
     source = sample.get("source")
     if not isinstance(source, dict) or set(source) != {"api", "branch", "rectangle"}:
-        raise RuntimeError(f"paused diagnostic owner sample {index} source is malformed")
+        raise _OwnerSampleValidationError(
+            "producer_binding", f"paused diagnostic owner sample {index} source is malformed"
+        )
     config_binding = sample.get("config")
     expected_config = {
         "request_config_file_sha256": config_file_sha256,
@@ -938,13 +1097,47 @@ def _owner_png_bytes(
         "canvas_crop": list(profile.canvas_crop),  # type: ignore[attr-defined]
     }
     if config_binding != expected_config:
-        raise RuntimeError(f"paused diagnostic owner sample {index} config binding changed")
+        raise _OwnerSampleValidationError(
+            "config_binding", f"paused diagnostic owner sample {index} config binding changed"
+        )
     producer = sample.get("producer")
     if not isinstance(producer, dict) or producer != {
         "path": str(profile.telemetry_region_executable),  # type: ignore[attr-defined]
         "sha256": producer_hash,
     }:
-        raise RuntimeError(f"paused diagnostic owner sample {index} producer binding changed")
+        raise _OwnerSampleValidationError(
+            "producer_binding", f"paused diagnostic owner sample {index} producer binding changed"
+        )
+    source_binding = sample.get("source_binding")
+    if (
+        not isinstance(source_binding, dict)
+        or set(source_binding) != set(_RUNTIME_SOURCE_FILES)
+        or any(
+            not isinstance(value, str) or re.fullmatch(r"[0-9a-f]{64}", value) is None
+            for value in source_binding.values()
+        )
+        or source_binding != expected_source_binding
+    ):
+        raise _OwnerSampleValidationError(
+            "source_binding", f"paused diagnostic owner sample {index} source binding changed"
+        )
+    for counter_name in ("model_calls_before", "model_calls_after", "model_call_delta"):
+        counters = sample.get(counter_name)
+        if (
+            not isinstance(counters, dict)
+            or set(counters) != {"started", "succeeded", "failed"}
+            or any(
+                not isinstance(value, int) or isinstance(value, bool) or value < 0
+                for value in counters.values()
+            )
+        ):
+            raise RuntimeError(f"paused diagnostic owner sample {index} model counters are malformed")
+    before = sample["model_calls_before"]
+    after = sample["model_calls_after"]
+    delta = sample["model_call_delta"]
+    assert isinstance(before, dict) and isinstance(after, dict) and isinstance(delta, dict)
+    if any(after[key] - before[key] != delta[key] for key in ("started", "succeeded", "failed")):
+        raise RuntimeError(f"paused diagnostic owner sample {index} model counter delta is malformed")
     receipt = sample.get("receipt")
     expected_receipt_fields = {
         "nonce",
@@ -968,7 +1161,10 @@ def _owner_png_bytes(
         "attempt_retired",
     }
     if not isinstance(receipt, dict) or set(receipt) != expected_receipt_fields:
-        raise RuntimeError(f"paused diagnostic owner sample {index} producer receipt schema changed")
+        raise _OwnerSampleValidationError(
+            "producer_binding",
+            f"paused diagnostic owner sample {index} producer receipt schema changed",
+        )
     if (
         not isinstance(receipt.get("nonce"), str)
         or re.fullmatch(r"[0-9a-f]{32}", receipt["nonce"]) is None
@@ -991,7 +1187,9 @@ def _owner_png_bytes(
         or not isinstance(receipt.get("output_path_digest"), str)
         or re.fullmatch(r"[0-9a-f]{64}", receipt["output_path_digest"]) is None
     ):
-        raise RuntimeError(f"paused diagnostic owner sample {index} receipt identity is malformed")
+        raise _OwnerSampleValidationError(
+            "producer_binding", f"paused diagnostic owner sample {index} receipt identity is malformed"
+        )
     for key in ("request_started", "lock_acquired", "ack_sent", "capture_started", "capture_returned"):
         _finite_time(receipt.get(key), f"sample {index} receipt {key}")
     receipt_times = [
@@ -1006,7 +1204,9 @@ def _owner_png_bytes(
         <= receipt_times[3]
         <= capture_returned
     ):
-        raise RuntimeError(f"paused diagnostic owner sample {index} receipt times are unordered")
+        raise _OwnerSampleValidationError(
+            "producer_binding", f"paused diagnostic owner sample {index} receipt times are unordered"
+        )
     rectangle = receipt.get("rectangle")
     expected_rectangle = [
         geometry[0] + profile.canvas_crop[0],  # type: ignore[attr-defined]
@@ -1020,7 +1220,9 @@ def _owner_png_bytes(
         or any(not isinstance(value, int) or isinstance(value, bool) for value in rectangle)
         or rectangle != expected_rectangle
     ):
-        raise RuntimeError(f"paused diagnostic owner sample {index} rectangle is not profile-derived")
+        raise _OwnerSampleValidationError(
+            "producer_binding", f"paused diagnostic owner sample {index} rectangle is not profile-derived"
+        )
     artifact_directory = sample.get("artifact_directory")
     artifact_png = sample.get("artifact_png")
     if not isinstance(artifact_directory, str) or not isinstance(artifact_png, str):
@@ -1052,7 +1254,9 @@ def _owner_png_bytes(
         or source.get("branch") != "ScreenshotArea"
         or source.get("rectangle") != receipt.get("rectangle")
     ):
-        raise RuntimeError(f"paused diagnostic owner sample {index} receipt does not bind the PNG")
+        raise _OwnerSampleValidationError(
+            "producer_binding", f"paused diagnostic owner sample {index} receipt does not bind the PNG"
+        )
     return data
 
 
@@ -1067,7 +1271,15 @@ def _bounded_failure_response(response: dict[str, object]) -> dict[str, object]:
 def _validate_producer_attempt(value: object, index: int) -> None:
     """Validate truthful stage/timing evidence even when a capture fails."""
 
-    fields = {"stage", "request_started", "lock_acquired", "ack_sent"}
+    fields = {
+        "stage",
+        "request_started",
+        "lock_acquired",
+        "ack_sent",
+        "capture_started",
+        "capture_returned",
+        "attempt_retired",
+    }
     stages = {
         "not_started",
         "capture_lock_wait",
@@ -1085,9 +1297,13 @@ def _validate_producer_attempt(value: object, index: int) -> None:
     if not isinstance(stage, str) or stage not in stages:
         raise RuntimeError(f"paused diagnostic owner failure {index} producer stage is unknown")
     if stage == "not_started":
-        if any(value.get(key) is not None for key in ("request_started", "lock_acquired", "ack_sent")):
+        if any(value.get(key) is not None for key in fields - {"stage", "attempt_retired"}):
             raise RuntimeError(
                 f"paused diagnostic owner failure {index} not-started stage has timing evidence"
+            )
+        if not isinstance(value.get("attempt_retired"), bool):
+            raise RuntimeError(
+                f"paused diagnostic owner failure {index} not-started retirement evidence is unknown"
             )
         return
     request_started = _finite_time(value.get("request_started"), f"failure {index} producer request")
@@ -1097,14 +1313,32 @@ def _validate_producer_attempt(value: object, index: int) -> None:
         _finite_time(lock_value, f"failure {index} capture lock") if lock_value is not None else None
     )
     ack_sent = _finite_time(ack_value, f"failure {index} producer ACK") if ack_value is not None else None
+    capture_started_value = value.get("capture_started")
+    capture_started = (
+        _finite_time(capture_started_value, f"failure {index} capture start")
+        if capture_started_value is not None
+        else None
+    )
+    capture_returned_value = value.get("capture_returned")
+    capture_returned = (
+        _finite_time(capture_returned_value, f"failure {index} capture return")
+        if capture_returned_value is not None
+        else None
+    )
     if lock_acquired is not None and lock_acquired < request_started:
         raise RuntimeError(f"paused diagnostic owner failure {index} lock time precedes its request")
     if ack_sent is not None and (lock_acquired is None or ack_sent < lock_acquired):
         raise RuntimeError(f"paused diagnostic owner failure {index} ACK time precedes its lock")
+    if capture_started is not None and (ack_sent is None or capture_started < ack_sent):
+        raise RuntimeError(f"paused diagnostic owner failure {index} capture start precedes its ACK")
+    if capture_returned is not None and (capture_started is None or capture_returned < capture_started):
+        raise RuntimeError(f"paused diagnostic owner failure {index} capture return precedes its start")
     if (stage == "capture_lock_wait") != (lock_acquired is None) or (
         stage in {"capture_started", "capture_complete", "identity_postcheck", "published"}
     ) != (ack_sent is not None):
         raise RuntimeError(f"paused diagnostic owner failure {index} stage disagrees with its timestamps")
+    if value.get("attempt_retired") is not None and not isinstance(value.get("attempt_retired"), bool):
+        raise RuntimeError(f"paused diagnostic owner failure {index} retirement evidence is malformed")
 
 
 def _attempt_directories(output: Path) -> list[str]:
@@ -1156,8 +1390,366 @@ def _receipt_record(receipt: object) -> dict[str, object]:
     return result
 
 
+def _live_failure(phase: str) -> dict[str, str]:
+    mapping = {
+        "status": ("status", "status_failed"),
+        "owner_ipc": ("owner_ipc", "owner_ipc_failed"),
+        "owner_capture": ("owner_capture", "owner_capture_failed"),
+        "png_publication": ("png_publication", "png_publication_failed"),
+        "png_load": ("png_load", "png_load_failed"),
+        "strict_decode": ("strict_decode", "strict_decode_failed"),
+        "post_decode_validation": ("strict_decode", "unknown_required_stage"),
+        "deadline": ("deadline", "sample_deadline_missed"),
+        "source_binding": ("source_binding", "source_binding_drift"),
+        "config_binding": ("config_binding", "config_binding_mismatch"),
+        "producer_binding": ("producer_binding", "producer_binding_mismatch"),
+        "model_counter": ("model_counter", "model_call_delta_nonzero"),
+        "cleanup": ("cleanup", "cleanup_failed"),
+        "process_termination": ("process_termination", "process_terminated"),
+    }
+    try:
+        phase_name, reason = mapping[phase]
+    except KeyError as exc:
+        raise RuntimeError(f"unknown paused diagnostic failure phase: {phase}") from exc
+    return {"phase": phase_name, "reason_code": reason}
+
+
+def _owner_failure_phase(failure: dict[str, object] | None, response: object) -> str:
+    """Map the daemon's durable phase token without searching arbitrary prose."""
+
+    if isinstance(failure, dict):
+        phase = failure.get("phase")
+        if isinstance(phase, str) and phase in {
+            "status",
+            "owner_ipc",
+            "owner_capture",
+            "png_publication",
+            "png_load",
+            "strict_decode",
+            "deadline",
+            "source_binding",
+            "config_binding",
+            "producer_binding",
+            "model_counter",
+            "cleanup",
+            "process_termination",
+        }:
+            return phase
+        if phase in {
+            "request_validation",
+            "owner_preconditions",
+            "identity_before_capture",
+            "region_capture",
+            "owner_post_capture_check",
+            "owner_receipt_persist",
+        }:
+            return "owner_capture"
+    if isinstance(response, dict) and response.get("error"):
+        return "owner_ipc"
+    return "process_termination"
+
+
+_OWNER_FAILURE_FIELDS = frozenset(
+    {
+        "phase",
+        "error",
+        "owner_entered",
+        "owner_returned",
+        "artifact_directory",
+        "receipt_path",
+        "published_png",
+        "producer_attempt",
+        "cleanup",
+        "generation",
+        "config_file_sha256",
+        "config_semantic_sha256",
+        "owner_config_semantic_sha256",
+        "lease_held",
+        "armed",
+        "source_binding",
+        "model_calls_before",
+        "model_calls_after",
+        "model_call_delta",
+        "response_ready",
+    }
+)
+_OWNER_FAILURE_OPTIONAL_FIELDS = frozenset({"sample", "receipt_persist_error"})
+_OWNER_CLEANUP_FIELDS = frozenset(
+    {
+        "backend_processes",
+        "backend_groups",
+        "guardian_observer_groups",
+        "guardian_active_groups",
+        "attempt_directories",
+        "lease_held",
+        "watchdog_healthy",
+        "armed",
+        "empty",
+    }
+)
+_OWNER_FAILURE_PHASES = frozenset(
+    {
+        "request_validation",
+        "owner_preconditions",
+        "identity_before_capture",
+        "region_capture",
+        "owner_post_capture_check",
+        "owner_receipt_persist",
+        "status",
+        "owner_ipc",
+        "owner_capture",
+        "png_publication",
+        "png_load",
+        "strict_decode",
+        "deadline",
+        "source_binding",
+        "config_binding",
+        "producer_binding",
+        "model_counter",
+        "cleanup",
+        "process_termination",
+    }
+)
+
+
+def _valid_sha256(value: object) -> bool:
+    return isinstance(value, str) and re.fullmatch(r"[0-9a-f]{64}", value) is not None
+
+
+def _validate_owner_failure_payload(
+    value: object,
+    *,
+    index: int,
+    generation: int,
+    config_file_sha256: str,
+    config_semantic_sha256: str,
+) -> dict[str, object]:
+    """Validate the complete daemon refusal before projecting owner evidence."""
+
+    if not isinstance(value, dict) or set(value) - (_OWNER_FAILURE_FIELDS | _OWNER_FAILURE_OPTIONAL_FIELDS):
+        raise RuntimeError(f"paused diagnostic owner failure {index} has unexpected fields")
+    if not _OWNER_FAILURE_FIELDS <= set(value):
+        raise RuntimeError(f"paused diagnostic owner failure {index} is missing required fields")
+    phase = value.get("phase")
+    if not isinstance(phase, str) or phase not in _OWNER_FAILURE_PHASES:
+        raise RuntimeError(f"paused diagnostic owner failure {index} phase is malformed")
+    if not isinstance(value.get("error"), str):
+        raise RuntimeError(f"paused diagnostic owner failure {index} error is malformed")
+    for key in ("owner_entered", "owner_returned", "response_ready"):
+        item = value.get(key)
+        if item is not None:
+            _finite_time(item, f"owner failure {index} {key}")
+    if (
+        value.get("owner_returned") is not None
+        and value.get("owner_entered") is not None
+        and value["owner_returned"] < value["owner_entered"]
+    ):
+        raise RuntimeError(f"paused diagnostic owner failure {index} return precedes entry")
+    if (
+        value.get("response_ready") is not None
+        and value.get("owner_returned") is not None
+        and value["response_ready"] > value["owner_returned"]
+    ):
+        raise RuntimeError(f"paused diagnostic owner failure {index} response is after return")
+    if (
+        not isinstance(value.get("generation"), int)
+        or isinstance(value["generation"], bool)
+        or value["generation"] != generation
+    ):
+        raise RuntimeError(f"paused diagnostic owner failure {index} generation is malformed")
+    if value.get("config_file_sha256") != config_file_sha256:
+        raise RuntimeError(f"paused diagnostic owner failure {index} request file binding changed")
+    if value.get("config_semantic_sha256") != config_semantic_sha256:
+        raise RuntimeError(f"paused diagnostic owner failure {index} request semantic binding changed")
+    if not _valid_sha256(value.get("owner_config_semantic_sha256")):
+        raise RuntimeError(f"paused diagnostic owner failure {index} owner config binding is unknown")
+    if not isinstance(value.get("producer_attempt"), dict):
+        raise RuntimeError(f"paused diagnostic owner failure {index} producer attempt is missing")
+    _validate_producer_attempt(value["producer_attempt"], index)
+    cleanup = value.get("cleanup")
+    if not isinstance(cleanup, dict) or set(cleanup) != _OWNER_CLEANUP_FIELDS:
+        raise RuntimeError(f"paused diagnostic owner failure {index} cleanup schema is malformed")
+    for key in ("backend_processes",):
+        item = cleanup[key]
+        if item is not None and (not isinstance(item, int) or isinstance(item, bool) or item < 0):
+            raise RuntimeError(f"paused diagnostic owner failure {index} cleanup count is malformed")
+    for key in (
+        "backend_groups",
+        "guardian_observer_groups",
+        "guardian_active_groups",
+        "attempt_directories",
+    ):
+        if cleanup[key] is not None and not isinstance(cleanup[key], list):
+            raise RuntimeError(f"paused diagnostic owner failure {index} cleanup ledger is malformed")
+    for key in ("lease_held", "watchdog_healthy", "armed", "empty"):
+        if cleanup[key] is not None and not isinstance(cleanup[key], bool):
+            raise RuntimeError(f"paused diagnostic owner failure {index} cleanup flag is malformed")
+    for key in ("lease_held", "armed"):
+        item = value.get(key)
+        if item is not None and not isinstance(item, bool):
+            raise RuntimeError(f"paused diagnostic owner failure {index} owner flag is malformed")
+    source_binding = value.get("source_binding")
+    if source_binding is not None and (
+        not isinstance(source_binding, dict)
+        or set(source_binding) != set(_RUNTIME_SOURCE_FILES)
+        or not all(_valid_sha256(item) for item in source_binding.values())
+    ):
+        raise RuntimeError(f"paused diagnostic owner failure {index} source binding is malformed")
+    for key in ("model_calls_before", "model_calls_after", "model_call_delta"):
+        counters = value.get(key)
+        if counters is not None and (
+            not isinstance(counters, dict)
+            or set(counters) != {"started", "succeeded", "failed"}
+            or not all(
+                isinstance(item, int) and not isinstance(item, bool) and item >= 0
+                for item in counters.values()
+            )
+        ):
+            raise RuntimeError(f"paused diagnostic owner failure {index} model counters are malformed")
+    for key in ("artifact_directory", "receipt_path", "published_png"):
+        if value.get(key) is not None and not isinstance(value[key], str):
+            raise RuntimeError(f"paused diagnostic owner failure {index} artifact path is malformed")
+    if "receipt_persist_error" in value and not isinstance(value["receipt_persist_error"], str):
+        raise RuntimeError(f"paused diagnostic owner failure {index} persistence error is malformed")
+    if "sample" in value and value["sample"] is not None and not isinstance(value["sample"], dict):
+        raise RuntimeError(f"paused diagnostic owner failure {index} sample is malformed")
+    return value
+
+
+def _assert_trusted_runtime_modules() -> None:
+    """Refuse an observer imported from a different project root."""
+
+    trusted_root = ROOT.resolve()
+    for name, module in tuple(sys.modules.items()):
+        if name != "crowley" and not name.startswith("crowley."):
+            continue
+        origin = getattr(module, "__file__", None)
+        if origin is None:
+            continue
+        try:
+            resolved = Path(origin).resolve()
+        except OSError as exc:
+            raise RuntimeError("observer runtime module origin is unavailable") from exc
+        if not resolved.is_relative_to(trusted_root):
+            raise RuntimeError("observer runtime module is outside the trusted project root")
+
+
+def _live_owner_evidence(
+    sample: dict[str, object] | None,
+    failure: dict[str, object] | None,
+    generation: int,
+    owner_failure: dict[str, str] | None,
+) -> dict[str, object]:
+    value = sample or failure or {}
+    producer_attempt = (
+        value.get("receipt") if isinstance(value.get("receipt"), dict) else value.get("producer_attempt")
+    )
+    if not isinstance(producer_attempt, dict):
+        producer_attempt = {}
+    old_cleanup = value.get("cleanup")
+    if not isinstance(old_cleanup, dict):
+        old_cleanup = {}
+    active = old_cleanup.get("backend_processes")
+    groups = old_cleanup.get("backend_groups")
+    observer_groups = old_cleanup.get("guardian_observer_groups")
+    guardian_groups = old_cleanup.get("guardian_active_groups")
+    active = active if isinstance(active, int) and not isinstance(active, bool) else None
+    backend_group_values = groups if isinstance(groups, list) else None
+    guardian_group_values = guardian_groups if isinstance(guardian_groups, list) else None
+    if backend_group_values is not None and guardian_group_values is not None:
+        try:
+            group_count = len(set(backend_group_values) | set(guardian_group_values))
+        except TypeError:
+            group_count = None
+    else:
+        group_count = None
+    observer_count = len(observer_groups) if isinstance(observer_groups, list) else None
+    config_value = value.get("config")
+    producer_value = value.get("producer")
+    source_value = value.get("source_binding")
+    source = value.get("source")
+    if not isinstance(config_value, dict):
+        config_value = {
+            "request_config_file_sha256": value.get("config_file_sha256"),
+            "owner_config_semantic_sha256": value.get("owner_config_semantic_sha256"),
+        }
+    if not isinstance(producer_value, dict):
+        producer_value = value.get("producer_binding")
+    return {
+        "owner_entered_monotonic": value.get("owner_entered"),
+        "request_started_monotonic": producer_attempt.get("request_started"),
+        "lock_acquired_monotonic": producer_attempt.get("lock_acquired"),
+        "ack_sent_monotonic": producer_attempt.get("ack_sent"),
+        "capture_started_monotonic": producer_attempt.get("capture_started"),
+        "capture_returned_monotonic": (
+            producer_attempt.get("capture_returned")
+            if producer_attempt.get("capture_returned") is not None
+            else value.get("capture_returned")
+        ),
+        "response_ready_monotonic": (
+            value.get("response_ready") if value.get("response_ready") is not None else None
+        ),
+        "receipt_nonce": producer_attempt.get("nonce"),
+        "generation": value.get("generation", generation),
+        "source_binding": source_value,
+        "producer_binding": {
+            "binary_sha256": (
+                producer_value.get("sha256", producer_value.get("binary_sha256"))
+                if isinstance(producer_value, dict)
+                else None
+            ),
+            "protocol_branch": source.get("branch") if isinstance(source, dict) else None,
+        },
+        "config_binding": {
+            "raw_file_sha256": config_value.get("request_config_file_sha256")
+            if isinstance(config_value, dict)
+            else None,
+            "semantic_sha256": config_value.get("owner_config_semantic_sha256")
+            if isinstance(config_value, dict)
+            else None,
+        },
+        "model_calls_before": value.get("model_calls_before")
+        if isinstance(value.get("model_calls_before"), dict)
+        else {"started": None, "succeeded": None, "failed": None},
+        "model_calls_after": value.get("model_calls_after")
+        if isinstance(value.get("model_calls_after"), dict)
+        else {"started": None, "succeeded": None, "failed": None},
+        "model_call_delta": value.get("model_call_delta")
+        if isinstance(value.get("model_call_delta"), dict)
+        else {"started": None, "succeeded": None, "failed": None},
+        "cleanup": {
+            "capture_process_reaped": (
+                None
+                if active is None
+                or group_count is None
+                or observer_count is None
+                or not isinstance(old_cleanup.get("attempt_directories"), list)
+                else (
+                    active == 0
+                    and group_count == 0
+                    and observer_count == 0
+                    and not old_cleanup["attempt_directories"]
+                )
+            ),
+            "attempt_retired": producer_attempt.get("attempt_retired") is True
+            if isinstance(producer_attempt.get("attempt_retired"), bool)
+            else None,
+            "lease_held": old_cleanup.get("lease_held")
+            if isinstance(old_cleanup.get("lease_held"), bool)
+            else None,
+            "watchdog_healthy": old_cleanup.get("watchdog_healthy")
+            if isinstance(old_cleanup.get("watchdog_healthy"), bool)
+            else None,
+            "active_process_count": active,
+            "active_process_group_count": group_count,
+            "observer_process_group_count": observer_count,
+        },
+        "failure": owner_failure,
+    }
+
+
 def run_paused_diagnostic(config_path: Path, output_dir: Path) -> dict[str, object]:
-    """Run eight strict samples through the paused session's existing owner."""
+    """Run the fixed eight-target diagnostic and persist exact schema-2 evidence."""
 
     output_dir = output_dir.expanduser().absolute()
     if output_dir.exists() or output_dir.is_symlink():
@@ -1166,34 +1758,27 @@ def run_paused_diagnostic(config_path: Path, output_dir: Path) -> dict[str, obje
     output_dir.mkdir(mode=0o700)
     os.chmod(output_dir, 0o700)
     receipt_path = output_dir / "receipt.json"
-    receipt: dict[str, object] = {
-        "schema": 1,
-        "state": "running",
-        "config_path": str(config_path.expanduser().resolve()),
-        "evidence_directory": str(output_dir),
-        "targets": [],
-        "samples": [],
-        "failure": None,
-        "cleanup": {
-            "client_driver_created": False,
-            "client_driver_closed": False,
-            "daemon_closed": False,
-            "daemon_lease_released": False,
-            "published_client_pngs": [],
-        },
+    preflight_receipt: dict[str, object] = {
+        "schema": "crowley.paused-region-performance-run",
+        "schema_version": 2,
+        "run_id": uuid.uuid4().hex,
+        "run_state": "incomplete",
+        "generation": 0,
+        "targets_monotonic": [],
+        "observer_source_hashes_before": {},
+        "observer_source_hashes_after": {},
+        "producer_binding": None,
+        "config_binding": None,
+        "attempts": [],
     }
-    decoder = None
-    expected_generation: int | None = None
-    expected_boot: str | None = None
-    identity_baseline: dict[str, object] | None = None
-    failure: Exception | None = None
-    phase = "configuration"
-    try:
-        from crowley.session.cli import _socket_request
-        from crowley.session.config import load_config
-        from crowley.session.daemon import session_config_semantic_sha256
-        from crowley.session.decoder import PixelDecoder
+    _atomic_receipt(receipt_path, preflight_receipt)
+    from crowley.session.cli import _socket_request
+    from crowley.session.config import load_config
+    from crowley.session.daemon import session_config_semantic_sha256
+    from crowley.session.decoder import PixelDecoder
 
+    try:
+        _assert_trusted_runtime_modules()
         config_bytes = config_path.read_bytes()
         config = load_config(config_path)
         profile = config.profile
@@ -1202,333 +1787,397 @@ def run_paused_diagnostic(config_path: Path, output_dir: Path) -> dict[str, obje
         if producer is None or producer_hash is None:
             raise RuntimeError("paused diagnostic requires the configured telemetry-region producer")
         profile.validate()
-        config_file_sha256 = hashlib.sha256(config_bytes).hexdigest()
-        config_semantic_sha256 = session_config_semantic_sha256(config)
-        receipt["config_file_sha256"] = config_file_sha256
-        receipt["config_semantic_sha256"] = config_semantic_sha256
-        receipt["producer"] = str(producer)
-        receipt["producer_sha256"] = producer_hash
-        receipt["controller_socket"] = str(config.socket)
-        decoder = PixelDecoder(crop=profile.canvas_crop)
-        target_origin = time.monotonic()
-        targets = [target_origin + float(index + 1) for index in range(8)]
-        receipt["targets"] = targets
-        previous_start: float | None = None
-        previous_completion: float | None = None
-        previous_sequence: int | None = None
-
-        for index, target in enumerate(targets):
-            phase = f"sample_{index}_target_wait"
+        observer_before = _runtime_source_hashes()
+    except BaseException as exc:
+        preflight_receipt["run_state"] = "failed"
+        _atomic_receipt(receipt_path, preflight_receipt)
+        if isinstance(exc, Exception):
+            raise
+        raise RuntimeError(f"paused diagnostic preflight terminated; evidence={receipt_path}") from exc
+    config_file_sha256 = hashlib.sha256(config_bytes).hexdigest()
+    config_semantic_sha256 = session_config_semantic_sha256(config)
+    decoder = PixelDecoder(crop=profile.canvas_crop)
+    target_origin = time.monotonic()
+    targets = [target_origin + float(index) for index in range(8)]
+    receipt: dict[str, object] = {
+        "schema": "crowley.paused-region-performance-run",
+        "schema_version": 2,
+        "run_id": uuid.uuid4().hex,
+        "run_state": "incomplete",
+        "generation": 0,
+        "targets_monotonic": targets,
+        "observer_source_hashes_before": observer_before,
+        "observer_source_hashes_after": {},
+        "producer_binding": {"binary_sha256": producer_hash, "protocol_branch": "ScreenshotArea"},
+        "config_binding": {"raw_file_sha256": config_file_sha256, "semantic_sha256": config_semantic_sha256},
+        "attempts": [],
+    }
+    expected_generation: int | None = None
+    expected_boot: str | None = None
+    previous_identity: tuple[str, str, int] | None = None
+    previous_start: float | None = None
+    previous_completion: float | None = None
+    previous_sequence: int | None = None
+    failure: Exception | None = None
+    for index, target in enumerate(targets):
+        phase = "status"
+        deadline = target + 1.0
+        try:
             delay = target - time.monotonic()
             if delay > 0:
                 time.sleep(delay)
-            actual_start = time.monotonic()
-            deadline = target + 1.0
-            if actual_start >= deadline:
-                raise RuntimeError(f"paused diagnostic missed sample {index} deadline before status")
-            phase = f"sample_{index}_status_before"
+        except BaseException as exc:
+            failure = (
+                exc
+                if isinstance(exc, Exception)
+                else RuntimeError("paused diagnostic interrupted before sample")
+            )
+            receipt["run_state"] = "incomplete"
+            break
+        outer_started = time.monotonic()
+        attempt: dict[str, object] = {
+            "index": index,
+            "target_monotonic": target,
+            "deadline_monotonic": deadline,
+            "outer_started_monotonic": outer_started,
+            "state": "incomplete",
+            "status_returned_monotonic": None,
+            "owner_ipc_request_started_monotonic": None,
+            "owner": None,
+            "owner_ipc_returned_monotonic": None,
+            "png_publication_end_monotonic": None,
+            "png_load_started_monotonic": None,
+            "png_load_finished_monotonic": None,
+            "strict_decode_started_monotonic": None,
+            "strict_decode_finished_monotonic": None,
+            "sample_completed_monotonic": None,
+            "application_compute_cpu_seconds": None,
+            "application_compute_cpu_method": None,
+            "partial_decode_wall_seconds": None,
+            "partial_decode_cpu_seconds": None,
+            "png_sha256": None,
+            "generation": expected_generation,
+            "identity": None,
+            "failure": None,
+        }
+        attempts = receipt["attempts"]
+        assert isinstance(attempts, list)
+        attempts.append(attempt)
+        try:
+            if outer_started >= deadline:
+                phase = "deadline"
+                raise RuntimeError("sample deadline missed before status")
             status = _status_from_ipc(config, timeout=min(0.25, max(0.001, deadline - time.monotonic())))
+            attempt["status_returned_monotonic"] = time.monotonic()
             generation = _check_paused_status(status, expected_generation=expected_generation)
             if expected_generation is None:
                 expected_generation = generation
-                receipt["controller_generation"] = generation
-                receipt["controller_boot_before_first_frame"] = status.get("boot", "")
+                receipt["generation"] = generation
+            attempt["generation"] = generation
             if time.monotonic() >= deadline:
-                raise RuntimeError(f"paused diagnostic status exceeded sample {index} deadline")
-
-            phase = f"sample_{index}_owner_capture_ipc"
+                phase = "deadline"
+                raise RuntimeError("status exceeded sample deadline")
+            phase = "owner_ipc"
             output = output_dir / f"paused-{index:02d}.png"
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise RuntimeError(f"paused diagnostic exhausted sample {index} budget before owner IPC")
-            sample_request = {
-                "command": "paused_region_sample",
-                "generation": generation,
-                "parent_started": actual_start,
-                "deadline": deadline,
-                "config_file_sha256": receipt["config_file_sha256"],
-                "config_semantic_sha256": receipt["config_semantic_sha256"],
-            }
+            attempt["owner_ipc_request_started_monotonic"] = time.monotonic()
             try:
                 response = _socket_request(
                     config.socket,
-                    sample_request,
-                    timeout=remaining,
+                    {
+                        "command": "paused_region_sample",
+                        "generation": generation,
+                        "parent_started": outer_started,
+                        "deadline": deadline,
+                        "config_file_sha256": config_file_sha256,
+                        "config_semantic_sha256": config_semantic_sha256,
+                    },
+                    timeout=max(0.001, deadline - time.monotonic()),
                     response_deadline=deadline,
                     failure_evidence_grace=0.25,
                 )
             except TimeoutError as exc:
-                receipt["late_failure_evidence"] = {
-                    "state": "unknown",
-                    "grace_seconds": 0.25,
-                    "error": str(exc),
-                }
+                # The owner may still be unwinding after the bounded grace.
+                # Keep that fact in private evidence without inventing owner
+                # entry, failure phase, or cleanup state in schema 2.
+                _atomic_private_json(
+                    output_dir / f"owner-timeout-{index:02d}.json",
+                    {"state": "unknown", "grace_seconds": 0.25, "error": str(exc)},
+                )
                 raise
             ipc_returned = time.monotonic()
+            attempt["owner_ipc_returned_monotonic"] = ipc_returned
             if (
                 not isinstance(response, dict)
                 or response.get("ok") is not True
                 and response.get("ok") is not False
             ):
-                raise RuntimeError(f"paused diagnostic owner IPC response {index} has an invalid schema")
-            if ipc_returned >= deadline:
-                late_response = _bounded_failure_response(response)
-                receipt["late_owner_response"] = late_response
-                if response.get("ok") is False:
-                    receipt["owner_failure"] = late_response
-                raise RuntimeError(
-                    f"paused diagnostic owner IPC response {index} arrived after its qualification deadline"
-                )
-            if response.get("ok") is False:
-                # Retain bounded owner failure/artifact metadata before any
-                # optional sample validation can fail on a secondary issue.
-                receipt["owner_failure"] = _bounded_failure_response(response)
-            if response["ok"] is True:
-                if set(response) != {"ok", "sample"}:
-                    raise RuntimeError(
-                        f"paused diagnostic successful IPC response {index} has unexpected fields"
-                    )
+                raise RuntimeError("owner IPC response has invalid schema")
+            if response.get("ok") is True:
+                if set(response) != {"ok", "sample"} or not isinstance(response.get("sample"), dict):
+                    raise RuntimeError("owner IPC success response has invalid schema")
             else:
-                expected_failure_fields = {"ok", "error"}
+                allowed_failure_fields = {"ok", "error", "failure", "sample"}
+                # Preserve the bounded refusal before validating owner
+                # metadata or rejecting an unexpected field.  A normal
+                # SessionIPC refusal may contain only the exact
+                # ``ok:false,error`` pair and carries no owner evidence.
+                _atomic_private_json(
+                    output_dir / f"owner-refusal-{index:02d}.json",
+                    _bounded_failure_response(response),
+                )
+                if set(response) - allowed_failure_fields:
+                    raise RuntimeError("owner IPC failure response has unexpected fields")
+                if not isinstance(response.get("error"), str):
+                    raise RuntimeError("owner IPC failure response has invalid schema")
                 if "failure" in response:
-                    expected_failure_fields.add("failure")
-                if "sample" in response:
-                    expected_failure_fields.add("sample")
-                if set(response) != expected_failure_fields or not isinstance(response.get("error"), str):
-                    raise RuntimeError(f"paused diagnostic failed IPC response {index} has invalid fields")
-                owner_failure = response.get("failure")
-                if owner_failure is not None:
-                    failure_fields = {
-                        "phase",
-                        "error",
-                        "owner_entered",
-                        "owner_returned",
-                        "artifact_directory",
-                        "receipt_path",
-                        "published_png",
-                        "producer_attempt",
-                        "cleanup",
-                        "generation",
-                        "config_file_sha256",
-                        "config_semantic_sha256",
-                        "owner_config_semantic_sha256",
-                        "lease_held",
-                        "armed",
-                    }
-                    if isinstance(owner_failure, dict) and "sample" in owner_failure:
-                        failure_fields.add("sample")
-                    if isinstance(owner_failure, dict) and "receipt_persist_error" in owner_failure:
-                        failure_fields.add("receipt_persist_error")
-                    if not isinstance(owner_failure, dict) or set(owner_failure) != failure_fields:
-                        raise RuntimeError(f"paused diagnostic owner failure {index} has invalid fields")
-                    _validate_producer_attempt(owner_failure.get("producer_attempt"), index)
-                    if (
-                        owner_failure.get("generation") != generation
-                        or owner_failure.get("config_file_sha256") != receipt["config_file_sha256"]
-                        or owner_failure.get("config_semantic_sha256") != receipt["config_semantic_sha256"]
-                        or owner_failure.get("owner_config_semantic_sha256")
-                        != receipt["config_semantic_sha256"]
-                        or not isinstance(owner_failure.get("phase"), str)
-                        or not isinstance(owner_failure.get("error"), str)
-                    ):
-                        raise RuntimeError(f"paused diagnostic owner failure {index} is not request-bound")
-            sample_data = response.get("sample")
-            if sample_data is not None:
-                if not isinstance(sample_data, dict):
-                    raise RuntimeError(f"paused diagnostic owner sample {index} is not an object")
-                output_bytes = _owner_png_bytes(
-                    sample_data,
-                    profile,
-                    producer_hash,
-                    str(receipt["config_file_sha256"]),
-                    str(receipt["config_semantic_sha256"]),
-                    generation,
-                    actual_start,
-                    deadline,
-                    Path(config.capture_dir),
-                    index,
-                )
-                _atomic_private_png(output, output_bytes)
-                cleanup = receipt["cleanup"]
-                assert isinstance(cleanup, dict)
-                published = cleanup["published_client_pngs"]
-                assert isinstance(published, list)
-                published.append(str(output))
-                # A failed owner post-check can still return a real published
-                # capture. Save it before failing this sample.
-                if response.get("ok") is not True:
-                    raise RuntimeError(
-                        f"paused diagnostic owner refused sample {index}: {response.get('error')}"
+                    if not isinstance(response.get("failure"), dict):
+                        raise RuntimeError("owner IPC failure response has invalid schema")
+                    _validate_owner_failure_payload(
+                        response["failure"],
+                        index=index,
+                        generation=generation,
+                        config_file_sha256=config_file_sha256,
+                        config_semantic_sha256=config_semantic_sha256,
                     )
-            elif response.get("ok") is not True:
-                raise RuntimeError(f"paused diagnostic owner refused sample {index}: {response.get('error')}")
-            else:
-                raise RuntimeError(f"paused diagnostic owner omitted sample {index}")
-            assert isinstance(sample_data, dict)
-            identity = sample_data["identity"]
-            assert isinstance(identity, dict)
-            live_identity = identity
-            if identity_baseline is None:
-                identity_baseline = live_identity
-                receipt["identity"] = identity_baseline
-            elif live_identity != identity_baseline:
-                raise RuntimeError(f"paused diagnostic identity changed at sample {index}")
-            rectangle = tuple(sample_data["source"]["rectangle"])  # type: ignore[index]
-            attempt_data = sample_data["receipt"]
-            assert isinstance(attempt_data, dict)
-            output_sha256 = hashlib.sha256(output_bytes).hexdigest()
+                if "sample" in response and not isinstance(response["sample"], dict):
+                    raise RuntimeError("owner IPC failure response sample is malformed")
+            failure_payload = response.get("failure") if isinstance(response.get("failure"), dict) else None
+            sample_data = response.get("sample") if isinstance(response.get("sample"), dict) else None
+            if sample_data is not None or failure_payload is not None:
+                owner_phase = _owner_failure_phase(failure_payload, response)
+                attempt["owner"] = _live_owner_evidence(
+                    sample_data,
+                    failure_payload,
+                    generation,
+                    None if response.get("ok") is True else _live_failure(owner_phase),
+                )
+            output_bytes: bytes | None = None
+            if response.get("ok") is not True and failure_payload is not None:
+                producer_attempt = failure_payload.get("producer_attempt")
+                if isinstance(producer_attempt, dict):
+                    _validate_producer_attempt(producer_attempt, index)
+                if ipc_returned >= deadline:
+                    phase = "deadline"
+                    raise RuntimeError("owner IPC response arrived after sample deadline")
+                if sample_data is not None:
+                    try:
+                        output_bytes = _owner_png_bytes(
+                            sample_data,
+                            profile,
+                            producer_hash,
+                            config_file_sha256,
+                            config_semantic_sha256,
+                            generation,
+                            outer_started,
+                            deadline,
+                            Path(config.capture_dir),
+                            index,
+                            observer_before,
+                        )
+                    except _OwnerSampleValidationError as exc:
+                        phase = exc.phase
+                        raise
+                    phase = "png_publication"
+                    _atomic_private_png(output, output_bytes)
+                    attempt["png_publication_end_monotonic"] = time.monotonic()
+                    attempt["png_sha256"] = hashlib.sha256(output_bytes).hexdigest()
+                    phase = _owner_failure_phase(failure_payload, response)
+            if ipc_returned >= deadline:
+                if response.get("ok") is True:
+                    _atomic_private_json(
+                        output_dir / f"owner-late-response-{index:02d}.json",
+                        _bounded_failure_response(response),
+                    )
+                phase = "deadline"
+                raise RuntimeError("owner IPC response arrived after sample deadline")
+            if response.get("ok") is not True:
+                phase = _owner_failure_phase(failure_payload, response)
+                raise RuntimeError("owner refused paused region sample")
+            if sample_data is None:
+                phase = "owner_capture"
+                raise RuntimeError("owner omitted paused region sample")
+            if output_bytes is None:
+                try:
+                    output_bytes = _owner_png_bytes(
+                        sample_data,
+                        profile,
+                        producer_hash,
+                        config_file_sha256,
+                        config_semantic_sha256,
+                        generation,
+                        outer_started,
+                        deadline,
+                        Path(config.capture_dir),
+                        index,
+                        observer_before,
+                    )
+                except _OwnerSampleValidationError as exc:
+                    phase = exc.phase
+                    raise
+            phase = "png_publication"
+            _atomic_private_png(output, output_bytes)
+            attempt["png_publication_end_monotonic"] = time.monotonic()
+            attempt["png_sha256"] = hashlib.sha256(output_bytes).hexdigest()
+            identity = sample_data.get("identity")
+            if not isinstance(identity, dict) or not isinstance(identity.get("fingerprint"), str):
+                phase = "owner_capture"
+                raise RuntimeError("owner identity is malformed")
             if sample_data.get("identity_after") != identity.get("fingerprint"):
-                raise RuntimeError(f"paused diagnostic sample {index} identity changed after capture")
-            cleanup_snapshot = sample_data["cleanup"]
-            if not isinstance(cleanup_snapshot, dict) or cleanup_snapshot.get("empty") is not True:
-                raise RuntimeError(f"paused diagnostic sample {index} did not retire its owned capture")
-            if not (
-                cleanup_snapshot.get("lease_held") is True
-                and cleanup_snapshot.get("watchdog_healthy") is True
-                and cleanup_snapshot.get("armed") is False
-            ):
-                raise RuntimeError(f"paused diagnostic owner lease/watchdog state changed at sample {index}")
-            owner_returned = _finite_time(sample_data.get("owner_returned"), f"sample {index} owner return")
-            capture_returned = _finite_time(
-                sample_data.get("capture_returned"), f"sample {index} capture return"
-            )
-            receipt_request = _finite_time(
-                attempt_data.get("request_started"), f"sample {index} receipt request"
-            )
-            lock_acquired = _finite_time(
-                attempt_data.get("lock_acquired"), f"sample {index} screenshot lock acquisition"
-            )
-            ack_sent = _finite_time(attempt_data.get("ack_sent"), f"sample {index} receipt ack")
-            capture_started = _finite_time(
-                attempt_data.get("capture_started"), f"sample {index} receipt start"
-            )
-            receipt_returned = _finite_time(
-                attempt_data.get("capture_returned"), f"sample {index} receipt return"
-            )
+                phase = "owner_capture"
+                raise RuntimeError("owner identity changed after capture")
+            owner_cleanup = sample_data.get("cleanup")
             if (
-                not actual_start
-                <= receipt_request
-                <= lock_acquired
-                <= ack_sent
-                <= capture_started
-                <= receipt_returned
-                <= capture_returned
-                <= owner_returned
-                <= ipc_returned
+                not isinstance(owner_cleanup, dict)
+                or owner_cleanup.get("empty") is not True
+                or owner_cleanup.get("lease_held") is not True
+                or owner_cleanup.get("watchdog_healthy") is not True
+                or owner_cleanup.get("armed") is not False
             ):
-                raise RuntimeError(f"paused diagnostic sample {index} receipt timestamps are out of order")
-            if receipt_returned > deadline or owner_returned > deadline or ipc_returned >= deadline:
-                raise RuntimeError(f"paused diagnostic owner IPC exceeded sample {index} deadline")
-            phase = f"sample_{index}_decode"
-            decode_started = time.monotonic()
+                phase = "cleanup"
+                raise RuntimeError("owner cleanup or Guardian state is not clean")
+            phase = "png_load"
+            attempt["png_load_started_monotonic"] = time.monotonic()
             with Image.open(output) as image:
                 image.load()
                 if image.format != "PNG" or image.size != (256, 256):
-                    raise RuntimeError(f"paused diagnostic sample {index} is not an exact 256x256 PNG")
-                png_loaded = time.monotonic()
-                # Preserve the outer pre-work timestamp as PixelDecoder's
-                # observation time.  The producer's later Shell timestamp is
-                # evidence only and never rejuvenates this frame.
-                sample = decoder.decode(
-                    image,
-                    monotonic=actual_start,
-                    window_identity=str(identity["fingerprint"]),
-                )
-            decode_end = time.monotonic()
-            if sample.capture_monotonic != actual_start:
-                raise RuntimeError(f"paused diagnostic decoder changed sample {index} observation time")
-            if sample.kind != "FRESH" or sample.frame is None:
-                raise RuntimeError(f"paused diagnostic sample {index} is not a fresh decoded frame")
-            frame = sample.frame
-            if expected_boot is None:
-                expected_boot = frame.boot
-                receipt["controller_boot_at_first_frame"] = frame.boot
-            if frame.boot != expected_boot:
-                raise RuntimeError(f"paused diagnostic frame boot changed at sample {index}")
+                    raise RuntimeError("PNG is not an exact 256x256 image")
+                attempt["png_load_finished_monotonic"] = time.monotonic()
+                phase = "strict_decode"
+                strict_started = time.monotonic()
+                attempt["strict_decode_started_monotonic"] = strict_started
+                cpu_started = time.process_time_ns()
+                try:
+                    decoded = decoder.decode(
+                        image, monotonic=outer_started, window_identity=str(identity["fingerprint"])
+                    )
+                except Exception:
+                    cpu_finished = time.process_time_ns()
+                    attempt["partial_decode_wall_seconds"] = time.monotonic() - strict_started
+                    attempt["partial_decode_cpu_seconds"] = (cpu_finished - cpu_started) / 1_000_000_000
+                    raise
+                cpu_finished = time.process_time_ns()
+                attempt["strict_decode_finished_monotonic"] = time.monotonic()
+                attempt["application_compute_cpu_seconds"] = (cpu_finished - cpu_started) / 1_000_000_000
+                attempt["application_compute_cpu_method"] = "time.process_time_ns"
+            # The decoder returned, so its CPU interval is complete. Any
+            # freshness/identity/sequence rejection is a later required
+            # stage, not a thrown decoder failure; preserve both boundaries
+            # and classify it as an unknown required stage for the evaluator.
+            phase = "post_decode_validation"
+            frame = decoded.frame
+            if frame is not None:
+                # A returned NO_CHANGE (or other non-fresh result) still
+                # carries a real decoded identity. Preserve it so the
+                # evaluator can retain the completed CPU interval while
+                # rejecting the pair for the later required stage.
+                attempt["identity"] = {
+                    "fingerprint": str(identity["fingerprint"]),
+                    "boot": frame.boot,
+                    "sequence": frame.sequence,
+                }
+            if decoded.capture_monotonic != outer_started or decoded.kind != "FRESH" or decoded.frame is None:
+                raise RuntimeError("strict decoder did not return a fresh frame")
+            assert frame is not None
+            identity_value = (str(identity["fingerprint"]), frame.boot, frame.sequence)
+            if previous_identity is not None and identity_value[:2] != previous_identity[:2]:
+                raise RuntimeError("frame identity or boot changed")
             if previous_sequence is not None and frame.sequence <= previous_sequence:
-                raise RuntimeError(f"paused diagnostic sequence did not advance at sample {index}")
-            if hashlib.sha256(config_path.read_bytes()).hexdigest() != receipt["config_file_sha256"]:
-                raise RuntimeError(f"paused diagnostic config changed during sample {index}")
+                raise RuntimeError("frame sequence did not advance")
+            previous_identity = identity_value
+            expected_boot = expected_boot or frame.boot
+            if frame.boot != expected_boot:
+                raise RuntimeError("frame boot changed")
+            phase = "config_binding"
+            if hashlib.sha256(config_path.read_bytes()).hexdigest() != config_file_sha256:
+                raise RuntimeError("config changed during sample")
+            if index == len(targets) - 1:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    phase = "deadline"
+                    raise RuntimeError("sample deadline expired before final status")
+                phase = "status"
+                final_status = _status_from_ipc(config, timeout=min(0.25, remaining))
+                final_generation = _check_paused_status(final_status, expected_generation=expected_generation)
+                if final_generation != generation:
+                    raise RuntimeError("controller generation changed before final sample completion")
             sample_completed = time.monotonic()
-            duration = sample_completed - actual_start
-            if not math.isfinite(duration) or duration >= 1.0 or sample_completed >= deadline:
-                raise RuntimeError(f"paused diagnostic sample {index} exceeded the strict one-second gate")
-            if previous_start is not None and not 0.75 <= actual_start - previous_start <= 1.25:
-                raise RuntimeError(
-                    f"paused diagnostic sample {index} start interval is outside 0.75..1.25 seconds"
-                )
+            attempt["sample_completed_monotonic"] = sample_completed
+            if sample_completed >= deadline:
+                phase = "deadline"
+                raise RuntimeError("sample completion exceeded deadline")
+            if previous_start is not None and not 0.75 <= outer_started - previous_start <= 1.25:
+                phase = "deadline"
+                raise RuntimeError("sample start cadence is outside 0.75..1.25 seconds")
             if previous_completion is not None and not 0.75 <= sample_completed - previous_completion <= 1.25:
-                raise RuntimeError(
-                    f"paused diagnostic sample {index} completion interval is outside 0.75..1.25 seconds"
-                )
-            sample_record: dict[str, object] = {
-                "index": index,
-                "target_monotonic": target,
-                "actual_start_monotonic": actual_start,
-                "deadline_monotonic": deadline,
-                "owner_capture_returned_monotonic": capture_returned,
-                "owner_returned_monotonic": owner_returned,
-                "ipc_returned_monotonic": ipc_returned,
-                "decode_started_monotonic": decode_started,
-                "png_loaded_monotonic": png_loaded,
-                "decode_end_monotonic": decode_end,
-                "sample_completed_monotonic": sample_completed,
-                "png_load_seconds": png_loaded - decode_started,
-                "pixel_decoder_seconds": decode_end - png_loaded,
-                "duration_seconds": duration,
-                "controller_state": status["state"],
-                "controller_generation": generation,
-                "controller_boot": status.get("boot", ""),
-                "kind": sample.kind,
-                "boot": frame.boot,
-                "sequence": frame.sequence,
-                "identity": live_identity,
-                "rectangle": list(rectangle),
-                "capture_sha256": output_sha256,
-                "capture_bytes": len(output_bytes),
-                "attempt": attempt_data,
-                "cleanup": cleanup_snapshot,
-                "owner_artifact_directory": sample_data["artifact_directory"],
-                "owner_artifact_png": sample_data["artifact_png"],
-                "png": str(output),
-            }
-            samples = receipt["samples"]
-            assert isinstance(samples, list)
-            samples.append(sample_record)
+                phase = "deadline"
+                raise RuntimeError("sample completion cadence is outside 0.75..1.25 seconds")
+            attempt["state"] = "completed"
             previous_sequence = frame.sequence
-            previous_start = actual_start
+            previous_start = outer_started
             previous_completion = sample_completed
-
-        phase = "status_after_run"
-        status_after = _status_from_ipc(config, timeout=1.0)
-        final_generation = _check_paused_status(status_after, expected_generation=expected_generation)
-        receipt["controller_generation_after_run"] = final_generation
-        receipt["controller_boot_after_run"] = status_after.get("boot", "")
-        if len(receipt["samples"]) != 8:  # type: ignore[arg-type]
-            raise RuntimeError("paused diagnostic did not complete exactly eight samples")
-        receipt["state"] = "passed"
-        receipt["finished_monotonic"] = time.monotonic()
-    except Exception as exc:
-        failure = exc
-        receipt["state"] = "failed"
-        receipt["failure"] = {"phase": phase, "error": f"{type(exc).__name__}: {exc}"}
-        receipt["finished_monotonic"] = time.monotonic()
-    finally:
-        cleanup = receipt["cleanup"]
-        assert isinstance(cleanup, dict)
-        cleanup["published_client_pngs"] = sorted(str(path) for path in output_dir.glob("paused-*.png"))
-        try:
-            _atomic_receipt(receipt_path, receipt)
-        except Exception as exc:
-            if failure is None:
-                failure = exc
-            raise RuntimeError(f"paused diagnostic could not persist receipt {receipt_path}: {exc}") from exc
+        except BaseException as exc:
+            failure = exc
+            attempt["state"] = "failed"
+            attempt["failure"] = _live_failure(phase if isinstance(exc, Exception) else "process_termination")
+            receipt["run_state"] = "failed"
+            break
+        finally:
+            # Keep an interruption or process termination observable even when
+            # control leaves this attempt before the normal run finalizer.
+            if attempt["state"] == "incomplete":
+                attempt["state"] = "failed"
+                attempt["failure"] = _live_failure("process_termination")
+                receipt["run_state"] = "failed"
+            try:
+                _atomic_receipt(receipt_path, receipt)
+            except Exception:
+                pass
+    if failure is None:
+        attempts = receipt["attempts"]
+        assert isinstance(attempts, list)
+        receipt["run_state"] = (
+            "passed"
+            if len(attempts) == 8 and all(item["state"] == "completed" for item in attempts)
+            else "incomplete"
+        )
+    observer_after: dict[str, str] = {}
+    try:
+        observer_after = _runtime_source_hashes()
+        receipt["observer_source_hashes_after"] = observer_after
+        if observer_after != receipt["observer_source_hashes_before"] and failure is None:
+            failure = RuntimeError("observer source binding drifted during the run")
+            attempts = receipt["attempts"]
+            assert isinstance(attempts, list)
+            if attempts and attempts[-1].get("state") == "completed":
+                attempts[-1]["state"] = "failed"
+                attempts[-1]["failure"] = _live_failure("source_binding")
+            receipt["run_state"] = "failed"
+    except BaseException as exc:
+        receipt["observer_source_hashes_after"] = observer_after
+        if failure is None:
+            failure = RuntimeError("observer source binding could not be verified after the run")
+            attempts = receipt["attempts"]
+            assert isinstance(attempts, list)
+            if attempts and attempts[-1].get("state") == "completed":
+                attempts[-1]["state"] = "failed"
+                attempts[-1]["failure"] = _live_failure(
+                    "source_binding" if isinstance(exc, Exception) else "process_termination"
+                )
+            receipt["run_state"] = "failed"
+    _atomic_receipt(receipt_path, receipt)
     if failure is not None:
-        detail = receipt.get("failure")
+        attempts = receipt["attempts"]
+        detail = (
+            attempts[-1]["failure"]
+            if isinstance(attempts, list)
+            and attempts
+            and isinstance(attempts[-1], dict)
+            and attempts[-1].get("failure") is not None
+            else _live_failure("process_termination")
+        )
         raise RuntimeError(
             f"paused diagnostic failed; evidence={receipt_path}; failure={detail}"
         ) from failure
-    receipt["receipt_path"] = str(receipt_path)
     return receipt
 
 
@@ -1755,10 +2404,10 @@ def main() -> int:
         print(
             json.dumps(
                 {
-                    "state": result["state"],
-                    "receipt": result["receipt_path"],
-                    "samples": len(result["samples"]),  # type: ignore[arg-type]
-                    "producer": result["producer"],
+                    "state": result["run_state"],
+                    "receipt": str(options.evidence_dir / "receipt.json"),
+                    "samples": len(result["attempts"]),  # type: ignore[arg-type]
+                    "producer_sha256": result["producer_binding"]["binary_sha256"],  # type: ignore[index]
                 },
                 sort_keys=True,
             )

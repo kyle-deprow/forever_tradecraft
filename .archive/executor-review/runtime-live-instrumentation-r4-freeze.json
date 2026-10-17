@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "isolated_root": "/home/dev/.cache/crowley/worktrees/runtime-instrumentation-r4-20261017",
+  "parent_test_closure_freeze_sha256": "a56d8b688d0b6533c66f0ec9c12dd9c988c3134485b7896811a9cfa4f3b070c9",
+  "source_hashes": {
+    "src/crowley/session/driver.py": "fb907096007e10ed59f67dceb52dd20a3e54c37ff02e011d21c61f292806938d",
+    "src/crowley/session/daemon.py": "69678fdcd4963ffeb38dd31441cf0074713baf5b95747da3383e90892636073f",
+    "tools/gnome-telemetry-region/offline_harness.py": "f682d85636b0073a8fd7e8330a6ae06ba7542d2cb9b7ccc74a1304ea856d7716",
+    "tests/test_session_native.py": "c47d2bdeebcb2079f24fb901caeb6c54c568fdf607c33eed217ebf20721dd846"
+  },
+  "read_only_evaluator": {
+    "tools/session_performance.py": "c46cae849058005e9b7387ef95c34f40f376afb5477739efaf6f40f6a36ebd8c",
+    "tests/test_session_performance.py": "c998aa4a9ff67ba67ddeab05a0e5a0cfa5273a296909e0b07cb79a3d06dd313a",
+    "docs/RUNTIME_PERFORMANCE.md": "54237c344ef0faa3392cca6fe82b75f1f986bbf697c81d3f34493b2f00e1caca"
+  },
+  "closure_delta_sha256": "625074838a0071ef34a32e7ae774572485b89a837746cc4450fce7c826bfdbb5",
+  "parent_delta_sha256": "d91223b8dfd3c3306e151841a9d222c09151b31e088913d2abca4349087d9422",
+  "scope": "R3 driver unchanged; bounded R4 daemon/harness/test closure"
+}
