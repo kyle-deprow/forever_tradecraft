@@ -1,0 +1,37 @@
+{
+  "schema": "crowley.runtime-evaluator-parent-acceptance",
+  "schema_version": 1,
+  "source_hashes": {
+    "tools/session_performance.py": "c46cae849058005e9b7387ef95c34f40f376afb5477739efaf6f40f6a36ebd8c",
+    "tests/test_session_performance.py": "c998aa4a9ff67ba67ddeab05a0e5a0cfa5273a296909e0b07cb79a3d06dd313a",
+    "docs/RUNTIME_PERFORMANCE.md": "54237c344ef0faa3392cca6fe82b75f1f986bbf697c81d3f34493b2f00e1caca"
+  },
+  "source_review": {
+    "reviewer": "gpt-5.6-sol",
+    "round": 3,
+    "status": "READY",
+    "report_sha256": "59d00ac37db3d54a0fe782272e05d9993b410fd8be332243021ba6d39494f568"
+  },
+  "parent_verification": {
+    "isolated_final": "65 passed in 4.98s",
+    "integrated_final": "65 passed in 7.03s",
+    "ruff": "passed",
+    "format": "passed",
+    "py_compile": "passed",
+    "scoped_diff_check": "passed",
+    "integration": "Exact three candidate hashes copied only after verifying original accepted Phase1 hashes and final source review digest."
+  },
+  "behavior": [
+    "Offline schema2 receipts require explicit accepted source/producer/config binding and pinned binding digest.",
+    "Strict bounded stable input parsing and privacy-safe report fields.",
+    "All malformed/refused/failed evidence remains visible and prevents unjustified collection qualification.",
+    "Decoded CPU/wall pairs require causal provenance; timing, cleanup and model activity are separately retained.",
+    "Canonical 120-pair/15-run, repeatability and counterfactual gates preserved."
+  ],
+  "limitations": [
+    "No accepted real schema2 live binding or measurements exist yet.",
+    "No production capture, executor, addon, service, model or GUI behavior changed by this offline tool.",
+    "No live bottleneck or Rust migration verdict follows from synthetic fixtures.",
+    "Native successor acceptance and reviewed production instrumentation remain prerequisites for live evidence."
+  ]
+}

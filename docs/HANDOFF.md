@@ -328,11 +328,15 @@ on5ed3fcb. Production instrumentation still waits for the accepted native succes
 no actual live
 binding/data or Rust verdict is created by fixture evaluator decisions.
 Ordinary collection does not depend on that qualification.
-The initial offline evaluator passed41parent checks, then SolsourceR1NEEDS WORK
-found malformed binding privacy leakage, missing causal boundaries/generation
-on failed decoded attempts, opaque cleanup failures and inconsistent cumulative
-model counters. Parent accepted all four findings; Luna is correcting only its
-three isolated files before another source review. No evaluator integration yet.
+The offline schema2 evaluator is now integrated after SolsourceR3READY/no findings
+and parent65checks (4.98s isolated,7.03s integrated), Ruff/format/compile/scoped
+diffcheck. Review closed malformed binding privacy leakage, missing causal
+boundaries/generation on failed decoded attempts, opaque cleanup failures and
+inconsistent cumulative model counters. Failed/interrupted post-decode attempts
+retain real CPU/wall pairs even if the later completion marker is absent; declared
+completed attempts still require that marker. Exact source/verification receipt:
+`runtime-evaluator-parent-acceptance.json`. No production instrumentation or real
+schema2 qualifying data is supplied by this offline acceptance.
 
 **Next reduction of model dependence:** `.archive/PLAN-native-semantic-observations.md`
 is a bounded proposal, not an implemented capability. Current native telemetry
