@@ -29,12 +29,12 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at10:28UTC:** seventeen current-session sweeps are persisted and
-exact-UID ACKed,37581price rows across428target items per sweep. Recent starts
+**Current status at10:35UTC:** eighteen current-session sweeps are persisted and
+exact-UID ACKed,39955price rows across428target items per sweep. Recent starts
 are exactly900s apart; uploads still inconsistently meet60s. Luna remains the
 sole ordinary GUI operator. The formal autonomous three-sweep qualification,
 fresh-owner native/physical-input qualification and launch strategy engine are
-unfinished. Eighteenth is collecting normally. Native R6 source is now integrated
+unfinished. Nineteenth is collecting normally. Native R6 source is now integrated
 and accepted; the live owner/profile remain unchanged and native opt-in is off.
 The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. Native
 R6 acceptance has parent323broad checks, final compiled checks and Sol/actual
@@ -43,7 +43,7 @@ Next: implement the SolREADY live instrumentation plan and collect its predeclar
 16-run evidence batch. No live computation bottleneck or Rust rewrite is proven.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `d0235a5` (initial snapshot
+summaries were pushed to the new origin through `447b40e` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
@@ -207,6 +207,12 @@ Seventeenth UID `beta-normal-alliance-1792231503-Arthur-4743` is parent-verified
 Original payload/logical digest matches the read-only DB/raw reference; fresh
 loadedACK boot1792232068-403623/pending0. Upload61.769s missed60s. Seventeen
 sweeps total37581price rows. Fresh AHopen/pending0 is verified before next due1792232403.
+
+Eighteenth UID `beta-normal-alliance-1792232403-Arthur-8579` is parent-verified:
+428queries/2374rows,409full/19bounded/allok,477s, exact900s timer-alone start.
+Original payload/logical digest matches the read-only DB/raw reference; fresh
+loadedACK boot1792232948-169878/pending0. Upload41.094s meets60s. Eighteen
+sweeps total39955price rows. Fresh AHopen/pending0 is verified before next due1792233303.
 
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
@@ -426,6 +432,26 @@ keys; schema/clock/model-counter/final-cleanup contracts match the evaluator.
 The live evidence batch is predeclared16runs with all outcomes retained, never
 extended selectively until successes. Root applied the nonblocking test-scope
 wording correction after that plan review; no production implementation yet.
+Production instrumentation is now delegated to fresh Luna in clean detached
+`runtime-instrumentation-20261017` at447b40e, exactly four owned files. Baseline
+`runtime-live-instrumentation-isolation-baseline.json` binds released planSHA
+a563e4df1450eaac3cb44b87fb3143a823bbed5b23f4209d168703a010a0bb62,
+accepted evaluator read-only and native source. No live schema2 binding or Rust
+verdict yet. Root separately released at most one read-only eight-sample R6
+diagnostic to the sole GUI operator at the eighteenth quiet boundary, ending
+by10:33:30UTC before the next ordinary timer. Actual owner/profile/cleanup and
+result remain to verify; no controller arming or physical-proof substitution.
+The first window ended NOT_RUN before any owner/profile/input/capture change:
+old ownerPID972882/PAUSEDgen13 still loaded oldcode and live config lacked the
+producer binding. Its unit is active/disabled. Luna prepared private0600candidate
+SHAe70017e40f40be57949baa0c3071e8ed0f03a760f33fd74a9f9f19066f46abbe;
+parent verified exact TOML changes only session.telemetry_region_executable and
+session.telemetry_region_executable_sha256, livefileSHA6205b7a10fef679a65f51eb87a73c247e366df70d8f46e7c6ec1f4fca9e7abbe
+unchanged. Missing fields/old source are expected transition prerequisites, not
+new permission requirements. At next loadedACK boundary, sole Luna is released
+to perform that legitimate profile/freshowner transition and one bounded
+read-only diagnostic, preserving all gates, journal/proofs and ordinary cadence.
+See sanitized first-live-window parent JSON; raw receipt remains private.
 
 **Next reduction of model dependence:** `.archive/PLAN-native-semantic-observations.md`
 is a bounded proposal, not an implemented capability. Current native telemetry

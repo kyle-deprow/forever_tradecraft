@@ -1,0 +1,14 @@
+{
+  "kind": "parent-r6-first-live-window-verification",
+  "state": "NOT_RUN",
+  "raw_private_receipt_sha256": "d02f42b76c7a0030755f40771e000fbf8262c2a47d8b875ae6a66b361262d7a6",
+  "recorded_utc": "2026-10-17T10:32:30.400336+00:00",
+  "operator_report": "No capture/sample, owner/profile/service/input change in firstwindow.",
+  "old_owner_status": "PAUSED generation13; native/input calibrationfalse; unitactive/disabled",
+  "native_producer_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+  "live_config_sha256": "6205b7a10fef679a65f51eb87a73c247e366df70d8f46e7c6ec1f4fca9e7abbe",
+  "prepared_candidate_sha256": "e70017e40f40be57949baa0c3071e8ed0f03a760f33fd74a9f9f19066f46abbe",
+  "parent_candidate_comparison": "Livefile unchanged; candidate0600 changes only session.telemetry_region_executable and session.telemetry_region_executable_sha256.",
+  "next_step": "Perform already-authorized provider-only profile/freshowner transition at next normal loadedACK quietboundary, retaining actual gates and same canonical lease.",
+  "qualification": "No live native observation or matched computation measurement established."
+}
