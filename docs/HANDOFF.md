@@ -146,6 +146,14 @@ compiled concurrent foreign-command test exposed blocked GApplication forwarding
 R5 is correcting nonblocking invocation admission and will preserve all prior
 binaries/logs. It remains isolated and undeployed.
 
+Eleventh UID `beta-normal-alliance-1792226098-Arthur-2671` is parent-verified:
+428queries/2102rows,411full/17bounded/allok,479s, exact900s timer-alone start.
+Original logical content matches DB/raw reference; fresh exact loadedACK
+boot1792226752-118220/pending0. Upload98.261s afterfinish missed60s. Retain
+this orchestration delay; it is not computation attribution. Eleven sweeps total
+24495price rows. Sole operator is probing native API/UI capability read-only at
+the normal quiet boundary before reopening AH; no protocol or binding changes.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -257,6 +265,15 @@ It follows accepted R5 native closure: exact owner/observer source/config/produc
 binding, same-attempt decodeCPU, overlapping wall boundaries, all failures and
 actual model counters. No Rust or production instrumentation is implemented yet.
 Ordinary collection does not depend on that qualification.
+
+**Next reduction of model dependence:** `.archive/PLAN-native-semantic-observations.md`
+is a bounded proposal, not an implemented capability. Current native telemetry
+cannot yet replace visual AH postconditions: authoritative world/current AH
+visibility, blocking modal/error state and defined readiness are missing. A
+read-only capability probe is delegated to the sole GUI operator at a normal
+quiet collection boundary. The plan retains separate fresh anchor/gesture proof
+and two-frame settlement; it never manufactures auctioneer identity from ahOpen.
+No call removal or zero-model full-cycle claim is accepted.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;
