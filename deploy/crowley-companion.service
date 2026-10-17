@@ -5,8 +5,7 @@ Description=Crowley companion (WoW SavedVariables <-> Crowley server)
 After=network-online.target
 
 [Service]
-WorkingDirectory=%h/repos/crowley
-ExecStart=%h/.local/bin/uv run --no-sync crowley-companion run
+ExecStart=%h/.local/bin/crowley-companion run
 Restart=on-failure
 RestartSec=10
 

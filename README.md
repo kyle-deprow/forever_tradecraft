@@ -33,16 +33,24 @@ cp deploy/.env.example deploy/.env      # set CROWLEY_API_TOKEN and CROWLEY_DB_P
 docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 curl localhost:8080/healthz
 
-# 2. Companion config
-uv sync
+# 2. Companion install and config
+# Replace /absolute/checkout with the absolute path of this checkout.
+uv tool install --editable /absolute/checkout
 mkdir -p ~/.config/crowley && cat > ~/.config/crowley/companion.toml <<TOML
 wow_dir    = "/home/you/.wine/drive_c/Program Files (x86)/World of Warcraft/_forever_"
 server_url = "http://127.0.0.1:8080"
 api_token  = "<CROWLEY_API_TOKEN from deploy/.env>"
 TOML
-uv run crowley-companion install-addon  # symlinks Crowley, copies Crowley_Data
-uv run crowley-companion doctor         # checks paths, addons and the server
-uv run crowley-companion run            # or install deploy/crowley-companion.service
+crowley-companion install-addon  # symlinks Crowley, copies Crowley_Data
+crowley-companion doctor         # checks paths, addons and the server
+crowley-companion run            # or install deploy/crowley-companion.service
+
+# The user service reads the authenticated config above and invokes the installed
+# command directly; it does not require this checkout as its working directory.
+mkdir -p ~/.config/systemd/user
+cp deploy/crowley-companion.service ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now crowley-companion
 ```
 
 The addon requires Auctionator. In game:
