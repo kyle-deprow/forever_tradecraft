@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "candidate": "runtime-live-instrumentation R1 frozen",
+  "consumer_suite": {
+    "passed": 161,
+    "failed": 14,
+    "duration_seconds": 304.89,
+    "log_sha256": "64f51fbe192e390c85733477772d5206bf9b74d6b15e2548672eb5e2d99d9ae1",
+    "initial_environment_failures": [
+      "12 missing test-only leases collided with real paused owner canonical desktop lease",
+      "2 actualdefault-adapter startup tests reject host codex-cli0.163.0 against existing0.162.1pin"
+    ]
+  },
+  "isolated_fixture_retry": {
+    "passed": 0,
+    "failed": 12,
+    "duration_seconds": 2.58,
+    "log_sha256": "0ac883077665840c08fe981f1062f4c90b4f16fb8ab1a94d05f5bc702749be6e",
+    "reason": "First fixture passed isolated lease construction, then rejected actual default CLI; failed fixture leaked only its test lease, cascading collisions."
+  },
+  "status": "174 consumer tests passed across initial and dependency-isolated runs; 1 same stale fixture failure reproduced on accepted R6 baseline; R1 source rejected for separately reviewed instrumentation defects.",
+  "live_owner": "unchanged; no lease released for tests",
+  "backup": {
+    "snapshot": "beta-20261017T105809Z-38e4b9dd2ff4",
+    "manifest_sha256": "08a38defd45bb6cb8e8f7047f90326e934531064b7977fd205960a67a0b9a391",
+    "snapshot_and_validation": "passed",
+    "separate_restore": "not attempted; prior accepted tool restore drill remains evidence"
+  },
+  "pinned_dependency_retry": {
+    "passed": 13,
+    "failed": 1,
+    "duration_seconds": 91.69,
+    "dependency": "real cached pinned codex-cli0.162.1, actual constructor/adapter/provider and startup validation; only test-created config default path injected",
+    "cli_sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "lease": "unique test-only path; real desktop owner untouched",
+    "log_sha256": "188c4b14c52fcc11156de5eda840e1dc1dbd03894ee36751081cc436d5fb42a5"
+  },
+  "baseline_proof": {
+    "failed_test": "test_runtime_ack_reload_missing_full_evidence_does_not_complete",
+    "baseline": "accepted R6 source test-r3 worktree",
+    "duration_seconds": 0.63,
+    "same_failure": "fixture mutates original config after daemon deepcopy; both reject missing SavedVariables with EvidenceError, assertion expects different error substring",
+    "log_sha256": "45f09b18ecc9ebac29c29fdd92118d973207eca51ddeb3c9ee24fcdcd760ca66"
+  }
+}
