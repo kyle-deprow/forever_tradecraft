@@ -29,11 +29,11 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at11:06UTC:** twenty current-session sweeps are persisted and
-exact-UID ACKed:44,729 price rows across428target items per sweep. Twenty-first
-started exactly on its11:05:03UTC timer. Twentieth completed428queries/2403rows,
-409full/19bounded/allok, in474s. Parent verified its original envelope, server
-row and exact loaded ACK; upload latency91.529s still misses60s. Recent starts are exactly900s apart; uploads still
+**Current status at11:25UTC:** twenty-one current-session sweeps are persisted and
+exact-UID ACKed:47,179 price rows across428target items per sweep. Twenty-first
+completed428queries/2450rows,409full/19bounded/allok in477s; exact900s start
+interval and56.893s upload. Parent verified original envelope/server row/loaded
+ACK. Twentieth upload was91.529s, so60s still is not consistently met. Recent starts are exactly900s apart; uploads still
 inconsistently meet60s. Luna remains the sole ordinary GUI operator. The formal
 autonomous three-sweep qualification, physical-input qualification and launch
 strategy engine remain unfinished.
@@ -50,11 +50,13 @@ The failed attempt remains preserved. The unit stays inactive/disabled.
 The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. The
 SolREADY live instrumentation plan now has a frozen four-file candidate in
 `/home/dev/.cache/crowley/worktrees/runtime-instrumentation-20261017`; parent
-reproduced69focused checks. Sol and actual CLI Opus sourceR1 both require fixes
-(counter-baseline window, failure/cleanup provenance and real producer/evaluator
-compatibility among them). Luna owns the same four paths in successor worktree
-`runtime-instrumentation-r2-20261017`; R1 stays frozen. Do not deploy either
-candidate before acceptance. Next: integrate the reviewed
+reproduced69focused R1 checks and71focused R2 checks (29.70s), including a real
+compiled composition receipt evaluated through the unchanged evaluator. SolR1,
+actualOpusR1, and SolR2 require fixes; actualOpusR2 is running. Luna owns the same
+four paths in successor `runtime-instrumentation-r3-20261017`, closing actual
+owner-config failure binding, exact IPC validation, terminal pre-producer cleanup,
+target-wait interruption lifecycle and final-status completion clock defects.
+R1/R2 stay frozen. Do not deploy any instrumentation candidate before acceptance. Next: integrate the reviewed
 instrumentation, start a fresh owner, bind the exact sources/config/producer,
 and retain every outcome in a predeclared16-run evidence batch. No live
 computation bottleneck or Rust rewrite is established yet.
@@ -67,7 +69,7 @@ profile uses the cached0.162.1binary and passes the existing startup pin. Do not
 relax the adapter pin to make default-path test fixtures pass.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `8fe3aca` (initial snapshot
+summaries were pushed to the new origin through `a2ff606` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
