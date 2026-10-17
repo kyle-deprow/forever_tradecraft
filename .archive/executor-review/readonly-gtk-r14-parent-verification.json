@@ -1,0 +1,26 @@
+{
+  "receiptDigest": true,
+  "privateModes": true,
+  "processIdentities": [
+    {
+      "pid": 2602855,
+      "startMatches": true,
+      "exeMatches": true,
+      "cmdlineDigestMatches": true,
+      "cmdlineHashAlgorithm": "SHA256(proc cmdline bytes stripped of trailing NULs)"
+    },
+    {
+      "pid": 3125296,
+      "startMatches": true,
+      "exeMatches": true,
+      "cmdlineDigestMatches": true,
+      "cmdlineHashAlgorithm": "SHA256(proc cmdline bytes stripped of trailing NULs)"
+    }
+  ],
+  "toolDigest": true,
+  "preparedCommandNotExecuted": true,
+  "manifestDigest": true,
+  "sourceHashes": true,
+  "checkpointPaused": true,
+  "digestClarification": "Original receipt retained unchanged; worker omitted hash normalization description, now independently reproduced."
+}

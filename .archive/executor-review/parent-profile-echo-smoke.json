@@ -1,0 +1,9 @@
+{
+  "normalizedEndpoint": [
+    1113.0,
+    576.0
+  ],
+  "primaryTimestamp": 4294967295,
+  "echoTimestamp": 0,
+  "claim": "offline production echo producer with captured primary body and constructed forwarded event; no seal/arm/native acceptance"
+}

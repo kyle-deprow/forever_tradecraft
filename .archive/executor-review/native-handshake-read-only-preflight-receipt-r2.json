@@ -1,0 +1,122 @@
+{
+  "attempt_dir": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-20261017T021448398861Z-pid843969",
+  "button_match": {
+    "negative": {
+      "accepted": false,
+      "box": [
+        842,
+        977,
+        236,
+        51
+      ],
+      "click": [
+        958,
+        1001
+      ],
+      "dx": -2,
+      "dy": -1,
+      "mae": 37.85410435360585,
+      "source": "current-charselect.png crop at measured client geometry"
+    },
+    "positive": {
+      "accepted": true,
+      "box": [
+        842,
+        977,
+        236,
+        51
+      ],
+      "click": [
+        960,
+        1002
+      ],
+      "dx": 0,
+      "dy": 0,
+      "mae": 0.0,
+      "source": "current-charselect.png crop at measured client geometry"
+    },
+    "threshold": 5.0
+  },
+  "button_reference": {
+    "box": [
+      842,
+      977,
+      236,
+      51
+    ],
+    "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/current-charselect.png",
+    "sha256": "580d6487a2783a47ddc177d521c5103021c65eae17580b6f8d7bc7cf097e9043",
+    "template_sha256": "0b8483f4a2cee9674d1fd11f790b659693e7c712d191ba3185aef7d09b545113"
+  },
+  "capture_shas": {
+    "preflight-charselect.png": "be55e4f1704f7052d09eb00f929696629edacdead16a9ecd1f155d5016ea0a73"
+  },
+  "created_utc": "2026-10-17T02:14:48.398996+00:00",
+  "events": [],
+  "graphical_environment": {
+    "display": ":0",
+    "gnome_shell_pid": null,
+    "selected_keys": [
+      "DBUS_SESSION_BUS_ADDRESS",
+      "DISPLAY",
+      "XAUTHORITY",
+      "XDG_RUNTIME_DIR"
+    ],
+    "userbus_source": "Xwayland",
+    "xauthority": {
+      "mode": "0o600",
+      "owner_uid": 1000,
+      "path": "/run/user/1000/.mutter-Xwaylandauth.LW2BX3"
+    },
+    "xwayland_pid": 4014
+  },
+  "identity": {
+    "child": [
+      0,
+      0,
+      1920,
+      1080
+    ],
+    "child_xid": "0x2000011",
+    "fingerprint": "697fa4e6bc67468f8f189c7864b4072d4527c95aef78ed67cade9e5899a4ff86",
+    "outer": [
+      0,
+      0,
+      1928,
+      1092
+    ],
+    "pid": 641068,
+    "start": "998749",
+    "xid": "0x3200001"
+  },
+  "mode": "preflight-only",
+  "mutation_attempts": {
+    "input": 0,
+    "kernel-reset": 0,
+    "native-bootstrap": 0,
+    "native-calibrate": 0,
+    "status": 1
+  },
+  "profile": {
+    "canvas_crop": [
+      80,
+      48,
+      256,
+      256
+    ],
+    "client": [
+      1920,
+      1080
+    ],
+    "display": ":0",
+    "input_tool_mode": "read-only-stub",
+    "input_tool_sha256": "2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155",
+    "input_tool_version": "xtest-14ca26a2c95035f9c635a6a11d075e8d7d0d6529;sha256=2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155",
+    "outer": [
+      1928,
+      1092
+    ],
+    "xauthority_inherited": true
+  },
+  "result": "preflight_pass"
+}

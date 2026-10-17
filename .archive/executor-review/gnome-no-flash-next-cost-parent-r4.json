@@ -1,0 +1,9 @@
+{
+  "freeze_sha256": "9fb551f73717645ef227f852a60d2a2e5346772043a8e84cd659c7a41bd306ec",
+  "hashes_verified": 24,
+  "selftests": 32,
+  "selfcheck": "PASS",
+  "binary_unchanged": true,
+  "production_driver_unchanged": true,
+  "live_executed": false
+}

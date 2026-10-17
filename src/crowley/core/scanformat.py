@@ -82,6 +82,26 @@ def encode_json_payload(value: dict[str, Any]) -> str:
     return base64.b64encode(compressor.compress(text.encode("utf-8")) + compressor.flush()).decode("ascii")
 
 
+def _native_keyed_collection(value: Any, where: str) -> dict[str, Any]:
+    """Validate a Lua keyed table after WoW's JSON encoding.
+
+    WoW's native encoder represents an empty Lua table as ``[]`` and a
+    non-empty keyed table as an object.  The internal representation remains
+    a mapping so the rest of the validator can use the canonical row/name
+    operations.  Empty objects and non-empty arrays are deliberately rejected
+    instead of being repaired here.
+    """
+    if isinstance(value, list):
+        if value:
+            raise ScanFormatError(f"{where} must be an empty array or non-empty object")
+        return {}
+    if isinstance(value, dict):
+        if not value:
+            raise ScanFormatError(f"{where} must be an empty array or non-empty object")
+        return value
+    raise ScanFormatError(f"{where} must be an empty array or non-empty object")
+
+
 def _keys(value: Any, expected: set[str], where: str) -> None:
     if not isinstance(value, dict):
         raise ScanFormatError(f"{where} must be an object")
@@ -230,9 +250,8 @@ def _validate_raw_key(value: Any, row_item_id: int, where: str) -> dict[str, Any
         _int(value[key], f"{where}.{key}")
     if value["itemID"] != row_item_id:
         raise ScanFormatError(f"{where}.itemID does not match row itemID")
-    bonuses = value["bonusIDs"]
-    if not isinstance(bonuses, dict):
-        raise ScanFormatError(f"{where}.bonusIDs must be an object")
+    bonuses = _native_keyed_collection(value["bonusIDs"], f"{where}.bonusIDs")
+    value["bonusIDs"] = bonuses
     for index, bonus in bonuses.items():
         if not isinstance(index, str) or not re.fullmatch(r"\d+", index):
             raise ScanFormatError(f"{where}.bonusIDs keys must be decimal")
@@ -303,10 +322,9 @@ def _validate_owners(value: Any, kind: str, where: str) -> None:
         {"names", "totalNumberOfOwners", "containsOwnerItem", "containsAccountItem", "identityKind"},
         where,
     )
-    names = value["names"]
-    if not isinstance(names, dict) or any(
-        not isinstance(name, str) or not name or v is not True for name, v in names.items()
-    ):
+    names = _native_keyed_collection(value["names"], f"{where}.names")
+    value["names"] = names
+    if any(not isinstance(name, str) or not name or v is not True for name, v in names.items()):
         raise ScanFormatError(f"{where}.names must be a name:true object")
     owner_count = _int(value["totalNumberOfOwners"], f"{where}.totalNumberOfOwners")
     if owner_count < len(names):
@@ -501,8 +519,9 @@ def _validate_observation(
     }
     reason = _choice(value["reasonCode"], reasons, f"{where}.reasonCode")
     row_count = _int(value["rowCount"], f"{where}.rowCount")
-    rows = value["rows"]
-    if not isinstance(rows, dict) or row_count != len(rows):
+    rows = _native_keyed_collection(value["rows"], f"{where}.rows")
+    value["rows"] = rows
+    if row_count != len(rows):
         raise ScanFormatError(f"{where}.rows/count mismatch")
     if query_is_unqueried:
         if (
@@ -617,8 +636,9 @@ def _validate_owned(value: Any, sweep_start: int, sweep_end: int) -> None:
     if status == "incomplete" and (query["kind"] != "queried" or reason == "ok"):
         raise ScanFormatError("owned incomplete status requires a failed queried batch")
     row_count = _int(value["rowCount"], "owned.rowCount")
-    rows = value["rows"]
-    if not isinstance(rows, dict) or row_count != len(rows):
+    rows = _native_keyed_collection(value["rows"], "owned.rows")
+    value["rows"] = rows
+    if row_count != len(rows):
         raise ScanFormatError("owned rows/count mismatch")
     if status == "unqueried" and rows:
         raise ScanFormatError("owned unqueried batch cannot contain rows")

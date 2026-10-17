@@ -1,0 +1,155 @@
+--- /home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py	2026-10-16 22:58:41.456743572 -0500
++++ /home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r3-candidate.py	2026-10-16 23:02:24.880918583 -0500
+@@ -330,6 +330,32 @@
+         raise MarkerError('diagnostic marker stream is incomplete', retryable=True)
+     return rows
+ 
++
++def sample_attempt_decision(
++    ordinal: int,
++    *,
++    capture_error: BaseException | None = None,
++    image_error: str | None = None,
++    screenshot_command_count: int = 1,
++    owner_proof: bool = True,
++    marker_error: dict[str, Any] | None = None,
++) -> tuple[str, str]:
++    """Return the production loop decision without performing another attempt."""
++    if capture_error is not None:
++        return 'fail', f'{type(capture_error).__name__}: {capture_error}'
++    if image_error:
++        return 'fail', image_error
++    if screenshot_command_count != 1:
++        return 'fail', 'sample did not execute exactly one screenshot command'
++    if not owner_proof:
++        return 'fail', 'request owner evidence missing'
++    if marker_error:
++        message = str(marker_error.get('message', 'diagnostic marker validation failed'))
++        if marker_error.get('retryable') and ordinal == 0:
++            return 'retry', message
++        return 'fail', message
++    return 'complete', ''
++
+ def run_self_tests() -> int:
+     import unittest
+     private = {'unique_name': ':1.777', 'pid': os.getpid(), 'ppid': os.getpid(),
+@@ -342,6 +368,18 @@
+     request_args = {'command_start_wall': 10, 'command_end_wall': 11,
+                     'previously_owned': set(), 'benchmark_pid': os.getpid()}
+     class Checks(unittest.TestCase):
++        def test_complete_first_marker_stream_stops_after_one_attempt(self):
++            self.assertEqual(sample_attempt_decision(0), ('complete', ''))
++        def test_only_incomplete_first_marker_stream_consumes_second_ordinal(self):
++            retry = {'message': 'diagnostic marker stream is incomplete', 'retryable': True}
++            self.assertEqual(sample_attempt_decision(0, marker_error=retry)[0], 'retry')
++            self.assertEqual(sample_attempt_decision(1, marker_error=retry)[0], 'fail')
++        def test_capture_decode_owner_and_malformed_marker_fail_without_retry(self):
++            self.assertEqual(sample_attempt_decision(0, capture_error=RuntimeError('timeout'))[0], 'fail')
++            self.assertEqual(sample_attempt_decision(0, image_error='wrong PNG')[0], 'fail')
++            self.assertEqual(sample_attempt_decision(0, owner_proof=False)[0], 'fail')
++            malformed = {'message': 'malformed or extra diagnostic marker', 'retryable': False}
++            self.assertEqual(sample_attempt_decision(0, marker_error=malformed)[0], 'fail')
+         def _marker_text(self, *, token: str = 'next-cost-test', pid: int | None = None,
+                          events: tuple[str, ...] = MARKER_EVENTS) -> str:
+             value = os.getpid() if pid is None else pid
+@@ -863,7 +901,7 @@
+ 
+ def live_run() -> int:
+     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+-    outdir = Path.home() / '.local/state/crowley/executor-evidence' / f'gnome-no-flash-benchmark-{stamp}-{os.getpid()}'
++    outdir = Path.home() / '.local/state/crowley/executor-evidence' / f'gnome-no-flash-next-cost-benchmark-{stamp}-{os.getpid()}'
+     outdir.mkdir(mode=0o700, parents=True, exist_ok=False)
+     _mode_private(outdir, 0o700)
+     receipt_path = outdir / 'receipt.json'
+@@ -880,6 +918,11 @@
+         'benchmark_binary_kind': 'private-instrumented-diagnostic-executable',
+         'production_binary_kind': 'host-stock-gnome-screenshot',
+         'marker_protocol': {'prefix': MARKER_PREFIX, 'events': list(MARKER_EVENTS), 'max_ordinals': MAX_SAMPLES},
++        'raw_stderr_retention': {
++            'successful_completed_process': True,
++            'backend_exception': False,
++            'backend_exception_reason': 'unchanged production backend exposes no CompletedProcess on exception',
++        },
+     }
+     _write_receipt(receipt_path, receipt)
+     monitor: OwnerMonitor | None = None
+@@ -1031,13 +1074,22 @@
+                 assert completed is not None
+                 entry['exit_status'] = completed.returncode
+             if command == 'gnome-screenshot':
+-                raw_stderr = '' if completed is None else (completed.stderr or '')
+-                stderr_path = outdir / f'stderr-{len(timings) + 1:02d}.txt'
+-                stderr_path.write_text(raw_stderr, encoding='utf-8')
+-                _mode_private(stderr_path, 0o600)
+-                entry['diagnostic_stderr_path'] = stderr_path.name
+-                entry['diagnostic_stderr_sha256'] = hashlib.sha256(raw_stderr.encode()).hexdigest()
+                 entry['diagnostic_token'] = marker_token
++                if completed is not None:
++                    raw_stderr = completed.stderr or ''
++                    stderr_path = outdir / f'stderr-{len(timings) + 1:02d}.txt'
++                    stderr_path.write_text(raw_stderr, encoding='utf-8')
++                    _mode_private(stderr_path, 0o600)
++                    entry['diagnostic_stderr_available'] = True
++                    entry['diagnostic_stderr_path'] = stderr_path.name
++                    entry['diagnostic_stderr_sha256'] = hashlib.sha256(raw_stderr.encode()).hexdigest()
++                else:
++                    # The unchanged production backend raises without exposing
++                    # its child CompletedProcess; never invent an empty stream.
++                    entry['diagnostic_stderr_available'] = False
++                    entry['diagnostic_stderr_unavailable_reason'] = (
++                        'unchanged production backend exposes no CompletedProcess on exception'
++                    )
+                 entry['owner_observer_pre_s'] = observer_pre_s
+                 try:
+                     current = bus_owner()
+@@ -1220,24 +1272,32 @@
+             }
+             receipt['samples'].append(sample_record)
+             _write_receipt(receipt_path, receipt)
+-            if capture_exception is not None:
+-                raise capture_exception.with_traceback(capture_exception.__traceback__)
+-            if image_error:
+-                raise RuntimeError(image_error)
+-            if len(screenshot_commands) != 1:
+-                raise RuntimeError('sample did not execute exactly one screenshot command')
+-            if not screenshot_commands[0].get('owner_proof'):
+-                proof_error = screenshot_commands[0].get('owner_proof_error', 'request owner evidence missing')
+-                raise RuntimeError(proof_error)
+-            marker_error = screenshot_commands[0].get('diagnostic_marker_error')
+-            if marker_error:
+-                message = str(marker_error.get('message', 'diagnostic marker validation failed'))
+-                if marker_error.get('retryable') and ordinal == 0:
+-                    # The second ordinal was predeclared before the first request;
+-                    # only an absent/incomplete marker stream can consume it.
+-                    continue
+-                raise RuntimeError(message)
+-            # A valid slow sample is retained and the bounded distinct sequence continues.
++            marker_error = screenshot_commands[0].get('diagnostic_marker_error') if screenshot_commands else None
++            decision, decision_message = sample_attempt_decision(
++                ordinal,
++                capture_error=capture_exception,
++                image_error=image_error,
++                screenshot_command_count=len(screenshot_commands),
++                owner_proof=bool(screenshot_commands and screenshot_commands[0].get('owner_proof')),
++                marker_error=marker_error,
++            )
++            if decision == 'fail':
++                if capture_exception is not None:
++                    raise capture_exception.with_traceback(capture_exception.__traceback__)
++                if image_error:
++                    raise RuntimeError(image_error)
++                if len(screenshot_commands) != 1:
++                    raise RuntimeError('sample did not execute exactly one screenshot command')
++                if not screenshot_commands[0].get('owner_proof'):
++                    proof_error = screenshot_commands[0].get('owner_proof_error', 'request owner evidence missing')
++                    raise RuntimeError(proof_error)
++                raise RuntimeError(decision_message)
++            if decision == 'retry':
++                # The second ordinal was predeclared before the first request;
++                # only an absent/incomplete first marker stream can consume it.
++                continue
++            # A complete valid marker stream ends the bounded run after one attempt.
++            break
+ 
+         if monitor is not None:
+             final_events = monitor.drain_until_quiet()

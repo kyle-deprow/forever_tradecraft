@@ -1,0 +1,903 @@
+--- r11/.archive/executor-review/test_owned_gesture_proof.py
++++ test-closure/.archive/executor-review/test_owned_gesture_proof.py
+@@ -4,6 +4,8 @@
+ import importlib.util
+ import os
+ import sys
++import threading
++import time
+ from argparse import Namespace
+ from pathlib import Path
+ from types import SimpleNamespace
+@@ -191,6 +193,86 @@
+     assert metrics["observedDurationSeconds"] == 0.001
+ 
+ 
++def test_run_seed_chain_records_actual_success_result_and_admission_identity() -> None:
++    helper = _helper_module()
++    chain = ["xdotool", "mousemove", "360", "120"]
++    backend = SimpleNamespace(active_process_groups=set(), calls=[])
++    context = SimpleNamespace(
++        backend=backend,
++        ticket=SimpleNamespace(epoch=7),
++        callback_lock=threading.RLock(),
++        stage_marks=[],
++        events=[],
++        phase_state={"rawMotionPairing": RawMotionPairing(), "seedOnly": {"process": None}},
++    )
++
++    def run(args: list[str], **kwargs: object) -> SimpleNamespace:
++        backend.calls.append((list(args), kwargs))
++        backend.active_process_groups.add(8123)
++        deadline = time.monotonic() + 1.0
++        while not context.phase_state["motionAdmitted"] and time.monotonic() < deadline:
++            time.sleep(0.001)
++        backend.active_process_groups.discard(8123)
++        assert context.phase_state["motionAdmitted"]
++        return SimpleNamespace(returncode=0, args=list(args), stdout="seed-ok", stderr="")
++
++    backend._run = run
++    pid, result = helper._run_seed_chain(context, chain, 0)
++
++    assert pid == 8123
++    assert backend.calls == [
++        (
++            chain,
++            {
++                "calibration_ticket": context.ticket,
++                "input_schema": "pointer-motion",
++                "expected_argv": tuple(chain),
++            },
++        )
++    ]
++    assert result["returncode"] == 0
++    assert result["args"] == chain
++    assert result["stdout"] == "seed-ok"
++    assert result["stderr"] == ""
++    assert result["registeredProcessGroup"] == 8123
++    assert result["finishedMonotonic"] >= result["startedMonotonic"]
++    assert context.phase_state["seedOnly"]["process"] is result
++
++
++def test_run_seed_chain_records_actual_error_and_admission_identity() -> None:
++    helper = _helper_module()
++    chain = ["xdotool", "mousemove", "360", "120"]
++    backend = SimpleNamespace(active_process_groups=set(), calls=[])
++    context = SimpleNamespace(
++        backend=backend,
++        ticket=SimpleNamespace(epoch=8),
++        callback_lock=threading.RLock(),
++        stage_marks=[],
++        events=[],
++        phase_state={"rawMotionPairing": RawMotionPairing(), "seedOnly": {"process": None}},
++    )
++
++    def run(args: list[str], **kwargs: object) -> SimpleNamespace:
++        backend.calls.append((list(args), kwargs))
++        backend.active_process_groups.add(8124)
++        deadline = time.monotonic() + 1.0
++        while not context.phase_state["motionAdmitted"] and time.monotonic() < deadline:
++            time.sleep(0.001)
++        backend.active_process_groups.discard(8124)
++        raise RuntimeError("seed backend failed")
++
++    backend._run = run
++    with pytest.raises(RuntimeError, match="seed backend failed"):
++        helper._run_seed_chain(context, chain, 0)
++
++    result = context.phase_state["seedOnly"]["process"]
++    assert result["error"] == "RuntimeError: seed backend failed"
++    assert result["registeredProcessGroup"] == 8124
++    assert result["finishedMonotonic"] >= result["startedMonotonic"]
++    assert backend.calls[0][1]["input_schema"] == "pointer-motion"
++    assert backend.calls[0][1]["expected_argv"] == tuple(chain)
++
++
+ def test_seed_only_rejects_process_failure_even_if_no_input_is_observed(
+     monkeypatch: pytest.MonkeyPatch,
+ ) -> None:
+@@ -200,6 +282,7 @@
+         backend=SimpleNamespace(pointer_position=lambda: (120, 120, None), active_process_groups=set()),
+         events=[],
+         driver=SimpleNamespace(guardian=SimpleNamespace(held=False)),
++        phase_state={},
+     )
+ 
+     def failed_seed(context: object, *_args: object, **_kwargs: object) -> tuple[None, dict[str, str]]:
+@@ -223,13 +306,20 @@
+         backend=SimpleNamespace(pointer_position=lambda: (120, 120, None), active_process_groups=set()),
+         events=[],
+         driver=SimpleNamespace(guardian=SimpleNamespace(held=False)),
+-    )
++        phase_state={},
++    )
++    dispatches: list[tuple[object, ...]] = []
+     monkeypatch.setattr(helper, "_seed_endpoint", lambda geometry, start: (120, 120))
+-    monkeypatch.setattr(helper, "_run_seed_chain", lambda *args, **kwargs: (123, {}))
++    monkeypatch.setattr(
++        helper,
++        "_run_seed_chain",
++        lambda *args, **kwargs: dispatches.append(args) or (123, {}),
++    )
+     monkeypatch.setattr(helper, "_wait_until", lambda *args, **kwargs: None)
+     monkeypatch.setattr(helper, "_verify_controlled_motion_phase", lambda *args, **kwargs: {})
+     with pytest.raises(helper.ProofError, match="distinct"):
+         helper._seed_only(context, {})
++    assert dispatches == []
+ 
+ 
+ def test_prepare_context_cleans_driver_target_and_lease_on_observer_setup_failure(
+@@ -327,6 +417,189 @@
+     assert not registered
+     assert owners and owners[0].closed
+     assert args.diagnostic_log_path
++
++
++def test_prepare_context_carries_exact_observer_diagnostic_through_callback(
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++) -> None:
++    helper = _helper_module()
++    callback_box: dict[str, object] = {}
++    revoked: list[str] = []
++    raw_text = "EVENT type 17 (RawMotion)\n    detail: 1\n\n"
++    reason = "RawMotion: detail must be 0"
++
++    class FakeGuardian:
++        calibration_epoch = 1
++
++        def __init__(self) -> None:
++            self.active_process_groups: set[int] = set()
++            self.observer_process_groups = {70202}
++            self._calibration_bootstrap_process_groups: set[int] = set()
++            self.lease = SimpleNamespace(held=True)
++
++        def revoke(self, message: str) -> None:
++            revoked.append(message)
++
++    class FakeDriver:
++        def __init__(self) -> None:
++            self.guardian = FakeGuardian()
++            self.backend = SimpleNamespace(active_process_groups=set())
++            self.closed = False
++
++        def begin_calibration_operation(self) -> int:
++            return 1
++
++        def input_hierarchy(self) -> tuple[tuple[int, int, str, str], ...]:
++            return ((4, 2, "slave", "XTEST pointer"), (5, 3, "slave", "XTEST keyboard"))
++
++        def admit_calibration_target_process(self, pid: int, release_gate: object):
++            del release_gate
++            self.guardian.active_process_groups.add(pid)
++
++            def cleanup() -> None:
++                self.guardian.active_process_groups.discard(pid)
++
++            return cleanup
++
++        def start_input_observer(self, *, callback: object, **_kwargs: object) -> object:
++            callback_box["callback"] = callback
++            return SimpleNamespace(
++                alive=True,
++                observer=SimpleNamespace(process=SimpleNamespace(pid=70202)),
++                failure_diagnostic={"text": raw_text, "reason": reason},
++            )
++
++        def issue_calibration_ticket(self, _target: object) -> object:
++            return SimpleNamespace(epoch=1)
++
++        def focus_calibration_target(self, _target: object, *, calibration_ticket: object) -> None:
++            assert calibration_ticket.epoch == 1
++
++        def close(self) -> None:
++            self.closed = True
++            self.guardian.lease.held = False
++            self.guardian.active_process_groups.clear()
++
++        def revoke(self, message: str) -> None:
++            self.guardian.revoke(message)
++
++    class FakeTarget:
++        pid = 70201
++        xid = 0x600119
++        allowed_event_target_xids = frozenset({xid})
++        process = SimpleNamespace(poll=lambda: None)
++
++    class FakeTargetOwner:
++        def __init__(self, **_kwargs: object) -> None:
++            self.target = FakeTarget()
++            self.command = lambda _argv, **_kwargs: ""
++            self.closed = False
++
++        def create(self, *, startup_admission: object) -> FakeTarget:
++            startup_admission(self.target.pid, lambda: None)
++            return self.target
++
++        def close(self) -> None:
++            self.closed = True
++
++    driver = FakeDriver()
++
++    monkeypatch.setattr(helper, "_make_driver", lambda _args, _modules: (driver, driver.backend))
++    modules = {
++        "calibration": SimpleNamespace(
++            OwnedGtkCalibrationWindow=FakeTargetOwner,
++            xtest_sources=lambda _hierarchy: (5, 4),
++        ),
++        "events": SimpleNamespace(EventClass=SimpleNamespace(), RawMotionPairing=RawMotionPairing),
++    }
++    args = Namespace(
++        display=":fixture",
++        xauthority=tmp_path / "Xauthority",
++        gtk_python="/usr/bin/python3",
++        evidence_dir=tmp_path,
++    )
++
++    context = helper._prepare_context(args, modules)
++    callback = callback_box["callback"]
++    assert callable(callback)
++    callback(None)
++
++    assert context.phase_state["observerDiagnostic"] == {"text": raw_text, "reason": reason}
++    assert context.observer_errors == [f"XI2 observer parse failure: {reason}"]
++    assert revoked == [f"XI2 observer parse failure: {reason}"]
++    context.target_owner.close()
++    driver.close()
++
++
++def test_main_receipt_preserves_observer_diagnostic_and_fail_status(
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++) -> None:
++    helper = _helper_module()
++    evidence_dir = tmp_path / "evidence"
++    xauthority = tmp_path / "Xauthority"
++    xauthority.write_bytes(b"fixture")
++    raw_text = "EVENT type 17 (RawMotion)\n    detail: 1\n\n"
++    reason = "RawMotion: detail must be 0"
++
++    class FakeDriver:
++        def __init__(self) -> None:
++            self.closed = False
++            self.guardian = SimpleNamespace(
++                active_process_groups=set(),
++                observer_process_groups=set(),
++                _calibration_bootstrap_process_groups=set(),
++            )
++            self._calibration_bootstrap_process_groups = set()
++            self.backend = SimpleNamespace(active_process_groups=set())
++
++        def close(self) -> None:
++            self.closed = True
++
++    driver = FakeDriver()
++    context = SimpleNamespace(
++        driver=driver,
++        target_owner=SimpleNamespace(close=lambda: None),
++        backend=driver.backend,
++        target=SimpleNamespace(pid=70201),
++        observer=SimpleNamespace(observer=SimpleNamespace(process=SimpleNamespace(pid=70202))),
++        events=[],
++        stage_marks=[],
++        accepted_callbacks=[],
++        violations=[],
++        observer_errors=[f"XI2 observer parse failure: {reason}"],
++        phase_state={"observerDiagnostic": {"text": raw_text, "reason": reason}},
++    )
++    modules = {
++        name: SimpleNamespace(__file__=str(HELPER_PATH))
++        for name in ("calibration", "driver", "guardian", "input_tool")
++    }
++    captured: dict[str, object] = {}
++    monkeypatch.setattr(helper, "_runtime", lambda: modules)
++    monkeypatch.setattr(helper, "_prepare_context", lambda _args, _modules: context)
++    monkeypatch.setattr(helper, "_pinned_tool_identity", lambda _driver: {"fixture": True})
++    monkeypatch.setattr(helper, "_post_cleanup_state", lambda _context, _pids: {"clean": True})
++    monkeypatch.setattr(helper, "_write_private", lambda _path, payload: captured.update(payload))
++    monkeypatch.setattr(
++        helper, "_positive", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("proof failed"))
++    )
++
++    status = helper.main(
++        [
++            "--mode",
++            "positive",
++            "--display",
++            ":fixture",
++            "--xauthority",
++            str(xauthority),
++            "--evidence-dir",
++            str(evidence_dir),
++        ]
++    )
++
++    assert status == 1
++    assert captured["status"] == "FAIL"
++    assert captured["observerDiagnostic"] == {"text": raw_text, "reason": reason}
++    assert captured["observerErrors"] == [f"XI2 observer parse failure: {reason}"]
+ 
+ 
+ def test_main_identity_failure_cleans_context_before_proof_dispatch(
+--- r11/tests/test_session_native.py
++++ test-closure/tests/test_session_native.py
+@@ -655,6 +655,131 @@
+     )
+ 
+ 
++def test_owned_sequence_raw_motion_pairing_retains_forward_arrival_clock() -> None:
++    from crowley.session.calibration import InputCalibrationWorkflow
++
++    pointer_trace = """EVENT type 15 (RawButtonPress)
++    device: 2 (4)
++    time: 1
++    detail: 1
++EVENT type 4 (ButtonPress)
++    device: 4 (4)
++    time: 1
++    detail: 1
++    root: 987.00/595.00
++    event: 987.00/595.00
++    modifiers: locked 0 latched 0 base 0 effective: 0
++    windows: root 0x374 event 0x374 child 0x600119
++EVENT type 17 (RawMotion)
++    device: 2 (4)
++    time: 2
++    detail: 0
++    flags: 
++    valuators:
++         0: 987.00 (987.00)
++         1: 595.00 (595.00)
++EVENT type 6 (Motion)
++    device: 4 (4)
++    time: 2
++    root: 987.00/595.00
++    event: 987.00/595.00
++    modifiers: locked 0 latched 0 base 0 effective: 0
++    windows: root 0x374 event 0x374 child 0x600119
++EVENT type 16 (RawButtonRelease)
++    device: 2 (4)
++    time: 3
++    detail: 1
++EVENT type 5 (ButtonRelease)
++    device: 4 (4)
++    time: 3
++    detail: 1
++    root: 987.00/595.00
++    event: 987.00/595.00
++    modifiers: locked 0 latched 0 base 0 effective: 0
++    windows: root 0x374 event 0x374 child 0x600119
++"""
++    records = parse_xi2_records(pointer_trace, require_event=True)
++
++    class Window:
++        def contains_xid(self, xid: int | None) -> bool:
++            return xid == 0x600119
++
++    raw_motion_positions = [
++        index for index, event in enumerate(records) if event.event_class is EventClass.RAW_MOTION
++    ]
++    motion_positions = [
++        index for index, event in enumerate(records) if event.event_class is EventClass.MOTION
++    ]
++
++    def retimed(raw_first: int, raw_second: int, primary_first: int, primary_second: int):
++        output = []
++        for index, event in enumerate(records):
++            if index in raw_motion_positions:
++                output.extend(
++                    (
++                        replace(event, timestamp_ms=raw_first),
++                        replace(event, timestamp_ms=raw_second),
++                    )
++                )
++            elif index in motion_positions:
++                output.extend(
++                    (
++                        replace(event, timestamp_ms=primary_first),
++                        replace(event, timestamp_ms=primary_second),
++                    )
++                )
++            elif event.event_class is EventClass.RAW_BUTTON_PRESS:
++                output.append(replace(event, timestamp_ms=(raw_first - 1) & XI2_TIMESTAMP_MASK))
++            elif event.event_class is EventClass.BUTTON_PRESS:
++                output.append(replace(event, timestamp_ms=(raw_first - 1) & XI2_TIMESTAMP_MASK))
++            elif event.event_class is EventClass.RAW_BUTTON_RELEASE:
++                output.append(replace(event, timestamp_ms=(primary_second + 1) & XI2_TIMESTAMP_MASK))
++            elif event.event_class is EventClass.BUTTON_RELEASE:
++                output.append(replace(event, timestamp_ms=(primary_second + 2) & XI2_TIMESTAMP_MASK))
++            else:
++                output.append(event)
++        return output
++
++    kwargs = {
++        "pointer": True,
++        "require_motion": True,
++        "expected_detail": 1,
++        "expected_modifiers": (0, 0, 0),
++    }
++    for values in ((11, 12, 11, 12), (XI2_TIMESTAMP_MASK, 0, XI2_TIMESTAMP_MASK, 0)):
++        InputCalibrationWorkflow._validate_sequence(
++            retimed(*values),
++            4,
++            Window(),
++            ((4, 2, "slave", "XTEST pointer"),),
++            **kwargs,
++        )
++
++    lagged = retimed(11, 12, 11, 12)
++    first_motion = next(index for index, event in enumerate(lagged) if event.event_class is EventClass.MOTION)
++    nonpending = replace(
++        lagged[first_motion],
++        event_class=EventClass.DEVICE_CHANGED,
++        source_device=4,
++        master_device=2,
++        timestamp_ms=11,
++        event_xid=None,
++        child_xid=None,
++        root_xy=None,
++        event_xy=None,
++        modifiers=None,
++        modifier_effective=None,
++    )
++    with pytest.raises(CalibrationError, match="timestamps|forward"):
++        InputCalibrationWorkflow._validate_sequence(
++            lagged[: first_motion + 1] + [nonpending],
++            4,
++            Window(),
++            ((4, 2, "slave", "XTEST pointer"),),
++            **kwargs,
++        )
++
++
+ def test_forwarded_motion_requires_exact_controlled_echo_pair() -> None:
+     from crowley.session.calibration import InputCalibrationWorkflow, OwnedWindow
+     from crowley.session.input_events import XI2Event
+@@ -712,6 +837,22 @@
+             0x600119,
+         ),
+     )
++
++    for primary_timestamp, forwarded_timestamp, accepted in (
++        (XI2_TIMESTAMP_MASK, 0, True),
++        (100, 350, True),
++        (100, 351, False),
++        (100, 50, False),
++    ):
++        pair = [
++            motion(4, 0x600119, primary_timestamp),
++            motion(7, 0x600119, forwarded_timestamp),
++        ]
++        if accepted:
++            assert InputCalibrationWorkflow._controlled_echo_proof(pair, window, 5, 4, hierarchy)
++        else:
++            with pytest.raises(CalibrationError, match="exact controlled synthetic echo"):
++                InputCalibrationWorkflow._controlled_echo_proof(pair, window, 5, 4, hierarchy)
+ 
+ 
+ def test_guardian_revoke_increments_generation_releases_input_and_keeps_lease(tmp_path: Path) -> None:
+--- r11/tests/test_session_dispatch.py
++++ test-closure/tests/test_session_dispatch.py
+@@ -783,6 +783,86 @@
+         guardian.close()
+ 
+ 
++@pytest.mark.parametrize(
++    ("primary_timestamp", "forwarded_timestamp", "accepted"),
++    (
++        (XI2_TIMESTAMP_MASK, 0, True),
++        (100, 350, True),
++        (100, 351, False),
++        (100, 50, False),
++    ),
++)
++def test_guardian_controlled_echo_uses_forward_card32_250ms_boundary(
++    tmp_path: Path, primary_timestamp: int, forwarded_timestamp: int, accepted: bool
++) -> None:
++    guardian = InputGuardian(
++        tmp_path / f"echo-boundary-{primary_timestamp}-{forwarded_timestamp}.lock",
++        parent_pid=os.getppid(),
++    )
++
++    class Evidence:
++        is_live = True
++        fingerprint = "owned-echo-boundary"
++
++    target = 0x600119
++    point = (10.0, 20.0)
++    event_point = (1.0, 2.0)
++    modifiers = (0x10, 0, 0)
++
++    def event(source: int, master: int, timestamp: int) -> SimpleNamespace:
++        return SimpleNamespace(
++            event_class="Motion",
++            source_device=source,
++            master_device=master,
++            target_xid=target,
++            child_xid=target,
++            detail=None,
++            timestamp_ms=timestamp,
++            modifiers=modifiers,
++            modifier_effective=0x10,
++            is_raw=False,
++            root_xy=point,
++            event_xy=event_point,
++        )
++
++    try:
++        generation = guardian.arm(Evidence())
++        action = guardian.begin_action(
++            generation,
++            target_xid=target,
++            source_device=4,
++            master_device=2,
++            event_classes={"Motion"},
++            device_by_class={"Motion": 4},
++            optional_classes={"Motion"},
++            expected_modifiers=modifiers,
++            echo_proof=(
++                (
++                    "MotionEcho",
++                    max(1, forwarded_timestamp),
++                    7,
++                    7,
++                    target,
++                    point,
++                    event_point,
++                    primary_timestamp,
++                    4,
++                    target,
++                ),
++            ),
++        )
++        assert guardian.observe(event(4, 4, primary_timestamp))
++        if accepted:
++            assert guardian.observe(event(7, 7, forwarded_timestamp))
++            assert action.complete
++            guardian.finish_action(generation, action)
++        else:
++            assert not guardian.observe(event(7, 7, forwarded_timestamp))
++            assert not guardian.armed
++    finally:
++        guardian.close()
++
++
+ def test_guardian_raw_motion_never_completes_an_action(tmp_path: Path) -> None:
+     guardian = InputGuardian(tmp_path / "raw-motion.lock", parent_pid=os.getppid())
+ 
+@@ -938,6 +1018,109 @@
+         assert guardian.observe(MotionEvent(12))
+         assert action.complete
+         guardian.finish_action(generation, action)
++    finally:
++        guardian.close()
++
++
++def test_guardian_retains_forward_arrival_clock_after_lagged_raw_pairs(tmp_path: Path) -> None:
++    class Evidence:
++        is_live = True
++        fingerprint = "owned-raw-lag"
++
++    class RawEvent:
++        event_class = "RawMotion"
++        source_device = 4
++        master_device = 2
++        target_xid = None
++        detail = RAW_MOTION_DETAIL
++        modifiers = None
++        modifier_effective = None
++        is_raw = True
++        root_xy = None
++        event_xy = None
++
++        def __init__(self, timestamp_ms: int) -> None:
++            self.timestamp_ms = timestamp_ms
++
++    class MotionEvent:
++        event_class = "Motion"
++        source_device = 4
++        master_device = 4
++        target_xid = 0x600119
++        child_xid = 0x600119
++        detail = None
++        modifiers = (0, 0, 0)
++        modifier_effective = 0
++        is_raw = False
++        root_xy = (10.0, 20.0)
++        event_xy = (1.0, 2.0)
++
++        def __init__(self, timestamp_ms: int) -> None:
++            self.timestamp_ms = timestamp_ms
++
++    class DeviceChange:
++        event_class = "DeviceChanged"
++        source_device = 4
++        master_device = 2
++        target_xid = None
++        child_xid = None
++        detail = None
++        modifiers = None
++        modifier_effective = None
++        is_raw = False
++        root_xy = None
++        event_xy = None
++
++        def __init__(self, timestamp_ms: int) -> None:
++            self.timestamp_ms = timestamp_ms
++
++    def begin(guardian: InputGuardian, generation: int):
++        return guardian.begin_action(
++            generation,
++            target_xid=0x600119,
++            source_device=4,
++            master_device=2,
++            event_classes={"RawMotion", "Motion", "DeviceChanged"},
++            device_by_class={"RawMotion": 2, "Motion": 4, "DeviceChanged": 2},
++            optional_classes={"RawMotion", "Motion", "DeviceChanged"},
++            require_motion_before_button=False,
++        )
++
++    guardian = InputGuardian(tmp_path / "raw-motion-lag.lock", parent_pid=os.getppid())
++    try:
++        generation = guardian.arm(Evidence())
++        action = begin(guardian, generation)
++        assert guardian.observe(RawEvent(11))
++        assert guardian.observe(RawEvent(12))
++        assert guardian.observe(MotionEvent(11))
++        assert guardian.observe(MotionEvent(12))
++        assert action.complete
++        guardian.finish_action(generation, action)
++    finally:
++        guardian.close()
++
++    guardian = InputGuardian(tmp_path / "raw-motion-lag-wrap.lock", parent_pid=os.getppid())
++    try:
++        generation = guardian.arm(Evidence())
++        action = begin(guardian, generation)
++        assert guardian.observe(RawEvent(XI2_TIMESTAMP_MASK))
++        assert guardian.observe(RawEvent(0))
++        assert guardian.observe(MotionEvent(XI2_TIMESTAMP_MASK))
++        assert guardian.observe(MotionEvent(0))
++        assert action.complete
++        guardian.finish_action(generation, action)
++    finally:
++        guardian.close()
++
++    guardian = InputGuardian(tmp_path / "raw-motion-lag-retention.lock", parent_pid=os.getppid())
++    try:
++        generation = guardian.arm(Evidence())
++        begin(guardian, generation)
++        assert guardian.observe(RawEvent(11))
++        assert guardian.observe(RawEvent(12))
++        assert guardian.observe(MotionEvent(11))
++        assert not guardian.observe(DeviceChange(11))
++        assert not guardian.armed
+     finally:
+         guardian.close()
+ 
+@@ -1271,16 +1454,15 @@
+             )
+ 
+         records = (
+-            # The production map emits the right-button press before the
+-            # camera motion; raw motion is diagnostic ancestry and must pair
+-            # one-to-one with the following source-4 Motion.
+-            event(EventClass.RAW_BUTTON_PRESS.value, 4, 2, 99, target=None, detail=3, raw=True),
+-            event(EventClass.BUTTON_PRESS.value, 4, 4, 99, target=identity.child_xid, detail=3),
++            # open_ah moves along its production curve before clicking; raw
++            # motion is diagnostic ancestry for the following source-4 Motion.
+             event(EventClass.RAW_MOTION.value, 4, 2, 100, target=None, detail=RAW_MOTION_DETAIL, raw=True),
+             event(EventClass.MOTION.value, 4, 4, 100, target=identity.child_xid),
+             event(EventClass.MOTION.value, 7, 7, 101, target=identity.child_xid),
+-            event(EventClass.RAW_BUTTON_RELEASE.value, 4, 2, 102, target=None, detail=3, raw=True),
+-            event(EventClass.BUTTON_RELEASE.value, 4, 4, 102, target=identity.child_xid, detail=3),
++            event(EventClass.RAW_BUTTON_PRESS.value, 4, 2, 102, target=None, detail=3, raw=True),
++            event(EventClass.BUTTON_PRESS.value, 4, 4, 102, target=identity.child_xid, detail=3),
++            event(EventClass.RAW_BUTTON_RELEASE.value, 4, 2, 103, target=None, detail=3, raw=True),
++            event(EventClass.BUTTON_RELEASE.value, 4, 4, 103, target=identity.child_xid, detail=3),
+         )
+         # Keep this assertion close to the production admission shape: Motion
+         # stays on source 4 and raw button transitions use its measured master.
+@@ -1347,23 +1529,170 @@
+     plan = plan_camera_drag(Point(100, 100), Point(110, 120), Rect(0, 0, 1920, 1080), binding)
+     captured: dict[str, object] = {}
+ 
+-    class Action:
+-        complete = True
+-
+     backend.pointer_position = lambda **_kwargs: (100, 100, identity.child_xid)  # type: ignore[method-assign]
++
++    trace: list[tuple[int, int, int, int]] = []
++    prior = plan.samples[0].point
++    for sample in plan.samples[1:]:
++        if sample.point == prior:
++            continue
++        trace.append(
++            (
++                identity.child_geometry[0] + int(sample.point.x),
++                identity.child_geometry[1] + int(sample.point.y),
++                int(sample.point.x),
++                int(sample.point.y),
++            )
++        )
++        prior = sample.point
++    echo_proof = tuple(
++        (
++            "MotionEcho",
++            101 + index,
++            7,
++            7,
++            identity.child_xid,
++            (float(root_x), float(root_y)),
++            (float(event_x), float(event_y)),
++            100 + index,
++            4,
++            identity.child_xid,
++        )
++        for index, (root_x, root_y, event_x, event_y) in enumerate(trace)
++    )
++    evidence = SimpleNamespace(
++        is_live=True,
++        fingerprint="camera-entry-evidence",
++        synthetic_echo_proof=echo_proof,
++    )
+ 
+     def input_context(
+         *_args: object, **_kwargs: object
+     ) -> tuple[object, object, int, int, tuple[int, int, int], object]:
+-        return identity, SimpleNamespace(synthetic_echo_proof=()), 4, 2, (0x10, 0, 0), ()
++        return identity, evidence, 4, 2, (0x10, 0, 0), ()
+ 
+     monkeypatch.setattr(driver, "_motion_input_context", input_context)
+     driver._is_owned_client_target = lambda xid, _identity: xid == identity.child_xid  # type: ignore[method-assign]
+-    driver.guardian.begin_action = lambda _generation, **kwargs: captured.update(kwargs) or Action()  # type: ignore[method-assign]
+-    driver.guardian.dispatch_admission = lambda _generation, callback: callback()  # type: ignore[method-assign]
+-    driver.guardian.check = lambda _generation: None  # type: ignore[method-assign]
+-    driver.guardian.finish_action = lambda *_args: None  # type: ignore[method-assign]
+-    backend._run = lambda chain, **_kwargs: captured.update(chain=list(chain))  # type: ignore[attr-defined]
++    real_begin_action = driver.guardian.begin_action
++
++    def begin_action(generation: int, **kwargs: object):
++        captured.update(kwargs)
++        return real_begin_action(generation, **kwargs)
++
++    driver.guardian.begin_action = begin_action  # type: ignore[method-assign]
++
++    def run_chain(chain: list[str], **kwargs: object) -> SimpleNamespace:
++        captured["chain"] = list(chain)
++        captured["runKwargs"] = kwargs
++        action = driver.guardian.action
++        assert action is not None
++
++        def event(
++            event_class: str,
++            source: int,
++            master: int,
++            timestamp: int,
++            *,
++            target: int | None,
++            detail: int | None = None,
++            raw: bool = False,
++            root_xy: tuple[float, float] | None = None,
++            event_xy: tuple[float, float] | None = None,
++        ) -> SimpleNamespace:
++            return SimpleNamespace(
++                event_class=event_class,
++                source_device=source,
++                master_device=master,
++                target_xid=target,
++                child_xid=target,
++                detail=detail,
++                timestamp_ms=timestamp,
++                modifiers=None if raw else (0x10, 0, 0),
++                modifier_effective=None if raw else 0x10,
++                is_raw=raw,
++                root_xy=root_xy,
++                event_xy=event_xy,
++            )
++
++        records = [
++            event(EventClass.RAW_BUTTON_PRESS.value, 4, 2, 99, target=None, detail=3, raw=True),
++            event(
++                EventClass.BUTTON_PRESS.value,
++                4,
++                4,
++                99,
++                target=identity.child_xid,
++                detail=3,
++                root_xy=(100.0, 100.0),
++                event_xy=(100.0, 100.0),
++            ),
++        ]
++        for index, (root_x, root_y, event_x, event_y) in enumerate(action.expected_motion_trace):
++            records.extend(
++                (
++                    event(
++                        EventClass.RAW_MOTION.value,
++                        4,
++                        2,
++                        100 + index,
++                        target=None,
++                        detail=RAW_MOTION_DETAIL,
++                        raw=True,
++                    ),
++                    event(
++                        EventClass.MOTION.value,
++                        4,
++                        4,
++                        100 + index,
++                        target=identity.child_xid,
++                        root_xy=(float(root_x), float(root_y)),
++                        event_xy=(float(event_x), float(event_y)),
++                    ),
++                    event(
++                        EventClass.MOTION.value,
++                        7,
++                        7,
++                        101 + index,
++                        target=identity.child_xid,
++                        root_xy=(float(root_x), float(root_y)),
++                        event_xy=(float(event_x), float(event_y)),
++                    ),
++                )
++            )
++        release_timestamp = 100 + len(action.expected_motion_trace) + 2
++        records.extend(
++            (
++                event(
++                    EventClass.RAW_BUTTON_RELEASE.value,
++                    4,
++                    2,
++                    release_timestamp,
++                    target=None,
++                    detail=3,
++                    raw=True,
++                ),
++                event(
++                    EventClass.BUTTON_RELEASE.value,
++                    4,
++                    4,
++                    release_timestamp,
++                    target=identity.child_xid,
++                    detail=3,
++                    root_xy=(110.0, 120.0),
++                    event_xy=(110.0, 120.0),
++                ),
++            )
++        )
++        for index, record in enumerate(records):
++            assert driver.guardian.observe(record), (
++                index,
++                driver.guardian.revoked_reason,
++                record,
++            )
++        assert action.complete
++        return SimpleNamespace(returncode=0, args=list(chain), stdout="", stderr="")
++
++    backend._run = run_chain  # type: ignore[attr-defined]
+ 
+     class Monitor:
+         def wait_for_event(self, predicate: object, *, timeout: float) -> None:
+@@ -1375,6 +1704,7 @@
+ 
+     driver._monitor = Monitor()  # type: ignore[assignment]
+     try:
++        assert driver.guardian.arm(evidence) == 1
+         driver.run_camera_drag(plan, generation=1)
+     finally:
+         driver.close()
+@@ -1384,6 +1714,7 @@
+     assert captured["expected_press_coordinates"] == (100.0, 100.0)
+     assert captured["expected_release_coordinates"] == (110.0, 120.0)
+     assert captured["expected_motion_trace"]
++    assert captured["echo_proof"] == echo_proof
+     assert "RawMotion" in captured["optional_classes"]
+     assert captured["required_sequence"] == (
+         "RawButtonPress",
+@@ -1394,6 +1725,8 @@
+     chain = captured["chain"]
+     assert chain[0:3] == ["xdotool", "mousedown", "3"]
+     assert chain[-2:] == ["mouseup", "3"]
++    assert captured["runKwargs"]["input_schema"] == "camera-drag"
++    assert captured["runKwargs"]["expected_argv"] == tuple(chain)
+ 
+ 
+ @pytest.mark.parametrize("button", (1, 3))

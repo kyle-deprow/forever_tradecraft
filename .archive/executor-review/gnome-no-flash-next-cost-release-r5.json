@@ -1,0 +1,38 @@
+{
+  "released_utc": "2026-10-17T04:26:56.097085+00:00",
+  "kind": "private-causal-diagnostic-only",
+  "harness_sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6",
+  "binary_sha256": "b988bc4c49251c7951805b0af6ad942dd82d50052feffd338f5f6b72d43b025c",
+  "sol_code_review": "gnome-no-flash-next-cost-sol-r3.md: READY",
+  "opus_code_review": {
+    "file": "gnome-no-flash-next-cost-opus-r2.txt",
+    "model_id_reported": "claude-opus-5-5",
+    "exit_code": 0,
+    "code_findings_closed": true,
+    "documentation_should_fix_subsequently_closed": true
+  },
+  "opus_documentation_closure": {
+    "file": "gnome-no-flash-next-cost-opus-r3.txt",
+    "model_selected": "opus",
+    "model_id_not_repeated_in_output": true,
+    "exit_code": 0,
+    "status": "READY"
+  },
+  "max_capture_ordinals": 2,
+  "first_complete_marker_stream_ends_run": true,
+  "production_binding": false,
+  "native_qualification": false,
+  "deferred_nits": [
+    "Emitter selftest hash assertion/minimal environment; parent verifies frozen binary before release.",
+    "Combined safety-error-plus-retry-marker test; ordering reviewed, existing code unchanged.",
+    "Legacy live receipt raw_stderr_retention key names; success stream is driver-decoded text as documented.",
+    "R4 chain reference in current plan is historical; R5 freeze binds current documentation."
+  ],
+  "review_artifact_hashes": {
+    "gnome-no-flash-next-cost-freeze-r4.json": "9fb551f73717645ef227f852a60d2a2e5346772043a8e84cd659c7a41bd306ec",
+    "gnome-no-flash-next-cost-freeze-r5-docs.json": "efe3356a5ba9f64ab577db3e8f7913754c32b7ad3abc4f8acb69485e01eb4dab",
+    "gnome-no-flash-next-cost-sol-r3.md": "68f4507b9b7a7ac7c6df0c58dba91f9068c92cee03b3c8acec7e80d3cc2f9054",
+    "gnome-no-flash-next-cost-opus-r2.txt": "d79c8536adca777a9ddd1c7363d6cd91e2cd5c2c5b7357b1dd963cc52fbdc917",
+    "gnome-no-flash-next-cost-opus-r3.txt": "5f24122661fba17f5dc058565f7f09f2471301722592ee0a69e54875b498ac5f"
+  }
+}

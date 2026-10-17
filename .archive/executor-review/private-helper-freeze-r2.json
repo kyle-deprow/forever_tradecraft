@@ -1,0 +1,114 @@
+{
+  "baseline_provenance": {
+    "pre_edit_pyc_note": "The pre-r1 pyc hash is preserved in the r1/r2 freeze metadata; scoped compilation after the r2 edit regenerated the helper-directory pyc.",
+    "pre_edit_pyc_path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/__pycache__/native-handshake-once.cpython-312.pyc",
+    "pre_edit_pyc_sha256": "5f78f1bc8a9af329c91582b1cab85236fc7c97e68975b5c1c71571207d605b6d",
+    "pre_edit_source_sha": "not-captured-before-r1-edit"
+  },
+  "checks": {
+    "ast_parse": "passed",
+    "button_match": {
+      "negative": {
+        "accepted": false,
+        "box": [
+          842,
+          977,
+          236,
+          51
+        ],
+        "click": [
+          958,
+          1001
+        ],
+        "dx": -2,
+        "dy": -1,
+        "mae": 37.85410435360585,
+        "source": "current-charselect.png crop at measured client geometry"
+      },
+      "positive": {
+        "accepted": true,
+        "box": [
+          842,
+          977,
+          236,
+          51
+        ],
+        "click": [
+          960,
+          1002
+        ],
+        "dx": 0,
+        "dy": 0,
+        "mae": 0.0,
+        "source": "current-charselect.png crop at measured client geometry"
+      },
+      "threshold": 5.0
+    },
+    "full_operator_run": "not executed by this worker",
+    "guard_test": "passed",
+    "guard_test_cases": [
+      "stale-generation",
+      "sticky-old-phase-flag",
+      "completed-operation",
+      "wrong-operation-kind",
+      "wrong-phase-flag",
+      "documented-final-transition",
+      "handshake-entry-first-bootstrap"
+    ],
+    "guard_test_exit": "0",
+    "guard_test_log": ".archive/executor-review/private-helper-guards-r2.log",
+    "guard_test_script": ".archive/executor-review/test_private_helper_guards.py",
+    "handshake_entry_test": "passed",
+    "handshake_entry_test_assertions": [
+      "fake setup/status/capture/input hooks only",
+      "dynamic generation 42 recorded before first bootstrap",
+      "first call exactly native-bootstrap --generation 42",
+      "no physical input dispatched"
+    ],
+    "mutation_attempts": {
+      "input": 0,
+      "kernel-reset": 0,
+      "native-bootstrap": 0,
+      "native-calibrate": 0,
+      "status": 1
+    },
+    "py_compile": "passed",
+    "read_only_attempt": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-20261017T021448398861Z-pid843969",
+    "read_only_preflight": "passed on prior R2 source; not rerun for this dry startup-only fix",
+    "read_only_preflight_current_source": "not rerun (narrow fix explicitly excludes real GUI/fullhelper)",
+    "read_only_receipt": ".archive/executor-review/native-handshake-read-only-preflight-receipt-r2.json",
+    "read_only_result": "preflight_pass",
+    "ruff_E9_F": "passed",
+    "source_fix_scope": "startup receipt initialization only"
+  },
+  "contract": {
+    "dynamic_generation_binding": true,
+    "exact_phase_and_flag_required": true,
+    "final_input_calibration_complete_race_allowed": true,
+    "native_operation_kind_and_generation_binding": true,
+    "physical_input_rechecks_identity_and_phase": true,
+    "read_only_preflight_no_gui_input": true,
+    "running_native_calibration_required": true,
+    "stale_ocr_escape_abandoned": true,
+    "status_expected_observed_order_recorded": true,
+    "sticky_flag_rejected": true
+  },
+  "helper_line_count": 354,
+  "helper_mode": "0o700",
+  "helper_path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-once.py",
+  "helper_sha256": "dd4778b38802d2e68dacfd3b9f6453f03280cdaed3d6e79fef8084ca2d4349e4",
+  "preserved_failed_receipts": [
+    "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-20261017T015502Z-pid641068/receipt.json",
+    "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-20261017T015544Z-pid641068/receipt.json"
+  ],
+  "r1_artifacts_preserved": [
+    ".archive/executor-review/private-helper-freeze.json",
+    ".archive/executor-review/private-helper-spec.md",
+    ".archive/executor-review/native-handshake-read-only-preflight-receipt.json"
+  ],
+  "r1_helper_sha256": "eaa14f0ab6766502f1cccca95fb5ca3a0875bf92b4b46aadc2f27136084c7ac9",
+  "r2_pre_entry_fix_note": "R2 startup review found the handshake entry assumed a prior status_observations item; the entry fix initializes and records the dynamic boundary before bootstrap.",
+  "r2_pre_entry_fix_sha256": "84a84853beee486226e1296aac96fbb52d4e6ae89b3e8598a8dd86c6afb28ad9",
+  "scope": "private helper and review artifacts only; no repository source/profile/service/game/config/git changes",
+  "task": "private-native-handshake-helper-r2"
+}

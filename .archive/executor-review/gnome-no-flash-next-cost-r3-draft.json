@@ -1,0 +1,43 @@
+{
+  "binary_sha256": "b988bc4c49251c7951805b0af6ad942dd82d50052feffd338f5f6b72d43b025c",
+  "boundaries": {
+    "dbus_activation": false,
+    "desktop_input": false,
+    "live_capture": false,
+    "production_binding": false,
+    "r2_mutation": false
+  },
+  "candidate_harness": {
+    "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r3-candidate.py",
+    "sha256": "70743fa2c6beddc4dd681d88d424a87905742130c9ecc1388351ec64f11e6c18"
+  },
+  "corrections": [
+    "stop after first complete valid marker stream",
+    "narrow raw stderr claim on backend exceptions",
+    "next-cost benchmark evidence directory prefix"
+  ],
+  "diff": {
+    "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r3-draft.diff",
+    "sha256": "9deb3683036d3d76c65046c7fbb15ebfbb7d60f1ad4b5e4132066f2fbc770047"
+  },
+  "draft_sha256_after_diff_field": "1b3b1189a34998298b7ee968fce84eda57651a99dfc928476af13a03efc9fea4",
+  "driver_sha256": "14ae6be4a901a17e396e68ac4501238db3d1cc0118c8c34ad6f7107fbcfacfa7",
+  "evidence_dir_prefix": "gnome-no-flash-next-cost-benchmark-",
+  "label": "gnome-no-flash-next-cost-r3-candidate",
+  "logs": {
+    "self_check": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r3-candidate/self-check.log",
+    "self_test": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r3-candidate/self-test.log"
+  },
+  "parent_r2_harness": {
+    "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+    "sha256": "86f977d6112e51f6d540c94c26914b6ea9ece33c58d6e28b5cf330fee6c32e38"
+  },
+  "review_required_before_live": true,
+  "schema": 1,
+  "status": "DRAFT_NOT_FROZEN",
+  "tests": {
+    "py_compile": "PASS",
+    "self_check": "PASS",
+    "self_test": "28 passed"
+  }
+}

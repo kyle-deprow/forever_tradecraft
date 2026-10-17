@@ -1,0 +1,15 @@
+{
+  "purpose": "Raw pre-change baseline for the bounded model CLI MCP override fix",
+  "capturedUtc": "2026-10-16",
+  "source": "exact pre-edit worktree",
+  "files": {
+    "src/crowley/session/model.py": {
+      "raw": "model-cli-mcp-baseline/src__crowley__session__model.py.txt",
+      "sha256": "d5416b0364a7bb2227778e6c4a6a45f91be517fa6d96e5f0b1150e3c388bf6f9"
+    },
+    "tests/test_session.py": {
+      "raw": "model-cli-mcp-baseline/tests__test_session.py.txt",
+      "sha256": "2057bbd7560427bcc3593da96a47e859d859d9774c36348f7491ee9beb6ba9ed"
+    }
+  }
+}

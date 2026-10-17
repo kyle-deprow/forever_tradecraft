@@ -1,0 +1,153 @@
+--- baseline/.archive/executor-review/test_owned_gesture_proof.py
++++ transition/.archive/executor-review/test_owned_gesture_proof.py
+@@ -527,6 +527,8 @@
+ 
+     helper = _helper_module()
+     executor = helper._runtime()["executor"]
++    motion_pid = 4_194_304
++    button_pid = 4_194_305
+     captured: dict[str, object] = {}
+     original_curve = executor.plan_pointer_curve
+     original_click = executor.plan_single_click
+@@ -642,12 +644,12 @@
+                     timestamp_ms=1001,
+                 )
+             )
+-        return 8123, {"returncode": 0}
++        return motion_pid, {"returncode": 0}
+ 
+     monkeypatch.setattr(helper, "_run_chain", run_chain)
+ 
+     def backend_run(_chain: list[str], **_kwargs: object) -> object:
+-        backend.active_process_groups.add(8124)
++        backend.active_process_groups.add(button_pid)
+         if mode == "cancel-midbuttonhold":
+             guardian.held = True
+             events.append(
+@@ -660,7 +662,7 @@
+         else:
+             events.append(SimpleNamespace(event_class=SimpleNamespace(value="Motion"), endpoint=(100, 100)))
+         revoke_event.wait(2.0)
+-        backend.active_process_groups.discard(8124)
++        backend.active_process_groups.discard(button_pid)
+         guardian.held = False
+         if mode == "cancel-midbuttonhold":
+             events.append(
+--- baseline/tests/test_session_native_regressions.py
++++ transition/tests/test_session_native_regressions.py
+@@ -11,6 +11,7 @@
+ import io
+ import json
+ import os
++import re
+ import subprocess
+ import sys
+ import threading
+@@ -1219,6 +1220,8 @@
+                 "xwininfo: Window id: 0x374 (the root window)\n"
+                 f'  {hex(TARGET)} "CROWLEY INPUT CALIBRATION ONLY": ("-c" "-c") '
+                 "480x240+753+456  +753+456\n"
++                '  0x700001 "CROWLEY INPUT CALIBRATION ONLY": ("-c" "-c") '
++                "1x1+1+1  +1+1\n"
+             )
+         if phase == 3 and args == ["xwininfo", "-root", "-tree"]:
+             return (
+@@ -1532,16 +1535,22 @@
+     processes[0].stdout.close()  # type: ignore[attr-defined]
+ 
+ 
++@pytest.mark.parametrize(
++    ("writer_open", "message"),
++    [(True, "identity was incomplete"), (False, "identity channel closed before identity")],
++)
+ def test_gtk_create_partial_identity_does_not_call_blocking_readline(
+-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, writer_open: bool, message: str
+ ) -> None:
+-    """A readable but unterminated identity line is bounded by the deadline."""
++    """A partial identity is bounded whether its writer remains open or closes."""
+ 
+     import crowley.session.calibration as calibration_module
+ 
+     clock = [200.0]
+     select_calls = 0
+     processes: list[object] = []
++    lifecycle: list[str] = []
++    registration_cleanup_calls: list[int] = []
+ 
+     class PartialStdout:
+         def __init__(self, read_fd: int) -> None:
+@@ -1568,6 +1577,7 @@
+             return self.returncode
+ 
+         def terminate(self) -> None:
++            lifecycle.append("terminate")
+             if self.gate_reader >= 0:
+                 os.close(self.gate_reader)
+                 self.gate_reader = -1
+@@ -1579,6 +1589,7 @@
+ 
+         def wait(self, timeout: float = 2.0) -> int:
+             del timeout
++            lifecycle.append("wait")
+             if self.returncode is None:
+                 self.returncode = 0
+             return self.returncode
+@@ -1587,6 +1598,8 @@
+         pid = 603_501
+         read_fd, write_fd = os.pipe()
+         os.write(write_fd, b'{"pid": 603501')
++        if not writer_open:
++            os.close(write_fd)
+         wrapper_index = argv.index(_EXEC_ADMISSION_WRAPPER)
+         process = FakeProcess(
+             pid,
+@@ -1594,14 +1607,17 @@
+             os.dup(int(argv[wrapper_index + 1])),
+         )
+         processes.append(process)
+-        # Keep the writer open: the regression is specifically a partial live line.
+-        process.writer = write_fd  # type: ignore[attr-defined]
++        if writer_open:
++            # Keep the writer open: this variant is specifically a partial live line.
++            process.writer = write_fd  # type: ignore[attr-defined]
+         return process
+ 
+     def fake_select(_read: object, _write: object, _error: object, _timeout: float):
+         nonlocal select_calls
+         select_calls += 1
+         if select_calls == 1:
++            return (_read, [], [])
++        if not writer_open:
+             return (_read, [], [])
+         clock[0] += 0.2
+         return ([], [], [])
+@@ -1614,12 +1630,25 @@
+         xauthority=str(tmp_path / "Xauthority"),
+         python_executable=sys.executable,
+     )
++
++    def admit(_pid: int, release: Callable[[], None]) -> Callable[[], None]:
++        release()
++
++        def cleanup() -> None:
++            registration_cleanup_calls.append(1)
++
++        return cleanup
++
+     try:
+-        with pytest.raises(CalibrationError, match="identity"):
+-            target.create(timeout=0.1, startup_admission=lambda _pid, release: release())
++        with pytest.raises(CalibrationError, match=rf"^GTK calibration {re.escape(message)}$"):
++            target.create(timeout=0.1, startup_admission=admit)
++        assert lifecycle == ["terminate", "wait"]
++        assert registration_cleanup_calls == [1]
++        assert processes[0].poll() is not None
+     finally:
+         if processes:
+-            os.close(processes[0].writer)  # type: ignore[attr-defined]
++            if writer_open:
++                os.close(processes[0].writer)  # type: ignore[attr-defined]
+             processes[0].stdout.close()  # type: ignore[attr-defined]
+ 
+ 

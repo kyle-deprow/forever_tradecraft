@@ -1,0 +1,12 @@
+{
+  "utc": "2026-10-17T02:42:16.365279+00:00",
+  "verified_hashes": {
+    "src/crowley/session/driver.py": "14ae6be4a901a17e396e68ac4501238db3d1cc0118c8c34ad6f7107fbcfacfa7",
+    "tests/test_session_capture.py": "9aa1555f22d3c781253092a0903aec1919c7435f32ea78cdbb7b27a81f66c9d7",
+    "tests/test_session_driver_actions.py": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413"
+  },
+  "focused_result": "42 passed in 12.40s",
+  "scoped_ruff": "passed",
+  "scoped_format": "2 files already formatted",
+  "live_verification": "not yet performed"
+}

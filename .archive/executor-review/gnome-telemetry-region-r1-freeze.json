@@ -1,0 +1,149 @@
+{
+  "accepted_plan_sha256": "ac1c8cbec750844c71c3eaade3f349ffc638d6d427e01c88d602d019e4a00b95",
+  "baseline_changed_paths": [
+    {
+      "after_sha256": "e3e397b5528e02c21bcdf1f93a8c2599fc0daa7f9b202d4e1d2808e317f839d8",
+      "before_sha256": "2efa8568c525501f1b57dce4a123c95def78d42e886c3aad5e1f6ca67f27cce6",
+      "path": "deploy/crowley-session.example.toml"
+    },
+    {
+      "after_sha256": "976717d23d18d6c37d7a3a280d532ba0cdc15e6d086896fc4781b6efdf6b94cb",
+      "before_sha256": "d37d8982db687516c60cd0f3a69f6caca392b653ffee1353b108bc9f861cf5fb",
+      "path": "src/crowley/session/config.py"
+    },
+    {
+      "after_sha256": "fa146a7d36be3b2b870dfb0146b2baaed9841234fcf278d8c02e247b5cc0e394",
+      "before_sha256": "8d2a04aafe0672da80434e2b2c2981ccf2b5a9b7766a2c78a6dad119b1a0fcb0",
+      "path": "src/crowley/session/daemon.py"
+    },
+    {
+      "after_sha256": "03e6e94e7145b6b38597ee6fb69ddbc19848f264026e42b0d711c5c855ed5e57",
+      "before_sha256": "14ae6be4a901a17e396e68ac4501238db3d1cc0118c8c34ad6f7107fbcfacfa7",
+      "path": "src/crowley/session/driver.py"
+    },
+    {
+      "after_sha256": "46eb7b49d4dbb8ad689d0dde9e4876a4c813e9f68be9c4e57802d05109d0389b",
+      "before_sha256": "9aa1555f22d3c781253092a0903aec1919c7435f32ea78cdbb7b27a81f66c9d7",
+      "path": "tests/test_session_capture.py"
+    },
+    {
+      "after_sha256": "351b9b78d08e321fb2a495bc8305325fa49dd6accf4af8d2cd552d8fbc40cfd4",
+      "before_sha256": "55e147c6341dc45b8601a81ce3cba2e08f1965b941672e05eac79783a12f8dfc",
+      "path": "tests/test_session_native.py"
+    }
+  ],
+  "baseline_unchanged_owned_paths": [
+    {
+      "after_sha256": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413",
+      "before_sha256": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413",
+      "path": "tests/test_session_driver_actions.py"
+    },
+    {
+      "after_sha256": "ad540b14fa48dc2a4ee5fe982cf75f119e499e526b979cc02056d6716f11387a",
+      "before_sha256": "ad540b14fa48dc2a4ee5fe982cf75f119e499e526b979cc02056d6716f11387a",
+      "path": "tests/test_session_motion_integration.py"
+    },
+    {
+      "after_sha256": "71a37e07a89de5cf8899ea930c7f9785f1523558b65aede443f2166926dec572",
+      "before_sha256": "71a37e07a89de5cf8899ea930c7f9785f1523558b65aede443f2166926dec572",
+      "path": "tests/test_session_preferences.py"
+    }
+  ],
+  "kind": "gnome-telemetry-region-offline-freeze",
+  "new_owned_tool_paths": [
+    "tools/gnome-telemetry-region/README.md",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch",
+    "tools/gnome-telemetry-region/build-private.sh",
+    "tools/gnome-telemetry-region/manifest.example.json",
+    "tools/gnome-telemetry-region/offline_harness.py"
+  ],
+  "out_of_fence": [],
+  "owned_paths": [
+    "src/crowley/session/config.py",
+    "src/crowley/session/driver.py",
+    "src/crowley/session/daemon.py",
+    "deploy/crowley-session.example.toml",
+    "tests/test_session_capture.py",
+    "tests/test_session_native.py",
+    "tests/test_session_motion_integration.py",
+    "tests/test_session_preferences.py",
+    "tests/test_session_driver_actions.py",
+    "tools/gnome-telemetry-region/README.md",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch",
+    "tools/gnome-telemetry-region/build-private.sh",
+    "tools/gnome-telemetry-region/manifest.example.json",
+    "tools/gnome-telemetry-region/offline_harness.py"
+  ],
+  "owned_sha256_file": ".archive/executor-review/gnome-telemetry-region-r1-owned-sha256.txt",
+  "parent_before_receipt": ".archive/executor-review/gnome-telemetry-region-parent-before.json",
+  "private_build": {
+    "activation": "not performed",
+    "archive_sha256": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597",
+    "binary_sha256": "248a445fbe4c382f71db37b480bb671759368595ca1cf91d6e78c4dc0e3c3bab",
+    "configure": {
+      "buildtype": "release",
+      "prefix": "/home/dev/.cache/crowley/gnome-telemetry-region-r1/prefix",
+      "x11": "disabled"
+    },
+    "container_image_digest": "sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+    "debian_archive_sha256": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d",
+    "manifest": {
+      "archive_sha256": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597",
+      "binary_sha256": "248a445fbe4c382f71db37b480bb671759368595ca1cf91d6e78c4dc0e3c3bab",
+      "configure": {
+        "buildtype": "release",
+        "prefix": "/home/dev/.cache/crowley/gnome-telemetry-region-r1/prefix",
+        "x11": "disabled"
+      },
+      "container_image_digest": "sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+      "debian_archive_sha256": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d",
+      "default_binding": "stock-full-desktop-unless-explicit-profile-capability",
+      "logs": "/home/dev/.cache/crowley/gnome-telemetry-region-r1/logs",
+      "patch_sha256": "151da7ecd4b37ebbc4c80f300cf89c5d15930916ac2f8d7c85563938acbc0c1b",
+      "producer": "gnome-screenshot",
+      "schema": 1,
+      "telemetry_options": {
+        "branch": "ScreenshotArea",
+        "exact_size": [
+          256,
+          256
+        ],
+        "flash": false
+      },
+      "version": "41.0"
+    },
+    "patch_sha256": "151da7ecd4b37ebbc4c80f300cf89c5d15930916ac2f8d7c85563938acbc0c1b",
+    "stage": "/home/dev/.cache/crowley/gnome-telemetry-region-r1",
+    "validation": [
+      "gnome-screenshot --version",
+      "gnome-screenshot --help",
+      "ldd",
+      "file"
+    ]
+  },
+  "runtime_boundary": {
+    "default_binding": "stock full-desktop capture",
+    "live_desktop_capture": "not run",
+    "live_game_input": "not run",
+    "model_fullscene_input_calibration": "unchanged stock path",
+    "opt_in_binding": "profile-pinned executable plus SHA256",
+    "service_bus_activation": "not run"
+  },
+  "schema": 1,
+  "verification": {
+    "focused_batch": {
+      "command": "env -u CROWLEY_TEST_DATABASE_URL PYTHONPATH=src uv run pytest -q tests/test_session_capture.py tests/test_session_native.py tests/test_session_motion_integration.py tests/test_session_preferences.py tests/test_session_driver_actions.py --disable-warnings --maxfail=0",
+      "result": "284 passed in 346.83s"
+    },
+    "offline_harness": {
+      "command": "PYTHONPATH=src uv run python tools/gnome-telemetry-region/offline_harness.py --self-test --self-check",
+      "result": "self_test=true, self_check=true"
+    },
+    "static": {
+      "manifest_json": "passed",
+      "py_compile": "passed (9 explicit Python files)",
+      "ruff_check": "passed (9 explicit Python files)",
+      "ruff_format_check": "passed (9 files already formatted)"
+    }
+  }
+}

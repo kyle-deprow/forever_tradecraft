@@ -1,0 +1,30 @@
+--- baseline/src/crowley/session/model.py
++++ current/src/crowley/session/model.py
+@@ -232,7 +232,7 @@
+         ]
+         for feature in disabled:
+             args.extend(("--disable", feature))
+-        args.extend(("-c", "mcp_servers.openaiDeveloperDocs.enabled=false", prompt))
++        args.append(prompt)
+         return args
+ 
+     def decide(
+--- baseline/tests/test_session.py
++++ current/tests/test_session.py
+@@ -1118,6 +1118,16 @@
+     assert LunaAdapter._parse(output).action == "reconnect_game"
+ 
+ 
++def test_model_command_appends_prompt_without_orphan_mcp_override() -> None:
++    prompt = "bounded prompt regression"
++    command = LunaAdapter.command(
++        Path("schema.json"), Path("screen.png"), Path("/tmp/neutral"), prompt=prompt
++    )
++
++    assert command[-1] == prompt
++    assert "mcp_servers.openaiDeveloperDocs.enabled=false" not in command
++
++
+ def test_model_observation_boundary_requires_named_visual_facts() -> None:
+     output = (
+         '{"type":"thread.started","thread_id":"thread-test"}\n'

@@ -1,0 +1,20 @@
+{
+  "time_utc": "2026-10-17T05:06:54.543173+00:00",
+  "status": "NEEDS_WORK_PARENT_CHECKPOINT",
+  "worker_focused_batch": "284 passed in346.83s (worker-reported)",
+  "parent_reproduced": {
+    "targeted_new_region_tests": "5 passed,135deselected in0.22s",
+    "offline_harness": "self_test/self_check true",
+    "ruff": "passed",
+    "fence": "6intendedbaselinechanges, zerootherexistingcodechanges; allownedsource+binaryhashesmatch"
+  },
+  "parent_full_batch": "not repeated yet; known correctness/coverage gaps require fixes first",
+  "findings": [
+    "Revocation/ACK/admission race and no epoch check during protocol waits",
+    "Live executable/PPID/PGID/group evidence incomplete; child timestamp not contained",
+    "Only five new tests; genuine compiled C branch and actual default daemon routing not covered",
+    "Build recipe claims host repository mount contrary to private-cache-only fence"
+  ],
+  "released_fix_scope": "R2withinapprovedfilefence; preserveR1bytes; actualprivateGNOMEproducer/pipe/kernel/negative/defaultbinding tests; private-r2buildcache; canonicalfreezeanddelta",
+  "live_permission": false
+}

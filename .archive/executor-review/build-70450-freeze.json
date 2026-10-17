@@ -1,0 +1,205 @@
+{
+  "artifacts": {
+    "before_hashes": ".archive/executor-review/build-70450-before-hashes.json",
+    "before_owned_raw": ".archive/executor-review/build-70450-before-owned/",
+    "before_protected_paths": ".archive/executor-review/build-70450-before-protected-paths.txt",
+    "recorded_batch_exit": ".archive/executor-review/build-70450-r1.exit",
+    "recorded_batch_log": ".archive/executor-review/build-70450-r1.log"
+  },
+  "deferred_cutover": [
+    "private session profile, server image, generated Crowley_Data, addon reload, live scan qualification, and live service remain unchanged/deferred",
+    "docs/HANDOFF.md adoption note remains parent-owned"
+  ],
+  "namespace_verification": {
+    "authentic_path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "authentic_sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "authentic_version": "codex-cli 0.162.1",
+    "host_default_path": "/home/dev/.local/share/pnpm/nodejs/22.23.1/bin/codex",
+    "host_default_version": "codex-cli 0.163.0",
+    "host_unchanged": "no host CLI, config, source, service, or mount changes",
+    "isolated_mapping_probe": "pass; mapped hardcoded path stdout codex-cli 0.162.1, stderr empty",
+    "isolated_single_test": "build-70450-bwrap-one: 1 passed",
+    "isolated_six_file_batch": "build-70450-bwrap-r3: 264 passed in 119.82s (0:01:59), exit 0; exact six-file strict batch",
+    "r2_root_cause": "r2 used read-only uv cache and HOME paths; r3 corrected this with tmpfs UV_CACHE_DIR, UV_NO_SYNC=1, and tmpfs /home/dev/.codex while retaining HOME=/home/dev.",
+    "reproduction_command": "bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net --new-session --ro-bind / / --bind /home/dev/repos/pegasus /home/dev/repos/pegasus --ro-bind /home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex /home/dev/.local/share/pnpm/nodejs/22.23.1/bin/codex --tmpfs /home/dev/.codex --tmpfs /tmp --proc /proc --dev /dev --setenv HOME /home/dev --setenv UV_CACHE_DIR /tmp/uv-cache --setenv UV_NO_SYNC=1 --setenv CROWLEY_DESKTOP_LEASE /tmp/crowley-build-70450-bwrap-r3.lock --unsetenv CROWLEY_TEST_DATABASE_URL --chdir /home/dev/repos/pegasus /home/dev/.local/bin/uv run python .archive/executor-review/run_recorded_tests.py build-70450-bwrap-r3 tests/test_watchlist.py tests/test_addon.py tests/test_session_regressions.py tests/test_session_evidence.py tests/test_session.py tests/test_session_runtime.py",
+    "tools": {
+      "bwrap": "bubblewrap 0.11.0",
+      "unshare": "util-linux 2.40.2"
+    }
+  },
+  "owned_paths": [
+    {
+      "after": "26305ffbb005ba55bb19655ff0fbae46a4d606f4d006f6c50fce15828016ed52",
+      "before": "f2f252dcfcb7f81a7c0c267d8f4bd67c98403cc4575cf125cb2763c1846a0491",
+      "changed": true,
+      "path": "src/crowley/data/first_run.json"
+    },
+    {
+      "after": "b2843e42d1edf4d9ed4df1b6214928cf12baadde03108b65fd10912fdfc0b218",
+      "before": "b247f89272b64e3aaef75c4d493ac32a02a8833c932f81cf201a365dcbe976ae",
+      "changed": true,
+      "path": "addon/Crowley/Scanner.lua"
+    },
+    {
+      "after": "2efa8568c525501f1b57dce4a123c95def78d42e886c3aad5e1f6ca67f27cce6",
+      "before": "6c99c46d2a10fbb2e5d1fee4080efc1fc7687283629c503a15ecb7bc7917f0c3",
+      "changed": true,
+      "path": "deploy/crowley-session.example.toml"
+    },
+    {
+      "after": "7228357e7a1f24703195169db3879f0d64da8d8a0e16a56787786e4c8f3037d9",
+      "before": "96e32ca743f20bf6cf04561db2cb1ddfedddc0608cfff568b1988fc3a96ac02b",
+      "changed": true,
+      "path": "tests/wow_harness.py"
+    },
+    {
+      "after": "b29fe821fb81303b586b08c9e4be0317b71611378477dfab2cb283d1c58394ed",
+      "before": "2c9e1e4cab3e2e024dd0aa6f1d8ab203ae426e51f202667efe3c3648a7d1829b",
+      "changed": true,
+      "path": "tests/test_addon.py"
+    },
+    {
+      "after": "0f24d66b87879c241a9ad7c7a31e1b6473b7d14fef917b64bd70a9c6dd6efad2",
+      "before": "99dbbbc32bf9ce16d8179ffff7aa4c296e6a669324c838a4dee1ac2970d0701b",
+      "changed": true,
+      "path": "tests/test_session_regressions.py"
+    },
+    {
+      "after": "2057bbd7560427bcc3593da96a47e859d859d9774c36348f7491ee9beb6ba9ed",
+      "before": "e602ec465e7c57f1f82e98de16adef791ea2b7937f8588e9a736d8aa0c6a6c83",
+      "changed": true,
+      "path": "tests/test_session.py"
+    },
+    {
+      "after": "6ef74cabfe7f3a0cc3b2d5728639d85871fa0197aa5aa9c132b2f7bcd8704f91",
+      "before": "bad06b4ca17a0c06d50db828e84ba5e47caaf55dfd1689c9986e9401ce492731",
+      "changed": true,
+      "path": "tests/test_session_evidence.py"
+    },
+    {
+      "after": "9d634f603968e85c253dfc4116102deedb09fc18e2ed6b5542c3c1b0d2d64868",
+      "before": "275d867631386bb3f190a365e84d5eba13a06647686cc9d4862a70de8725a7bf",
+      "changed": true,
+      "path": "tests/test_session_runtime.py"
+    },
+    {
+      "after": "ee04ef1b7e0f704322945107d62d5d8baf1f3e749e4b3600e99a41400ed4ac6d",
+      "before": "6b02ffcbc5bd733cef3058054ee4525fba88ae3f8c2d29b5b83f242a0cbd03c7",
+      "changed": true,
+      "path": "tests/test_watchlist.py"
+    },
+    {
+      "after": "36da06ed339d1be644d40b15bd0ac4c7a99acdb19362cd28a15824891cdc8f2c",
+      "before": "04851aa06654c6e92ae0cd264f6d36e532978dcca2735e7e25fa4b1a72317c9a",
+      "changed": true,
+      "path": "README.md"
+    },
+    {
+      "after": "fdc897c67c410fae11e9880789fce0556e97580f3b32e06e2270d1ed0abe0210",
+      "before": "8acfb6947a5444530d890fd0fb87ba1c6c73737d883914b8fc2007afa7c9e2e2",
+      "changed": true,
+      "path": "docs/REPEATING_SCANS.md"
+    },
+    {
+      "after": "68e55c31a6d0e65c3ad939f19598d2e9d03697c2f202aa300a44090fd47b7657",
+      "before": "481f7cace63897da285fa00fe1275008e714397e661244f4d86b3d725e851f55",
+      "changed": true,
+      "path": "docs/WATCHLIST.md"
+    }
+  ],
+  "protected_changes": [
+    {
+      "after": "36da06ed339d1be644d40b15bd0ac4c7a99acdb19362cd28a15824891cdc8f2c",
+      "before": "04851aa06654c6e92ae0cd264f6d36e532978dcca2735e7e25fa4b1a72317c9a",
+      "path": "README.md"
+    },
+    {
+      "after": "b2843e42d1edf4d9ed4df1b6214928cf12baadde03108b65fd10912fdfc0b218",
+      "before": "b247f89272b64e3aaef75c4d493ac32a02a8833c932f81cf201a365dcbe976ae",
+      "path": "addon/Crowley/Scanner.lua"
+    },
+    {
+      "after": "2efa8568c525501f1b57dce4a123c95def78d42e886c3aad5e1f6ca67f27cce6",
+      "before": "6c99c46d2a10fbb2e5d1fee4080efc1fc7687283629c503a15ecb7bc7917f0c3",
+      "path": "deploy/crowley-session.example.toml"
+    },
+    {
+      "after": "26305ffbb005ba55bb19655ff0fbae46a4d606f4d006f6c50fce15828016ed52",
+      "before": "f2f252dcfcb7f81a7c0c267d8f4bd67c98403cc4575cf125cb2763c1846a0491",
+      "path": "src/crowley/data/first_run.json"
+    },
+    {
+      "after": "b29fe821fb81303b586b08c9e4be0317b71611378477dfab2cb283d1c58394ed",
+      "before": "2c9e1e4cab3e2e024dd0aa6f1d8ab203ae426e51f202667efe3c3648a7d1829b",
+      "path": "tests/test_addon.py"
+    },
+    {
+      "after": "2057bbd7560427bcc3593da96a47e859d859d9774c36348f7491ee9beb6ba9ed",
+      "before": "e602ec465e7c57f1f82e98de16adef791ea2b7937f8588e9a736d8aa0c6a6c83",
+      "path": "tests/test_session.py"
+    },
+    {
+      "after": "6ef74cabfe7f3a0cc3b2d5728639d85871fa0197aa5aa9c132b2f7bcd8704f91",
+      "before": "bad06b4ca17a0c06d50db828e84ba5e47caaf55dfd1689c9986e9401ce492731",
+      "path": "tests/test_session_evidence.py"
+    },
+    {
+      "after": "0f24d66b87879c241a9ad7c7a31e1b6473b7d14fef917b64bd70a9c6dd6efad2",
+      "before": "99dbbbc32bf9ce16d8179ffff7aa4c296e6a669324c838a4dee1ac2970d0701b",
+      "path": "tests/test_session_regressions.py"
+    },
+    {
+      "after": "9d634f603968e85c253dfc4116102deedb09fc18e2ed6b5542c3c1b0d2d64868",
+      "before": "275d867631386bb3f190a365e84d5eba13a06647686cc9d4862a70de8725a7bf",
+      "path": "tests/test_session_runtime.py"
+    },
+    {
+      "after": "ee04ef1b7e0f704322945107d62d5d8baf1f3e749e4b3600e99a41400ed4ac6d",
+      "before": "6b02ffcbc5bd733cef3058054ee4525fba88ae3f8c2d29b5b83f242a0cbd03c7",
+      "path": "tests/test_watchlist.py"
+    },
+    {
+      "after": "7228357e7a1f24703195169db3879f0d64da8d8a0e16a56787786e4c8f3037d9",
+      "before": "96e32ca743f20bf6cf04561db2cb1ddfedddc0608cfff568b1988fc3a96ac02b",
+      "path": "tests/wow_harness.py"
+    }
+  ],
+  "protected_manifest_count": 98,
+  "release": {
+    "catalog_hash": "90918db5cc912e889553b5ddd422b829f3c6cb3773ab6da56a2e79a5a8db04f3",
+    "client_build": "1.60.1.70450",
+    "counts": {
+      "active": 428,
+      "cadence_seconds": 900,
+      "core": 352,
+      "depth": 20,
+      "discovery": 76,
+      "excluded": 42,
+      "format": 2,
+      "research": 74,
+      "sweep_cap_seconds": 600,
+      "total": 544
+    },
+    "interface": 16001,
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "reviewed_on": "2026-10-16",
+    "revision": 2
+  },
+  "review_delta": {
+    "change": "tests/test_addon.py: unknown-version runtime-gate row build 70425 -> 70450; version remains 9.9.9 and interface remains 16001",
+    "source_review": ".archive/executor-review/sol-build-70450-source-r1.md",
+    "targeted_result": "5 passed",
+    "targeted_test": "tests/test_addon.py::test_canonical_gate_rejects_runtime_identity_before_schedule_or_start"
+  },
+  "task": "build-70450",
+  "verification": {
+    "canonical_config_acceptance": "1 passed",
+    "complete_recorded_batch": "241 passed, 23 failed; failures are known codex-cli 0.163.0 vs required 0.162.1 startup mismatch and resulting lease cascades",
+    "diff_check": "passed (scoped owned files)",
+    "py_compile": "passed (7 scoped Python files)",
+    "ruff_check": "passed (7 scoped Python files)",
+    "ruff_format_check": "passed (7 files already formatted; final docs diff checked)",
+    "session_evidence_and_session": "62 passed",
+    "watchlist_addon_initial": "161 passed"
+  }
+}

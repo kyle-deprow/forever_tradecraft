@@ -1,0 +1,768 @@
+"""Explicit local IPC and command line controls for the session daemon."""
+
+from __future__ import annotations
+
+import argparse
+import fcntl
+import json
+import math
+import os
+import socket
+import threading
+from contextlib import contextmanager
+from dataclasses import replace
+from pathlib import Path
+from typing import Any
+
+from .config import load_config
+from .controller import Controller, ControllerState, SessionMode
+from .daemon import SessionDaemon
+from .driver import DriverError
+from .journal import Journal
+from .motion import (
+    DEFAULT_MOVEMENT_CALIBRATION_PULSE_SECONDS,
+    MAX_WAYPOINT_SECONDS,
+    MOTION_CALIBRATION_OPERATION_SECONDS,
+    MOTION_CAMERA_OPERATION_SECONDS,
+    MOTION_KEY_OPERATION_SECONDS,
+    MOTION_TRANSPORT_MARGIN_SECONDS,
+)
+
+
+class SessionIPC:
+    def __init__(self, controller: Controller, owner: SessionDaemon | None = None):
+        self.controller = controller
+        self.owner = owner
+        self._interaction_lock = threading.Lock()
+
+    @contextmanager
+    def _interaction_slot(self):
+        """Reject a concurrent physical intent instead of queueing it."""
+
+        if not self._interaction_lock.acquire(blocking=False):
+            raise DriverError("another interaction request is already in flight")
+        try:
+            yield
+        finally:
+            self._interaction_lock.release()
+
+    def dispatch(self, request: dict[str, Any]) -> dict[str, Any]:
+        command = request.get("command")
+        if not isinstance(command, str):
+            return {"ok": False, "error": "IPC command must be a string"}
+        generation = request.get("generation")
+        mutating = {
+            "start",
+            "pause",
+            "stop",
+            "closeout",
+            "resume",
+            "native_bootstrap",
+            "native_calibrate",
+            "input_calibrate",
+        }
+        if command == "calibration_status":
+            if self.owner is None:
+                return {"ok": False, "error": "calibration status requires the daemon"}
+            return {"ok": True, "status": self.owner.calibration_status()}
+        # Calibration includes a live capture or an operator takeover sample.
+        # It must run outside the controller mutex so another socket can pause
+        # and revoke it while the workflow is waiting.
+        if command in {"native_calibrate", "input_calibrate"}:
+            if self.owner is None:
+                return {"ok": False, "error": "calibration requires the daemon"}
+            with self.controller.lock:
+                status = self.controller.status()
+                if (
+                    isinstance(generation, bool)
+                    or not isinstance(generation, int)
+                    or generation != status.generation
+                ):
+                    return {"ok": False, "error": "stale generation"}
+            try:
+                result = self.owner.start_calibration(
+                    "native" if command == "native_calibrate" else "input",
+                    expected_generation=generation,
+                )
+            except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "status": result}
+
+        if command == "native_bootstrap":
+            if self.owner is None:
+                return {"ok": False, "error": "native bootstrap requires the daemon"}
+            with self.controller.lock:
+                status = self.controller.status()
+                if (
+                    isinstance(generation, bool)
+                    or not isinstance(generation, int)
+                    or generation != status.generation
+                ):
+                    return {"ok": False, "error": "stale generation"}
+            try:
+                result = self.owner.native_bootstrap(expected_generation=generation)
+            except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "status": result}
+
+        # Re-arming validates the retained native evidence and starts the live
+        # observer.  Those operations can block on X11 and must run outside
+        # the controller mutex; Controller.resume repeats the generation check
+        # at its own admission boundary.
+        if command == "resume":
+            with self.controller.lock:
+                status = self.controller.status()
+                if (
+                    isinstance(generation, bool)
+                    or not isinstance(generation, int)
+                    or generation != status.generation
+                ):
+                    return {"ok": False, "error": "stale generation"}
+            try:
+                result = self.controller.resume(expected_generation=generation)
+            except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {
+                "ok": True,
+                "status": {
+                    "state": result.state.value,
+                    "mode": result.mode.value,
+                    "generation": result.generation,
+                    "leaseGeneration": result.lease_generation,
+                    "stopRequested": result.stop_requested,
+                    "closeoutRequested": result.closeout_requested,
+                    "streak": result.streak,
+                    "blocker": result.blocker,
+                    "lastUid": result.last_uid,
+                    "startedAt": result.started_at,
+                    "expectedBoot": result.expected_boot,
+                    "actionIntent": result.action_intent,
+                },
+            }
+
+        # Interaction intents are an explicit operator-owned mode.  They are
+        # admitted outside the controller mutex because native capture and a
+        # bounded xdotool chain may block; every owner method repeats the
+        # generation/current-mode fence before and after the physical action.
+        interaction_commands = {
+            "interaction_start",
+            "interaction_stop",
+            "motion_key",
+            "motion_camera",
+            "motion_camera_calibrate",
+            "motion_movement_calibrate",
+            "motion_waypoint",
+        }
+        if command in interaction_commands:
+            if self.owner is None:
+                return {"ok": False, "error": "interaction requires the daemon"}
+            if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+                return {"ok": False, "error": "a positive generation is required"}
+            allowed_fields = {
+                "interaction_start": {"command", "generation"},
+                "interaction_stop": {"command", "generation"},
+                "motion_key": {"command", "generation", "role", "duration"},
+                "motion_camera": {"command", "generation", "deltaPixels"},
+                "motion_camera_calibrate": {"command", "generation", "deltaPixels"},
+                "motion_movement_calibrate": {"command", "generation", "pulseSeconds"},
+                "motion_waypoint": {"command", "generation", "x", "y"},
+            }[command]
+            if set(request) != allowed_fields:
+                return {"ok": False, "error": "interaction request fields are malformed"}
+            try:
+                if command == "interaction_start":
+                    with self._interaction_slot():
+                        motion_fence = self.owner._claim_motion_fence()
+                        if motion_fence is None:
+                            raise DriverError("another motion intent is already in flight")
+                        try:
+                            self.controller.enter_interaction(expected_generation=generation)
+                        finally:
+                            motion_fence.release()
+                    return {"ok": True, "status": self.owner.status_dict()}
+                if command == "interaction_stop":
+                    # Stop is the cancellation boundary.  It must revoke the
+                    # active lease immediately rather than queue behind a
+                    # long native motion holding the intent slot.
+                    self.controller.exit_interaction(expected_generation=generation)
+                    return {"ok": True, "status": self.owner.status_dict()}
+                if command == "motion_key":
+                    from .executor import KeyRole
+
+                    try:
+                        role = KeyRole(request["role"])
+                    except (TypeError, ValueError) as exc:
+                        raise DriverError("motion key role is not allowlisted") from exc
+                    duration = request["duration"]
+                    if (
+                        isinstance(duration, bool)
+                        or not isinstance(duration, (int, float))
+                        or not math.isfinite(float(duration))
+                    ):
+                        raise DriverError("motion key duration is malformed")
+                    with self._interaction_slot():
+                        frame = self.owner.execute_motion_key(role, float(duration), generation=generation)
+                elif command == "motion_camera":
+                    delta = request["deltaPixels"]
+                    with self._interaction_slot():
+                        frame = self.owner.execute_camera_delta(delta, generation=generation)
+                elif command == "motion_camera_calibrate":
+                    delta = request["deltaPixels"]
+                    with self._interaction_slot():
+                        mapping = self.owner.calibrate_camera_mapping(delta, generation=generation)
+                    return {
+                        "ok": True,
+                        "status": self.owner.status_dict(),
+                        "camera": {
+                            "identity": mapping.identity_fingerprint,
+                            "generation": mapping.generation,
+                            "captureId": mapping.capture_id,
+                            "yawPerPixel": mapping.yaw_per_pixel,
+                            "convention": mapping.convention,
+                            "boot": mapping.boot,
+                        },
+                    }
+                elif command == "motion_movement_calibrate":
+                    pulse = request["pulseSeconds"]
+                    if (
+                        isinstance(pulse, bool)
+                        or not isinstance(pulse, (int, float))
+                        or not math.isfinite(float(pulse))
+                    ):
+                        raise DriverError("movement basis calibration pulse is malformed")
+                    with self._interaction_slot():
+                        basis = self.owner.calibrate_movement_basis(float(pulse), generation=generation)
+                    return {
+                        "ok": True,
+                        "status": self.owner.status_dict(),
+                        "movement": {
+                            "identity": basis.identity_fingerprint,
+                            "boot": basis.boot,
+                            "captureId": basis.capture_id,
+                            "beforeSequence": basis.before_sequence,
+                            "afterSequence": basis.after_sequence,
+                            "forwardHeadingOffset": basis.forward_heading_offset,
+                            "facingSign": basis.facing_sign,
+                            "forwardDisplacement": basis.forward_displacement,
+                            "forwardPulseSeconds": basis.pulse_seconds,
+                            "strafeHeadingOffset": basis.strafe_heading_offset,
+                            "strafeDisplacement": basis.strafe_displacement,
+                            "strafePulseSeconds": basis.strafe_pulse_seconds,
+                            "backwardHeadingOffset": basis.backward_heading_offset,
+                            "backwardDisplacement": basis.backward_displacement,
+                            "backwardPulseSeconds": basis.backward_pulse_seconds,
+                            "strafeRightHeadingOffset": basis.strafe_right_heading_offset,
+                            "strafeRightDisplacement": basis.strafe_right_displacement,
+                            "strafeRightPulseSeconds": basis.strafe_right_pulse_seconds,
+                            "handedness": basis.handedness,
+                            "convention": basis.convention,
+                        },
+                    }
+                else:
+                    target_x = request["x"]
+                    target_y = request["y"]
+                    if (
+                        isinstance(target_x, bool)
+                        or not isinstance(target_x, (int, float))
+                        or not math.isfinite(float(target_x))
+                        or isinstance(target_y, bool)
+                        or not isinstance(target_y, (int, float))
+                        or not math.isfinite(float(target_y))
+                    ):
+                        raise DriverError("waypoint coordinates must be finite numbers")
+                    with self._interaction_slot():
+                        frame = self.owner.execute_waypoint(
+                            float(target_x), float(target_y), generation=generation
+                        )
+                return {
+                    "ok": True,
+                    "status": self.owner.status_dict(),
+                    "motion": {
+                        "boot": frame.boot,
+                        "sequence": frame.sequence,
+                        "identity": frame.identity_fingerprint,
+                        "zone": frame.zone,
+                        "instance": frame.instance,
+                        "x": frame.x,
+                        "y": frame.y,
+                        "z": frame.z,
+                        "facing": frame.facing,
+                        "speed": frame.speed,
+                    },
+                }
+            except (DriverError, RuntimeError, ValueError, TypeError, KeyError, OSError) as exc:
+                return {"ok": False, "error": str(exc)}
+
+        with self.controller.lock:
+            try:
+                status = self.controller.status()
+                if command in mutating and (
+                    isinstance(generation, bool)
+                    or not isinstance(generation, int)
+                    or generation != status.generation
+                ):
+                    return {"ok": False, "error": "stale generation"}
+                # Re-read while still holding the controller lock.  This
+                # closes the check/mutate window when an operator takeover
+                # revokes the generation between request admission and the
+                # requested transition.
+                if command in mutating:
+                    admitted = self.controller.status()
+                    if admitted.generation != status.generation or (
+                        admitted.state in {ControllerState.PAUSED, ControllerState.BLOCKED}
+                        and command == "start"
+                    ):
+                        return {"ok": False, "error": "stale generation"}
+                if command == "status":
+                    result = self.controller.status()
+                elif command == "start":
+                    result = self.controller.start(SessionMode(request.get("mode", "repeat")))
+                elif command == "pause":
+                    result = self.controller.pause(request.get("reason", "IPC pause"))
+                elif command == "stop":
+                    result = self.controller.stop()
+                elif command == "closeout":
+                    result = self.controller.closeout()
+                else:
+                    return {"ok": False, "error": "unknown command"}
+            except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                return {"ok": False, "error": str(exc)}
+        if command == "status" and self.owner is not None:
+            # ``SessionDaemon.status_dict`` takes the calibration-state lock
+            # before it reads controller/journal state.  Never hold the
+            # controller lock while asking the owner for that aggregate
+            # snapshot: calibration completion takes the locks in the
+            # opposite direction and a status poll must not deadlock it.
+            return {"ok": True, "status": self.owner.status_dict()}
+        return {
+            "ok": True,
+            "status": {
+                "state": result.state.value,
+                "mode": result.mode.value,
+                "generation": result.generation,
+                "leaseGeneration": result.lease_generation,
+                "stopRequested": result.stop_requested,
+                "closeoutRequested": result.closeout_requested,
+                "streak": result.streak,
+                "blocker": result.blocker,
+                "lastUid": result.last_uid,
+                "startedAt": result.started_at,
+                "expectedBoot": result.expected_boot,
+                "actionIntent": result.action_intent,
+            },
+        }
+
+
+def serve(
+    socket_path: str | os.PathLike[str],
+    controller: Controller,
+    owner: SessionDaemon | None = None,
+    *,
+    supervise_owner: bool = False,
+    _lease_fd: int | None = None,
+) -> None:
+    path = Path(socket_path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lease_path = path.with_name(path.name + ".lock")
+    lease_fd = _lease_fd
+    if lease_fd is None:
+        lease_fd = os.open(lease_path, os.O_RDWR | os.O_CREAT, 0o600)
+        try:
+            fcntl.flock(lease_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            os.close(lease_fd)
+            raise RuntimeError("another Crowley session daemon owns the process lease") from exc
+    assert lease_fd is not None
+    bound = False
+    owner_thread = None
+    handler_threads: set[threading.Thread] = set()
+    handler_connections: set[socket.socket] = set()
+    handler_lock = threading.RLock()
+    shutdown_incomplete = False
+    try:
+        # The process lease is held before touching the socket.  Once it is
+        # exclusive, an existing socket is necessarily stale and can be
+        # removed without disrupting another daemon.
+        try:
+            path.unlink()
+        except FileNotFoundError:
+            pass
+        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as server:
+            # A live socket is never unlinked. A stale socket is an operator
+            # cleanup issue because removing it could disrupt another daemon.
+            server.bind(str(path))
+            bound = True
+            os.chmod(path, 0o600)
+            server.listen(4)
+            ipc = SessionIPC(controller, owner)
+
+            owner_failure: list[BaseException] = []
+            if supervise_owner and owner is not None:
+
+                def run_owner() -> None:
+                    try:
+                        owner.run_forever()
+                    except BaseException as exc:  # propagate service failure to the socket loop
+                        owner_failure.append(exc)
+
+                owner_thread = threading.Thread(target=run_owner, name="crowley-session-loop")
+                owner_thread.start()
+
+            def handle(connection: socket.socket) -> None:
+                try:
+                    with connection:
+                        data = connection.makefile("r", encoding="utf-8")
+                        output = connection.makefile("w", encoding="utf-8")
+                        for line in data:
+                            try:
+                                request = json.loads(line)
+                                if not isinstance(request, dict):
+                                    raise TypeError("IPC request must be a JSON object")
+                                response = ipc.dispatch(request)
+                            except (json.JSONDecodeError, TypeError, AttributeError, OSError) as exc:
+                                response = {"ok": False, "error": str(exc)}
+                            output.write(json.dumps(response, sort_keys=True) + "\n")
+                            output.flush()
+                finally:
+                    with handler_lock:
+                        handler_connections.discard(connection)
+                        handler_threads.discard(threading.current_thread())
+
+            server.settimeout(0.5 if supervise_owner else None)
+            while True:
+                if owner_failure:
+                    raise RuntimeError("session capture/action loop failed") from owner_failure[0]
+                try:
+                    connection, _ = server.accept()
+                except TimeoutError:
+                    continue
+                with handler_lock:
+                    handler_connections.add(connection)
+                    worker = threading.Thread(target=handle, args=(connection,), daemon=True)
+                    handler_threads.add(worker)
+                worker.start()
+    finally:
+        # Closing the listening socket is handled by the context manager.  Any
+        # accepted connection may still be blocked in its line reader, so
+        # revoke those descriptors and confirm every handler has exited before
+        # releasing the process lease.
+        with handler_lock:
+            connections = tuple(handler_connections)
+            handlers = tuple(handler_threads)
+        for connection in connections:
+            try:
+                connection.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                connection.close()
+            except OSError:
+                pass
+        for handler in handlers:
+            if handler is not threading.current_thread():
+                handler.join(timeout=5)
+        with handler_lock:
+            shutdown_incomplete = any(handler.is_alive() for handler in handler_threads)
+        if supervise_owner and owner is not None:
+            request_shutdown = getattr(owner, "request_shutdown", None)
+            shutdown_error: BaseException | None = None
+            if callable(request_shutdown):
+                try:
+                    request_shutdown()
+                except BaseException as exc:
+                    shutdown_error = exc
+            if owner_thread is not None and owner_thread is not threading.current_thread():
+                owner_thread.join(timeout=5)
+                shutdown_incomplete = shutdown_incomplete or owner_thread.is_alive()
+            if shutdown_error is not None:
+                shutdown_incomplete = True
+                if not owner_thread or not owner_thread.is_alive():
+                    raise RuntimeError("session owner shutdown failed") from shutdown_error
+        if bound and not shutdown_incomplete:
+            try:
+                path.unlink()
+            except FileNotFoundError:
+                pass
+        if shutdown_incomplete:
+            raise RuntimeError("IPC shutdown did not confirm owner and handler termination")
+        fcntl.flock(lease_fd, fcntl.LOCK_UN)
+        os.close(lease_fd)
+
+
+def _open_process_lease(socket_path: str | os.PathLike[str]) -> tuple[int, Path]:
+    """Acquire the service lease before constructing the session owner."""
+
+    path = Path(socket_path)
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lease_path = path.with_name(path.name + ".lock")
+    lease_fd = os.open(lease_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lease_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError as exc:
+        os.close(lease_fd)
+        raise RuntimeError("another Crowley session daemon owns the process lease") from exc
+    os.fchmod(lease_fd, 0o600)
+    return lease_fd, lease_path
+
+
+def _socket_request(path: Path, request: dict[str, Any], *, timeout: float = 5.0) -> dict[str, Any]:
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        connection.settimeout(timeout)
+        connection.connect(str(path))
+        connection.sendall((json.dumps(request) + "\n").encode("utf-8"))
+        line = connection.makefile("r", encoding="utf-8").readline()
+    return json.loads(line)
+
+
+def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate JSON field: {key}")
+        result[key] = value
+    return result
+
+
+def _reject_json_constant(value: str) -> None:
+    raise ValueError(f"non-finite JSON number: {value}")
+
+
+def _motion_demonstrations(source: str) -> tuple[Any, ...]:
+    """Parse explicit numeric demonstration summaries for profile building."""
+
+    from .executor import DemonstrationRole, MotionDemonstration
+    from .preferences import MAX_INLINE_JSON_BYTES
+
+    if len(source.encode("utf-8")) > MAX_INLINE_JSON_BYTES:
+        raise ValueError(f"demonstrations exceed the maximum JSON size of {MAX_INLINE_JSON_BYTES} bytes")
+
+    try:
+        decoded = json.loads(
+            source,
+            object_pairs_hook=_json_object_without_duplicates,
+            parse_constant=_reject_json_constant,
+        )
+    except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as exc:
+        raise ValueError(f"demonstrations must be valid JSON: {exc}") from exc
+    if not isinstance(decoded, list) or not decoded:
+        raise ValueError("demonstrations must be a non-empty JSON array")
+    if len(decoded) > 256:
+        raise ValueError("demonstrations exceed the maximum count of 256")
+    expected = frozenset({"role", "distance", "duration", "target_width", "dwell", "curvature"})
+    result = []
+    for index, item in enumerate(decoded):
+        if not isinstance(item, dict):
+            raise ValueError(f"demonstration {index} must be an object")
+        actual = frozenset(item)
+        missing = expected - actual
+        unknown = actual - expected
+        if missing:
+            raise ValueError(f"demonstration {index} is missing fields: {', '.join(sorted(missing))}")
+        if unknown:
+            raise ValueError(f"demonstration {index} has unknown fields: {', '.join(sorted(unknown))}")
+        try:
+            role = DemonstrationRole(item["role"])
+            result.append(
+                MotionDemonstration(
+                    role=role,
+                    distance=item["distance"],
+                    duration=item["duration"],
+                    target_width=item["target_width"],
+                    dwell=item["dwell"],
+                    curvature=item["curvature"],
+                )
+            )
+        except (OverflowError, TypeError, ValueError) as exc:
+            raise ValueError(f"demonstration {index} is outside its bounds: {exc}") from exc
+    return tuple(result)
+
+
+def _motion_profile_command(args: argparse.Namespace) -> int:
+    """Run profile storage commands without loading daemon configuration."""
+
+    from .executor import aggregate_motion_profile
+    from .preferences import (
+        PreferenceError,
+        load_motion_profile,
+        motion_profile_document,
+        save_motion_profile,
+    )
+
+    command = args.motion_profile_command
+    if command == "build":
+        demonstrations = _motion_demonstrations(args.demonstrations)
+        profile = aggregate_motion_profile(demonstrations)
+        save_motion_profile(args.output, profile, demonstration_count=len(demonstrations))
+        document = motion_profile_document(args.output)
+    elif command == "show":
+        # Loading validates the selected file and never falls back to a
+        # baseline profile.  Keep the explicit call visible in this command.
+        load_motion_profile(args.profile)
+        document = motion_profile_document(args.profile)
+    elif command == "reset":
+        profile_path = Path(args.profile)
+        if profile_path.exists():
+            if not profile_path.is_file():
+                raise PreferenceError("existing profile target is not a regular file")
+            load_motion_profile(profile_path)
+            profile_path.unlink()
+        document = {"ok": True, "reset": True}
+    else:  # pragma: no cover - argparse enforces the closed set
+        raise PreferenceError("unknown motion profile command")
+    print(json.dumps(document, sort_keys=True, separators=(",", ":")))
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="crowley-session")
+    parser.add_argument("--config", default="~/.config/crowley/session.toml")
+    parser.add_argument("--journal")
+    parser.add_argument("--socket")
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    for command in ("status", "start", "resume", "pause", "stop", "closeout"):
+        sub = subparsers.add_parser(command)
+        if command == "start":
+            sub.add_argument("--mode", choices=[mode.value for mode in SessionMode], default="repeat")
+        if command in {"start", "resume", "pause", "stop", "closeout"}:
+            sub.add_argument("--generation", type=int, required=True)
+    subparsers.add_parser("daemon")
+    subparsers.add_parser("native-bootstrap").add_argument("--generation", type=int, required=True)
+    for command in ("native-calibrate", "input-calibrate"):
+        gate = subparsers.add_parser(command)
+        gate.add_argument("--generation", type=int, required=True)
+    subparsers.add_parser("interaction-start").add_argument("--generation", type=int, required=True)
+    subparsers.add_parser("interaction-stop").add_argument("--generation", type=int, required=True)
+    motion_key = subparsers.add_parser("motion-key")
+    motion_key.add_argument("--generation", type=int, required=True)
+    motion_key.add_argument("--role", required=True)
+    motion_key.add_argument("--duration", type=float, required=True)
+    motion_camera = subparsers.add_parser("motion-camera")
+    motion_camera.add_argument("--generation", type=int, required=True)
+    motion_camera.add_argument("--delta-pixels", type=int, required=True)
+    camera_calibrate = subparsers.add_parser("motion-camera-calibrate")
+    camera_calibrate.add_argument("--generation", type=int, required=True)
+    camera_calibrate.add_argument("--delta-pixels", type=int, required=True)
+    movement_calibrate = subparsers.add_parser("motion-movement-calibrate")
+    movement_calibrate.add_argument("--generation", type=int, required=True)
+    movement_calibrate.add_argument(
+        "--pulse-seconds", type=float, default=DEFAULT_MOVEMENT_CALIBRATION_PULSE_SECONDS
+    )
+    motion_waypoint = subparsers.add_parser("motion-waypoint")
+    motion_waypoint.add_argument("--generation", type=int, required=True)
+    motion_waypoint.add_argument("--x", type=float, required=True)
+    motion_waypoint.add_argument("--y", type=float, required=True)
+    subparsers.add_parser("calibration-status")
+    motion_profile = subparsers.add_parser("motion-profile")
+    motion_profile_subparsers = motion_profile.add_subparsers(dest="motion_profile_command", required=True)
+    build = motion_profile_subparsers.add_parser("build")
+    build.add_argument("--demonstrations", required=True, help="explicit numeric demonstration JSON")
+    build.add_argument("--output", required=True, type=Path)
+    show = motion_profile_subparsers.add_parser("show")
+    show.add_argument("--profile", required=True, type=Path)
+    reset = motion_profile_subparsers.add_parser("reset")
+    reset.add_argument("--profile", required=True, type=Path)
+    args = parser.parse_args(argv)
+    if args.command == "motion-profile":
+        try:
+            return _motion_profile_command(args)
+        except (OSError, ValueError) as exc:
+            print(f"error: {exc}", file=os.sys.stderr)
+            return 1
+    if args.command == "daemon":
+        config = load_config(Path(args.config).expanduser())
+        if args.journal or args.socket:
+            config = replace(
+                config,
+                journal=Path(args.journal).expanduser() if args.journal else config.journal,
+                socket=Path(args.socket).expanduser() if args.socket else config.socket,
+            )
+        # Take ownership before constructing the controller, journal, or
+        # input-capable driver.  A competing service therefore cannot read or
+        # mutate durable state while this process is still deciding whether it
+        # owns the desktop.
+        lease_fd, _lease_path = _open_process_lease(config.socket)
+        daemon: SessionDaemon | None = None
+        try:
+            daemon = SessionDaemon(config)
+            # Keep socket binding and its process lease on the service's main
+            # thread. A stale/live socket or a second lease must terminate the
+            # service so systemd can apply its restart policy; a daemon-threaded
+            # socket failure must never leave an input-capable loop stranded.
+            serve(
+                config.socket,
+                daemon.controller,
+                daemon,
+                supervise_owner=True,
+                _lease_fd=lease_fd,
+            )
+        finally:
+            if daemon is None:
+                fcntl.flock(lease_fd, fcntl.LOCK_UN)
+                os.close(lease_fd)
+        return 0
+    # The config file is the one authority for the daemon's IPC and journal
+    # paths.  CLI defaults are only retained for parser compatibility.
+    config = load_config(Path(args.config).expanduser())
+    if args.journal or args.socket:
+        config = replace(
+            config,
+            journal=Path(args.journal).expanduser() if args.journal else config.journal,
+            socket=Path(args.socket).expanduser() if args.socket else config.socket,
+        )
+    request = {"command": args.command.replace("-", "_")}
+    if hasattr(args, "mode"):
+        request["mode"] = args.mode
+    if args.command == "motion-key":
+        request.update(role=args.role, duration=args.duration)
+    elif args.command == "motion-camera":
+        request["deltaPixels"] = args.delta_pixels
+    elif args.command == "motion-camera-calibrate":
+        request["deltaPixels"] = args.delta_pixels
+    elif args.command == "motion-movement-calibrate":
+        request["pulseSeconds"] = args.pulse_seconds
+    elif args.command == "motion-waypoint":
+        request.update(x=args.x, y=args.y)
+    if getattr(args, "generation", None) is not None:
+        request["generation"] = args.generation
+    try:
+        # Native motion owns one bounded server operation.  The transport
+        # timeout must leave room for its final observation/release cleanup;
+        # a client timeout must never outlive the daemon's ownership decision.
+        if args.command == "motion-movement-calibrate":
+            operation_timeout = MOTION_CALIBRATION_OPERATION_SECONDS
+        elif args.command == "motion-waypoint":
+            operation_timeout = MAX_WAYPOINT_SECONDS
+        elif args.command in {"motion-camera", "motion-camera-calibrate"}:
+            operation_timeout = MOTION_CAMERA_OPERATION_SECONDS
+        elif args.command == "motion-key":
+            operation_timeout = MOTION_KEY_OPERATION_SECONDS
+        else:
+            operation_timeout = 5.0
+        request_timeout = (
+            operation_timeout + MOTION_TRANSPORT_MARGIN_SECONDS
+            if args.command.startswith("motion-")
+            else operation_timeout
+        )
+        response = _socket_request(config.socket, request, timeout=request_timeout)
+    except TimeoutError:
+        response = {
+            "ok": False,
+            "error": "IPC operation timed out; its completion and input-release state are indeterminate",
+        }
+    except (ConnectionRefusedError, FileNotFoundError, json.JSONDecodeError):
+        if args.command != "status":
+            response = {"ok": False, "error": "session daemon is not running"}
+        else:
+            controller = Controller(Journal(config.journal), recover_on_restart=False)
+            response = SessionIPC(controller).dispatch(request)
+    except OSError as exc:
+        response = {"ok": False, "error": f"IPC transport failed; operation state is indeterminate: {exc}"}
+    print(json.dumps(response, sort_keys=True))
+    return 0 if response.get("ok") is True else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
+
+
+__all__ = ["SessionIPC", "main", "serve"]

@@ -1,0 +1,12 @@
+[
+  {
+    "case": "malformed_lease",
+    "error": "TypeError",
+    "pinned_fd_still_open": true
+  },
+  {
+    "case": "duplicate_failure",
+    "error": "OSError",
+    "pinned_fd_still_open": true
+  }
+]

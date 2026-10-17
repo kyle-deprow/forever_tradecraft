@@ -1,0 +1,13 @@
+{
+  "checked_at_utc": "2026-10-16 10:36 UTC",
+  "source_commit": "14ca26a2c95035f9c635a6a11d075e8d7d0d6529",
+  "archive_sha256": "d0ba12e37419bfe12651abea7625ba95b6858e44ba8fc79997bfb84112f64dc3",
+  "executable_sha256": "2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155",
+  "sealed_image_sha256_matches": true,
+  "sealed_image_version_exit": 0,
+  "version_output": "xdotool version 4.20261016.1",
+  "needed_libxdo": false,
+  "xdo_move_mouse_disassembly_calls_XTestFakeMotionEvent": true,
+  "input_sent": false,
+  "native_event_acceptance": false
+}

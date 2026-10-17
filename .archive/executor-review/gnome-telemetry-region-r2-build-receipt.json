@@ -1,0 +1,82 @@
+{
+  "binary": {
+    "configure": {
+      "buildtype": "release",
+      "x11": "disabled"
+    },
+    "path": "/home/dev/.cache/crowley/gnome-telemetry-region-r2/prefix/bin/gnome-screenshot",
+    "sha256": "b69e949197d64551ec1ade481db541137310d5dda0eeb9ceb5431db1ace1c3cb",
+    "version": "gnome-screenshot 41.0"
+  },
+  "command": "docker run --rm --network bridge --mount type=bind,src=/home/dev/.cache/crowley/gnome-telemetry-region-r2,dst=/home/dev/.cache/crowley/gnome-telemetry-region-r2 debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858 bash -lc 'set -euxo pipefail; apt-get update; apt-get install -y --no-install-recommends appstream ca-certificates desktop-file-utils file gettext gcc libglib2.0-dev libgtk-3-dev libhandy-1-dev libx11-dev libxext-dev libxml2-utils meson ninja-build patch pkg-config python3 xz-utils; GNOME_TELEMETRY_REGION_CONTAINER_DIGEST=sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858 bash /home/dev/.cache/crowley/gnome-telemetry-region-r2/tools/gnome-telemetry-region/build-private.sh'",
+  "container": {
+    "image": "debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+    "mounts": [
+      "/home/dev/.cache/crowley/gnome-telemetry-region-r2:/home/dev/.cache/crowley/gnome-telemetry-region-r2"
+    ],
+    "network": "bridge (apt dependencies; no host repository/display/socket/root mounts)"
+  },
+  "historical_first_attempt": {
+    "log": ".archive/executor-review/gnome-telemetry-region-r2-docker-build.log",
+    "result": "failed before source patch application because the initial apt list omitted patch"
+  },
+  "kind": "gnome-telemetry-region-r2-build",
+  "offline_harness": {
+    "repo_sha256": "4503fbf67951394b5fb1bd655139acfde76230052730175f8563f03c7582ab61",
+    "cache_sha256": "4503fbf67951394b5fb1bd655139acfde76230052730175f8563f03c7582ab61",
+    "command": "GNOME_TELEMETRY_REGION_STAGE=/home/dev/.cache/crowley/gnome-telemetry-region-r2 GNOME_TELEMETRY_REGION_BINARY=/home/dev/.cache/crowley/gnome-telemetry-region-r2/prefix/bin/gnome-screenshot uv run python tools/gnome-telemetry-region/offline_harness.py --self-test --self-check",
+    "result": "self_check=true self_test=true; compiled parser, sealed owner protocol happy path, wrong ACK nonce refusal, owner EOF refusal, private D-Bus/Xvfb ScreenshotArea, exact decoded pixels"
+  },
+  "patch_sha256": "0a135ab39ca57e168602cc2ea0a1e403ae69268f6593c1ad41e8d0972c231b9e",
+  "r1_preservation": {
+    "manifest": ".archive/executor-review/gnome-telemetry-region-r1-source-manifest.sha256",
+    "root": ".archive/executor-review/gnome-telemetry-region-r1-source"
+  },
+  "schema": 2,
+  "source_controlled_inputs": {
+    "deploy/crowley-session.example.toml": "17fcb07d702cbd36cbceb3501405354073be9f0f8b364de9b9c624ea3e98d7fc",
+    "src/crowley/session/config.py": "976717d23d18d6c37d7a3a280d532ba0cdc15e6d086896fc4781b6efdf6b94cb",
+    "src/crowley/session/daemon.py": "23aef76fecbc82178bd25e51e2a39901b091eed26705361da35d7ad27cc0cf13",
+    "src/crowley/session/driver.py": "04a8d866d09d602cae9806931b0832ad2a0206c085a8e137f8ffb7514bff8c54",
+    "src/crowley/session/process_admission.py": "bb54811e63da57165fcb2409053a61a024f4fb3218788042691aaa4d4dd33192",
+    "tests/test_session_capture.py": "f4bc3315e25ac295ce0abe97ac2354644b9be3cee581d1d1da3e9c49629089a2",
+    "tests/test_session_driver_actions.py": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413",
+    "tests/test_session_motion_integration.py": "ad540b14fa48dc2a4ee5fe982cf75f119e499e526b979cc02056d6716f11387a",
+    "tests/test_session_native.py": "82fe3c62740b705a7aa3081eb302ea67fc8a68ac10d6048835eb2a6aba4adde3",
+    "tests/test_session_preferences.py": "71a37e07a89de5cf8899ea930c7f9785f1523558b65aede443f2166926dec572",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "0a135ab39ca57e168602cc2ea0a1e403ae69268f6593c1ad41e8d0972c231b9e",
+    "tools/gnome-telemetry-region/README.md": "3e4d9a56ad1594b1fed957e8ebc2ffe51ce26c767b96be720ad82f089a46f5bf",
+    "tools/gnome-telemetry-region/build-private.sh": "630426e3545ce929d667d7e0140fb9bc24f2cea12bf5820740245e7943cd21b2",
+    "tools/gnome-telemetry-region/manifest.example.json": "fa2d3ec8b525abf345a0ee937e17c667acfe63dbe76bf1b01ac0b412324e903f",
+    "tools/gnome-telemetry-region/offline_harness.py": "4503fbf67951394b5fb1bd655139acfde76230052730175f8563f03c7582ab61"
+  },
+  "status": "offline-build-selftest-targeted-native-checks-passed; complete-batch-retains-known-global-cli-failures",
+  "successful_attempt": {
+    "log": ".archive/executor-review/gnome-telemetry-region-r2-docker-build-rerun.log",
+    "result": "exit 0"
+  },
+  "tests": {
+    "initial_complete_batch": {
+      "log": ".archive/executor-review/gnome-telemetry-region-r2.log",
+      "result": "300 passed, 14 failed, exit 1; first failure was the minimal-daemon profile compatibility defect, followed by lease-cascade failures"
+    },
+    "final_complete_batch": {
+      "log": ".archive/executor-review/gnome-telemetry-region-r2-fix.log",
+      "result": "301 passed, 13 failed, exit 1; all 13 are the known host Codex 0.163.0 versus pinned 0.162.1 startup mismatch followed by lease-cascade failures; no native-region assertion failed",
+      "command_exit": 1
+    },
+    "targeted_after_fix": {
+      "result": "13 passed in 2.04s, including native capture, revocation, config, and real daemon/provider/decoder route checks"
+    }
+  },
+  "verified_archives": {
+    "gnome-screenshot_41.0-3.debian.tar.xz": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d",
+    "gnome-screenshot_41.0.orig.tar.xz": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597"
+  },
+  "static_verification": {
+    "ruff_check": "passed (explicit 10-file list)",
+    "ruff_format_check": "passed (explicit 10-file list)",
+    "py_compile": "passed (explicit 10-file list)",
+    "git_diff_check": "passed (explicit owned paths)"
+  }
+}

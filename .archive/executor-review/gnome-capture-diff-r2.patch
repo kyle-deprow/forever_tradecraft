@@ -1,0 +1,473 @@
+--- a/src/crowley/session/driver.py (gnome-capture-r1)
++++ b/src/crowley/session/driver.py
+@@ -56,6 +56,14 @@
+     """A precondition, identity, lease, or postcondition failed."""
+ 
+ 
++class _IncompleteCaptureOutput(DriverError):
++    """The screenshot writer has not exposed a complete PNG yet."""
++
++
++class _InvalidCaptureOutput(DriverError):
++    """The screenshot writer exposed a terminally invalid PNG result."""
++
++
+ DRIVER_VERSION = "native-x11-3"
+ GNOME_CAPTURE_LOCK_PATH = Path.home() / ".cache" / "crowley" / "gnome-screenshot.lock"
+ 
+@@ -79,7 +87,7 @@
+ 
+ 
+ @contextmanager
+-def _capture_lock(deadline_monotonic: float):
++def _capture_lock(deadline_monotonic: float, *, check: Callable[[], None] | None = None):
+     """Hold the private cross-process GNOME screenshot serialization lock."""
+ 
+     import fcntl
+@@ -127,6 +135,8 @@
+         ):
+             raise DriverError("GNOME capture lock is not a private owned regular file")
+         while True:
++            if check is not None:
++                check()
+             remaining = deadline_monotonic - time.monotonic()
+             if remaining <= 0:
+                 raise DriverError("GNOME capture lock deadline expired while waiting")
+@@ -138,6 +148,8 @@
+                     raise DriverError(f"GNOME capture lock failed: {exc}") from exc
+                 time.sleep(min(0.01, remaining))
+         try:
++            if check is not None:
++                check()
+             yield
+         finally:
+             fcntl.flock(fd, fcntl.LOCK_UN)
+@@ -145,33 +157,63 @@
+         os.close(fd)
+ 
+ 
+-def _validate_complete_png(path: Path, expected_size: tuple[int, int]) -> None:
++def _validate_complete_png(path: Path, minimum_size: tuple[int, int]) -> None:
+     """Require a newly written PNG whose bytes can be fully decoded."""
+ 
+     try:
+-        from PIL import Image
++        from PIL import Image, UnidentifiedImageError
++
++        try:
++            with path.open("rb") as stream:
++                prefix = stream.read(8)
++        except FileNotFoundError as exc:
++            raise _IncompleteCaptureOutput("output is not present yet") from exc
++        if prefix != b"\x89PNG\r\n\x1a\n":
++            if len(prefix) < 8:
++                raise _IncompleteCaptureOutput("PNG signature is incomplete")
++            raise _InvalidCaptureOutput("GNOME screenshot format is not PNG")
+ 
+         with Image.open(path) as image:
+-            if image.format != "PNG" or image.size != expected_size:
+-                raise DriverError("GNOME screenshot dimensions or format are invalid")
++            if image.format != "PNG":
++                raise _InvalidCaptureOutput("GNOME screenshot format is not PNG")
++            if image.width < minimum_size[0] or image.height < minimum_size[1]:
++                raise _InvalidCaptureOutput("GNOME screenshot is smaller than the verified client")
+             image.verify()
+         with Image.open(path) as image:
+-            if image.format != "PNG" or image.size != expected_size:
+-                raise DriverError("GNOME screenshot dimensions or format changed")
++            if image.format != "PNG":
++                raise _InvalidCaptureOutput("GNOME screenshot format changed")
++            if image.width < minimum_size[0] or image.height < minimum_size[1]:
++                raise _InvalidCaptureOutput("GNOME screenshot is smaller than the verified client")
+             image.load()
++    except (_IncompleteCaptureOutput, _InvalidCaptureOutput):
++        raise
++    except UnidentifiedImageError as exc:
++        raise _IncompleteCaptureOutput(f"PNG is not decodable yet: {exc}") from exc
+     except DriverError:
+         raise
+     except (FileNotFoundError, OSError, SyntaxError, ValueError) as exc:
+-        raise DriverError(f"GNOME screenshot is not a complete PNG: {exc}") from exc
+-
+-
+-def _wait_for_complete_png(path: Path, expected_size: tuple[int, int], deadline_monotonic: float) -> None:
++        raise _IncompleteCaptureOutput(f"GNOME screenshot is not a complete PNG: {exc}") from exc
++
++
++def _wait_for_complete_png(
++    path: Path,
++    minimum_size: tuple[int, int],
++    deadline_monotonic: float,
++    *,
++    check: Callable[[], None] | None = None,
++) -> None:
+     last_error = "output is not present yet"
+     while True:
++        if check is not None:
++            check()
+         try:
+-            _validate_complete_png(path, expected_size)
++            _validate_complete_png(path, minimum_size)
++            if check is not None:
++                check()
+             return
+-        except DriverError as exc:
++        except _InvalidCaptureOutput:
++            raise
++        except _IncompleteCaptureOutput as exc:
+             last_error = str(exc)
+         remaining = deadline_monotonic - time.monotonic()
+         if remaining <= 0:
+@@ -742,6 +784,7 @@
+         self._active_processes: set[subprocess.Popen[str]] = set()
+         self._active_process_groups: set[int] = set()
+         self._process_lock = threading.RLock()
++        self._capture_revocation_epoch = 0
+         self._cancel_active = threading.Event()
+         self._active_generation: int | None = None
+         self._canceled_generations: set[int] = set()
+@@ -1666,8 +1709,11 @@
+             self._cancel_active = threading.Event()
+         if not hasattr(self, "_canceled_generations"):
+             self._canceled_generations = set()
+-        self._cancel_active.set()
+         with self._process_lock:
++            if not hasattr(self, "_capture_revocation_epoch"):
++                self._capture_revocation_epoch = 0
++            self._capture_revocation_epoch += 1
++            self._cancel_active.set()
+             processes = tuple(self._active_processes)
+             self._canceled_generations.update(
+                 generation
+@@ -2281,6 +2327,18 @@
+         else:
+             raise DriverError(f"unsupported X11 action {name}")
+ 
++    def _capture_epoch_snapshot(self) -> int:
++        with self._process_lock:
++            return self._capture_revocation_epoch
++
++    def _check_capture_epoch_locked(self, epoch: int) -> None:
++        if epoch != self._capture_revocation_epoch or self._cancel_active.is_set():
++            raise DriverError("desktop capture was revoked")
++
++    def _check_capture_epoch(self, epoch: int) -> None:
++        with self._process_lock:
++            self._check_capture_epoch_locked(epoch)
++
+     def capture(
+         self,
+         path: Path,
+@@ -2288,17 +2346,23 @@
+         identity: WindowIdentity | None = None,
+         deadline_monotonic: float | None = None,
+     ) -> WindowIdentity:
++        capture_epoch = self._capture_epoch_snapshot()
+         deadline = _capture_deadline(deadline_monotonic)
++        self._check_capture_epoch(capture_epoch)
+         before = self.resolve_identity(deadline_monotonic=deadline)
++        self._check_capture_epoch(capture_epoch)
+         if identity is not None and before.fingerprint != identity.fingerprint:
+             raise DriverError("capture identity changed before screenshot")
+         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+-        stage = path.parent / f".{path.name}.{uuid.uuid4().hex}.capture.png"
++        attempt_dir: Path | None = None
+         try:
+-            with _capture_lock(deadline):
++            with _capture_lock(deadline, check=lambda: self._check_capture_epoch(capture_epoch)):
+                 remaining = deadline - time.monotonic()
+                 if remaining <= 0:
+                     raise DriverError("capture deadline expired before screenshot")
++                attempt_dir = Path(tempfile.mkdtemp(prefix=f".{path.name}.capture-", dir=path.parent))
++                stage = attempt_dir / "capture.png"
++                self._check_capture_epoch(capture_epoch)
+                 self._run(
+                     ["gnome-screenshot", "-f", str(stage)],
+                     timeout=min(15.0, remaining),
+@@ -2308,21 +2372,34 @@
+                     stage,
+                     (self.profile.client_width, self.profile.client_height),
+                     deadline,
++                    check=lambda: self._check_capture_epoch(capture_epoch),
+                 )
++                self._check_capture_epoch(capture_epoch)
+                 after = self.resolve_identity(deadline_monotonic=deadline)
++                self._check_capture_epoch(capture_epoch)
+                 if after.fingerprint != before.fingerprint:
+                     raise DriverError("capture identity changed during screenshot")
+                 if time.monotonic() >= deadline:
+                     raise DriverError("capture deadline expired before screenshot publication")
+-                os.chmod(stage, 0o600)
+-                os.replace(stage, path)
+-                self.last_identity = after
+-                return after
++                with self._process_lock:
++                    self._check_capture_epoch_locked(capture_epoch)
++                    if time.monotonic() >= deadline:
++                        raise DriverError("capture deadline expired before screenshot publication")
++                    os.chmod(stage, 0o600)
++                    os.replace(stage, path)
++                    self.last_identity = after
++                    return after
+         finally:
+-            try:
+-                stage.unlink()
+-            except FileNotFoundError:
+-                pass
++            if attempt_dir is not None:
++                retired_dir = attempt_dir.with_name(f".{attempt_dir.name}.retired-{uuid.uuid4().hex}")
++                try:
++                    os.replace(attempt_dir, retired_dir)
++                except FileNotFoundError:
++                    pass
++                except OSError:
++                    shutil.rmtree(attempt_dir, ignore_errors=True)
++                else:
++                    shutil.rmtree(retired_dir, ignore_errors=True)
+ 
+     def synthetic_calibration(
+         self, window_id: str, x: int, y: int, *, calibration_ticket: CalibrationTicket | None = None
+--- a/tests/test_session_capture.py (gnome-capture-r1)
++++ b/tests/test_session_capture.py
+@@ -5,6 +5,7 @@
+ import os
+ import stat
+ import sys
++import threading
+ import time
+ from pathlib import Path
+ 
+@@ -38,12 +39,21 @@
+     )
+ 
+ 
+-def _png_bytes(color: tuple[int, int, int, int]) -> bytes:
++def _image_bytes(
++    color: tuple[int, int, int, int], size: tuple[int, int] = IMAGE_SIZE, image_format: str = "PNG"
++) -> bytes:
+     from io import BytesIO
+ 
+     output = BytesIO()
+-    Image.new("RGBA", IMAGE_SIZE, color).save(output, format="PNG")
++    image = Image.new("RGBA", size, color)
++    if image_format == "JPEG":
++        image = image.convert("RGB")
++    image.save(output, format=image_format)
+     return output.getvalue()
++
++
++def _png_bytes(color: tuple[int, int, int, int], size: tuple[int, int] = IMAGE_SIZE) -> bytes:
++    return _image_bytes(color, size=size)
+ 
+ 
+ def _writer(path: Path, payload: bytes, mode: str, delay: float = 0.08) -> Path:
+@@ -129,10 +139,15 @@
+     target = tmp_path / "capture.png"
+     original_run = backend._run
+     output_at_process_exit: list[int | None] = []
++    attempt_dirs: list[Path] = []
++    attempt_dir_modes: list[int] = []
+ 
+     def record_process_exit(args: list[str], **kwargs: object):
+         result = original_run(args, **kwargs)
+-        output_at_process_exit.append(Path(args[2]).stat().st_size if Path(args[2]).exists() else None)
++        stage = Path(args[2])
++        output_at_process_exit.append(stage.stat().st_size if stage.exists() else None)
++        attempt_dirs.append(stage.parent)
++        attempt_dir_modes.append(stat.S_IMODE(stage.parent.stat().st_mode))
+         return result
+ 
+     backend._run = record_process_exit  # type: ignore[method-assign]
+@@ -141,6 +156,8 @@
+ 
+     assert result.fingerprint == "capture-identity"
+     assert output_at_process_exit == [None]
++    assert attempt_dirs[0] != target.parent
++    assert attempt_dir_modes == [0o700]
+     with Image.open(target) as image:
+         image.load()
+         assert image.format == "PNG"
+@@ -154,10 +171,15 @@
+     backend = _backend(tmp_path, monkeypatch, writer)
+     original_run = backend._run
+     output_at_process_exit: list[int | None] = []
++    attempt_dirs: list[Path] = []
++    attempt_dir_modes: list[int] = []
+ 
+     def record_process_exit(args: list[str], **kwargs: object):
+         result = original_run(args, **kwargs)
+-        output_at_process_exit.append(Path(args[2]).stat().st_size if Path(args[2]).exists() else None)
++        stage = Path(args[2])
++        output_at_process_exit.append(stage.stat().st_size if stage.exists() else None)
++        attempt_dirs.append(stage.parent)
++        attempt_dir_modes.append(stat.S_IMODE(stage.parent.stat().st_mode))
+         return result
+ 
+     backend._run = record_process_exit  # type: ignore[method-assign]
+@@ -165,6 +187,7 @@
+     backend.capture(tmp_path / "capture.png", identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)
+ 
+     assert output_at_process_exit == [24]
++    assert attempt_dir_modes == [0o700]
+     assert not list(tmp_path.glob(".*.capture.png"))
+ 
+ 
+@@ -175,7 +198,7 @@
+     writer = _writer(tmp_path / "writer", _png_bytes((70, 80, 90, 255)), mode)
+     backend = _backend(tmp_path, monkeypatch, writer)
+     target = tmp_path / "capture.png"
+-    deadline = time.monotonic() + 0.25
++    deadline = time.monotonic() + 1.0
+ 
+     with pytest.raises(DriverError, match="complete PNG before deadline"):
+         backend.capture(target, identity=_identity(), deadline_monotonic=deadline)
+@@ -193,7 +216,7 @@
+     backend = _backend(tmp_path, monkeypatch, writer)
+ 
+     with pytest.raises(DriverError, match="complete PNG before deadline"):
+-        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 0.25)
++        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 1.0)
+ 
+     assert target.read_bytes() == old
+ 
+@@ -233,6 +256,131 @@
+             raise AssertionError("symlinked capture lock was accepted")
+ 
+ 
++def test_capture_revocation_epoch_blocks_delayed_writer_after_rearm(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((15, 25, 35, 255)), "delayed", delay=0.5)
++    backend = _backend(tmp_path, monkeypatch, writer)
++    original_run = backend._run
++
++    def revoke_after_process_exit(args: list[str], **kwargs: object):
++        result = original_run(args, **kwargs)
++        backend.release_held_input()
++        backend.activate_generation(2)
++        return result
++
++    backend._run = revoke_after_process_exit  # type: ignore[method-assign]
++
++    with pytest.raises(DriverError, match="capture was revoked"):
++        backend.capture(
++            tmp_path / "capture.png", identity=_identity(), deadline_monotonic=time.monotonic() + 2.0
++        )
++    assert not list(tmp_path.glob(".*.capture-*"))
++
++
++def test_capture_revocation_epoch_blocks_lock_wait_after_rearm(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((16, 26, 36, 255)), "complete")
++    backend = _backend(tmp_path, monkeypatch, writer)
++    lock_path = tmp_path / "capture.lock"
++    context = multiprocessing.get_context("fork")
++    ready = context.Event()
++    release = context.Event()
++    holder = context.Process(target=_hold_lock, args=(str(lock_path), ready, release))
++    holder.start()
++    result: list[BaseException] = []
++
++    def run_capture() -> None:
++        try:
++            backend.capture(
++                tmp_path / "capture.png", identity=_identity(), deadline_monotonic=time.monotonic() + 3.0
++            )
++        except BaseException as exc:  # pragma: no cover - assertion below reports the exception
++            result.append(exc)
++
++    thread = threading.Thread(target=run_capture)
++    try:
++        assert ready.wait(2.0)
++        thread.start()
++        time.sleep(0.05)
++        backend.release_held_input()
++        backend.activate_generation(2)
++        thread.join(2.0)
++    finally:
++        release.set()
++        holder.join(3.0)
++    assert not thread.is_alive()
++    assert len(result) == 1
++    assert isinstance(result[0], DriverError)
++    assert "capture was revoked" in str(result[0])
++    assert holder.exitcode == 0
++
++
++def test_delayed_writer_cannot_recreate_retired_attempt_directory(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    old = _png_bytes((1, 2, 3, 255))
++    target = tmp_path / "capture.png"
++    target.write_bytes(old)
++    writer = _writer(tmp_path / "writer", _png_bytes((17, 27, 37, 255)), "delayed", delay=1.5)
++    backend = _backend(tmp_path, monkeypatch, writer)
++
++    with pytest.raises(DriverError, match="complete PNG before deadline"):
++        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 1.0)
++    assert target.read_bytes() == old
++    assert not list(tmp_path.glob(".*.capture-*"))
++    time.sleep(0.75)
++    assert not list(tmp_path.glob(".*.capture-*"))
++
++    succeeding = _writer(tmp_path / "succeeding-writer", _png_bytes((18, 28, 38, 255)), "complete")
++    monkeypatch.setattr(driver_module, "_resolve_wrapped_executable", lambda _command: str(succeeding))
++    backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)
++    assert target.read_bytes() != old
++
++
++def test_larger_desktop_png_is_accepted_for_existing_crop_contract(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((19, 29, 39, 255), size=(20, 16)), "complete")
++    backend = _backend(tmp_path, monkeypatch, writer)
++    target = tmp_path / "capture.png"
++
++    backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)
++
++    with Image.open(target) as image:
++        assert image.size == (20, 16)
++
++
++@pytest.mark.parametrize(
++    ("payload", "message"),
++    [
++        (_png_bytes((20, 30, 40, 255), size=(8, 8)), "smaller than the verified client"),
++        (_image_bytes((20, 30, 40, 255), image_format="JPEG"), "format is not PNG"),
++    ],
++)
++def test_wrong_format_or_size_refuses_without_waiting_for_deadline(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, payload: bytes, message: str
++) -> None:
++    writer = _writer(tmp_path / "writer", payload, "complete")
++    backend = _backend(tmp_path, monkeypatch, writer)
++    original_run = backend._run
++    process_exit: list[float] = []
++
++    def record_process_exit(args: list[str], **kwargs: object):
++        result = original_run(args, **kwargs)
++        process_exit.append(time.monotonic())
++        return result
++
++    backend._run = record_process_exit  # type: ignore[method-assign]
++    started = time.monotonic()
++    with pytest.raises(DriverError, match=message):
++        backend.capture(tmp_path / "capture.png", identity=_identity(), deadline_monotonic=started + 1.0)
++
++    assert process_exit
++    assert time.monotonic() - process_exit[0] < 0.25
++
++
+ def test_lock_contention_consumes_deadline_without_invoking_screenshot(
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+@@ -289,7 +437,7 @@
+     target = tmp_path / "capture.png"
+ 
+     with pytest.raises(DriverError, match="complete PNG before deadline"):
+-        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 0.2)
++        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 1.0)
+     monkeypatch.setattr(driver_module, "_resolve_wrapped_executable", lambda _command: str(succeeding))
+ 
+     backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)

@@ -1,0 +1,11 @@
+{
+  "recordedUtc": "2026-10-17T01:00:23.839104+00:00",
+  "readOnly": true,
+  "database": "crowley",
+  "plans": 1,
+  "sweeps": 8,
+  "observations": 3424,
+  "capturedRows": 11139,
+  "databaseContainer": "crowley-db-1",
+  "serverImageBefore": "sha256:95b120734466943fcfbc337a36c72983b8b620cfc9a2988347fca5308f54ac76"
+}

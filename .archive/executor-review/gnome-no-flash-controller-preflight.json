@@ -1,0 +1,142 @@
+{
+  "utc": "2026-10-17T03:36:56.410546+00:00",
+  "before": {
+    "ok": true,
+    "status": {
+      "actionIntent": "",
+      "blocker": "",
+      "boot": "",
+      "calibrationEvidence": {},
+      "calibrationHistory": [],
+      "calibrationInvalidated": "",
+      "calibrationOperation": {
+        "error": "native constructor measurement failed: native construct/0 did not produce the requested fresh frame",
+        "finishedAt": 1792205626,
+        "generation": 12,
+        "kind": "native",
+        "readiness": null,
+        "result": null,
+        "startedAt": 1792205595,
+        "state": "error"
+      },
+      "closeoutRequested": false,
+      "deadlineAt": 0,
+      "dueAt": 0,
+      "expectedBoot": "",
+      "generation": 12,
+      "inputCalibration": false,
+      "lastSaved": {},
+      "lastUid": "",
+      "leaseGeneration": 1,
+      "loaded": {},
+      "mode": "validation",
+      "nativeBootstrap": null,
+      "nativeBootstrapPending": false,
+      "nativeBootstrapReady": false,
+      "nativeCalibration": false,
+      "nativeHandshake": {
+        "archiveReceipts": [
+          {
+            "archiveId": "3ef49f310d19f26e63800d68056df96d7f777fbfc47269cd8e8af45cbe362867",
+            "ordinal": 0,
+            "phase": "construction",
+            "recordSha256": "340e0a8a69146b39c5f9e989d7f6c837cb87880f2582dd36b2d850578002a480"
+          }
+        ],
+        "failure": "native constructor measurement failed: native construct/0 did not produce the requested fresh frame",
+        "holdRequired": false,
+        "measureReady": false,
+        "restored": false,
+        "resumeReady": false,
+        "resumeRequired": false,
+        "state": "restoration_required"
+      },
+      "pending": {},
+      "phase": "",
+      "reconciliationRequired": false,
+      "sequence": 0,
+      "startedAt": 0,
+      "state": "NATIVE_CALIBRATION",
+      "stopRequested": false,
+      "streak": 0
+    }
+  },
+  "pause": {
+    "ok": true,
+    "status": {
+      "actionIntent": "",
+      "blocker": "IPC pause",
+      "closeoutRequested": false,
+      "expectedBoot": "",
+      "generation": 13,
+      "lastUid": "",
+      "leaseGeneration": 1,
+      "mode": "validation",
+      "startedAt": 0,
+      "state": "PAUSED",
+      "stopRequested": false,
+      "streak": 0
+    }
+  },
+  "after": {
+    "ok": true,
+    "status": {
+      "actionIntent": "",
+      "blocker": "IPC pause",
+      "boot": "",
+      "calibrationEvidence": {},
+      "calibrationHistory": [],
+      "calibrationInvalidated": "",
+      "calibrationOperation": {
+        "error": "native constructor measurement failed: native construct/0 did not produce the requested fresh frame",
+        "finishedAt": 1792205626,
+        "generation": 12,
+        "kind": "native",
+        "readiness": null,
+        "result": null,
+        "startedAt": 1792205595,
+        "state": "error"
+      },
+      "closeoutRequested": false,
+      "deadlineAt": 0,
+      "dueAt": 0,
+      "expectedBoot": "",
+      "generation": 13,
+      "inputCalibration": false,
+      "lastSaved": {},
+      "lastUid": "",
+      "leaseGeneration": 1,
+      "loaded": {},
+      "mode": "validation",
+      "nativeBootstrap": null,
+      "nativeBootstrapPending": false,
+      "nativeBootstrapReady": false,
+      "nativeCalibration": false,
+      "nativeHandshake": {
+        "archiveReceipts": [
+          {
+            "archiveId": "3ef49f310d19f26e63800d68056df96d7f777fbfc47269cd8e8af45cbe362867",
+            "ordinal": 0,
+            "phase": "construction",
+            "recordSha256": "340e0a8a69146b39c5f9e989d7f6c837cb87880f2582dd36b2d850578002a480"
+          }
+        ],
+        "failure": "native constructor measurement failed: native construct/0 did not produce the requested fresh frame",
+        "holdRequired": false,
+        "measureReady": false,
+        "restored": false,
+        "resumeReady": false,
+        "resumeRequired": false,
+        "state": "restoration_required"
+      },
+      "pending": {},
+      "phase": "",
+      "reconciliationRequired": false,
+      "sequence": 0,
+      "startedAt": 0,
+      "state": "PAUSED",
+      "stopRequested": false,
+      "streak": 0
+    }
+  }
+}

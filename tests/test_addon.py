@@ -1,22 +1,40 @@
 """Targeted watchlist Lua behavior using the real addon under Lua 5.1."""
 
 import base64
+import hashlib
 import json
+import math
 import zlib
 
+import pytest
+
 from crowley.core import savedvars
-from crowley.core.scanformat import validate_v2_envelope
+from crowley.core.scanformat import ScanFormatError, validate_v2_envelope
+from crowley.core.watchlist import load_catalog
+from crowley.session.protocol import decode_frame
 
 from .wow_harness import Auction, WowClient
 
 
-def run_sweep(client: WowClient, item_ids: list[int] | None = None) -> dict:
+def run_sweep(
+    client: WowClient, item_ids: list[int] | None = None, settings: dict[str, str] | None = None
+) -> dict:
     client.login()
-    client.set_plan(item_ids or [2589])
+    for field, value in (settings or {}).items():
+        client.lua.globals().CrowleyDB.settings[field] = value
+    # Every successful production sweep uses the shipped canonical 428-item
+    # plan.  ``item_ids`` is retained only for callers from the older focused
+    # tests; those tests inspect a canonical observation while the harness
+    # advances the real rolling throttle window.
+    client.set_canonical_plan()
     client.set_auctions([Auction(itemID=2589, name="Linen Cloth", count=2, buyout=200)])
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
-    client.run_timers()
+    for _ in range(700):
+        client.run_timers()
+        if list(client.lua.globals().CrowleyDB.scans.items()):
+            break
+        client.advance_with_timers(1)
     scans = savedvars.loads(client.saved_variables())["CrowleyDB"]["scans"]
     assert len(scans) == 1
     return next(iter(scans.values()))
@@ -45,6 +63,447 @@ def decoded_payload(client: WowClient) -> dict:
     return validate_v2_envelope(envelope(raw))["decoded"]
 
 
+def finish_canonical(client: WowClient) -> None:
+    """Drain the canonical sweep after an adversarial event was observed."""
+
+    client.state.fastCanonical = True
+    client.run_timers()
+
+
+def advance_to_owned_query(client: WowClient) -> None:
+    """Reach the real owned-auction request without skipping its event window."""
+
+    client.state.fastCanonical = False
+    for _ in range(1000):
+        client.run_timers()
+        if client.state.ownedQueries:
+            return
+        deadline = client.lua.globals()._nextTimerAt()
+        if deadline is None:
+            break
+        client.lua.globals()._now = deadline
+    raise AssertionError("canonical sweep did not reach owned query")
+
+
+@pytest.mark.parametrize("is_commodity", [False, True], ids=["item", "commodity"])
+@pytest.mark.parametrize("depth_case", ["below", "exact", "above"])
+def test_complete_source_depth_boundary_is_unbounded_without_higher_witness(is_commodity, depth_case):
+    if depth_case == "below":
+        prices = list(range(100, 119))
+        expected_coverage = "full"
+        expected_rows = len(prices)
+        expected_ids = set(range(1000, 1000 + len(prices)))
+    elif depth_case == "exact":
+        # Two rows share the twentieth level, so the boundary itself is covered.
+        prices = list(range(100, 119)) + [119, 119]
+        expected_coverage = "full"
+        expected_rows = len(prices)
+        expected_ids = set(range(1000, 1000 + len(prices)))
+    else:
+        prices = list(range(100, 121))
+        expected_coverage = "bounded"
+        expected_rows = 20
+        expected_ids = set(range(1000, 1020))
+
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions(
+        [
+            Auction(
+                2589,
+                "Linen",
+                1,
+                price,
+                isCommodity=is_commodity,
+                auctionID=1000 + index,
+            )
+            for index, price in enumerate(prices)
+        ]
+    )
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+
+    observation = decoded_payload(client)["observations"]["2589"]
+    assert observation["kind"] == ("commodity" if is_commodity else "item")
+    assert observation["coverage"] == expected_coverage
+    assert observation["sourceComplete"] is True
+    assert observation["reasonCode"] == "ok"
+    assert observation["rowCount"] == expected_rows == len(observation["rows"])
+    assert {row["resultID"] for row in observation["rows"].values()} == expected_ids
+    if depth_case in {"below", "exact"}:
+        assert observation["cutoff"] == {"kind": "unbounded"}
+        assert observation["higherPriceWitness"] == {"kind": "unknown"}
+    else:
+        assert observation["cutoff"] == {"kind": "price", "numerator": 119, "denominator": 1}
+        assert observation["higherPriceWitness"] == {"kind": "known", "numerator": 120, "denominator": 1}
+
+
+@pytest.mark.parametrize("warm", [False, True], ids=["cold-refresh", "warm-cache"])
+def test_non_equipment_recipe_refreshes_native_key_and_uses_normal_search(warm):
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(2555, "Linen", 27, 100, itemLevel=15, classID=9, auctionID=2555)])
+    if warm:
+        client.set_key_warm([2555])
+        assert client.lua.globals().C_AuctionHouse.MakeItemKey(2555, 0, 0, 0).itemLevel == 15
+    else:
+        client.set_metadata_pending([2555])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+
+    observation = decoded_payload(client)["observations"]["2555"]
+    query = next(
+        event
+        for event in client.query_trace["events"]
+        if event["type"] == "query_send" and event.get("operation") == "search" and event["itemID"] == 2555
+    )
+    assert observation["coverage"] == "full"
+    assert observation["rowCount"] == 1
+    assert query["classID"] == 9
+    assert query["equipment"] is False
+    assert query["nativeMethod"] == "SendSearchQuery"
+    assert query["nativeKey"] == {"itemID": 2555, "itemLevel": 15, "itemSuffix": 0, "battlePetSpeciesID": 0}
+    recipe_methods = [entry for entry in client.query_methods if entry["itemID"] == 2555]
+    assert recipe_methods[0]["method"] == "SendSearchQuery"
+    assert recipe_methods[0]["itemLevel"] == 15
+
+
+def test_container_uses_native_generated_key_and_normal_search():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(118, "Bag", 1, 250, itemLevel=12, classID=1, auctionID=4000)])
+    client.set_key_warm([118])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+
+    observation = decoded_payload(client)["observations"]["118"]
+    query = next(
+        event
+        for event in client.query_trace["events"]
+        if event["type"] == "query_send" and event.get("operation") == "search" and event["itemID"] == 118
+    )
+    assert observation["coverage"] == "full"
+    assert query["classID"] == 1
+    assert query["equipment"] is False
+    assert query["nativeMethod"] == "SendSearchQuery"
+    assert query["nativeKey"]["itemLevel"] == 12
+
+
+def test_equipment_uses_zeroed_sell_key_and_preserves_variant_result_key():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(873, "Sword", 1, 500, itemLevel=40, itemSuffix=7, classID=2, auctionID=873)])
+    client.set_key_warm([873])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+
+    observation = decoded_payload(client)["observations"]["873"]
+    query = next(
+        event
+        for event in client.query_trace["events"]
+        if event["type"] == "query_send" and event.get("operation") == "search" and event["itemID"] == 873
+    )
+    row = next(iter(observation["rows"].values()))
+    assert observation["coverage"] == "full"
+    assert observation["rowCount"] == 1
+    assert query["classID"] == 2
+    assert query["equipment"] is True
+    assert query["nativeMethod"] == "SendSellSearchQuery"
+    assert query["nativeKey"] == {"itemID": 873, "itemLevel": 0, "itemSuffix": 0, "battlePetSpeciesID": 0}
+    assert row["rawItemKey"]["itemLevel"] == 40
+    assert row["rawItemKey"]["itemSuffix"] == 7
+    assert row["itemKey"] == "873:s7:l40"
+    equipment_methods = [entry for entry in client.query_methods if entry["itemID"] == 873]
+    assert equipment_methods[0]["itemLevel"] == 0
+
+
+def test_missing_item_class_is_incomplete_and_does_not_stall_remaining_items():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions(
+        [
+            Auction(873, "Sword", 1, 500, itemLevel=40, classID=None, auctionID=873),
+            Auction(2555, "Linen", 27, 100, itemLevel=15, classID=9, auctionID=2555),
+        ]
+    )
+    client.set_key_warm([2555])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+
+    observations = decoded_payload(client)["observations"]
+    assert observations["873"]["coverage"] == "incomplete"
+    assert observations["873"]["reasonCode"] == "metadata_unavailable"
+    assert observations["2555"]["coverage"] == "full"
+    assert observations["2555"]["rowCount"] == 1
+    sends = [
+        event
+        for event in client.query_trace["events"]
+        if event["type"] == "query_send" and event.get("operation") == "search"
+    ]
+    focused = [event for event in sends if event["itemID"] in {873, 2555}]
+    assert [(event["itemID"], event["nativeMethod"]) for event in focused] == [(2555, "SendSearchQuery")]
+
+
+def test_harness_nonzero_item_sell_search_has_throttle_without_result():
+    client = WowClient()
+    client.set_auctions([Auction(2555, "Linen", 27, 100, itemLevel=15, classID=9)])
+    key = client.lua.globals().C_AuctionHouse.MakeItemKey(2555, 15, 0, 0)
+    sorts = client._to_lua([{"sortOrder": 2, "reverseSort": False}])
+    client.lua.globals().C_AuctionHouse.SendSellSearchQuery(key, sorts, False)
+    client.run_timers()
+    assert client.state.lastQuery.valid is False
+    assert client.state.queryCalls == 1
+    assert client.send_log == [{"at": 1760000000, "kind": "search", "itemID": 2555}]
+
+
+def test_strict_validator_rejects_malformed_full_price_from_payload_roundtrip():
+    client = WowClient()
+    raw = run_sweep(client)
+    payload = json.loads(zlib.decompress(base64.b64decode(raw["payload"]), -15))
+    observation = payload["observations"]["2589"]
+    observation["cutoff"] = {"kind": "price", "numerator": 200, "denominator": 1}
+    raw["payload"] = base64.b64encode(
+        zlib.compress(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode(), wbits=-15)
+    ).decode()
+
+    with pytest.raises(ScanFormatError, match="full"):
+        validate_v2_envelope(envelope(raw))
+
+
+def test_harness_serializes_empty_lua_tables_as_arrays():
+    client = WowClient()
+    value = client._to_lua({"empty": {}, "owners": {"Seller": True}})
+    wire = json.loads(client.lua.globals().C_EncodingUtil.SerializeJSON(value))
+    assert wire == {"empty": [], "owners": {"Seller": True}}
+
+
+def test_query_trace_records_barriers_readiness_and_unchanged_outcomes():
+    client = WowClient()
+    run_sweep(client)
+    trace = client.query_trace
+    assert trace["version"] == 1
+    assert trace["dropped"] >= 0
+    assert len(trace["events"]) <= trace["cap"]
+    assert [event["sequence"] for event in trace["events"]] == sorted(
+        event["sequence"] for event in trace["events"]
+    )
+    types = [event["type"] for event in trace["events"]]
+    assert "dispatch" in types and "query_send" in types and "query_outcome" in types
+    dispatch = next(event for event in trace["events"] if event["type"] == "dispatch")
+    assert dispatch["matching"] is True
+    assert dispatch["barriers"] == {"sentRequested": True, "sent": True, "response": True, "awaiting": True}
+    readiness = next(
+        event for event in trace["events"] if event["type"] == "readiness" and event.get("itemID") == 2589
+    )
+    assert readiness["readiness"] == {
+        "hasSearchResults": {"status": "ok", "value": True},
+        "hasFull": {"status": "ok", "value": True},
+        "quantity": {"status": "ok", "value": 2},
+        "count": {"status": "ok", "value": 1},
+    }
+    assert [
+        entry["kind"]
+        for entry in client.send_log
+        if (entry["kind"] == "search" and entry["itemID"] == 2589) or entry["kind"] == "owned"
+    ] == ["search", "owned"]
+    assert any(
+        event["outcome"] == "full" and event.get("itemID") == 2589
+        for event in trace["events"]
+        if event["type"] == "query_outcome"
+    )
+
+
+def test_harness_keeps_commodity_sell_search_ignored_and_search_query_live():
+    client = WowClient()
+    client.set_auctions([Auction(2555, "Linen", 27, 100, isCommodity=True)])
+    key = client.lua.globals().C_AuctionHouse.MakeItemKey(2555, 0, 0, 0)
+    sorts = client._to_lua([{"sortOrder": 1, "reverseSort": False}])
+    client.lua.globals().C_AuctionHouse.SendSellSearchQuery(key, sorts, False)
+    assert client.ignored_commodity_sell_queries == 1
+    assert client.state.queryCalls == 0
+    assert client.send_log == []
+    client.lua.globals().C_AuctionHouse.SendSearchQuery(key, sorts, False, 0, 0)
+    client.run_timers()
+    assert client.state.queryCalls == 1
+    assert client.send_log == [{"at": 1760000000, "kind": "search", "itemID": 2555}]
+    assert [entry["method"] for entry in client.query_methods] == [
+        "SendSellSearchQuery",
+        "SendSearchQuery",
+    ]
+
+
+def test_mixed_commodity_and_item_queries_select_native_methods_and_validate_payload():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions(
+        [
+            Auction(2555, "Linen", 27, 100, isCommodity=True),
+            Auction(2589, "Cloth", 2, 200),
+        ]
+    )
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+    raw = next(iter(savedvars.loads(client.saved_variables())["CrowleyDB"]["scans"].values()))
+    parsed = validate_v2_envelope(envelope(raw))["decoded"]
+    assert all(parsed["observations"][item_id]["coverage"] == "full" for item_id in ("2555", "2589"))
+    assert parsed["observations"]["2555"]["rows"]["row:1"]["itemID"] == 2555
+    assert parsed["observations"]["2589"]["rows"]["row:1"]["itemID"] == 2589
+    initial = [
+        event
+        for event in client.query_trace["events"]
+        if event["type"] == "query_send"
+        and event.get("operation") == "search"
+        and event["itemID"] in {2555, 2589}
+    ]
+    assert [(event["itemID"], event["nativeMethod"]) for event in initial] == [
+        (2555, "SendSearchQuery"),
+        (2589, "SendSearchQuery"),
+    ]
+    assert [
+        (entry["itemID"], entry["method"])
+        for entry in client.query_methods
+        if entry["itemID"] in {2555, 2589}
+    ] == [
+        (2555, "SendSearchQuery"),
+        (2589, "SendSearchQuery"),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("commodity", "event_name"),
+    [
+        (False, "ITEM_SEARCH_RESULTS_ADDED"),
+        (False, "ITEM_SEARCH_RESULTS_UPDATED"),
+        (True, "COMMODITY_SEARCH_RESULTS_ADDED"),
+        (True, "COMMODITY_SEARCH_RESULTS_UPDATED"),
+    ],
+)
+def test_query_trace_preserves_native_added_or_updated_event_name(commodity, event_name):
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(2589, "Linen", 1, 100, isCommodity=commodity)])
+    event_kind = event_name.rsplit("_", 1)[-1]
+    client.set_event_behavior(kind=event_kind)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+    trace = client.active_query_trace or client.query_trace
+    dispatch = next(
+        event
+        for event in trace["events"]
+        if event["type"] == "dispatch" and event["matching"] and event.get("itemID") == 2589
+    )
+    assert dispatch["nativeEvent"] == event_name
+
+
+def test_result_before_barrier_is_recorded_without_changing_send_or_timeout_outcome():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(2589, "Linen", 1, 100)])
+    client.set_event_behavior(before_barriers=True)
+    client.focus_item(2589)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.advance(30)
+    client.run_timers()
+    trace = client.active_query_trace or client.query_trace
+    dispatch = next(event for event in trace["events"] if event["type"] == "dispatch")
+    assert dispatch["matching"] is True
+    assert dispatch["barriers"] == {
+        "sentRequested": True,
+        "sent": False,
+        "response": False,
+        "awaiting": False,
+    }
+    assert [entry["kind"] for entry in client.send_log if entry["itemID"] == 2589] == ["search"]
+    assert any(
+        event.get("reason") == "query_timeout"
+        for event in trace["events"]
+        if event["type"] == "query_outcome"
+    )
+
+
+def test_foreign_result_is_traced_without_becoming_a_matching_dispatch():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(2589, "Linen", 1, 100)])
+    client.set_event_behavior(stale=True)
+    client.focus_item(2589)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+    foreign = [
+        event
+        for event in (client.active_query_trace or client.query_trace)["events"]
+        if event["type"] == "dispatch" and not event["matching"]
+    ]
+    assert foreign and foreign[0]["resultIdentity"]["itemID"] == 1002588
+    assert foreign[0]["nativeEvent"] == "ITEM_SEARCH_RESULTS_UPDATED"
+
+
+def test_query_trace_cap_and_completed_lifecycle_are_bounded():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([])
+    client.set_event_behavior(delay=5)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert client.active_query_trace["version"] == 1
+    for _ in range(700):
+        client.run_timers()
+        if client.query_trace is not None:
+            break
+        client.advance(1)
+    trace = client.query_trace
+    assert trace["cap"] == 256
+    assert len(trace["events"]) == trace["cap"]
+    assert trace["dropped"] > 0
+    assert trace["sequence"] > trace["cap"]
+    assert client.active_query_trace is None
+
+
+def test_new_sweep_resets_active_trace_and_retains_previous_completed_trace():
+    client = WowClient()
+    run_sweep(client)
+    completed = client.query_trace
+    client.advance(900)
+    client.fire("AUCTION_HOUSE_CLOSED")
+    client.set_event_behavior(delay=5)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert client.active_query_trace["events"][0]["sequence"] == 1
+    assert client.active_query_trace["events"][0]["generation"] != completed["events"][0]["generation"]
+    assert client.query_trace == completed
+
+
+@pytest.mark.parametrize("mode", ["absent", "throwing"])
+def test_readiness_diagnostic_unsupported_or_error_does_not_break_scan(mode):
+    client = WowClient()
+    client.set_readiness_api("HasSearchResults", mode)
+    raw = run_sweep(client)
+    assert validate_v2_envelope(envelope(raw))["decoded"]["observations"]["2589"]["coverage"] == "full"
+    readiness = next(event for event in client.query_trace["events"] if event["type"] == "readiness")
+    assert readiness["readiness"]["hasSearchResults"]["status"] == mode.replace(
+        "absent", "unsupported"
+    ).replace("throwing", "error")
+
+
 def test_absent_plan_refuses_actionable_collection():
     client = WowClient()
     client.login()
@@ -67,7 +526,7 @@ def test_targeted_sweep_roundtrips_strict_v2_payload():
 def test_commodity_sweep_uses_unit_price_and_item_id_key_without_link():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen Cloth", 7, 25, isCommodity=True)])
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
@@ -82,8 +541,8 @@ def test_commodity_sweep_uses_unit_price_and_item_id_key_without_link():
 def test_representative_full_watchlist_payload_size_is_measured():
     client = WowClient()
     client.login()
-    ids = list(range(1000, 1428))
-    client.set_plan(ids)
+    ids = load_catalog().scan_plan()["itemIDs"]
+    client.set_canonical_plan()
     client.set_auctions(
         [
             Auction(itemID=item_id, name=f"I{item_id}", count=1, buyout=100, auctionID=item_id)
@@ -125,24 +584,25 @@ def test_sweep_timeout_dispatches_before_later_inserted_timer():
 def test_finished_sweep_keeps_immutable_plan_provenance():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_event_behavior(delay=5)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     original_hash = client.lua.globals().CROWLEY_DATA.scanPlan.planHash
-    client.set_plan([2592])
+    client.set_plan([2592])  # deliberately invalid replacement while the canonical sweep is active
     client.advance(5)
     client.run_timers()
+    finish_canonical(client)
     payload = decoded_payload(client)
     assert payload["planHash"] == original_hash
-    assert json.loads(payload["planJSON"])["itemIDs"] == [2589]
+    assert json.loads(payload["planJSON"])["itemIDs"] == load_catalog().scan_plan()["itemIDs"]
 
 
 def test_documented_structured_keys_and_cumulative_paging():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.state.pageSize = 10
     client.set_auctions(
         [Auction(2589, "Linen", 1, 100 + index, auctionID=1000 + index) for index in range(25)]
@@ -154,14 +614,17 @@ def test_documented_structured_keys_and_cumulative_paging():
     observation = payload["observations"]["2589"]
     assert observation["coverage"] == "bounded"
     assert len(observation["rows"]) == 20
-    assert len(client.send_log) == 4  # search, two cumulative pages, owned query
+    focused_sends = [
+        entry for entry in client.send_log if entry["itemID"] == 2589 or entry["kind"] == "owned"
+    ]
+    assert len(focused_sends) == 4  # search, two cumulative pages, owned query
     assert all(entry["kind"] in {"search", "item_page", "owned"} for entry in client.send_log)
 
 
 def test_bounded_commodity_has_known_witness_and_strict_roundtrip():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_source_incomplete()
     client.set_auctions(
         [Auction(2589, "Linen", 1, price, isCommodity=True, auctionID=price) for price in range(1, 22)]
@@ -182,7 +645,7 @@ def test_bounded_commodity_has_known_witness_and_strict_roundtrip():
 def test_full_item_normalizes_unit_price_after_whole_buyout_source_order():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions(
         [
             Auction(2589, "Linen", 2, 2, auctionID=1),
@@ -208,7 +671,7 @@ def test_full_item_normalizes_unit_price_after_whole_buyout_source_order():
 def test_page_limit_preserves_sorted_partial_rows_beyond_depth():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.state.pageSize = 3
     client.set_auctions(
         [Auction(2589, "Linen", 2 if price % 2 == 0 else 1, price, auctionID=price) for price in range(1, 34)]
@@ -235,7 +698,7 @@ def test_unsafe_nonadjacent_price_product_keeps_partial_rows():
     max_safe = 9007199254740991
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions(
         [
             Auction(2589, "Linen", 1, 1, auctionID=1),
@@ -256,7 +719,7 @@ def test_unsafe_nonadjacent_price_product_keeps_partial_rows():
 def test_advertised_missing_result_is_incomplete_not_empty_full_scope():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_missing_results([1])
     client.fire("AUCTION_HOUSE_SHOW")
@@ -271,7 +734,7 @@ def test_advertised_missing_result_is_incomplete_not_empty_full_scope():
 def test_equal_price_ties_roundtrip_in_any_result_identity_order():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions(
         [Auction(2589, "Linen", 1, 100, isCommodity=True, auctionID=index) for index in range(1, 13)]
     )
@@ -287,7 +750,7 @@ def test_equal_price_ties_roundtrip_in_any_result_identity_order():
 def test_market_abort_keeps_owned_collection_unqueried():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_event_behavior(delay=5)
     client.fire("AUCTION_HOUSE_SHOW")
@@ -304,13 +767,14 @@ def test_market_abort_keeps_owned_collection_unqueried():
 def test_owned_house_change_is_incomplete_and_override_finalizes_before_apply():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([])
     client.set_owned([Auction(2589, "Linen", 1, 100)], complete=True)
     client.set_owned_behavior(delay=5)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
-    client.run_timers()
+    advance_to_owned_query(client)
     client.slash("set faction alliance")
     raw = next(iter(savedvars.loads(client.saved_variables())["CrowleyDB"]["scans"].values()))
     owned = validate_v2_envelope(envelope(raw))["decoded"]["owned"]
@@ -322,13 +786,14 @@ def test_owned_house_change_is_incomplete_and_override_finalizes_before_apply():
 def test_owned_result_rechecks_captured_house_before_accepting_rows():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([])
     client.set_owned([Auction(2589, "Linen", 1, 100)], complete=True)
     client.set_owned_behavior(delay=5)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
-    client.run_timers()
+    advance_to_owned_query(client)
     client.set_house(faction="Alliance")
     client.advance(5)
     client.run_timers()
@@ -341,7 +806,7 @@ def test_owned_result_rechecks_captured_house_before_accepting_rows():
 def test_hidden_owner_metadata_is_unknown_not_affirmative_grouping():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100, hiddenOwners=True)])
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
@@ -355,7 +820,7 @@ def test_hidden_owner_metadata_is_unknown_not_affirmative_grouping():
 def test_shared_boundary_level_keeps_every_row_at_cutoff():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     auctions = [Auction(2589, "Linen", 1, price, isCommodity=True, auctionID=price) for price in range(1, 20)]
     auctions.extend(
         [
@@ -378,21 +843,23 @@ def test_shared_boundary_level_keeps_every_row_at_cutoff():
 def test_external_same_key_search_is_marked_incomplete():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_event_behavior(delay=5)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     client.external_search(2589)
     client.advance(5)
     client.run_timers()
+    finish_canonical(client)
     assert decoded_payload(client)["observations"]["2589"]["reasonCode"] == "identity_mismatch"
 
 
 def test_cumulative_page_individual_to_grouped_identity_is_incomplete():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.state.pageSize = 1
     client.set_auctions(
         [
@@ -401,6 +868,7 @@ def test_cumulative_page_individual_to_grouped_identity_is_incomplete():
         ]
     )
     client.set_event_behavior(delay=5)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     client.advance(5)
@@ -408,6 +876,7 @@ def test_cumulative_page_individual_to_grouped_identity_is_incomplete():
     client.state.auctions[1].containsOwnerItem = True
     client.advance(5)
     client.run_timers()
+    finish_canonical(client)
     observation = decoded_payload(client)["observations"]["2589"]
     assert observation["coverage"] == "incomplete"
     assert observation["reasonCode"] == "identity_mismatch"
@@ -416,7 +885,7 @@ def test_cumulative_page_individual_to_grouped_identity_is_incomplete():
 def test_cumulative_page_grouped_to_individual_identity_is_incomplete():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.state.pageSize = 1
     client.set_auctions(
         [
@@ -425,6 +894,7 @@ def test_cumulative_page_grouped_to_individual_identity_is_incomplete():
         ]
     )
     client.set_event_behavior(delay=5)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     client.advance(5)
@@ -432,6 +902,7 @@ def test_cumulative_page_grouped_to_individual_identity_is_incomplete():
     client.state.auctions[1].containsOwnerItem = False
     client.advance(5)
     client.run_timers()
+    finish_canonical(client)
     observation = decoded_payload(client)["observations"]["2589"]
     assert observation["coverage"] == "incomplete"
     assert observation["reasonCode"] == "identity_mismatch"
@@ -440,7 +911,7 @@ def test_cumulative_page_grouped_to_individual_identity_is_incomplete():
 def test_cumulative_page_individual_to_hidden_owner_identity_is_incomplete():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.state.pageSize = 1
     client.set_auctions(
         [
@@ -449,6 +920,7 @@ def test_cumulative_page_individual_to_hidden_owner_identity_is_incomplete():
         ]
     )
     client.set_event_behavior(delay=5)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     client.advance(5)
@@ -458,6 +930,7 @@ def test_cumulative_page_individual_to_hidden_owner_identity_is_incomplete():
     client.state.auctions[1].totalOwners = 0
     client.advance(5)
     client.run_timers()
+    finish_canonical(client)
     observation = decoded_payload(client)["observations"]["2589"]
     assert observation["coverage"] == "incomplete"
     assert observation["reasonCode"] == "identity_mismatch"
@@ -466,34 +939,38 @@ def test_cumulative_page_individual_to_hidden_owner_identity_is_incomplete():
 def test_no_payload_received_event_cannot_complete_search():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_event_behavior(kind="RECEIVED")
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     client.run_timers()
     assert not list(client.lua.globals().CrowleyDB.scans.items())
     client.advance(30)
     client.run_timers()
+    finish_canonical(client)
     assert decoded_payload(client)["observations"]["2589"]["reasonCode"] == "query_timeout"
 
 
 def test_stale_unrelated_result_event_does_not_complete_active_query():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_event_behavior(stale=True)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     client.run_timers()
+    finish_canonical(client)
     assert decoded_payload(client)["observations"]["2589"]["coverage"] == "full"
 
 
 def test_logout_preserves_partial_and_marks_tail_reason():
     client = WowClient()
     client.login()
-    client.set_plan([2589, 2592])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_event_behavior(delay=5)
     client.fire("AUCTION_HOUSE_SHOW")
@@ -504,6 +981,9 @@ def test_logout_preserves_partial_and_marks_tail_reason():
     assert observations["2589"]["reasonCode"] == "logout"
     assert observations["2592"]["reasonCode"] == "logout"
     assert observations["2592"]["coverage"] == "unqueried"
+    client.advance(900)
+    client.run_timers()
+    assert client.publish_agent()["scanner"]["phase"] == "ready"
 
 
 def test_start_cadence_and_no_overlap():
@@ -511,11 +991,14 @@ def test_start_cadence_and_no_overlap():
     first = run_sweep(client)
     client.slash("scan")
     assert "due in" in client.chat[-1]
-    client.advance(899)
+    client.state.fastCanonical = False
+    remaining = client.ns.Scanner.CooldownRemaining()
+    client.advance(max(0, remaining - 1))
     client.run_timers()
     assert len(list(client.lua.globals().CrowleyDB.scans.items())) == 1
     client.advance(1)
     client.fire("AUCTION_HOUSE_SHOW")
+    client.state.fastCanonical = True
     client.run_timers()
     assert len(list(client.lua.globals().CrowleyDB.scans.items())) == 2
     starts = sorted(scan["startedAt"] for _, scan in client.lua.globals().CrowleyDB.scans.items())
@@ -525,7 +1008,7 @@ def test_start_cadence_and_no_overlap():
 def test_ah_close_finalizes_partial_without_replaying_callback():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen Cloth", 2, 200)])
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
@@ -546,11 +1029,304 @@ def test_owned_and_query_api_are_reported_by_probe():
     assert "QueryOwnedAuctions" in names
 
 
+def test_probe_records_actual_movement_api_presence_and_binding_actions():
+    client = WowClient()
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+    assert probe["motion"] == {
+        "apiPresence": {
+            "UnitPosition": True,
+            "GetPlayerFacing": True,
+            "GetUnitSpeed": True,
+            "UnitAffectingCombat": True,
+            "UnitIsDeadOrGhost": True,
+            "GetBindingKey": True,
+        },
+        "bindingActions": [
+            "MOVEFORWARD",
+            "MOVEBACKWARD",
+            "STRAFELEFT",
+            "STRAFERIGHT",
+            "TURNLEFT",
+        ],
+    }
+
+
+def test_probe_records_native_region_realm_and_optional_namespace_surfaces():
+    client = WowClient(
+        realm="Normal",
+        current_region=1,
+        current_region_name="",
+        realm_info=True,
+        game_rules=True,
+    )
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["region"] == 1
+    assert probe["regionName"] == ""
+    assert probe["realmName"] == "Normal"
+    assert probe["context"]["realm"] == "Normal"
+    assert "GetRealmInfo" in probe["namespaces"]["C_RealmInfo"]
+    assert "GetActiveGameMode" in probe["namespaces"]["C_GameRules"]
+
+
+def test_probe_keeps_native_diagnostics_when_house_detection_raises():
+    client = WowClient(realm="Normal", current_region=1, faction=None)
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["region"] == 1
+    assert probe["regionName"] == "US"
+    assert probe["realmName"] == "Normal"
+    assert probe["context"] is False
+    assert "native player faction" in probe["contextError"]
+    assert probe["house"] is False
+    assert "attributionError" in probe
+    assert "unable to detect native faction" in probe["attributionError"]
+
+
+def test_agent_samples_actual_motion_and_changed_values_are_fresh():
+    client = WowClient()
+    client.set_canonical_plan()
+    client.login()
+    first = client.publish_agent()
+    client.set_motion(position=(101.25, 202.5, 31.75, 2), facing=2.5, speed=7.5, combat=True)
+    second = client.publish_agent()
+    assert first["schema"] == second["schema"] == 3
+    assert first["motion"]["native"]["ctm"] == {
+        "accessor": "C_CVar.GetCVarBool",
+        "cvar": "autointeract",
+        "state": "disabled",
+        "reason": "",
+    }
+    assert first["motion"]["native"]["ground"]["state"] == "grounded"
+    assert first["motion"]["native"]["speedTuple"] == {
+        "current": 0,
+        "run": 7,
+        "flight": 7,
+        "swim": 4.7222218513489,
+        "unitStatus": "unverified",
+    }
+    assert first["motion"]["position"] == {"x": 100.25, "y": 200.5, "z": 30.75, "instance": 1}
+    assert second["motion"]["position"] == {"x": 101.25, "y": 202.5, "z": 31.75, "instance": 2}
+    assert second["motion"]["facing"] == 2.5
+    assert second["motion"]["speed"] == 7.5
+    assert second["motion"]["combat"] is True
+    assert second["sequence"] > first["sequence"]
+    decoded = decode_frame(client.agent_frame)
+    assert decoded.snapshot["motion"] == second["motion"]
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    [
+        lambda client: setattr(client.state, "positionX", None),
+        lambda client: setattr(client.state, "facing", float("nan")),
+        lambda client: setattr(client.state, "combat", None),
+        lambda client: client.state.bindings.__setitem__("MOVEFORWARD", "not a binding"),
+    ],
+    ids=["missing-position", "nonfinite-facing", "missing-combat", "malformed-binding"],
+)
+def test_agent_rejects_missing_or_malformed_native_motion(mutation):
+    client = WowClient()
+    client.set_canonical_plan()
+    client.login()
+    mutation(client)
+    with pytest.raises(Exception, match="movement telemetry"):
+        client.ns.Agent.Publish()
+
+
+def test_probe_records_absent_optional_namespaces_as_false():
+    client = WowClient(game_rules=False)
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["namespaces"]["C_RealmInfo"] is False
+    assert probe["namespaces"]["C_GameRules"] is False
+
+
+def test_faction_override_bypasses_unsupported_native_faction_and_full_sweep_is_strict():
+    client = WowClient(current_region=1, realm="Normal", faction="Unrecognized")
+    raw = run_sweep(client, settings={"faction": "alliance"})
+    parsed = validate_v2_envelope(envelope(raw))
+
+    assert raw["house"]["key"] == "us-normal-alliance"
+    assert raw["house"]["source"] == "override: faction"
+    assert raw["context"]["playerFaction"] == "Unrecognized"
+    assert parsed["decoded"]["observations"]["2589"]["coverage"] == "full"
+
+
+def test_probe_captures_snapshot_error_with_nil_native_faction_and_override():
+    client = WowClient(current_region=1, realm="Normal", faction=None)
+    client.login()
+    client.lua.globals().CrowleyDB.settings.faction = "alliance"
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["context"] is False
+    assert "native player faction" in probe["contextError"]
+    assert probe["house"]["key"] == "us-normal-alliance"
+    assert probe["house"]["source"] == "override: faction"
+    assert "interface 16001 build 70450" in client.chat[-1]
+
+
+def test_nil_native_faction_override_refuses_scan_before_queries_or_saved_scan():
+    client = WowClient(current_region=1, realm="Normal", faction=None)
+    client.login()
+    client.lua.globals().CrowleyDB.settings.faction = "alliance"
+    client.set_canonical_plan()
+    client.set_auctions([Auction(2589, "Linen Cloth", 1, 100)])
+    client.fire("AUCTION_HOUSE_SHOW")
+    with pytest.raises(Exception, match="native player faction"):
+        client.slash("scan")
+
+    assert client.state.queryCalls == 0
+    assert not list(client.lua.globals().CrowleyDB.scans.items())
+
+
+def test_probe_keeps_native_facts_when_overrides_supply_unmapped_house_fields():
+    client = WowClient(realm="Classic Beta PvE 2", current_region_name="")
+    client.login()
+    client.lua.globals().CrowleyDB.settings.region = "us"
+    client.lua.globals().CrowleyDB.settings.ruleset = "normal"
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["regionName"] == ""
+    assert probe["context"]["realm"] == "Classic Beta PvE 2"
+    assert probe["house"]["key"] == "us-normal-horde"
+    assert probe["house"]["source"] == "override: region,ruleset"
+
+
+def test_beta_native_facts_are_attributed_to_the_verified_beta_house():
+    client = WowClient(realm="Classic Beta PvE 2", current_region=110, current_region_name="")
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["region"] == 110
+    assert probe["regionName"] == ""
+    assert probe["realmName"] == "Classic Beta PvE 2"
+    assert probe["house"]["key"] == "beta-normal-horde"
+    assert probe["house"]["source"] == "auto"
+    assert "attributionError" not in probe
+
+
+def test_beta_auto_attribution_roundtrips_through_a_strict_sweep():
+    raw = run_sweep(WowClient(realm="Classic Beta PvE 2", current_region=110, current_region_name=""))
+
+    assert validate_v2_envelope(envelope(raw))["house"]["key"] == "beta-normal-horde"
+
+
+@pytest.mark.parametrize(
+    ("region", "region_name"),
+    [(1, "EU"), (2, "US"), (3, "KR"), (4, "CN"), (5, "TW")],
+)
+def test_native_region_id_is_authoritative_over_misleading_region_name(region, region_name):
+    client = WowClient(current_region=region, current_region_name=region_name, realm="Normal")
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+    expected = {1: "us", 2: "kr", 3: "eu", 4: "tw", 5: "cn"}[region]
+
+    assert probe["house"]["key"] == f"{expected}-normal-horde"
+
+
+@pytest.mark.parametrize(
+    ("realm", "ruleset"),
+    [("Normal", "normal"), ("PvP", "pvp"), ("RP", "rp"), ("Hardcore", "hardcore")],
+)
+def test_standard_realm_labels_map_exactly_to_rulesets(realm, ruleset):
+    client = WowClient(current_region=1, realm=realm)
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["house"]["key"] == f"us-{ruleset}-horde"
+
+
+def test_unknown_native_region_id_is_rejected_without_a_guess():
+    client = WowClient(current_region=999, current_region_name="US", realm="Normal")
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["house"] is False
+    assert "unknown native region id 999" in probe["attributionError"]
+
+
+def test_unverified_beta_realm_is_rejected():
+    client = WowClient(current_region=110, current_region_name="", realm="Classic Beta PvE 1")
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["house"] is False
+    assert "unknown beta realm" in probe["attributionError"]
+
+
+def test_region_override_bypasses_unknown_native_region_id():
+    client = WowClient(current_region=999, current_region_name="", realm="Normal")
+    client.login()
+    client.slash("set region us")
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["house"]["key"] == "us-normal-horde"
+    assert probe["house"]["source"] == "override: region"
+
+
+def test_region_override_unknown_id_roundtrips_through_a_strict_sweep():
+    raw = run_sweep(
+        WowClient(current_region=999, current_region_name="", realm="Normal"),
+        settings={"region": "us"},
+    )
+
+    assert validate_v2_envelope(envelope(raw))["house"]["key"] == "us-normal-horde"
+
+
+def test_ruleset_override_does_not_read_an_unrecognized_native_realm():
+    client = WowClient(current_region=1, current_region_name="US", realm="Unverified realm")
+    client.login()
+    client.slash("set ruleset normal")
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["context"]["realm"] == "Unverified realm"
+    assert probe["house"]["key"] == "us-normal-horde"
+    assert probe["house"]["source"] == "override: ruleset"
+
+
+def test_ruleset_override_unverified_beta_realm_roundtrips_through_a_strict_sweep():
+    raw = run_sweep(
+        WowClient(current_region=110, current_region_name="", realm="Classic Beta PvE 1"),
+        settings={"ruleset": "normal"},
+    )
+
+    assert validate_v2_envelope(envelope(raw))["house"]["key"] == "beta-normal-horde"
+
+
+def test_invalid_persisted_house_setting_is_rejected_loudly():
+    client = WowClient()
+    client.login()
+    client.lua.globals().CrowleyDB.settings.region = "mars"
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["house"] is False
+    assert "invalid saved override region" in probe["attributionError"]
+
+
 def test_sweep_timeout_keeps_active_item_partial_and_unqueried_tail():
     client = WowClient()
     client.login()
-    ids = list(range(2589, 2611))
-    client.set_plan(ids)
+    ids = load_catalog().scan_plan()["itemIDs"]
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_metadata_pending(ids)
     client.state.metadataDelay = 601
@@ -575,9 +1351,10 @@ def test_sweep_timeout_keeps_active_item_partial_and_unqueried_tail():
 def test_invalid_house_setting_keeps_delayed_sweep_and_settings_unchanged():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([Auction(2589, "Linen", 1, 100)])
     client.set_event_behavior(delay=5)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
     assert client.ns.Scanner.InProgress()
@@ -587,6 +1364,7 @@ def test_invalid_house_setting_keeps_delayed_sweep_and_settings_unchanged():
     assert client.lua.globals().CrowleyDB.settings.faction is None
     client.advance(5)
     client.run_timers()
+    finish_canonical(client)
     observation = decoded_payload(client)["observations"]["2589"]
     assert observation["coverage"] == "full"
     assert observation["reasonCode"] == "ok"
@@ -595,23 +1373,26 @@ def test_invalid_house_setting_keeps_delayed_sweep_and_settings_unchanged():
 def test_owned_timeout_starts_before_throttled_send_and_finalizes():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([])
+    client.set_throttled()
+    client.focus_item(118)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
-    client.set_throttled()
     client.run_timers()
     assert not list(client.lua.globals().CrowleyDB.scans.items())
     client.advance(30)
     client.run_timers()
-    assert decoded_payload(client)["owned"]["reasonCode"] == "query_timeout"
+    assert client.ns.Scanner.InProgress()
+    client.fire("PLAYER_LOGOUT")
+    client.run_timers()
+    assert decoded_payload(client)["observations"]["118"]["reasonCode"] == "query_timeout"
 
 
 def test_rolling_message_window_never_exceeds_100_sends():
     client = WowClient()
     client.login()
-    ids = list(range(1000, 1428))
-    client.set_plan(ids)
+    client.set_canonical_plan()
     client.set_auctions([])
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
@@ -628,8 +1409,8 @@ def test_rolling_message_window_never_exceeds_100_sends():
 def test_capped_sweeps_rotate_after_last_attempted_item():
     client = WowClient()
     client.login()
-    ids = [2589, 2592, 2593]
-    client.set_plan(ids)
+    ids = [2589, 2592, 2770]
+    client.set_canonical_plan()
     client.set_auctions([Auction(itemID=item_id, name="Item", count=1, buyout=100) for item_id in ids])
     client.set_event_behavior(delay=601)
     client.fire("AUCTION_HOUSE_SHOW")
@@ -647,18 +1428,19 @@ def test_capped_sweeps_rotate_after_last_attempted_item():
     assert len(scans) == 2
     second = next(scan for scan in scans if scan["id"] != first_id)
     second_payload = json.loads(zlib.decompress(base64.b64decode(second["payload"]), -15))
-    assert second_payload["observations"]["2592"]["query"]["kind"] == "queried"
+    assert second_payload["observations"]["159"]["query"]["kind"] == "queried"
 
 
 def test_owned_partial_event_waits_for_full_completion():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     client.set_auctions([])
     client.set_owned([Auction(2589, "Linen", 1, 100, status="sold", auctionID=77)], complete=False)
+    client.focus_item(2589)
     client.fire("AUCTION_HOUSE_SHOW")
     client.slash("scan")
-    client.run_timers()
+    advance_to_owned_query(client)
     assert not list(client.lua.globals().CrowleyDB.scans.items())
     client.state.ownedFull = True
     client.fire("OWNED_AUCTIONS_UPDATED")
@@ -669,7 +1451,7 @@ def test_owned_partial_event_waits_for_full_completion():
 def test_six_pending_sweeps_pause_without_eviction_until_ack_reload():
     client = WowClient()
     client.login()
-    client.set_plan([2589])
+    client.set_canonical_plan()
     for index in range(6):
         client.set_auctions([Auction(2589, "Linen Cloth", 1, 100 + index)])
         client.fire("AUCTION_HOUSE_SHOW")
@@ -684,3 +1466,439 @@ def test_six_pending_sweeps_pause_without_eviction_until_ack_reload():
     client.lua.globals().CROWLEY_DATA.ackedScans = client._to_lua(ids)
     client.login()
     assert not list(client.lua.globals().CrowleyDB.scans.items())
+
+
+def test_agent_chat_readback_requires_all_real_editbox_methods_and_bounds_text():
+    client = WowClient()
+    client.login()
+    client.set_chat_edit(active=True, focused=True, text="/crowley status")
+    edit = client.state.chatEdit
+    original = edit.IsShown
+    edit.IsShown = None
+    try:
+        assert client.publish_agent()["chatEdit"] == {"active": False, "focused": False, "text": ""}
+    finally:
+        edit.IsShown = original
+    client.set_chat_edit(active=True, focused=True, text="x" * 129)
+    assert client.publish_agent()["chatEdit"] == {"active": False, "focused": False, "text": ""}
+
+
+def test_agent_chat_readback_uses_utf8_byte_boundary_at_128_bytes():
+    client = WowClient()
+    client.login()
+    client.set_chat_edit_bytes(active=True, focused=True, text=(b"a" * 126) + "é".encode())
+    assert client.publish_agent()["chatEdit"]["active"] is True
+    client.set_chat_edit_bytes(active=True, focused=True, text=(b"a" * 127) + "é".encode())
+    assert client.publish_agent()["chatEdit"] == {"active": False, "focused": False, "text": ""}
+
+
+def test_reserved_pre_logout_fence_refuses_active_scan_and_wins_before_due_callback():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    armed, reason = client.ns.Scanner.PreLogoutFence()
+    assert armed is False and reason == "scan_active"
+    assert client.publish_agent()["scanner"]["scheduleFence"]["state"] == "refused"
+
+    idle = WowClient()
+    idle.login()
+    idle.set_canonical_plan()
+    idle.fire("AUCTION_HOUSE_SHOW")
+    armed, reason = idle.ns.Scanner.PreLogoutFence()
+    assert armed is True and reason is None
+    idle.run_timers()
+    assert not idle.ns.Scanner.InProgress()
+    idle_frame = idle.publish_agent()
+    assert idle_frame["scanner"]["scheduleFence"] == {
+        "state": "armed",
+        "reason": "",
+        "command": "/crowley session fence",
+    }
+    assert idle_frame["scanner"]["phase"] in {"ready", "scheduled"}
+    assert idle_frame["pending"]["blocked"] is False
+    assert idle_frame["pending"]["reason"] == ""
+    decoded = decode_frame(idle.agent_frame, plan_item_ids=load_catalog().scan_plan()["itemIDs"])
+    assert decoded.snapshot["scanner"]["scheduleFence"] == {
+        "state": "armed",
+        "reason": "",
+        "command": "/crowley session fence",
+    }
+
+
+def test_agent_hold_measure_resume_has_exact_update_window_and_no_gc_mutation():
+    client = WowClient()
+    client.set_lua_heap(values=[42])
+    client.login()
+    assert client.snapshot_agent()["render"]["luaHeap"] == {
+        "method": "collectgarbage_count",
+        "available": True,
+        "beforeKiB": 42,
+        "afterKiB": 42,
+        "netKiB": 0,
+    }
+    client.slash("agent hold")
+    held = client.snapshot_agent()["render"]
+    assert (held["nativePhase"], held["nativeOrdinal"]) == ("held", 0)
+    before = held["updateCount"]
+    client.slash("agent measure")
+    assert client.snapshot_agent()["render"]["nativeOrdinal"] == 1
+    for _ in range(98):
+        client.advance_with_timers(1)
+    assert client.snapshot_agent()["render"]["nativePhase"] == "updates"
+    assert client.snapshot_agent()["render"]["nativeOrdinal"] == 99
+    client.advance_with_timers(1)
+    final = client.snapshot_agent()["render"]
+    assert (final["nativePhase"], final["nativeOrdinal"]) == ("held", 100)
+    assert final["updateCount"] == before + 100
+    client.slash("agent resume")
+    resumed = client.snapshot_agent()["render"]
+    assert (resumed["nativePhase"], resumed["nativeOrdinal"]) == ("normal", 0)
+    assert client.gc_mutations == 0
+
+
+@pytest.mark.parametrize("available", [False, True])
+def test_agent_lua_heap_unavailable_or_constant_is_honest(available):
+    client = WowClient()
+    client.set_lua_heap(available=available, values=[7])
+    client.login()
+    heap = client.snapshot_agent()["render"]["luaHeap"]
+    if available:
+        assert heap == {
+            "method": "collectgarbage_count",
+            "available": True,
+            "beforeKiB": 7,
+            "afterKiB": 7,
+            "netKiB": 0,
+        }
+    else:
+        assert heap == {
+            "method": "collectgarbage_count",
+            "available": False,
+            "beforeKiB": 0,
+            "afterKiB": 0,
+            "netKiB": 0,
+        }
+    assert client.gc_mutations == 0
+
+
+@pytest.mark.parametrize(
+    "sample", [math.inf, -math.inf, math.nan], ids=["positive-inf", "negative-inf", "nan"]
+)
+def test_agent_lua_heap_rejects_nonfinite_samples(sample):
+    client = WowClient()
+    client.set_lua_heap(values=[sample])
+    client.login()
+    heap = client.publish_agent()["render"]["luaHeap"]
+    assert heap == {
+        "method": "collectgarbage_count",
+        "available": False,
+        "beforeKiB": 0,
+        "afterKiB": 0,
+        "netKiB": 0,
+    }
+    assert client.gc_mutations == 0
+
+
+def test_fence_schema_is_always_present_and_underscore_alias_is_not_reserved():
+    client = WowClient()
+    client.login()
+    inactive = client.snapshot_agent()["scanner"]["scheduleFence"]
+    assert inactive == {"state": "inactive", "reason": "", "command": "/crowley session fence"}
+    client.slash("__session_fence")
+    assert client.snapshot_agent()["scanner"]["scheduleFence"]["state"] == "inactive"
+    client.slash("session fence")
+    assert client.snapshot_agent()["scanner"]["scheduleFence"] == {
+        "state": "armed",
+        "reason": "",
+        "command": "/crowley session fence",
+    }
+
+
+def test_canonical_gate_accepts_shipped_plan_and_rejects_short_plan_before_start():
+    client = WowClient()
+    client.login()
+    client.set_plan([2589])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert client.state.queryCalls == 0
+    assert "plan_invalid" in client.chat[-1]
+    client.set_canonical_plan()
+    assert client.publish_agent()["plan"] == {
+        "hash": load_catalog().scan_plan()["planHash"],
+        "count": 428,
+        "cadenceSeconds": 900,
+        "sweepCapSeconds": 600,
+        "initialPriceLevels": 20,
+    }
+
+
+def test_canonical_gate_rejects_changed_same_length_body_with_forged_hash():
+    client = WowClient()
+    client.login()
+    source = load_catalog().scan_plan()
+    body = json.loads(source["planJSON"])
+    body["itemIDs"][0] = 119
+    body["pools"]["core"][0] = 119
+    forged = dict(source)
+    forged["itemIDs"] = list(body["itemIDs"])
+    forged["pools"] = body["pools"]
+    forged["planJSON"] = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    # Keep the shipped hash to model a forged canonical claim; the decoded
+    # body must still be checked against the source catalog identity.
+    client.lua.globals().CROWLEY_DATA.scanPlan = client._to_lua(forged)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert client.snapshot_agent()["pending"]["reason"] == "plan_invalid"
+    assert client.state.queryCalls == 0
+
+
+def test_canonical_gate_rejects_top_level_body_disagreement():
+    client = WowClient()
+    client.login()
+    source = load_catalog().scan_plan()
+    mismatch = dict(source)
+    mismatch["targetClientBuild"] = "1.60.1.1"
+    client.lua.globals().CROWLEY_DATA.scanPlan = client._to_lua(mismatch)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert client.snapshot_agent()["pending"]["reason"] == "plan_invalid"
+    assert client.state.queryCalls == 0
+
+
+def test_canonical_gate_rejects_previous_client_build_even_with_matching_body_hash():
+    client = WowClient()
+    client.login()
+    source = load_catalog().scan_plan()
+    body = json.loads(source["planJSON"])
+    body["targetClientBuild"] = "1.60.1.70374"
+    plan_json = json.dumps(body, sort_keys=True, separators=(",", ":"))
+    forged = dict(source)
+    forged["targetClientBuild"] = "1.60.1.70374"
+    forged["planJSON"] = plan_json
+    forged["planHash"] = hashlib.sha256(plan_json.encode()).hexdigest()
+    client.lua.globals().CROWLEY_DATA.scanPlan = client._to_lua(forged)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert client.snapshot_agent()["pending"]["reason"] == "plan_invalid"
+    assert client.state.queryCalls == 0
+
+
+@pytest.mark.parametrize(
+    ("version", "build", "interface"),
+    [
+        ("1.60.1", "70374", 16001),
+        ("1.60.1", "70425", 16001),
+        ("9.9.9", "70450", 16001),
+        ("1.60.1", "unknown", 16001),
+        ("1.60.1", "70450", 16000),
+    ],
+    ids=["old-build", "previous-client-build", "unknown-version", "unknown-build", "unknown-interface"],
+)
+def test_canonical_gate_rejects_runtime_identity_before_schedule_or_start(
+    version: str, build: str, interface: int
+):
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    source = load_catalog().scan_plan()
+    client.lua.globals().GetBuildInfo = client.lua.eval(
+        f'function() return "{version}", "{build}", "Oct 1 2026", {interface} end'
+    )
+
+    # The plan remains the exact canonical 70450 plan; only the runtime identity
+    # is invalid.  Schedule must reject it before creating a timer, and a direct
+    # start must reject it before creating a sweep or sending a query.
+    loaded = client.lua.globals().CROWLEY_DATA.scanPlan
+    assert loaded.planHash == source["planHash"]
+    assert loaded.planJSON == source["planJSON"]
+    client.fire("AUCTION_HOUSE_SHOW")
+    assert client.lua.globals()._nextTimerAt() is None
+
+    client.slash("scan")
+    assert "client_invalid" in client.chat[-1]
+    assert client.lua.globals()._nextTimerAt() is None
+    assert client.state.queryCalls == 0
+    assert client.ns.Scanner.InProgress() is False
+    status = client.snapshot_agent()
+    assert status["scanner"]["phase"] == "blocked"
+    assert status["pending"]["blocked"] is True
+    assert status["pending"]["reason"] == "plan_invalid"
+    published = client.publish_agent()
+    assert published["scanner"]["phase"] == "blocked"
+    assert published["pending"]["blocked"] is True
+    assert published["pending"]["reason"] == "plan_invalid"
+    decoded = decode_frame(client.agent_frame, plan_item_ids=source["itemIDs"])
+    assert decoded.snapshot["scanner"]["phase"] == "blocked"
+    assert decoded.snapshot["pending"]["blocked"] is True
+    assert decoded.snapshot["pending"]["reason"] == "plan_invalid"
+
+
+@pytest.mark.parametrize(
+    "rewrite",
+    [
+        lambda body: json.dumps(body, sort_keys=True, indent=2),
+        lambda body: json.dumps({key: body[key] for key in reversed(list(body))}, separators=(",", ":")),
+    ],
+    ids=["pretty-printed", "alternate-key-order"],
+)
+def test_canonical_gate_rejects_equivalent_noncanonical_plan_bytes(rewrite):
+    client = WowClient()
+    client.login()
+    source = load_catalog().scan_plan()
+    forged = dict(source)
+    body = json.loads(source["planJSON"])
+    forged["planJSON"] = rewrite(body)
+    # The body still decodes to the shipped catalog and retains its canonical
+    # hash claim; only the wire bytes differ from the shipped planJSON.
+    assert json.loads(forged["planJSON"]) == body
+    assert forged["planHash"] == source["planHash"]
+    client.lua.globals().CROWLEY_DATA.scanPlan = client._to_lua(forged)
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert client.snapshot_agent()["pending"]["reason"] == "plan_invalid"
+    assert client.state.queryCalls == 0
+
+
+@pytest.mark.parametrize(
+    ("ctm_mode", "expected_reason"),
+    [("true", ""), ("error", "call_error"), ("nil", "nil_result"), ("wrong_type", "wrong_type")],
+)
+def test_native_capability_ctm_failures_are_explicit_and_still_decode(
+    ctm_mode: str, expected_reason: str
+) -> None:
+    client = WowClient(ctm_mode=ctm_mode)
+    client.set_canonical_plan()
+    client.login()
+    ctm_calls_before = int(client.state.ctmCalls or 0)
+    speed_calls_before = int(client.state.speedCalls or 0)
+    ground_calls_before = {
+        field: int(client.state.groundCalls[field] or 0)
+        for field in ("flying", "falling", "swimming", "submerged", "mounted", "taxi")
+    }
+    value = client.publish_agent()
+    assert value["schema"] == 3
+    assert value["motion"]["native"]["ctm"]["state"] in {"enabled", "unknown"}
+    if ctm_mode == "true":
+        assert value["motion"]["native"]["ctm"] == {
+            "accessor": "C_CVar.GetCVarBool",
+            "cvar": "autointeract",
+            "state": "enabled",
+            "reason": "",
+        }
+    else:
+        assert value["motion"]["native"]["ctm"]["state"] == "unknown"
+        assert value["motion"]["native"]["ctm"]["reason"] == expected_reason
+    assert value["motion"]["native"]["ground"]["state"] == "grounded"
+    decoded = decode_frame(client.agent_frame)
+    assert (
+        decoded.snapshot["motion"]["speed"] == decoded.snapshot["motion"]["native"]["speedTuple"]["current"]
+    )
+    assert client.state.speedCalls - speed_calls_before == 1
+    assert int(client.state.ctmCalls or 0) - ctm_calls_before == 1
+    for field in ("flying", "falling", "swimming", "submerged", "mounted", "taxi"):
+        assert client.state.groundCalls[field] - ground_calls_before[field] == 1
+
+
+def test_native_capability_ctm_missing_is_explicit_and_still_decodes() -> None:
+    client = WowClient(ctm_missing=True)
+    client.set_canonical_plan()
+    client.login()
+    ctm_calls_before = int(client.state.ctmCalls or 0)
+    value = client.publish_agent()
+    assert value["motion"]["native"]["ctm"] == {
+        "accessor": "C_CVar.GetCVarBool",
+        "cvar": "autointeract",
+        "state": "unknown",
+        "reason": "missing",
+    }
+    assert int(client.state.ctmCalls or 0) - ctm_calls_before == 0
+    assert decode_frame(client.agent_frame).snapshot["motion"]["native"]["ctm"]["state"] == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("field", "mode", "expected_state"),
+    [
+        ("flying", "true", "not_grounded"),
+        ("falling", "error", "unknown"),
+        ("swimming", "nil", "unknown"),
+        ("submerged", "wrong_type", "unknown"),
+        ("mounted", "missing", "unknown"),
+        ("taxi", "true", "not_grounded"),
+    ],
+)
+def test_native_ground_predicates_preserve_explicit_state(field: str, mode: str, expected_state: str) -> None:
+    modes = {name: "false" for name in ("flying", "falling", "swimming", "submerged", "mounted", "taxi")}
+    modes[field] = mode
+    client = WowClient(ground_modes=modes)
+    client.set_canonical_plan()
+    client.login()
+    speed_calls_before = int(client.state.speedCalls or 0)
+    value = client.publish_agent()
+    ground = value["motion"]["native"]["ground"]
+    assert ground["state"] == expected_state
+    assert ground[field] == ("true" if mode == "true" else "unknown")
+    expected_reason = {
+        "true": "",
+        "error": "call_error",
+        "nil": "nil_result",
+        "wrong_type": "wrong_type",
+        "missing": "missing",
+    }[mode]
+    assert ground["reason"] == expected_reason
+    decode_frame(client.agent_frame)
+    assert client.state.speedCalls - speed_calls_before == 1
+
+
+@pytest.mark.parametrize(
+    ("field", "mode"),
+    [
+        (field, mode)
+        for field in ("flying", "falling", "swimming", "submerged", "mounted", "taxi")
+        for mode in ("true", "error", "nil", "wrong_type", "missing")
+    ],
+)
+def test_native_ground_matrix_has_exact_calls_arguments_and_first_failure_reason(
+    field: str, mode: str
+) -> None:
+    fields = ("flying", "falling", "swimming", "submerged", "mounted", "taxi")
+    modes = {name: "false" for name in fields}
+    modes[field] = mode
+    client = WowClient(ground_modes=modes)
+    client.set_canonical_plan()
+    client.login()
+    before_speed = int(client.state.speedCalls or 0)
+    before_calls = {name: int(client.state.groundCalls[name] or 0) for name in fields}
+    before_args = {name: int(client.state.groundArgCounts[name] or 0) for name in fields}
+
+    value = client.publish_agent()
+    ground = value["motion"]["native"]["ground"]
+    expected_reason = {
+        "true": "",
+        "error": "call_error",
+        "nil": "nil_result",
+        "wrong_type": "wrong_type",
+        "missing": "missing",
+    }[mode]
+    assert ground[field] == ("true" if mode == "true" else "unknown")
+    if mode == "true":
+        assert ground["state"] == "not_grounded"
+    else:
+        assert ground["state"] == "unknown"
+    assert ground["reason"] == expected_reason
+    assert int(client.state.speedCalls or 0) - before_speed == 1
+    for name in fields:
+        assert int(client.state.groundCalls[name] or 0) - before_calls[name] == (
+            0 if modes[name] == "missing" else 1
+        )
+        expected_args = 1 if name == "taxi" and modes[name] != "missing" else 0
+        assert int(client.state.groundArgCounts[name] or 0) - before_args[name] == expected_args
+
+    # The producer's call order is flying/falling/... but the wire reason is
+    # the fixed falling/flying/... priority from the reviewed truth table.
+    if field == "flying":
+        client.state.groundModes.falling = "error"
+        client.state.groundModes.flying = "nil"
+        both_failed = client.publish_agent()["motion"]["native"]["ground"]
+        assert both_failed["reason"] == "call_error"

@@ -19,6 +19,24 @@ pytestmark = pytest.mark.skipif(not DB_URL, reason="CROWLEY_TEST_DATABASE_URL no
 TOKEN = "test-token"
 
 
+def _encode_native_payload(value: dict) -> str:
+    """Encode an internal payload using WoW's empty keyed-table wire shape."""
+
+    def native(child):
+        if isinstance(child, dict):
+            return {
+                key: []
+                if key in {"bonusIDs", "names", "rows"} and isinstance(grandchild, dict) and not grandchild
+                else native(grandchild)
+                for key, grandchild in child.items()
+            }
+        if isinstance(child, list):
+            return [native(grandchild) for grandchild in child]
+        return child
+
+    return encode_json_payload(native(value))
+
+
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     with psycopg.connect(DB_URL, autocommit=True) as conn:
@@ -60,14 +78,14 @@ def scan(uid: str, faction: str, *, ruleset: str = "normal", price: int = 100, a
             "itemLevel": 0,
             "itemSuffix": 0,
             "battlePetSpeciesID": 0,
-            "bonusIDs": {},
+            "bonusIDs": [],
         },
         "link": {"kind": "unknown"},
         "quantity": 10,
         "price": {"kind": "unit", "copper": price},
         "unitPrice": {"numerator": price, "denominator": 1},
         "owners": {
-            "names": {},
+            "names": [],
             "totalNumberOfOwners": 0,
             "containsOwnerItem": False,
             "containsAccountItem": False,
@@ -97,7 +115,7 @@ def scan(uid: str, faction: str, *, ruleset: str = "normal", price: int = 100, a
             "query": {"kind": "unqueried"},
             "reasonCode": "not_started",
             "rowCount": 0,
-            "rows": {},
+            "rows": [],
         },
     }
     return {
@@ -126,7 +144,7 @@ def scan(uid: str, faction: str, *, ruleset: str = "normal", price: int = 100, a
             "interface": 16001,
             "addonVersion": "0.2.0",
         },
-        "payload": encode_json_payload(payload),
+        "payload": _encode_native_payload(payload),
     }
 
 
@@ -230,7 +248,7 @@ def test_variant_history_projects_exact_canonical_rows(client):
     row = decoded["observations"]["2589"]["rows"]["row:1"]
     row["rawItemKey"] = dict(row["rawItemKey"], itemLevel=17)
     row["itemKey"] = "2589:l17"
-    variant["payload"] = encode_json_payload(decoded)
+    variant["payload"] = _encode_native_payload(decoded)
     assert client.post("/v1/scans", json=base).status_code == 200
     assert client.post("/v1/scans", json=variant).status_code == 200
 
@@ -259,7 +277,7 @@ def test_variant_projection_sorts_numeric_jsonb_row_ordinals(client):
     observation["rows"] = rows
     observation["rowCount"] = len(rows)
     raw["numRows"] = len(rows)
-    raw["payload"] = encode_json_payload(decoded)
+    raw["payload"] = _encode_native_payload(decoded)
     response = client.post("/v1/scans", json=raw)
     assert response.status_code == 200, response.text
 
@@ -292,7 +310,7 @@ def test_owned_sold_uses_owned_window_and_excludes_inconsistent_evidence(client)
                         "itemLevel": 0,
                         "itemSuffix": 0,
                         "battlePetSpeciesID": 0,
-                        "bonusIDs": {},
+                        "bonusIDs": [],
                     },
                     "itemLink": link,
                     "quantity": quantity,
@@ -301,7 +319,7 @@ def test_owned_sold_uses_owned_window_and_excludes_inconsistent_evidence(client)
                 }
             },
         }
-        raw["payload"] = encode_json_payload(decoded)
+        raw["payload"] = _encode_native_payload(decoded)
         return raw
 
     now = int(time.time())

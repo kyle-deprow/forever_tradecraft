@@ -1,0 +1,157 @@
+--- gnome-no-flash-next-cost-plan.md (R4)
++++ gnome-no-flash-next-cost-plan.md (R5 docs)
+@@ -31,7 +31,7 @@
+ | --- | ---: | ---: | ---: |
+ | Private `gnome-screenshot -f` command | 0.865 s | 0.877 s | 0.977 s |
+ | Two identity resolutions inside capture | 0.307 s | 0.329 s | 0.374 s |
+-| Strict PNG completion wait | 0.046 s | 0.050 s | 0.064 s |
++| Strict PNG completion check (driver PIL `verify()`+`load()` after child exit) | 0.046 s | 0.050 s | 0.064 s |
+ | Full outer identity-to-strict-decode path | 1.809 s | 1.837 s | 2.026 s |
+ 
+ The full-path receipt includes a median 0.306 s of benchmark owner-observer
+@@ -43,8 +43,8 @@
+ A prior two-run timing receipt,
+ `~/.local/state/crowley/executor-evidence/runtime-relink/capture-cost-r1-20261017T030305455816Z-pid1006255/receipt.json`,
+ provides the only current internal decomposition. It measured, per run,
+-1.0208--1.0376 s for the screenshot child, 0.0481--0.0546 s for completion
+-of the driver's staged PNG, approximately 0.143--0.150 s per identity
++1.0208--1.0376 s for the screenshot child, 0.0481--0.0546 s for the driver's post-child PIL `verify()`+`load()`
++of the staged PNG, approximately 0.143--0.150 s per identity
+ resolution, 0.113--0.114 s for crop/decode, and 1.629--1.641 s from capture
+ admission through strict decode. It did not instrument GNOME Screenshot
+ internals and used no strace or profiler.
+@@ -131,6 +131,8 @@
+ therefore reports any unmeasured child tail separately rather than calling the
+ `run_return` marker process exit.
+ 
++The interval `app_release` to `run_return` (receipt label `shutdown`) is a mixed bucket: GTK shutdown, deferred recent-file flush, D-Bus name release and `g_settings_sync`. It is not assumed removable by keeping a process alive. `recent_entry_begin` to `recent_entry_end` covers default-app lookup, recent-file parse and in-memory addition only; the deferred write occurs in the mixed shutdown bucket.
++
+ A benchmark-only transparent wrapper may retain the child `CompletedProcess`
+ stderr returned by the existing exact-command harness. It must delegate
+ exactly once and add no D-Bus calls, retries, extra image reads, sleeps, or
+@@ -170,8 +172,9 @@
+   from the client's point of view);
+ - local read/decode of the Shell PNG;
+ - output file open and lossless PNG encoding/write;
+-- recent-manager callback and application release;
+-- driver PNG completion, identity, crop, and decode costs.
++- recent-manager lookup/parse/in-memory addition, followed by the mixed GTK
++  shutdown/recent-file flush/D-Bus/settings-sync bucket;
++- driver post-child PIL PNG validation/decode, identity, crop, and protocol decode costs.
+ 
+ This is sufficient to decide where a later reviewed optimization can help. It
+ cannot attribute work *inside* GNOME Shell; if the synchronous call dominates,
+@@ -219,7 +222,10 @@
+ persistent genuine private process could amortize application/GTK/config
+ startup, but it cannot remove the Shell call, Shell PNG creation, local read,
+ output encode, identity, or strict decoder work. It is therefore conditional on
+-the instrumentation proving startup/teardown is material.
++the instrumentation proving removable startup (`pre_main` through dispatch) is
++material. The `app_release` to `run_return` interval is the mixed GTK shutdown,
++deferred recent-file flush, D-Bus name release and `g_settings_sync` bucket;
++it is not assumed removable.
+ 
+ It also changes the current security and cancellation contract. Production
+ remains bound to the host-stock `/usr/bin/gnome-screenshot`; it does not bind to
+@@ -283,7 +289,9 @@
+ - Fraction of the 0.877 s child command spent in GTK/GApplication/config setup.
+ - Fraction spent waiting for GNOME Shell versus Shell-side PNG generation/write.
+ - Cost of reading the Shell PNG and encoding the requested output PNG.
+-- Cost of recent-manager update and process/application teardown.
++- Cost of recent-manager lookup/parse/in-memory addition and the mixed shutdown
++  bucket (including deferred recent-file flush, D-Bus name release and settings sync),
++  without attributing that bucket to removable startup.
+ - Whether any persistent owner can satisfy the current per-request process,
+   cancellation, serialization, and late-file safety contract without changing
+   capture semantics.
+--- gnome-no-flash-next-cost-build-report.md (R4)
++++ gnome-no-flash-next-cost-build-report.md (R5 docs)
+@@ -71,12 +71,18 @@
+ - `run_return` is the `g_application_run` return marker. Deferred
+   `g_autoptr` cleanup after it is reported as a separate tail. Recent markers
+   cover app lookup/parse/in-memory add only; `app_release` to `run_return`
+-  includes shutdown work and is not presented as removable startup cost.
++  is a mixed bucket: GTK shutdown, deferred recent-file flush, D-Bus name release
++  and `g_settings_sync`. It is not assumed removable by keeping a process alive.
++  The deferred write occurs there, outside the recent-entry markers.
+ - The manifest uses receipt schema 3 and kind
+   `gnome-no-flash-next-cost-diagnostic`; any future live receipt directory must
+   use `gnome-no-flash-next-cost-benchmark-*`. Process-local PATH and token
+   injection are recorded while inherited XDG/GSettings variables remain
+   unchanged.
++
++The receipt field `png_completion` records the driver's post-child PIL
++`verify()` plus `load()` validation/decode of the complete PNG; its duration is
++not time spent waiting for the child to finish writing.
+ 
+ ## Offline verification
+ 
+--- gnome-no-flash-next-cost-manifest.json (R4)
++++ gnome-no-flash-next-cost-manifest.json (R5 docs)
+@@ -5,11 +5,11 @@
+       "sha256": "a746f0bd3f91e8e91c8be365a4ad6652d78bda16246d746b8e64ed6838869336"
+     },
+     "r4_report": {
+-      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report.md",
++      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report-r4-preserved.md",
+       "sha256": "35c950ce59edf88c1c4471684d38e4d34173a553c362277ea98c40bc6e3e239e"
+     },
+     "r4_plan": {
+-      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan.md",
++      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan-r4-preserved.md",
+       "sha256": "bd2fb58bf4c3190f6d174fd0bc023a3816ec27d68063c55deba99ec7a0f1374d"
+     },
+     "r2_plan_preserved": {
+@@ -35,6 +35,14 @@
+     "r4_candidate_preintegration": {
+       "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r4-candidate-preintegration.py",
+       "sha256": "913fa3960cc9275ff6920a6a898a8557a70e1b07a5a83780f89da7a0dd6ef463"
++    },
++    "r5_documented_plan": {
++      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan.md",
++      "sha256": "52ccbb186736e872a502c78a9ee5dfe068ac56f213a9aef1362ef8e207cc6920"
++    },
++    "r5_documented_report": {
++      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report.md",
++      "sha256": "273d8616ba8da06b2c10628e027d52b4b4dc87dcf89662c2be6c0e90f4763c59"
+     }
+   },
+   "binary": {
+@@ -81,10 +89,6 @@
+     "max_predeclared_ordinals": 2,
+     "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+     "production_model_or_stderr_changed": false,
+-    "raw_stderr_failure_available": false,
+-    "raw_stderr_retained_per_attempt": false,
+-    "raw_stderr_success_available": true,
+-    "raw_stdout_stderr_meaning": "driver-decoded text streams from CompletedProcess, not raw bytes",
+     "receipt_kind": "gnome-no-flash-next-cost-diagnostic",
+     "receipt_schema": 3,
+     "sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6",
+@@ -96,7 +100,13 @@
+       "sampled_empty_pair_total_s",
+       "sampled_empty_pair_max_s"
+     ],
+-    "interval_timing_scope": "three explicitly identified empty adjacent marker pairs only; not a bound for all marker instrumentation"
++    "interval_timing_scope": "three explicitly identified empty adjacent marker pairs only; not a bound for all marker instrumentation",
++    "stderr_retention": {
++      "meaning": "driver-decoded text, not raw bytes",
++      "successful_completed_process": true,
++      "backend_exception": false,
++      "every_attempt": "not guaranteed; unavailable on backend exception; no empty stream is fabricated"
++    }
+   },
+   "production": {
+     "benchmark_binding": false,
+@@ -178,5 +188,10 @@
+       "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+     }
+   },
+-  "integration_status": "R4_CANONICAL_INTEGRATED_PENDING_REVIEW"
++  "integration_status": "R4_CANONICAL_INTEGRATED_PENDING_REVIEW",
++  "timing_interpretation": {
++    "shutdown": "The interval `app_release` to `run_return` (receipt label `shutdown`) is a mixed bucket: GTK shutdown, deferred recent-file flush, D-Bus name release and `g_settings_sync`. It is not assumed removable by keeping a process alive. `recent_entry_begin` to `recent_entry_end` covers default-app lookup, recent-file parse and in-memory addition only; the deferred write occurs in the mixed shutdown bucket.",
++    "png_completion": "Post-child PIL verify()+load() validation/decode, not a child-file-write wait.",
++    "marker_empty_pair_samples": "Only three named adjacent pairs; no bound for all instrumentation and no performance acceptance from subtracting them."
++  }
+ }

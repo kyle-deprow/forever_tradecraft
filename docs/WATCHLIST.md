@@ -12,6 +12,16 @@ travels unchanged through every sweep, so delayed uploads remain valid after a l
 revision. `initial_price_levels = 20` is the retained unit-price depth; a query that proves a
 higher witness is explicitly `bounded`, never a whole-market statistic.
 
+## Revision 2 adoption note (2026-10-16)
+
+Revision 2 pins client build **1.60.1.70450** while preserving the exact 544-item catalog,
+428 active IDs, 352 core IDs, 76 discovery IDs, retained depth 20, cadence 900 seconds and
+format 2. The reviewed catalog hash is
+`90918db5cc912e889553b5ddd422b829f3c6cb3773ab6da56a2e79a5a8db04f3`; its plan hash is
+`f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4`. This is the reviewed
+release identity for parent-coordinated publication; it does not claim live scanner qualification.
+The original revision 1 / 70425 release artifacts and the initial 70374 evidence remain preserved.
+
 ## Initial coverage
 
 Revision 1 contains 544 distinct item IDs: 428 active, 74 under research and 42 excluded.

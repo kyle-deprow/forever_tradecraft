@@ -1,0 +1,670 @@
+--- baseline/.archive/executor-review/owned-gesture-proof.py
++++ transition/.archive/executor-review/owned-gesture-proof.py
+@@ -1201,6 +1201,8 @@
+     cursor = 0
+     phase_state = getattr(context, "phase_state", {})
+     prior_endpoint = phase_state.get("phaseOrigin") if isinstance(phase_state, dict) else None
++    if profile is not None and prior_endpoint is None:
++        raise ProofError("canonical XTEST motion proof has no measured phase origin")
+     for event in motions:
+         endpoint = _motion_endpoint(context, event)
+         if cursor >= len(expected_points) or not _same_point(endpoint, expected_points[cursor]):
+--- baseline/.archive/executor-review/test_owned_gesture_proof.py
++++ transition/.archive/executor-review/test_owned_gesture_proof.py
+@@ -60,7 +60,11 @@
+         pointer_source=4,
+         pointer_master=2,
+         target=SimpleNamespace(allowed_event_target_xids={0x600119}),
+-        phase_state={"xtestProfile": SimpleNamespace(root_xid=0x374)},
++        phase_state={
++            "xtestProfile": SimpleNamespace(root_xid=0x374),
++            "phaseOrigin": (10, 20),
++            "lastAcceptedEndpoint": (10, 20),
++        },
+     )
+ 
+     def raw(timestamp: int) -> XI2Event:
+@@ -212,6 +216,62 @@
+         helper._ensure_pointer_seed(context)
+ 
+ 
++@pytest.mark.parametrize(
++    ("position", "message"),
++    [((361, 120, 0x600119), "endpoint query differs"), ((360, 120, 0x700101), "outside")],
++)
++def test_button_phases_refuse_wrong_queried_endpoint_or_window(
++    position: tuple[int, int, int], message: str
++) -> None:
++    helper = _helper_module()
++    context = SimpleNamespace(
++        target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
++        backend=SimpleNamespace(pointer_position=lambda: position),
++    )
++    with pytest.raises(helper.ProofError, match=message):
++        helper._require_owned_pointer_endpoint(context, (360, 120), "positive motion")
++
++
++@pytest.mark.parametrize("flow", ["positive", "mid-hold"])
++def test_button_flows_refuse_wrong_post_motion_ownership_before_button_dispatch(
++    monkeypatch: pytest.MonkeyPatch, flow: str
++) -> None:
++    helper = _helper_module()
++    pointer_reads = iter(((10, 10, 0x600119), (19, 20, 0x700101)))
++    button_dispatches: list[object] = []
++    context = SimpleNamespace(
++        target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
++        backend=SimpleNamespace(pointer_position=lambda: next(pointer_reads), active_process_groups=set()),
++        ticket=SimpleNamespace(epoch=1),
++        events=[],
++        stage_marks=[],
++        callback_lock=threading.RLock(),
++        phase_state={"rawMotionPairing": RawMotionPairing()},
++        driver=SimpleNamespace(guardian=SimpleNamespace(held=False)),
++    )
++    trajectory = SimpleNamespace(endpoint=SimpleNamespace(x=20, y=20))
++    modules = {
++        "executor": SimpleNamespace(),
++        "driver": SimpleNamespace(build_pointer_motion_chain=lambda *_args: ["xdotool", "mousemove"]),
++    }
++    monkeypatch.setattr(helper, "_trajectory", lambda *_args, **_kwargs: trajectory)
++    monkeypatch.setattr(helper, "_chain_motion_points", lambda _chain: [(20, 20)])
++    monkeypatch.setattr(helper, "_wait_until", lambda *_args, **_kwargs: None)
++    monkeypatch.setattr(helper, "_verify_controlled_motion_phase", lambda *_args, **_kwargs: {})
++
++    def run_chain(*_args: object, **kwargs: object) -> tuple[int, dict[str, object]]:
++        button_dispatches.append(kwargs.get("input_schema"))
++        return 8123, {"returncode": 0}
++
++    monkeypatch.setattr(helper, "_run_chain", run_chain)
++    with pytest.raises(helper.ProofError, match="outside|endpoint query"):
++        if flow == "positive":
++            helper._positive(context, modules)
++        else:
++            helper._cancel_midbuttonhold(context, modules)
++    assert button_dispatches == ["pointer-motion"]
++
++
+ def test_seed_endpoint_is_distinct_and_bounded() -> None:
+     helper = _helper_module()
+     geometry = (700, 400, 480, 240)
+@@ -626,10 +686,11 @@
+         {
+             "phase": "synthetic-motion",
+             "motionAdmitted": True,
+-            "phaseOrigin": (1, 2),
+-            "lastAcceptedEndpoint": (1, 2),
++            "motionOrigin": (1, 2),
+         }
+     )
++    helper._begin_motion_phase(context, 0)
++    helper._publish_motion_admission(context, 70203, "test")
+     raw_motion = XI2Event(
+         17,
+         EventClass.RAW_MOTION,
+@@ -667,11 +728,25 @@
+         )["rawMotionCount"]
+         == 1
+     )
++    missing_origin = SimpleNamespace(
++        pointer_source=4,
++        pointer_master=2,
++        target=context.target,
++        phase_state={"xtestProfile": context.phase_state["xtestProfile"]},
++    )
++    with pytest.raises(helper.ProofError, match="phase origin"):
++        helper._validate_primary_motion_records(
++            missing_origin, [raw_motion, primary_motion], [(10, 20)], require_endpoint=False
++        )
++    context.phase_state["rawMotionPairing"] = RawMotionPairing()
++    callback(primary_motion)
++    assert any("without its preceding raw motion" in reason for reason in context.violations)
+     callback(None)
+ 
+     assert context.phase_state["observerDiagnostic"] == {"text": raw_text, "reason": reason}
+     assert context.observer_errors == [f"XI2 observer parse failure: {reason}"]
+-    assert revoked == [f"XI2 observer parse failure: {reason}"]
++    assert revoked[-1] == f"XI2 observer parse failure: {reason}"
++    assert any("without its preceding raw motion" in entry for entry in revoked)
+     context.target_owner.close()
+     driver.close()
+ 
+--- baseline/src/crowley/session/calibration.py
++++ transition/src/crowley/session/calibration.py
+@@ -483,6 +483,8 @@
+             raise CalibrationError("input evidence XTEST motion query is malformed")
+         query_origin = tuple(self.synthetic_motion_query[:2])
+         query_endpoint = tuple(self.synthetic_motion_query[3:5])
++        if query_origin == query_endpoint:
++            raise CalibrationError("input evidence XTEST motion must prove nonzero displacement")
+         if tuple(self.synthetic_motion_query[5:7]) != query_endpoint:
+             raise CalibrationError("input evidence XTEST post-query does not equal its requested endpoint")
+         motion_facts = {
+@@ -596,6 +598,8 @@
+             ) not in motion_facts or (transition[1], transition[4], transition[3], 0) not in raw_motion_facts:
+                 raise CalibrationError("input evidence XTEST transition is absent from the event proof")
+             endpoint = transition[10]
++            if tuple(transition[8]) == tuple(endpoint):
++                raise CalibrationError("input evidence XTEST transition must prove nonzero displacement")
+             if any(isinstance(value, bool) or not isinstance(value, int) for value in endpoint):
+                 raise CalibrationError("input evidence XTEST transition endpoint is malformed")
+             valuators = transition[12]
+@@ -614,6 +618,24 @@
+                 or tuple(int(row[1]) for row in valuators) != endpoint
+             ):
+                 raise CalibrationError("input evidence XTEST transition valuators are malformed")
++            matching_primary = [
++                proof
++                for proof in self.event_proof
++                if isinstance(proof, tuple)
++                and len(proof) == 12
++                and proof[0] == "Motion"
++                and proof[4] == transition[1]
++                and proof[1] == transition[2]
++                and proof[2] == transition[3]
++                and proof[7] == transition[5]
++                and tuple(proof[8]) == tuple(transition[8])
++                and tuple(proof[9]) == tuple(transition[9])
++            ]
++            if len(matching_primary) != 1 or (
++                tuple(matching_primary[0][10]) != tuple(transition[13])
++                or matching_primary[0][11] != transition[14]
++            ):
++                raise CalibrationError("input evidence XTEST transition modifiers are not sealed to Motion")
+             previous_endpoint = endpoint
+         if (
+             not isinstance(self.fingerprint, str)
+@@ -3784,6 +3806,11 @@
+         )
+         if len(derived_motion_transitions) != 1:
+             raise CalibrationError("baseline calibration evidence must contain exactly one XTEST transition")
++        baseline_transition = derived_motion_transitions[0]
++        if tuple(baseline_transition[8]) == tuple(baseline_transition[10]):
++            raise CalibrationError("baseline calibration evidence must prove nonzero displacement")
++        if tuple(synthetic_motion_query[:2]) == tuple(synthetic_motion_query[3:5]):
++            raise CalibrationError("baseline calibration query must prove nonzero displacement")
+         if synthetic_motion_transitions and tuple(synthetic_motion_transitions) != derived_motion_transitions:
+             raise CalibrationError("caller-supplied XTEST transitions differ from the recorded prefix")
+         synthetic_motion_transitions = derived_motion_transitions
+--- baseline/tests/test_session_driver_actions.py
++++ transition/tests/test_session_driver_actions.py
+@@ -243,6 +243,12 @@
+ ) -> None:
+     driver = _driver(tmp_path, monkeypatch)
+     sealed = driver._input_evidence.xtest_profile
++    commands: list[list[str]] = []
++    monkeypatch.setattr(
++        driver.backend,
++        "_run",
++        lambda args, **_kwargs: commands.append(list(args)) or subprocess.CompletedProcess(args, 0, "", ""),
++    )
+     driver.backend.xtest_input_profile = lambda _hierarchy, **_kwargs: replace(  # type: ignore[method-assign]
+         sealed, root_geometry=(0, 0, 1920, 1081)
+     )
+@@ -268,6 +274,7 @@
+             )
+             with pytest.raises(DriverError, match="profile changed"):
+                 driver.run_camera_drag(plan, generation=generation)
++        assert commands == []
+     finally:
+         driver.close()
+ 
+@@ -330,6 +337,38 @@
+     try:
+         driver.run_camera_drag(plan, generation=generation)
+         assert driver.guardian.armed
++    finally:
++        driver.close()
++
++
++def test_run_camera_drag_rejects_all_identical_native_samples_before_input(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    driver = _driver(tmp_path, monkeypatch)
++    commands: list[list[str]] = []
++    driver.backend.pointer_position = lambda **_kwargs: (100, 100, 0x101)  # type: ignore[method-assign]
++    monkeypatch.setattr(
++        driver.backend,
++        "_run",
++        lambda args, **_kwargs: commands.append(list(args)) or subprocess.CompletedProcess(args, 0, "", ""),
++    )
++    binding = BindingMetadata("identity", "capture", 1, 1, 4, (4,), boot="boot")
++    plan = object.__new__(CameraDragPlan)
++    object.__setattr__(plan, "button", PointerButton.RIGHT)
++    object.__setattr__(
++        plan,
++        "samples",
++        (PointerSample(0.0, Point(100, 100)), PointerSample(0.05, Point(100, 100))),
++    )
++    object.__setattr__(plan, "duration", 0.05)
++    object.__setattr__(plan, "signed_delta", Point(0, 0))
++    object.__setattr__(plan, "binding", replace(binding, generation=1))
++    generation = driver.guardian.arm(driver._input_evidence)
++    driver.backend.activate_generation(generation)
++    try:
++        with pytest.raises(DriverError, match="no native motion trace"):
++            driver.run_camera_drag(plan, generation=generation)
++        assert commands == []
+     finally:
+         driver.close()
+ 
+--- baseline/tests/test_session_executor_dispatch.py
++++ transition/tests/test_session_executor_dispatch.py
+@@ -463,7 +463,107 @@
+             _click_plan=click,
+             _refresh_anchor=lambda _identity, _previous: fresh,
+         )
++    assert any("mousemove" in command for command in commands)
+     assert not any(command[1:2] == ["mousedown"] for command in commands)
++
++
++def test_pointer_click_success_records_protected_boundary_order(
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++) -> None:
++    profile = DriverProfile(display=":dispatch-order", xauthority=str(tmp_path / "Xauthority"))
++    backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
++    identity = WindowIdentity(
++        0x700100,
++        os.getpid(),
++        "WowB.exe",
++        profile.window_title,
++        profile.window_class,
++        0x700101,
++        (0, 0, 1928, 1092),
++        (0, 0, 1920, 1080),
++        0x700100,
++        "start",
++        profile.display,
++        "identity",
++        0x1,
++        0x700100,
++        frozenset({0x700100, 0x700101}),
++    )
++    order: list[str] = []
++    backend.resolve_identity = lambda require_foreground=True: (  # type: ignore[method-assign]
++        order.append("identity-foreground" if require_foreground else "identity-initial") or identity
++    )
++    monkeypatch.setattr(backend, "_focus", lambda *_args, **_kwargs: order.append("focus"))
++    moved = False
++    moved_pointer_reads = 0
++    endpoint = (115, 115)
++
++    def pointer_position(**_kwargs: object) -> tuple[int, int, int]:
++        nonlocal moved_pointer_reads
++        if moved:
++            moved_pointer_reads += 1
++            order.append("pointer-pre" if moved_pointer_reads == 1 else "pointer-post")
++        else:
++            order.append("pointer-start")
++        return (*endpoint, identity.child_xid) if moved else (10, 10, identity.child_xid)
++
++    backend.pointer_position = pointer_position  # type: ignore[method-assign]
++    monkeypatch.setattr(backend, "is_descendant", lambda _xid, _ancestor: True)
++    old = _test_anchor(tmp_path, identity, sequence=1, bounds=(100, 100, 30, 30))
++    fresh = _test_anchor(tmp_path, identity, sequence=2, bounds=(100, 100, 30, 30))
++    backend._measured_anchors["open_ah"] = old
++
++    class RecordingConsumed(set[str]):
++        checks = 0
++
++        def __contains__(self, item: object) -> bool:
++            self.checks += 1
++            order.append("consumed-initial" if self.checks == 1 else "consumed-check")
++            return super().__contains__(item)
++
++    consumed = RecordingConsumed({old.evidence_hash})
++    backend._consumed_anchor_seals = consumed
++    binding = BindingMetadata(
++        identity.fingerprint,
++        old.capture_id,
++        old.capture_sequence,
++        1,
++        identity.child_xid,
++        old.target_ancestry,
++    )
++    target = PointerTarget("auctioneer_buckler", Rect(*old.bounds), binding, padding=1)
++    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.RIGHT)
++    endpoint = (int(click.point.x), int(click.point.y))
++    pointer = plan_pointer_curve(Point(10, 10), target, Rect(0, 0, 1920, 1080))
++
++    def run(args: list[str], **kwargs: object) -> CompletedProcess[str]:
++        nonlocal moved
++        schema = kwargs.get("input_schema")
++        if schema == "pointer-motion":
++            order.append("motion")
++            moved = True
++        elif schema == "single-click":
++            order.append("click")
++        return CompletedProcess(args, 0, "", "")
++
++    monkeypatch.setattr(backend, "_run", run)
++
++    def refresh(_identity: WindowIdentity, _previous: object) -> object:
++        order.append("anchor-refresh")
++        return fresh
++
++    backend.action(
++        "open_ah",
++        generation=1,
++        _admitted_anchor=old,
++        _pointer_plan=pointer,
++        _click_plan=click,
++        _refresh_anchor=refresh,
++    )
++    assert order.index("motion") < order.index("identity-foreground") < order.index("anchor-refresh")
++    assert order.index("anchor-refresh") < order.index("consumed-check") < order.index("pointer-pre")
++    assert order.index("pointer-pre") < order.index("click")
++    assert order.index("click") < order.index("pointer-post")
+ 
+ 
+ def test_pointer_plan_binding_and_endpoint_must_match_click_before_input(
+--- baseline/tests/test_session_native.py
++++ transition/tests/test_session_native.py
+@@ -244,14 +244,14 @@
+                 0x374,
+                 (1.0, 1.0),
+                 (1.0, 1.0),
+-                (1, 1),
+-                (1, 1),
+-                ((0, 1.0, 1.0), (1, 1.0, 1.0)),
++                (2, 2),
++                (2, 2),
++                ((0, 2.0, 2.0), (1, 2.0, 2.0)),
+                 (0, 0, 0),
+                 0,
+             ),
+         ),
+-        synthetic_motion_query=(1, 1, 0x600119, 1, 1, 1, 1, 0x600119),
++        synthetic_motion_query=(1, 1, 0x600119, 2, 2, 2, 2, 0x600119),
+         keyboard_keymap=(("Return", 9),),
+         keyboard_profile=keyboard_profile,
+         event_proof=proof,
+@@ -320,6 +320,22 @@
+             commands["xinput_list_long_source"],
+             commands["xinput_list_props_source"].replace("1.000000, 0.000000", "2.000000, 0.000000", 1),
+         ),
++        (
++            commands["xinput_list_long_source"].replace("[slave  pointer  (2)]", "[slave  pointer  (3)]", 1),
++            commands["xinput_list_props_source"],
++        ),
++        (
++            commands["xinput_list_long_source"].replace(
++                "Detail for Valuator 0:", "Detail for Valuator 2:", 1
++            ),
++            commands["xinput_list_props_source"],
++        ),
++        (
++            commands["xinput_list_long_source"].replace(
++                "Detail for Valuator 1:", "Detail for Valuator 0:", 1
++            ),
++            commands["xinput_list_props_source"],
++        ),
+     )
+     for long_text, properties_text in mutations:
+         with pytest.raises(CalibrationError):
+@@ -332,6 +348,62 @@
+                 root_xid=0x374,
+                 root_geometry=(0, 0, 1920, 1080),
+             )
++
++
++def test_owned_evidence_rejects_zero_displacement_baseline_and_modifier_substitution() -> None:
++    evidence = _evidence()
++    zero = replace(
++        evidence,
++        synthetic_motion_transitions=(
++            (
++                *evidence.synthetic_motion_transitions[0][:10],
++                (1, 1),
++                (1, 1),
++                evidence.synthetic_motion_transitions[0][12],
++                evidence.synthetic_motion_transitions[0][13],
++                evidence.synthetic_motion_transitions[0][14],
++            ),
++        ),
++        synthetic_motion_query=(1, 1, 0x600119, 1, 1, 1, 1, 0x600119),
++        fingerprint="",
++    )
++    zero = replace(zero, fingerprint=zero.content_fingerprint()).with_hash()
++    with pytest.raises(CalibrationError, match="nonzero|displacement"):
++        zero.verify_seal()
++
++    transition = evidence.synthetic_motion_transitions[0]
++    modified = replace(
++        evidence,
++        synthetic_motion_transitions=((*transition[:13], (1, 0, 0), 1),),
++        fingerprint="",
++    )
++    modified = replace(modified, fingerprint=modified.content_fingerprint()).with_hash()
++    with pytest.raises(CalibrationError, match="modifiers"):
++        modified.verify_seal()
++
++
++def test_owned_evidence_rejects_refingerprinted_transition_query_and_pairing_tampering() -> None:
++    evidence = _evidence()
++
++    def resign(**changes: object) -> InputCalibrationEvidence:
++        candidate = replace(evidence, **changes, fingerprint="")
++        return replace(candidate, fingerprint=candidate.content_fingerprint()).with_hash()
++
++    transition = evidence.synthetic_motion_transitions[0]
++    with pytest.raises(CalibrationError, match="transition|event proof"):
++        resign(synthetic_motion_transitions=((*transition[:6], 0x375, *transition[7:]),)).verify_seal()
++    with pytest.raises(CalibrationError, match="malformed|post-query|requested"):
++        resign(synthetic_motion_query=(1, 1, 0x600119, 2, 2, 3, 3, 0x600119)).verify_seal()
++    with pytest.raises(CalibrationError, match="transition|ancestry"):
++        resign(synthetic_motion_transitions=((*transition[:8], (1, 2), *transition[9:]),)).verify_seal()
++    raw = next(row for row in evidence.event_proof if row[0] == "RawMotion")
++    primary = next(row for row in evidence.event_proof if row[0] == "Motion")
++    with pytest.raises(CalibrationError, match="exactly one|one-to-one"):
++        resign(event_proof=(*evidence.event_proof, raw)).verify_seal()
++    with pytest.raises(CalibrationError, match="exactly one|one-to-one"):
++        resign(event_proof=(*evidence.event_proof, primary)).verify_seal()
++    with pytest.raises(CalibrationError, match="exactly one"):
++        resign(synthetic_motion_transitions=(transition, transition)).verify_seal()
+ 
+ 
+ @pytest.mark.parametrize(
+@@ -1309,33 +1381,47 @@
+         lease_path=tmp_path / "workflow-built-evidence.lock",
+     )
+     try:
+-        evidence = InputCalibrationWorkflow._build_evidence(
+-            records,
+-            window,
+-            driver.driver_version,
+-            hierarchy=hierarchy,
+-            display=":test",
+-            xauthority="/tmp/Xauthority",
+-            synthetic_key_source=5,
+-            synthetic_pointer_source=4,
+-            game_identity_fingerprint="game-test-identity",
+-            game_geometry=(0, 0, 1920, 1080),
+-            target_executable="/usr/bin/python3",
+-            target_process_start="target-start",
+-            target_geometry=(0, 0, 480, 240),
+-            keyboard_operations=(
+-                KeyboardProbeOperation(
+-                    "open_chat",
+-                    "",
+-                    (KeyboardProbeStep("press", "Return"), KeyboardProbeStep("release", "Return")),
++
++        def build(
++            supplied_transitions: tuple[tuple[object, ...], ...] = transitions,
++            query: tuple[int, ...] = (1, 1, 0x600119, 20, 30, 20, 30, 0x600119),
++        ) -> InputCalibrationEvidence:
++            return InputCalibrationWorkflow._build_evidence(
++                records,
++                window,
++                driver.driver_version,
++                hierarchy=hierarchy,
++                display=":test",
++                xauthority="/tmp/Xauthority",
++                synthetic_key_source=5,
++                synthetic_pointer_source=4,
++                game_identity_fingerprint="game-test-identity",
++                game_geometry=(0, 0, 1920, 1080),
++                target_executable="/usr/bin/python3",
++                target_process_start="target-start",
++                target_geometry=(0, 0, 480, 240),
++                keyboard_operations=(
++                    KeyboardProbeOperation(
++                        "open_chat",
++                        "",
++                        (KeyboardProbeStep("press", "Return"), KeyboardProbeStep("release", "Return")),
++                    ),
+                 ),
+-            ),
+-            keyboard_keymap=(("Return", 9),),
+-            xtest_profile=profile,
+-            synthetic_motion_transitions=transitions,
+-            synthetic_motion_query=(1, 1, 0x600119, 20, 30, 20, 30, 0x600119),
+-            synthetic_prefix_records=records,
+-        )
++                keyboard_keymap=(("Return", 9),),
++                xtest_profile=profile,
++                synthetic_motion_transitions=supplied_transitions,
++                synthetic_motion_query=query,
++                synthetic_prefix_records=records,
++            )
++
++        with pytest.raises(CalibrationError, match="caller-supplied|query must prove"):
++            build(
++                supplied_transitions=((*transitions[0][:10], (21, 31), (21, 31), *transitions[0][12:]),),
++                query=(1, 1, 0x600119, 21, 31, 21, 31, 0x600119),
++            )
++        with pytest.raises(CalibrationError, match="nonzero displacement"):
++            build(query=(1, 1, 0x600119, 1, 1, 1, 1, 0x600119))
++        evidence = build()
+         evidence.verify_seal()
+         generation = driver.arm(evidence)
+         action = driver.guardian.begin_action(
+@@ -1624,6 +1710,23 @@
+             synthetic_prefix_records=records,
+         )
+         evidence.verify_seal()
++        assert evidence.synthetic_echo_proof
++        forwarded_index = next(
++            index
++            for index, proof in enumerate(evidence.event_proof)
++            if proof[0] == "Motion" and proof[2] != evidence.synthetic_pointer_source
++        )
++        forwarded_proof = evidence.event_proof[forwarded_index]
++        bad_forwarded = replace(
++            evidence,
++            event_proof=evidence.event_proof[:forwarded_index]
++            + ((*forwarded_proof[:5], 0x375, *forwarded_proof[6:]),)
++            + evidence.event_proof[forwarded_index + 1 :],
++            fingerprint="",
++        )
++        bad_forwarded = replace(bad_forwarded, fingerprint=bad_forwarded.content_fingerprint()).with_hash()
++        with pytest.raises(CalibrationError, match="forwarded echo root/event"):
++            bad_forwarded.verify_seal()
+ 
+         drift_backend = X11Backend(
+             profile,
+@@ -3724,7 +3827,7 @@
+             232007475,
+             0,
+             None,
+-            ((0, 1.0, 1.0), (1, 1.0, 1.0)),
++            ((0, 2.0, 2.0), (1, 2.0, 2.0)),
+         ),
+         event(1, EventClass.DEVICE_CHANGED, 2, 4, 232007476, None, None),
+         event(
+@@ -3735,7 +3838,7 @@
+             232007475,
+             0,
+             0x600119,
+-            ((0, 1.0, 1.0), (1, 1.0, 1.0)),
++            ((0, 2.0, 2.0), (1, 2.0, 2.0)),
+         ),
+         event(15, EventClass.RAW_BUTTON_PRESS, 2, 4, 232007476, 1, None),
+         event(4, EventClass.BUTTON_PRESS, 4, 4, 232007476, 1, 0x600119),
+@@ -3860,10 +3963,10 @@
+                 1,
+                 1,
+                 0x600119,
+-                1,
+-                1,
+-                1,
+-                1,
++                2,
++                2,
++                2,
++                2,
+                 0x600119,
+             )
+ 
+--- baseline/tests/test_session_native_regressions.py
++++ transition/tests/test_session_native_regressions.py
+@@ -810,6 +810,36 @@
+     backend._run = run  # type: ignore[method-assign]
+     backend.pointer_position = lambda **_kwargs: (100, 100, 0x700101)  # type: ignore[method-assign]
+     with pytest.raises(DriverError, match="origin is outside"):
++        backend.synthetic_calibration(
++            hex(TARGET),
++            120,
++            120,
++            calibration_ticket=SimpleNamespace(epoch=1),
++        )
++    assert all(args[1] not in {"key", "mousemove", "click"} for args in calls if len(args) > 1)
++
++
++def test_synthetic_calibration_refuses_zero_displacement_before_f13_or_move(tmp_path: Path) -> None:
++    profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
++    backend = object.__new__(X11Backend)
++    backend.profile = profile
++    backend.xauthority = profile.xauthority
++    backend._last_synthetic_motion_query = None
++    calls: list[list[str]] = []
++
++    def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
++        calls.append(list(args))
++        if args[:2] == ["xdotool", "getwindowgeometry"]:
++            return subprocess.CompletedProcess(
++                args, 0, "WINDOW=0x600119\nX=40\nY=60\nWIDTH=240\nHEIGHT=160\nSCREEN=0\n", ""
++            )
++        if args == ["xdotool", "getwindowfocus"]:
++            return subprocess.CompletedProcess(args, 0, "6291737\n", "")
++        return subprocess.CompletedProcess(args, 0, "", "")
++
++    backend._run = run  # type: ignore[method-assign]
++    backend.pointer_position = lambda **_kwargs: (120, 120, TARGET)  # type: ignore[method-assign]
++    with pytest.raises(DriverError, match="nonzero measured displacement"):
+         backend.synthetic_calibration(
+             hex(TARGET),
+             120,
+--- baseline/tests/test_session_runtime.py
++++ transition/tests/test_session_runtime.py
+@@ -434,6 +434,10 @@
+             (0, 0, 1920, 1080),
+             tuple(hierarchy),
+         )
++
++    def _run(self, args, **_kwargs):
++        del args
++        raise DriverError("unmodeled native fixture command refused locally")
+ 
+     def resolve_identity(
+         self,
+@@ -968,6 +972,20 @@
+             }
+ 
+ 
++def test_lifecycle_fixture_rejects_unmodeled_native_command_without_host_dispatch(
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++) -> None:
++    """The lifecycle fixture must remain closed even if production gains a new query."""
++
++    def host_dispatch(*_args: object, **_kwargs: object) -> None:
++        pytest.fail("unmodeled native fixture command reached host dispatch")
++
++    monkeypatch.setattr(X11Backend, "_run", host_dispatch)
++    backend = LifecycleBackend(tmp_path)
++    with pytest.raises(DriverError, match="unmodeled native fixture command"):
++        backend._run(["xinput", "list", "--future-command"])
++
++
+ class _NativeProviderBackend(LifecycleBackend):
+     """Real Agent producer with controls for one bounded provider wait."""
+ 

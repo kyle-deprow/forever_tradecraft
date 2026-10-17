@@ -1,0 +1,32 @@
+{
+  "inputReceipt": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/final-strict-pair-receipt.json",
+  "verified": [
+    {
+      "kind": "FRESH",
+      "boot": "1792200470-649697",
+      "sequence": 348,
+      "crc32": 1467696524,
+      "cropSHA256": "0074c15061d36c22238b0bbd3c8943443818ba46ede8947157c622edfd360ddd"
+    },
+    {
+      "kind": "FRESH",
+      "boot": "1792200470-649697",
+      "sequence": 351,
+      "crc32": 2017109428,
+      "cropSHA256": "8d01baf1c70671a6a5ecbaa9ab827b742d3449fea73661da8a5ca77d2a8ab2be"
+    }
+  ],
+  "child": [
+    0,
+    0,
+    1920,
+    1080
+  ],
+  "outer": [
+    0,
+    0,
+    1928,
+    1092
+  ],
+  "nativeQualification": false
+}

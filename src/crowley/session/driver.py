@@ -1,0 +1,6555 @@
+"""Verified X11 desktop boundary for the Crowley session controller."""
+
+from __future__ import annotations
+
+import ctypes
+import errno
+import fcntl
+import hashlib
+import json
+import math
+import os
+import re
+import select
+import shutil
+import signal
+import socket
+import stat
+import subprocess
+import sys
+import tempfile
+import threading
+import time
+import uuid
+from collections.abc import Callable
+from contextlib import contextmanager
+from dataclasses import dataclass, field, replace
+from pathlib import Path
+from typing import Any, Protocol
+
+from .executor import (
+    BindingMetadata,
+    CameraDragPlan,
+    ClickPlan,
+    DemonstrationRole,
+    ExecutorError,
+    KeyRole,
+    MotionProfile,
+    Point,
+    PointerButton,
+    PointerTarget,
+    PointerTrajectory,
+    Rect,
+    plan_pointer_curve,
+    plan_single_click,
+)
+from .guardian import GuardianError, InputGuardian
+from .input_events import (
+    EventClass,
+    InputEventError,
+    XI2Event,
+    XI2StreamParser,
+    parse_xi2_records,
+    source_ids,
+)
+from .input_tool import InputToolError, PinnedInputTool, verify_artifact
+from .process_admission import ADMISSION_WRAPPER, AdmissionGate
+
+_F_ADD_SEALS = getattr(fcntl, "F_ADD_SEALS", 1033)
+_F_SEAL_SEAL = getattr(fcntl, "F_SEAL_SEAL", 0x0001)
+_F_SEAL_SHRINK = getattr(fcntl, "F_SEAL_SHRINK", 0x0002)
+_F_SEAL_GROW = getattr(fcntl, "F_SEAL_GROW", 0x0004)
+_F_SEAL_WRITE = getattr(fcntl, "F_SEAL_WRITE", 0x0008)
+
+
+class DriverError(RuntimeError):
+    """A precondition, identity, lease, or postcondition failed."""
+
+
+@dataclass(frozen=True)
+class TelemetryRegionReceipt:
+    """Immutable parent-side proof for one typed ScreenshotArea capture."""
+
+    nonce: str
+    rectangle: tuple[int, int, int, int]
+    executable_sha256: str
+    owner_pid: int
+    owner_process_start: str
+    owner_ppid: int
+    owner_pgid: int
+    owner_exec_fd: int
+    owner_branch: str
+    capture_started: float
+    output_path_digest: str
+    output_sha256: str
+    output_bytes: int
+    capture_epoch: int
+
+
+def _open_sealed_executable(path: Path, expected_sha256: str) -> tuple[int, str]:
+    """Copy a verified executable into an immutable memfd before admission."""
+
+    if not path.is_absolute() or not re.fullmatch(r"[0-9a-f]{64}", expected_sha256):
+        raise DriverError("telemetry executable path/hash is malformed")
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        source_fd = os.open(path, flags)
+        source_stat = os.fstat(source_fd)
+        if (
+            not stat.S_ISREG(source_stat.st_mode)
+            or source_stat.st_uid != os.getuid()
+            or not (source_stat.st_mode & stat.S_IXUSR)
+            or (source_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+        ):
+            raise DriverError("telemetry executable is not a private owned executable")
+        data = bytearray()
+        while True:
+            chunk = os.read(source_fd, 1024 * 1024)
+            if not chunk:
+                break
+            data.extend(chunk)
+    except OSError as exc:
+        raise DriverError(f"telemetry executable cannot be opened safely: {path}") from exc
+    finally:
+        try:
+            os.close(source_fd)
+        except (NameError, OSError):
+            pass
+    digest = hashlib.sha256(data).hexdigest()
+    if digest != expected_sha256:
+        raise DriverError("telemetry executable hash does not match the pinned capability")
+    try:
+        if hasattr(os, "memfd_create"):
+            image_fd = os.memfd_create("crowley-telemetry-region", os.MFD_ALLOW_SEALING)
+        else:
+            # This project Python omits os.memfd_create, while glibc still
+            # exposes the same Linux primitive. Never fall back to a pathname.
+            libc = ctypes.CDLL(None, use_errno=True)
+            libc.memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
+            libc.memfd_create.restype = ctypes.c_int
+            image_fd = libc.memfd_create(b"crowley-telemetry-region", 0x0002)
+            if image_fd < 0:
+                error = ctypes.get_errno()
+                raise OSError(error, os.strerror(error))
+        view = memoryview(data)
+        while view:
+            written = os.write(image_fd, view)
+            if written <= 0:
+                raise OSError("sealed executable short write")
+            view = view[written:]
+        os.lseek(image_fd, 0, os.SEEK_SET)
+        seals = _F_SEAL_WRITE | _F_SEAL_GROW | _F_SEAL_SHRINK | _F_SEAL_SEAL
+        fcntl.fcntl(image_fd, _F_ADD_SEALS, seals)
+    except (AttributeError, OSError) as exc:
+        try:
+            os.close(image_fd)
+        except (NameError, OSError):
+            pass
+        raise DriverError("telemetry executable could not be sealed in memory") from exc
+    return image_fd, digest
+
+
+class _IncompleteCaptureOutput(DriverError):
+    """The screenshot writer has not exposed a complete PNG yet."""
+
+
+class _InvalidCaptureOutput(DriverError):
+    """The screenshot writer exposed a terminally invalid PNG result."""
+
+
+DRIVER_VERSION = "native-x11-3"
+GNOME_CAPTURE_LOCK_PATH = Path.home() / ".cache" / "crowley" / "gnome-screenshot.lock"
+
+
+def _capture_deadline(deadline_monotonic: float | None) -> float:
+    """Return the bounded deadline shared by lock, screenshot, and validation."""
+
+    now = time.monotonic()
+    if deadline_monotonic is None:
+        return now + 15.0
+    if (
+        isinstance(deadline_monotonic, bool)
+        or not isinstance(deadline_monotonic, (int, float))
+        or not math.isfinite(float(deadline_monotonic))
+    ):
+        raise DriverError("capture deadline is malformed")
+    deadline = float(deadline_monotonic)
+    if deadline <= now:
+        raise DriverError("capture deadline expired before screenshot")
+    return deadline
+
+
+@contextmanager
+def _capture_lock(deadline_monotonic: float, *, check: Callable[[], None] | None = None):
+    """Hold the private cross-process GNOME screenshot serialization lock."""
+
+    import fcntl
+
+    lock_path = GNOME_CAPTURE_LOCK_PATH
+    parent = lock_path.parent
+    try:
+        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        parent_lstat = parent.lstat()
+        parent_stat = parent.stat()
+    except OSError as exc:
+        raise DriverError(f"GNOME capture lock directory is unavailable: {exc}") from exc
+    if (
+        stat.S_ISLNK(parent_lstat.st_mode)
+        or not stat.S_ISDIR(parent_stat.st_mode)
+        or parent_stat.st_uid != os.getuid()
+        or stat.S_IMODE(parent_stat.st_mode) != 0o700
+    ):
+        raise DriverError("GNOME capture lock directory is not a private owned directory")
+
+    try:
+        existing = lock_path.lstat()
+    except FileNotFoundError:
+        existing = None
+    except OSError as exc:
+        raise DriverError(f"GNOME capture lock path cannot be inspected: {exc}") from exc
+    if existing is not None and (
+        not stat.S_ISREG(existing.st_mode)
+        or existing.st_uid != os.getuid()
+        or stat.S_IMODE(existing.st_mode) != 0o600
+    ):
+        raise DriverError("GNOME capture lock path is not a private owned regular file")
+
+    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+    try:
+        fd = os.open(lock_path, flags, 0o600)
+    except OSError as exc:
+        raise DriverError(f"GNOME capture lock cannot be opened safely: {exc}") from exc
+    try:
+        metadata = os.fstat(fd)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or stat.S_IMODE(metadata.st_mode) != 0o600
+        ):
+            raise DriverError("GNOME capture lock is not a private owned regular file")
+        while True:
+            if check is not None:
+                check()
+            remaining = deadline_monotonic - time.monotonic()
+            if remaining <= 0:
+                raise DriverError("GNOME capture lock deadline expired while waiting")
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
+                    raise DriverError(f"GNOME capture lock failed: {exc}") from exc
+                time.sleep(min(0.01, remaining))
+        try:
+            if check is not None:
+                check()
+            yield
+        finally:
+            fcntl.flock(fd, fcntl.LOCK_UN)
+    finally:
+        os.close(fd)
+
+
+def _validate_complete_png(path: Path, minimum_size: tuple[int, int]) -> None:
+    """Require a newly written PNG whose bytes can be fully decoded."""
+
+    try:
+        from PIL import Image, UnidentifiedImageError
+
+        try:
+            with path.open("rb") as stream:
+                prefix = stream.read(8)
+        except FileNotFoundError as exc:
+            raise _IncompleteCaptureOutput("output is not present yet") from exc
+        if prefix != b"\x89PNG\r\n\x1a\n":
+            if len(prefix) < 8:
+                raise _IncompleteCaptureOutput("PNG signature is incomplete")
+            raise _InvalidCaptureOutput("GNOME screenshot format is not PNG")
+
+        with Image.open(path) as image:
+            if image.format != "PNG":
+                raise _InvalidCaptureOutput("GNOME screenshot format is not PNG")
+            if image.width < minimum_size[0] or image.height < minimum_size[1]:
+                raise _InvalidCaptureOutput("GNOME screenshot is smaller than the verified client")
+            image.verify()
+        with Image.open(path) as image:
+            if image.format != "PNG":
+                raise _InvalidCaptureOutput("GNOME screenshot format changed")
+            if image.width < minimum_size[0] or image.height < minimum_size[1]:
+                raise _InvalidCaptureOutput("GNOME screenshot is smaller than the verified client")
+            image.load()
+    except (_IncompleteCaptureOutput, _InvalidCaptureOutput):
+        raise
+    except UnidentifiedImageError as exc:
+        raise _IncompleteCaptureOutput(f"PNG is not decodable yet: {exc}") from exc
+    except DriverError:
+        raise
+    except (FileNotFoundError, OSError, SyntaxError, ValueError) as exc:
+        raise _IncompleteCaptureOutput(f"GNOME screenshot is not a complete PNG: {exc}") from exc
+
+
+def _validate_exact_png(path: Path, size: tuple[int, int]) -> None:
+    """Require the telemetry producer's exact lossless PNG dimensions."""
+
+    _validate_complete_png(path, size)
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            image.load()
+            if image.format != "PNG" or image.size != size:
+                raise _InvalidCaptureOutput("telemetry screenshot is not exactly 256x256 PNG")
+    except FileNotFoundError as exc:
+        raise _IncompleteCaptureOutput("telemetry output is not present") from exc
+    except OSError as exc:
+        raise _IncompleteCaptureOutput("telemetry output cannot be read completely") from exc
+
+
+def _proc_identity(pid: int) -> tuple[str, int, int]:
+    try:
+        text = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+        tail = text.rsplit(")", 1)[1].split()
+        return tail[19], int(tail[1]), int(tail[2])
+    except (OSError, IndexError, ValueError) as exc:
+        raise DriverError(f"cannot inspect admitted telemetry process {pid}") from exc
+
+
+def _proc_start(pid: int) -> str:
+    return _proc_identity(pid)[0]
+
+
+def _protocol_int(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+def _protocol_string(value: Any) -> bool:
+    return isinstance(value, str) and bool(value)
+
+
+def _protocol_float(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(float(value))
+
+
+def _sha256_proc_object(path: Path) -> str:
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as stream:
+            for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                digest.update(chunk)
+    except OSError as exc:
+        raise DriverError(f"cannot hash admitted telemetry object {path}") from exc
+    return digest.hexdigest()
+
+
+def _verify_admitted_process(
+    process: subprocess.Popen[str], image_fd: int, expected_digest: str, expected_ppid: int
+) -> tuple[str, int, int]:
+    """Verify live kernel identity and the exact sealed image before ACK."""
+
+    if process.poll() is not None:
+        raise DriverError("admitted telemetry process exited before ACK")
+    try:
+        os.kill(process.pid, 0)
+        parent_image = os.fstat(image_fd)
+        child_fd_path = Path(f"/proc/{process.pid}/fd/{image_fd}")
+        child_exe_path = Path(f"/proc/{process.pid}/exe")
+        child_fd_stat = child_fd_path.stat()
+        child_exe_stat = child_exe_path.stat()
+    except OSError as exc:
+        raise DriverError("admitted telemetry process is not alive for kernel proof") from exc
+    identity = _proc_identity(process.pid)
+    start, ppid, pgid = identity
+    if ppid != expected_ppid or pgid != process.pid:
+        raise DriverError("admitted telemetry process parent or group changed")
+    try:
+        if os.getpgid(process.pid) != process.pid:
+            raise DriverError("admitted telemetry process is outside its private process group")
+        if not (Path(f"/proc/{pgid}/task") / str(process.pid)).is_dir():
+            raise DriverError("admitted telemetry process is not a member of its process group")
+    except OSError as exc:
+        raise DriverError("cannot inspect admitted telemetry process group") from exc
+    object_identity = (parent_image.st_dev, parent_image.st_ino)
+    for observed in (child_fd_stat, child_exe_stat):
+        if not stat.S_ISREG(observed.st_mode) or (observed.st_dev, observed.st_ino) != object_identity:
+            raise DriverError("admitted telemetry executable is not the retained sealed image")
+    if (
+        _sha256_proc_object(child_fd_path) != expected_digest
+        or _sha256_proc_object(child_exe_path) != expected_digest
+    ):
+        raise DriverError("admitted telemetry executable object hash does not match the sealed image")
+    return identity
+
+
+def _json_unique_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate telemetry protocol key")
+        result[key] = value
+    return result
+
+
+def _protocol_rectangle(value: Any) -> tuple[int, int, int, int] | None:
+    if not isinstance(value, (list, tuple)) or len(value) != 4:
+        return None
+    if any(isinstance(item, bool) or not isinstance(item, int) for item in value):
+        return None
+    return tuple(value)  # type: ignore[return-value]
+
+
+def _json_record(
+    sock: socket.socket,
+    deadline: float,
+    *,
+    check: Callable[[], None] | None = None,
+) -> dict[str, Any]:
+    """Read one strict newline-delimited child protocol record."""
+
+    chunks = bytearray()
+    while b"\n" not in chunks:
+        if check is not None:
+            check()
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DriverError("telemetry owner protocol deadline expired")
+        readable, _writable, _exceptional = select.select([sock], [], [], min(0.1, remaining))
+        if not readable:
+            continue
+        # Keep record boundaries lossless when a fast producer writes the next
+        # record before the parent has parsed this one.
+        if check is not None:
+            check()
+        piece = sock.recv(1)
+        if not piece:
+            raise DriverError("telemetry owner protocol closed before completion")
+        chunks.extend(piece)
+        if len(chunks) > 16384:
+            raise DriverError("telemetry owner protocol record is too large")
+    if check is not None:
+        check()
+    line, _separator, _rest = bytes(chunks).partition(b"\n")
+    try:
+        record = json.loads(line.decode("utf-8"), object_pairs_hook=_json_unique_pairs)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise DriverError("telemetry owner protocol record is malformed") from exc
+    if not isinstance(record, dict):
+        raise DriverError("telemetry owner protocol record is not an object")
+    return record
+
+
+def _wait_for_complete_png(
+    path: Path,
+    minimum_size: tuple[int, int],
+    deadline_monotonic: float,
+    *,
+    check: Callable[[], None] | None = None,
+) -> None:
+    last_error = "output is not present yet"
+    while True:
+        if check is not None:
+            check()
+        try:
+            _validate_complete_png(path, minimum_size)
+            if check is not None:
+                check()
+            return
+        except _InvalidCaptureOutput:
+            raise
+        except _IncompleteCaptureOutput as exc:
+            last_error = str(exc)
+        remaining = deadline_monotonic - time.monotonic()
+        if remaining <= 0:
+            raise DriverError(f"GNOME screenshot did not become a complete PNG before deadline: {last_error}")
+        time.sleep(min(0.01, remaining))
+
+
+def _validate_x11_display_screen(display: str) -> None:
+    """Require the pinned XTEST emitter's supported screen-zero contract."""
+
+    if not isinstance(display, str) or not display:
+        raise DriverError("X11 display is malformed")
+    match = re.search(r"\.(\d+)$", display)
+    if match is not None and int(match.group(1)) != 0:
+        raise DriverError("X11 display screen must be 0 for the pinned XTEST emitter")
+
+
+# Compatibility name retained for tests that inject a deliberately stalled or
+# wrong wrapper. Production always points this name at the positive gate.
+_EXEC_ADMISSION_WRAPPER = ADMISSION_WRAPPER
+_WRAPPED_COMMANDS = frozenset(
+    {
+        "gnome-screenshot",
+        "sleep",
+        "true",
+        "xinput",
+        "xmodmap",
+        "xprop",
+        "xwininfo",
+        "xdotool",
+    }
+)
+
+
+def _resolve_wrapped_executable(command: str) -> str:
+    if os.path.basename(command) not in _WRAPPED_COMMANDS:
+        raise DriverError(f"desktop command is not allowlisted: {command}")
+    executable = shutil.which(command) if not os.path.isabs(command) else command
+    if not executable or not os.path.isfile(executable) or not os.access(executable, os.X_OK):
+        raise DriverError(f"desktop command executable is unavailable: {command}")
+    canonical = os.path.realpath(executable)
+    known = {os.path.realpath(path) for name in _WRAPPED_COMMANDS if (path := shutil.which(name)) is not None}
+    if canonical not in known:
+        raise DriverError(f"desktop command executable is not an installed allowlisted binary: {command}")
+    return canonical
+
+
+def build_pointer_motion_chain(
+    trajectory: PointerTrajectory,
+    client_geometry: tuple[int, int, int, int],
+) -> list[str]:
+    """Build one closed xdotool motion chain from a validated trajectory.
+
+    Every sample interval remains in the argv, including intervals whose
+    quantized point repeats.  This preserves the planned duration and makes a
+    trailing repeated endpoint an explicit sleep instead of silently shortening
+    the gesture.
+    """
+
+    if not isinstance(trajectory, PointerTrajectory):
+        raise DriverError("pointer trajectory is malformed")
+    if (
+        not isinstance(client_geometry, tuple)
+        or len(client_geometry) != 4
+        or any(isinstance(value, bool) or not isinstance(value, int) for value in client_geometry)
+        or client_geometry[2] <= 0
+        or client_geometry[3] <= 0
+    ):
+        raise DriverError("pointer client geometry is malformed")
+    left, top, width, height = client_geometry
+    bounds = Rect(0, 0, width, height)
+    if any(not bounds.contains(sample.point) for sample in trajectory.samples):
+        raise DriverError("pointer trajectory escaped the verified client")
+    chain = ["xdotool"]
+    previous_at = trajectory.samples[0].at
+    previous_point = trajectory.samples[0].point
+    emitted_moves = 0
+    for sample in trajectory.samples[1:]:
+        delay = sample.at - previous_at
+        if not math.isfinite(delay) or delay <= 0:
+            raise DriverError("pointer trajectory timing is not strictly increasing")
+        chain.extend(("sleep", f"{delay:.9f}"))
+        if sample.point != previous_point:
+            chain.extend(
+                (
+                    "mousemove",
+                    str(left + int(sample.point.x)),
+                    str(top + int(sample.point.y)),
+                )
+            )
+            emitted_moves += 1
+        previous_at = sample.at
+        previous_point = sample.point
+    if abs(previous_at - trajectory.duration) > 1e-9 or emitted_moves == 0:
+        raise DriverError("pointer trajectory does not contain a complete emitted path")
+    return chain
+
+
+def build_camera_drag_chain(
+    plan: CameraDragPlan,
+    client_geometry: tuple[int, int, int, int],
+    positioning: PointerTrajectory | None = None,
+) -> list[str]:
+    """Build one positioning-plus-right-button finite drag chain."""
+
+    if not isinstance(plan, CameraDragPlan):
+        raise DriverError("camera drag plan is malformed")
+    if plan.button is not PointerButton.RIGHT:
+        raise DriverError("camera drag must use the sealed right-button role")
+    if len(plan.samples) < 2:
+        raise DriverError("camera drag requires a press and held motion endpoint")
+    motion = PointerTrajectory(plan.samples, plan.duration, plan.samples[-1].point, plan.binding, "camera")
+    if positioning is not None:
+        if not isinstance(positioning, PointerTrajectory):
+            raise DriverError("camera positioning trajectory is malformed")
+        if positioning.binding != plan.binding:
+            raise DriverError("camera positioning binding does not match drag binding")
+        if positioning.endpoint != plan.samples[0].point:
+            raise DriverError("camera positioning endpoint does not match drag start")
+        positioning_chain = build_pointer_motion_chain(positioning, client_geometry)
+    else:
+        positioning_chain = ["xdotool"]
+    chain = build_pointer_motion_chain(motion, client_geometry)
+    if chain.count("mousemove") == 0:
+        raise DriverError("camera drag has no emitted motion")
+    # The pointer builder emits the first xdotool token and all timed motion.
+    # Insert the held-button phase before the first interval and close it after
+    # the final interval, preserving every planned sleep.
+    return [
+        "xdotool",
+        *positioning_chain[1:],
+        "mousedown",
+        "3",
+        *chain[1:],
+        "mouseup",
+        "3",
+    ]
+
+
+@dataclass(frozen=True)
+class CalibrationTicket:
+    """One-use admission proof for the harmless owned GTK calibration target."""
+
+    epoch: int
+    target_pid: int
+    target_xid: int
+    target_xids: frozenset[int]
+    title: str
+    geometry: tuple[int, int, int, int]
+    managed_frame_xid: int = 0
+    managed_frame_geometry: tuple[int, int, int, int] = ()
+    target_executable: str = ""
+    target_process_start: str = ""
+
+    def contains(self, xid: int) -> bool:
+        return xid in self.target_xids
+
+
+@dataclass(frozen=True)
+class WindowIdentity:
+    xid: int
+    pid: int
+    executable: str
+    title: str
+    wm_class: str
+    child_xid: int
+    outer_geometry: tuple[int, int, int, int]
+    child_geometry: tuple[int, int, int, int]
+    foreground_xid: int
+    process_start: str
+    display: str
+    fingerprint: str
+    root_xid: int = 0
+    managed_frame_xid: int = 0
+    target_event_xids: frozenset[int] = frozenset()
+
+
+@dataclass(frozen=True)
+class Anchor:
+    x: int
+    y: int
+    identity_fingerprint: str
+
+
+@dataclass(frozen=True)
+class NamedStateObservation:
+    """One bounded visual/state observation tied to a fresh client capture.
+
+    Login and closeout actions are modal operations.  A window identity only
+    proves which process owns the pixels; it cannot prove that a disconnect
+    dialog, character row, or world scene is currently visible.  The model or
+    native observer therefore supplies this explicit observation, including a
+    capture token/sequence and named facts.  :meth:`DesktopDriver
+    .verify_named_action` validates the identity, target ancestry, freshness,
+    and action-specific facts before an input action is allowed.
+    """
+
+    state: str
+    identity_fingerprint: str
+    target_xid: int
+    capture_id: str
+    capture_sequence: int
+    facts: tuple[tuple[str, str], ...]
+    source: str
+    observed_monotonic: float
+    boot: str = ""
+
+    @classmethod
+    def from_facts(
+        cls,
+        *,
+        state: str,
+        identity_fingerprint: str,
+        target_xid: int,
+        capture_id: str,
+        capture_sequence: int,
+        facts: dict[str, str],
+        source: str,
+        observed_monotonic: float,
+        boot: str = "",
+    ) -> NamedStateObservation:
+        """Build a canonical observation without accepting unnamed booleans."""
+
+        return cls(
+            state=state,
+            identity_fingerprint=identity_fingerprint,
+            target_xid=target_xid,
+            capture_id=capture_id,
+            capture_sequence=capture_sequence,
+            facts=tuple(sorted((str(key), str(value)) for key, value in facts.items())),
+            source=source,
+            observed_monotonic=observed_monotonic,
+            boot=boot,
+        )
+
+
+@dataclass(frozen=True)
+class MeasuredAnchor:
+    """One visually measured control anchor tied to one client capture."""
+
+    action: str
+    x: int
+    y: int
+    identity_fingerprint: str
+    target_xid: int
+    capture_id: str
+    capture_sequence: int
+    source: str
+    observed_monotonic: float
+    capture_monotonic: float = -1.0
+    facts: tuple[tuple[str, str], ...] = ()
+    generation: int | None = None
+    capture_path: str = ""
+    capture_sha256: str = ""
+    scene: str = ""
+    bounds: tuple[int, int, int, int] = ()
+    target_ancestry: tuple[int, ...] = ()
+    evidence_hash: str = ""
+
+    def _canonical_payload(self) -> dict[str, Any]:
+        return {
+            "action": self.action,
+            "x": self.x,
+            "y": self.y,
+            "identity": self.identity_fingerprint,
+            "target": self.target_xid,
+            "capture": self.capture_id,
+            "sequence": self.capture_sequence,
+            "source": self.source,
+            "observed": self.observed_monotonic,
+            "captureMonotonic": self.capture_monotonic,
+            "facts": self.facts,
+            "generation": self.generation,
+            "capturePath": self.capture_path,
+            "captureSha256": self.capture_sha256,
+            "scene": self.scene,
+            "bounds": self.bounds,
+            "targetAncestry": self.target_ancestry,
+        }
+
+    def with_hash(self) -> MeasuredAnchor:
+        digest = hashlib.sha256(
+            json.dumps(self._canonical_payload(), sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        return replace(self, evidence_hash=digest)
+
+    def verify_seal(self) -> None:
+        if not self.evidence_hash:
+            raise DriverError("measured anchor has no canonical evidence seal")
+        if not self.capture_path or not Path(self.capture_path).is_absolute():
+            raise DriverError("measured anchor capture path is not an absolute retained file")
+        if (
+            not self.capture_id
+            or self.capture_sequence <= 0
+            or not re.fullmatch(r"[0-9a-f]{64}", self.capture_sha256)
+            or isinstance(self.capture_monotonic, bool)
+            or not isinstance(self.capture_monotonic, (int, float))
+            or not math.isfinite(float(self.capture_monotonic))
+            or self.capture_monotonic < 0
+        ):
+            raise DriverError("measured anchor capture binding is incomplete")
+        try:
+            digest = hashlib.sha256(Path(self.capture_path).read_bytes()).hexdigest()
+            if digest != self.capture_sha256 or self.capture_id != digest:
+                raise DriverError("measured anchor retained capture changed")
+        except OSError as exc:
+            raise DriverError("measured anchor retained capture is unavailable") from exc
+        if self.evidence_hash != self.with_hash().evidence_hash:
+            raise DriverError("measured anchor evidence seal does not match its facts")
+
+    @classmethod
+    def from_capture(
+        cls,
+        *,
+        action: str,
+        x: int,
+        y: int,
+        identity_fingerprint: str,
+        target_xid: int,
+        capture_id: str,
+        capture_sequence: int,
+        source: str,
+        observed_monotonic: float,
+        capture_monotonic: float,
+        scene: str,
+        bounds: tuple[int, int, int, int],
+        target_ancestry: tuple[int, ...],
+        capture_sha256: str,
+        generation: int,
+        capture_path: str = "",
+        facts: tuple[tuple[str, str], ...] = (),
+    ) -> MeasuredAnchor:
+        """Build the sealed record returned by the native visual producer."""
+
+        return cls(
+            action=action,
+            x=x,
+            y=y,
+            identity_fingerprint=identity_fingerprint,
+            target_xid=target_xid,
+            capture_id=capture_id,
+            capture_sequence=capture_sequence,
+            source=source,
+            observed_monotonic=observed_monotonic,
+            capture_monotonic=capture_monotonic,
+            facts=tuple(facts),
+            generation=generation,
+            capture_path=capture_path,
+            capture_sha256=capture_sha256,
+            scene=scene,
+            bounds=bounds,
+            target_ancestry=tuple(target_ancestry),
+        ).with_hash()
+
+
+@dataclass(frozen=True)
+class DriverProfile:
+    display: str = ":0"
+    xauthority: str = ""
+    wine_prefix: str = ""
+    client_x: int = 0
+    client_y: int = 0
+    client_width: int = 1920
+    client_height: int = 1080
+    outer_width: int = 1928
+    outer_height: int = 1092
+    window_client_offset: tuple[int, int] = (0, 0)
+    canvas_origin: tuple[int, int] = (80, 48)
+    canvas_crop: tuple[int, int, int, int] = (80, 48, 256, 256)
+    model_crop: tuple[int, int, int, int] = (80, 48, 1760, 984)
+    window_class: str = "wowb.exe"
+    executable: str = "WowB.exe"
+    action_anchors: dict[str, tuple[int, int]] = field(default_factory=dict)
+    anchor_fingerprints: dict[str, str] = field(default_factory=dict)
+    window_title: str = "World of Warcraft"
+    character: str = "Arthur"
+    realm: str = "Classic Beta PvE 2"
+    house: str = "beta-normal-alliance"
+    plan_count: int = 428
+    telemetry_region_executable: Path | None = None
+    telemetry_region_executable_sha256: str | None = None
+
+    def validate(self) -> None:
+        geometry_values = (
+            self.client_x,
+            self.client_y,
+            self.client_width,
+            self.client_height,
+            self.outer_width,
+            self.outer_height,
+            *self.window_client_offset,
+            *self.canvas_origin,
+            *self.canvas_crop,
+            *self.model_crop,
+        )
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in geometry_values):
+            raise DriverError("profile geometry contains a non-integer coordinate")
+        if self.client_width <= 0 or self.client_height <= 0:
+            raise DriverError("client geometry must be positive")
+        left, top, width, height = self.canvas_crop
+        if left < 0 or top < 0 or width <= 0 or height <= 0:
+            raise DriverError("status crop is malformed")
+        if left + width > self.client_width or top + height > self.client_height:
+            raise DriverError("status crop exceeds client geometry")
+        for action, point in self.action_anchors.items():
+            if action not in DesktopDriver.ACTIONS:
+                raise DriverError(f"unknown action anchor {action}")
+            if len(point) != 2 or not all(isinstance(v, int) and not isinstance(v, bool) for v in point):
+                raise DriverError(f"anchor {action} is not an integer pair")
+            if action not in self.anchor_fingerprints:
+                raise DriverError(f"anchor {action} has no measured identity evidence")
+        if (self.telemetry_region_executable is None) != (self.telemetry_region_executable_sha256 is None):
+            raise DriverError("telemetry region executable and SHA-256 must be configured together")
+        if self.telemetry_region_executable is not None:
+            if not self.telemetry_region_executable.is_absolute():
+                raise DriverError("telemetry region executable must be absolute")
+            if not re.fullmatch(r"[0-9a-f]{64}", self.telemetry_region_executable_sha256 or ""):
+                raise DriverError("telemetry region executable SHA-256 is malformed")
+            try:
+                metadata = self.telemetry_region_executable.lstat()
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.getuid()
+                    or not (metadata.st_mode & stat.S_IXUSR)
+                    or (metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+                ):
+                    raise DriverError("telemetry region executable is not private and executable")
+                digest = hashlib.sha256(self.telemetry_region_executable.read_bytes()).hexdigest()
+            except OSError as exc:
+                raise DriverError("telemetry region executable is unavailable") from exc
+            if digest != self.telemetry_region_executable_sha256:
+                raise DriverError("telemetry region executable hash does not match the profile")
+
+
+class Backend(Protocol):
+    def action(self, name: str, **kwargs: Any) -> None: ...
+
+    def capture(
+        self,
+        path: Path,
+        *,
+        identity: WindowIdentity | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> WindowIdentity | None: ...
+
+
+@dataclass
+class RecordingBackend:
+    """Deterministic fake backend; it does not claim native identity."""
+
+    events: list[dict[str, Any]] = field(default_factory=list)
+    captures: list[Path] = field(default_factory=list)
+    command_buffer: str = ""
+    identity: WindowIdentity | None = None
+    action_preconditions: dict[str, bool] = field(default_factory=dict)
+    action_postconditions: dict[str, bool] = field(default_factory=dict)
+
+    def action(self, name: str, **kwargs: Any) -> None:
+        self.events.append({"name": name, **kwargs})
+        if name == "type_allowlisted_command":
+            self.command_buffer = str(kwargs.get("command", ""))
+        elif name in {"submit_command", "escape_command_buffer"}:
+            self.command_buffer = ""
+
+    def capture(
+        self,
+        path: Path,
+        *,
+        identity: WindowIdentity | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> WindowIdentity | None:
+        del deadline_monotonic
+        self.captures.append(path)
+        return identity or self.identity
+
+    def calibration_focus(self, xid: int) -> None:
+        self.events.append({"name": "calibration_focus", "xid": xid})
+
+    def verify_action_precondition(self, name: str, identity: WindowIdentity) -> bool:
+        return self.action_preconditions.get(name, True)
+
+    def verify_action_postcondition(self, name: str, identity: WindowIdentity) -> bool:
+        return self.action_postconditions.get(name, True)
+
+
+def _parse_shell_geometry(text: str) -> tuple[int, int, int, int]:
+    values: dict[str, int] = {}
+    for key, raw in re.findall(r"^(X|Y|WIDTH|HEIGHT)=(.*)$", text, re.MULTILINE):
+        try:
+            values[key] = int(raw)
+        except ValueError as exc:
+            raise DriverError("window geometry is not numeric") from exc
+    if set(values) != {"X", "Y", "WIDTH", "HEIGHT"}:
+        raise DriverError("window geometry is incomplete")
+    return values["X"], values["Y"], values["WIDTH"], values["HEIGHT"]
+
+
+def _parse_xwininfo_tree(text: str) -> tuple[int, dict[int, int], dict[int, tuple[int, int, int, int]]]:
+    """Parse the structural XID tree emitted by ``xwininfo -tree``.
+
+    The queried window is identified by the single native ``xwininfo`` header;
+    only geometrical window rows are structural descendants.  Hexadecimal
+    values elsewhere in diagnostic text are not ancestry.  The indentation of
+    each structural row is the only relationship we accept, so a root or a
+    sibling mentioned in a title/property line cannot accidentally satisfy a
+    client-child check.
+    """
+
+    headers = re.findall(
+        r"^xwininfo:\s+Window id:\s+(0x[0-9a-fA-F]+)\b",
+        text,
+        re.MULTILINE,
+    )
+    if len(headers) != 1:
+        raise DriverError("X11 window tree must contain one queried-window header")
+    root = int(headers[0], 16)
+    rows: list[tuple[int, int, tuple[int, int, int, int] | None]] = []
+    geometry = re.compile(r"\b(\d+)x(\d+)\+(-?\d+)\+(-?\d+)")
+    for line in text.splitlines():
+        match = re.match(r"^(?P<indent>\s*)(?P<xid>0x[0-9a-fA-F]+)\b", line)
+        if not match:
+            continue
+        # xwininfo emits either a quoted WM name and class tuple, or the
+        # explicit ``(has no name): ()`` form, before each row's geometry.
+        # Requiring that complete marker keeps a hexadecimal token in a
+        # title/property diagnostic from becoming an invented descendant.
+        row_prefix = re.match(
+            r'\s+(?:(?:"(?:[^"\\]|\\.)*")\s*:\s+\([^)]*\)|\([^)]*\)\s*:\s+\([^)]*\))',
+            line[match.end() :],
+        )
+        if row_prefix is None:
+            continue
+        size = geometry.search(line)
+        if size is None:
+            continue
+        rows.append(
+            (
+                len(match.group("indent").expandtabs(8)),
+                int(match.group("xid"), 16),
+                (
+                    int(size.group(3)),
+                    int(size.group(4)),
+                    int(size.group(1)),
+                    int(size.group(2)),
+                ),
+            )
+        )
+    if not rows:
+        raise DriverError("X11 window tree contains no structural window rows")
+    if any(xid == root for _indent, xid, _geometry in rows):
+        raise DriverError("X11 window tree repeats its queried root as a child")
+    if len({xid for _indent, xid, _geometry in rows}) != len(rows):
+        raise DriverError("X11 window tree contains a duplicate structural window")
+
+    first_indent = rows[0][0]
+    if any(indent < first_indent for indent, _xid, _geometry in rows):
+        raise DriverError("X11 window tree has invalid structural indentation")
+    parents: dict[int, int] = {}
+    geometries: dict[int, tuple[int, int, int, int]] = {}
+    stack: list[tuple[int, int]] = [(first_indent - 1, root)]
+    for indent, xid, parsed_geometry in rows:
+        while stack and stack[-1][0] >= indent:
+            stack.pop()
+        if not stack:
+            raise DriverError("X11 window tree has invalid structural ancestry")
+        parents[xid] = stack[-1][1]
+        stack.append((indent, xid))
+        geometries[xid] = parsed_geometry
+    return root, parents, geometries
+
+
+class X11Backend:
+    """Measured Xwayland backend using one verified-focus XTEST path."""
+
+    def __init__(self, profile: DriverProfile, *, input_tool: PinnedInputTool | None = None):
+        profile.validate()
+        _validate_x11_display_screen(profile.display)
+        self.profile = profile
+        try:
+            self.input_tool = input_tool or PinnedInputTool.load()
+        except InputToolError as exc:
+            raise DriverError(f"private XTEST input tool is not admissible: {exc}") from exc
+        self._tool_drift_callback: Callable[[str], None] | None = None
+        self._tool_drifted = False
+        inherited_xauthority = profile.xauthority or os.environ.get("XAUTHORITY", "")
+        self.xauthority = (
+            os.path.realpath(os.path.expanduser(inherited_xauthority)) if inherited_xauthority else ""
+        )
+        self.window_id: str | None = None
+        self.last_identity: WindowIdentity | None = None
+        self._active_processes: set[subprocess.Popen[str]] = set()
+        self._active_process_groups: set[int] = set()
+        self._process_lock = threading.RLock()
+        self._capture_revocation_epoch = 0
+        self._cancel_active = threading.Event()
+        self._active_generation: int | None = None
+        self._canceled_generations: set[int] = set()
+        self._process_generations: dict[int, int | None] = {}
+        self._process_calibration_tickets: dict[int, CalibrationTicket] = {}
+        self._held_keys: set[str] = set()
+        self._held_buttons: set[int] = set()
+        self._anchor_lock = threading.RLock()
+        self._measured_anchors: dict[str, MeasuredAnchor] = {}
+        self._consumed_anchor_seals: set[str] = set()
+        self._consumed_anchor_sequences: dict[str, int] = {}
+        self._admission: Callable[[int, Callable[[], Any]], Any] | None = None
+        self._calibration_admission: Callable[[CalibrationTicket, Callable[[], Any]], Any] | None = None
+        self._register_process_group: Callable[[int | None, int], None] | None = None
+        self._register_calibration_process_group: Callable[[CalibrationTicket, int], None] | None = None
+        self._unregister_process_group: Callable[[int], None] | None = None
+        self._calibration_ticket_current: Callable[[CalibrationTicket], bool] | None = None
+        self._publish_holds: Callable[[Any, set[str], set[int]], None] | None = None
+        self._admission_health: Callable[[], None] | None = None
+        self._calibration_focus_ticket: CalibrationTicket | None = None
+        # The native calibration producer records the query-confirmed origin,
+        # requested endpoint, and exact post-move result.  This is evidence
+        # carried into the calibration seal; it is deliberately absent until
+        # a complete, successful producer action has finished.
+        self._last_synthetic_motion_query: tuple[Any, ...] | None = None
+        self.last_region_receipt: TelemetryRegionReceipt | None = None
+
+    def set_admission(self, admission: Callable[[int, Callable[[], Any]], Any] | None) -> None:
+        """Install the guardian's shared generation admission fence."""
+
+        self._admission = admission
+
+    def set_calibration_admission(
+        self, admission: Callable[[CalibrationTicket, Callable[[], Any]], Any] | None
+    ) -> None:
+        """Install the owned-GTK-only admission fence used before game arming."""
+
+        self._calibration_admission = admission
+
+    def set_calibration_ticket_validator(self, validator: Callable[[CalibrationTicket], bool] | None) -> None:
+        self._calibration_ticket_current = validator
+
+    def set_hold_publisher(self, publisher: Callable[[Any, set[str], set[int]], None] | None) -> None:
+        """Publish physical holds only while a capability is being admitted."""
+
+        self._publish_holds = publisher
+
+    def set_admission_health(self, health: Callable[[], None] | None) -> None:
+        """Recheck the watchdog immediately before committing the gate token."""
+
+        self._admission_health = health
+
+    def set_tool_drift_callback(self, callback: Callable[[str], None] | None) -> None:
+        self._tool_drift_callback = callback
+
+    @property
+    def input_tool_digest(self) -> str:
+        return self.input_tool.digest
+
+    @property
+    def input_tool_version(self) -> str:
+        return self.input_tool.version
+
+    def _check_published_tool(self, *, emergency_release: bool = False) -> None:
+        # Emergency release deliberately uses the already pinned old image;
+        # it must remain possible after the disk artifact is replaced/deleted.
+        if emergency_release:
+            return
+        try:
+            published = verify_artifact(self.input_tool.identity.root)
+        except InputToolError as exc:
+            reason = f"private XTEST input tool publication drifted: {exc}"
+            self._tool_drifted = True
+            callback = self._tool_drift_callback
+            if callback is not None:
+                callback(reason)
+            raise DriverError(reason) from exc
+        if published.executable_sha256 != self.input_tool.digest:
+            reason = "private XTEST input tool executable digest changed after pinning"
+            self._tool_drifted = True
+            callback = self._tool_drift_callback
+            if callback is not None:
+                callback(reason)
+            raise DriverError(reason)
+
+    def set_process_group_callbacks(
+        self,
+        register: Callable[[int | None, int], None] | None,
+        unregister: Callable[[int], None] | None,
+        register_calibration: Callable[[CalibrationTicket, int], None] | None = None,
+    ) -> None:
+        self._register_process_group = register
+        self._unregister_process_group = unregister
+        self._register_calibration_process_group = register_calibration
+
+    def activate_generation(self, generation: int) -> None:
+        # A release leaves cancellation asserted.  Only the explicit arm
+        # boundary may clear it, and DesktopDriver calls this after the
+        # guardian has accepted the new epoch.
+        self._active_generation = generation
+        self._cancel_active.clear()
+
+    def _is_cancelled(
+        self, generation: int | None, calibration_ticket: CalibrationTicket | None = None
+    ) -> bool:
+        if calibration_ticket is not None:
+            validator = getattr(self, "_calibration_ticket_current", None)
+            return callable(validator) and not validator(calibration_ticket)
+        if generation is not None:
+            return generation in getattr(self, "_canceled_generations", set()) or (
+                self._cancel_active.is_set() and getattr(self, "_active_generation", None) != generation
+            )
+        return self._cancel_active.is_set()
+
+    def _run(
+        self,
+        args: list[str],
+        *,
+        timeout: float = 5.0,
+        generation: int | None = None,
+        calibration_ticket: CalibrationTicket | None = None,
+        held_keys: set[str] | frozenset[str] = frozenset(),
+        held_buttons: set[int] | frozenset[int] = frozenset(),
+        input_schema: str | None = None,
+        expected_argv: tuple[str, ...] | None = None,
+        deadline_monotonic: float | None = None,
+        emergency_release: bool = False,
+    ) -> subprocess.CompletedProcess[str]:
+        environment = os.environ.copy()
+        environment["DISPLAY"] = self.profile.display
+        if not self.xauthority:
+            raise DriverError("Xauthority path must be explicitly configured or inherited")
+        environment["XAUTHORITY"] = self.xauthority
+        if self._is_cancelled(generation, calibration_ticket):
+            raise DriverError("desktop action was cancelled")
+        if deadline_monotonic is not None and (
+            isinstance(deadline_monotonic, bool)
+            or not isinstance(deadline_monotonic, (int, float))
+            or not math.isfinite(float(deadline_monotonic))
+        ):
+            raise DriverError("desktop action deadline is malformed")
+        if not args:
+            raise DriverError("desktop command is not allowlisted: <empty>")
+        command_name = os.path.basename(args[0])
+        pinned_tool = getattr(self, "input_tool", None)
+        if command_name == "xdotool" and pinned_tool is not None:
+            self._check_published_tool(emergency_release=emergency_release)
+        if generation is not None and calibration_ticket is not None:
+            raise DriverError("desktop action cannot carry game and calibration authority together")
+        if expected_argv is not None and tuple(args) != tuple(expected_argv):
+            raise DriverError("desktop command does not match its sealed typed input plan")
+        known_input_schemas = {"motion-key", "camera-drag", "pointer-motion", "single-click"}
+        if input_schema is not None and input_schema not in known_input_schemas:
+            raise DriverError("unknown input schema")
+
+        def xid(value: str) -> bool:
+            return bool(re.fullmatch(r"(?:0x[0-9a-fA-F]+|[0-9]+)", value))
+
+        def integer(value: str) -> bool:
+            return bool(re.fullmatch(r"-?[0-9]+", value))
+
+        def bounded_sleep(value: str) -> bool:
+            if not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", value):
+                return False
+            amount = float(value)
+            return math.isfinite(amount) and 0.0 < amount <= 2.0
+
+        def gesture_chain(tokens: list[str]) -> tuple[bool, bool]:
+            """Validate the legacy generic grammar for non-pointer probes."""
+
+            if not tokens or len(tokens) > 4096:
+                return False, False
+            index = 0
+            operations = 0
+            held_button: str | None = None
+            held_key: str | None = None
+            uses_input = False
+            while index < len(tokens):
+                operation = tokens[index]
+                if operation == "mousemove":
+                    if (
+                        index + 2 >= len(tokens)
+                        or not integer(tokens[index + 1])
+                        or not integer(tokens[index + 2])
+                    ):
+                        return False, False
+                    index += 3
+                    operations += 1
+                    uses_input = True
+                    continue
+                if operation == "sleep":
+                    if index + 1 >= len(tokens) or not bounded_sleep(tokens[index + 1]):
+                        return False, False
+                    index += 2
+                    continue
+                if operation == "mousedown":
+                    if (
+                        index + 1 >= len(tokens)
+                        or tokens[index + 1] not in {"1", "3"}
+                        or held_button is not None
+                    ):
+                        return False, False
+                    held_button = tokens[index + 1]
+                    index += 2
+                    operations += 1
+                    uses_input = True
+                    continue
+                if operation == "keydown":
+                    if (
+                        index + 1 >= len(tokens)
+                        or held_key is not None
+                        or not re.fullmatch(r"[A-Za-z0-9_+.-]+", tokens[index + 1])
+                    ):
+                        return False, False
+                    held_key = tokens[index + 1]
+                    index += 2
+                    operations += 1
+                    uses_input = True
+                    continue
+                if operation == "keyup":
+                    if index + 1 >= len(tokens) or tokens[index + 1] != held_key:
+                        return False, False
+                    held_key = None
+                    index += 2
+                    operations += 1
+                    uses_input = True
+                    continue
+                if operation == "mouseup":
+                    if index + 1 >= len(tokens) or tokens[index + 1] != held_button:
+                        return False, False
+                    held_button = None
+                    index += 2
+                    operations += 1
+                    uses_input = True
+                    continue
+                return False, False
+            return operations > 0 and held_button is None and held_key is None, uses_input
+
+        def pointer_segment(tokens: list[str], *, require_motion: bool) -> tuple[bool, bool]:
+            """Validate a pointer-only timed segment with no button/key state."""
+
+            if len(tokens) > 4096:
+                return False, False
+            index = 0
+            moves = 0
+            operations = 0
+            while index < len(tokens):
+                operation = tokens[index]
+                if operation == "sleep":
+                    if index + 1 >= len(tokens) or not bounded_sleep(tokens[index + 1]):
+                        return False, False
+                    index += 2
+                    continue
+                if operation != "mousemove":
+                    return False, False
+                if (
+                    index + 2 >= len(tokens)
+                    or not integer(tokens[index + 1])
+                    or not integer(tokens[index + 2])
+                ):
+                    return False, False
+                moves += 1
+                operations += 1
+                index += 3
+            return (operations > 0 or not require_motion) and (not require_motion or moves > 0), moves > 0
+
+        def camera_chain(tokens: list[str]) -> tuple[bool, bool]:
+            """Validate optional pointer positioning plus one held right drag."""
+
+            if not tokens or len(tokens) > 4096 or tokens[-2:] != ["mouseup", "3"]:
+                return False, False
+            presses = [index for index, token in enumerate(tokens) if token == "mousedown"]
+            if len(presses) != 1:
+                return False, False
+            press = presses[0]
+            if tokens[press : press + 2] != ["mousedown", "3"]:
+                return False, False
+            prefix = tokens[:press]
+            held = tokens[press + 2 : -2]
+            prefix_valid, _prefix_motion = pointer_segment(prefix, require_motion=False)
+            held_valid, held_motion = pointer_segment(held, require_motion=True)
+            return prefix_valid and held_valid and held_motion, prefix_valid and held_motion
+
+        # Every desktop subprocess is admitted by a positive argv schema.
+        # This keeps newly added X11 utilities and shell-like xdotool modes
+        # closed by default; a denylist cannot safely describe the mutation
+        # surface of tools such as ``xprop`` or ``xdotool exec``.
+        mutating = False
+        potential_mutation = (
+            command_name == "xdotool"
+            and len(args) > 1
+            and args[1]
+            in {
+                "windowactivate",
+                "windowfocus",
+                "windowraise",
+                "key",
+                "keydown",
+                "keyup",
+                "type",
+                "mousemove",
+                "mousemove_relative",
+                "click",
+                "mousedown",
+                "mouseup",
+                "exec",
+            }
+        )
+        if potential_mutation and generation is None and calibration_ticket is None:
+            raise DriverError("input-producing desktop command requires an active capability")
+        if command_name == "true":
+            valid = len(args) == 1
+        elif command_name == "sleep":
+            valid = len(args) == 2 and bool(re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", args[1]))
+        elif command_name == "gnome-screenshot":
+            valid = len(args) == 3 and args[1] == "-f" and os.path.isabs(args[2])
+        elif command_name == "xinput":
+            valid = (
+                args == ["xinput", "--list", "--short"]
+                or (
+                    len(args) == 4
+                    and args[1] == "list"
+                    and args[2] == "--long"
+                    and bool(re.fullmatch(r"[1-9][0-9]*", args[3]))
+                )
+                or (
+                    len(args) == 3 and args[1] == "list-props" and bool(re.fullmatch(r"[1-9][0-9]*", args[2]))
+                )
+            )
+        elif command_name == "xmodmap":
+            valid = args == ["xmodmap", "-pke"]
+        elif command_name == "xwininfo":
+            valid = tuple(args) in {
+                ("xwininfo", "-root", "-tree"),
+                ("xwininfo", "-root", "-stats"),
+            } or (len(args) == 4 and args[1] == "-id" and xid(args[2]) and args[3] in {"-tree", "-geometry"})
+        elif command_name == "xprop":
+            valid = args == ["xprop", "-root", "_NET_ACTIVE_WINDOW"] or (
+                len(args) >= 4
+                and args[1] == "-id"
+                and xid(args[2])
+                and all(
+                    property_name
+                    in {"WM_NAME", "_NET_WM_NAME", "_NET_WM_PID", "WM_CLASS", "_NET_ACTIVE_WINDOW"}
+                    for property_name in args[3:]
+                )
+            )
+        elif command_name == "xdotool":
+            subcommand = args[1] if len(args) > 1 else ""
+            if subcommand == "search":
+                valid = len(args) == 4 and args[2] == "--name" and bool(args[3])
+            elif subcommand == "getwindowgeometry":
+                valid = len(args) == 4 and args[2] == "--shell" and xid(args[3])
+            elif subcommand == "getwindowfocus":
+                valid = len(args) == 2
+            elif subcommand == "getmouselocation":
+                valid = args == ["xdotool", "getmouselocation", "--shell"]
+            elif subcommand in {"windowactivate", "windowfocus", "windowraise"}:
+                valid = len(args) == 4 and args[2] == "--sync" and xid(args[3])
+                mutating = valid
+            elif input_schema in known_input_schemas:
+                if input_schema == "motion-key":
+                    valid = (
+                        len(args) == 7
+                        and args[2] == args[6]
+                        and args[1] == "keydown"
+                        and args[3] == "sleep"
+                        and args[5] == "keyup"
+                        and bool(re.fullmatch(r"[a-z]", args[2]))
+                        and bounded_sleep(args[4])
+                    )
+                    mutating = valid
+                elif input_schema == "camera-drag":
+                    valid, mutating = camera_chain(args[1:])
+                elif input_schema == "single-click":
+                    valid = (
+                        len(args) == 7
+                        and args[1] == "mousedown"
+                        and args[2] in {"1", "3"}
+                        and args[3] == "sleep"
+                        and bounded_sleep(args[4])
+                        and args[5] == "mouseup"
+                        and args[6] == args[2]
+                    )
+                    mutating = valid
+                else:
+                    valid, mutating = pointer_segment(args[1:], require_motion=True)
+            elif subcommand in {"key", "keydown", "keyup"}:
+                valid = (
+                    len(args) in {3, 4}
+                    and (len(args) == 3 or args[2] == "--")
+                    and bool(re.fullmatch(r"[A-Za-z0-9_+.-]+", args[-1]))
+                    and "--clearmodifiers" not in args
+                )
+                mutating = valid
+            elif subcommand == "mousemove":
+                if len(args) == 4:
+                    valid = integer(args[2]) and integer(args[3])
+                    mutating = valid
+                else:
+                    valid, mutating = gesture_chain(args[1:])
+            elif subcommand in {"sleep", "mousedown", "mouseup"}:
+                valid, mutating = gesture_chain(args[1:])
+            elif subcommand == "click":
+                valid = len(args) == 3 and bool(re.fullmatch(r"[1-9][0-9]*", args[2]))
+                mutating = valid
+            else:
+                valid = False
+        else:
+            valid = False
+        if not valid:
+            raise DriverError(f"desktop command argv is not allowlisted: {' '.join(args)}")
+        if input_schema in known_input_schemas:
+            if any(not isinstance(key, str) or not key for key in held_keys):
+                raise DriverError("typed input argv has malformed held key metadata")
+            if any(
+                isinstance(button, bool) or not isinstance(button, int) or button <= 0
+                for button in held_buttons
+            ):
+                raise DriverError("typed input argv has malformed held button metadata")
+            expected_keys: frozenset[str]
+            expected_buttons: frozenset[int]
+            if input_schema == "motion-key":
+                expected_keys = frozenset({args[2]})
+                expected_buttons = frozenset()
+            elif input_schema == "single-click":
+                expected_keys = frozenset()
+                expected_buttons = frozenset({int(args[2])})
+            elif input_schema == "camera-drag":
+                expected_keys = frozenset()
+                expected_buttons = frozenset({3})
+            else:
+                expected_keys = frozenset()
+                expected_buttons = frozenset()
+            if frozenset(held_keys) != expected_keys or frozenset(held_buttons) != expected_buttons:
+                raise DriverError("typed input argv holds do not match its sealed input plan")
+        elif command_name == "xdotool" and subcommand in {
+            "key",
+            "keydown",
+            "keyup",
+            "mousedown",
+            "mouseup",
+            "click",
+        }:
+            # The ordinary named-key and calibration paths have no explicit
+            # input schema, so derive their physical ownership directly from
+            # the sealed argv as well.  This prevents a caller from asking
+            # the watchdog to release a different key/button than the child
+            # process was admitted to emit.
+            if subcommand == "key":
+                expected_keys = frozenset(part for part in args[-1].split("+") if part)
+                expected_buttons = frozenset()
+            elif subcommand in {"keydown", "keyup"}:
+                expected_keys = frozenset({args[-1]})
+                expected_buttons = frozenset()
+            else:
+                expected_keys = frozenset()
+                expected_buttons = frozenset({int(args[-1])})
+            if frozenset(held_keys) != expected_keys or frozenset(held_buttons) != expected_buttons:
+                raise DriverError("desktop argv holds do not match its sealed input plan")
+        if mutating and generation is None and calibration_ticket is None:
+            raise DriverError("input-producing desktop command requires an active capability")
+        if mutating and calibration_ticket is not None:
+            if command_name == "xdotool" and subcommand in {"windowactivate", "windowfocus", "windowraise"}:
+                if len(args) != 4 or int(args[3], 0) != calibration_ticket.target_xid:
+                    raise DriverError("calibration mutation target is outside the certified GTK target")
+            elif self._calibration_focus_ticket is not calibration_ticket:
+                raise DriverError("calibration mutation requires a certified focused GTK target")
+        if generation is not None and not callable(getattr(self, "_admission", None)):
+            raise DriverError("game input admission fence is not configured")
+        if calibration_ticket is not None and not callable(getattr(self, "_calibration_admission", None)):
+            raise DriverError("calibration input admission fence is not configured")
+        if calibration_ticket is not None and not callable(
+            getattr(self, "_calibration_ticket_current", None)
+        ):
+            raise DriverError("calibration ticket validator is not configured")
+        if command_name == "xdotool":
+            if pinned_tool is None:
+                raise DriverError("private XTEST input tool is not configured")
+            # The helper inherits the sealed memfd and execs this proc fd;
+            # reopening the published pathname would defeat the pin.
+            executable = self.input_tool.proc_path
+        else:
+            executable = _resolve_wrapped_executable(args[0])
+        process: subprocess.Popen[str] | None = None
+        completed_successfully = False
+        gate_read, gate_write = os.pipe()
+        admission_gate = AdmissionGate(gate_write)
+
+        def spawn() -> subprocess.Popen[str]:
+            nonlocal process, gate_read
+            # Resolve the executable before handing it to the helper.  The
+            # wrapper itself never invokes a shell and only receives this
+            # already allowlisted argv vector.
+            process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-I",
+                    "-S",
+                    "-c",
+                    _EXEC_ADMISSION_WRAPPER,
+                    str(gate_read),
+                    executable,
+                    *args[1:],
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+                start_new_session=True,
+                pass_fds=(gate_read, self.input_tool.image.fd)
+                if command_name == "xdotool" and pinned_tool is not None
+                else (gate_read,),
+            )
+            # Registration is part of the same admission critical section as
+            # Popen.  A revoke can therefore never miss a newly-created
+            # process group.
+            with self._process_lock:
+                if not hasattr(self, "_process_generations"):
+                    self._process_generations = {}
+                if not hasattr(self, "_active_process_groups"):
+                    self._active_process_groups = set()
+                self._active_processes.add(process)
+                self._active_process_groups.add(process.pid)
+                if generation is not None:
+                    self._process_generations[process.pid] = generation
+                elif calibration_ticket is not None:
+                    self._process_calibration_tickets[process.pid] = calibration_ticket
+            try:
+                register_group = getattr(self, "_register_process_group", None)
+                register_calibration_group = getattr(self, "_register_calibration_process_group", None)
+                if generation is not None:
+                    if register_group is None:
+                        raise DriverError("game process-group admission is not configured")
+                    register_group(generation, process.pid)
+                elif calibration_ticket is not None:
+                    if register_calibration_group is None:
+                        raise DriverError("calibration process-group admission is not configured")
+                    register_calibration_group(calibration_ticket, process.pid)
+            except Exception:
+                with self._process_lock:
+                    self._active_processes.discard(process)
+                    getattr(self, "_active_process_groups", set()).discard(process.pid)
+                    getattr(self, "_process_generations", {}).pop(process.pid, None)
+                    getattr(self, "_process_calibration_tickets", {}).pop(process.pid, None)
+                # The admission fence may still be held by the guardian.  A
+                # registration failure only needs an immediate kill here;
+                # the normal finally/reaper path waits after that lock is
+                # released so revocation never waits on child teardown.
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                raise
+            try:
+                os.close(gate_read)
+            except OSError:
+                pass
+            gate_read = -1
+            return process
+
+        def spawn_and_release_gate() -> subprocess.Popen[str]:
+            """Spawn/register the wrapper and open it only inside admission."""
+
+            nonlocal gate_write
+            if deadline_monotonic is not None and time.monotonic() >= float(deadline_monotonic):
+                raise DriverError("desktop action deadline expired before emission")
+            admitted = spawn()
+            if self._is_cancelled(generation, calibration_ticket):
+                try:
+                    admitted.kill()
+                except OSError:
+                    pass
+                raise DriverError("desktop action was cancelled")
+            if deadline_monotonic is not None and time.monotonic() >= float(deadline_monotonic):
+                try:
+                    admitted.kill()
+                except OSError:
+                    pass
+                raise DriverError("desktop action deadline expired before emission")
+            if self._publish_holds is not None and (generation is not None or calibration_ticket is not None):
+                # The wrapper is still blocked on its positive admission gate.  Publish the
+                # exact items immediately before releasing that gate, after
+                # Popen and PGID registration, so a rejected spawn cannot
+                # cause a keyup/mouseup for input that was never emitted.
+                self._publish_holds(calibration_ticket or generation, set(held_keys), set(held_buttons))
+                with self._process_lock:
+                    self._held_keys = set(held_keys)
+                    self._held_buttons = set(held_buttons)
+            admission_health = getattr(self, "_admission_health", None)
+            if admission_health is not None:
+                admission_health()
+            try:
+                admission_gate.release()
+            except OSError as exc:
+                try:
+                    admitted.kill()
+                except OSError:
+                    pass
+                raise DriverError("desktop action gate could not be released") from exc
+            gate_write = -1
+            return admitted
+
+        try:
+            admission = (
+                getattr(self, "_calibration_admission", None)
+                if calibration_ticket is not None
+                else getattr(self, "_admission", None)
+            )
+            admission_token: Any = calibration_ticket if calibration_ticket is not None else generation
+            if admission_token is not None and admission is None:
+                raise DriverError("desktop action admission fence is not configured")
+            if admission_token is not None and admission is not None:
+                admission(admission_token, spawn_and_release_gate)
+            else:
+                spawn_and_release_gate()
+            if process is None:
+                raise DriverError("desktop command was not admitted")
+            # The wrapper has already exec'd. Its positive token was written
+            # only after Popen, process-group tracking, and the generation or
+            # ticket admission fence completed. Waiting for the target's
+            # result stays outside that fence.
+            now = time.monotonic()
+            deadline = now + timeout
+            if deadline_monotonic is not None:
+                deadline = min(deadline, float(deadline_monotonic))
+            while True:
+                if self._is_cancelled(generation, calibration_ticket):
+                    terminated = self._terminate_process(process)
+                    if not terminated:
+                        raise DriverError("desktop action termination could not be confirmed")
+                    raise DriverError("desktop action was cancelled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    terminated = self._terminate_process(process)
+                    if not terminated:
+                        raise DriverError("desktop command termination could not be confirmed")
+                    raise DriverError(f"desktop command timed out: {' '.join(args)}")
+                try:
+                    stdout, stderr = process.communicate(timeout=min(0.1, remaining))
+                    break
+                except subprocess.TimeoutExpired:
+                    continue
+            if process.returncode:
+                raise DriverError(
+                    f"desktop command failed: {' '.join(args)}: {stderr.strip() or process.returncode}"
+                )
+            completed_successfully = True
+            return subprocess.CompletedProcess(args, process.returncode, stdout, stderr)
+        except DriverError:
+            raise
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise DriverError(f"desktop command failed: {' '.join(args)}: {exc}") from exc
+        finally:
+            if gate_write >= 0:
+                try:
+                    admission_gate.close()
+                except OSError:
+                    pass
+            if gate_read >= 0:
+                try:
+                    os.close(gate_read)
+                except OSError:
+                    pass
+            if process is not None:
+                if process.poll() is None:
+                    self._terminate_process(process)
+                if process.poll() is not None:
+                    # A timeout or cancellation may terminate the wrapper
+                    # before the normal communicate() path.  Drain and close
+                    # its pipes before dropping the process reference so a
+                    # bounded failure cannot leak descriptors into later
+                    # actions.
+                    try:
+                        process.communicate()
+                    except (OSError, ValueError, subprocess.SubprocessError):
+                        pass
+                    if self._publish_holds is not None:
+                        try:
+                            # A cleanly completed XTEST command owns no
+                            # remaining physical item.  A failed/cancelled
+                            # command may have been killed between key/button
+                            # press and release, so retain the exact current
+                            # set for the explicit release authority.
+                            self._publish_holds(
+                                calibration_ticket or generation,
+                                set() if completed_successfully else set(self._held_keys),
+                                set() if completed_successfully else set(self._held_buttons),
+                            )
+                        except Exception:
+                            pass
+                    self._forget_process(process)
+                else:
+                    self._reap_process_later(
+                        process,
+                        calibration_ticket or generation,
+                        clear_holds=completed_successfully,
+                    )
+            if completed_successfully and (generation is not None or calibration_ticket is not None):
+                with self._process_lock:
+                    self._held_keys.difference_update(held_keys)
+                    self._held_buttons.difference_update(held_buttons)
+
+    @property
+    def active_process_groups(self) -> frozenset[int]:
+        with self._process_lock:
+            return frozenset(getattr(self, "_active_process_groups", set()))
+
+    def _forget_process(self, process: subprocess.Popen[str]) -> None:
+        with self._process_lock:
+            self._active_processes.discard(process)
+            getattr(self, "_active_process_groups", set()).discard(process.pid)
+            getattr(self, "_process_generations", {}).pop(process.pid, None)
+            getattr(self, "_process_calibration_tickets", {}).pop(process.pid, None)
+        unregister_group = getattr(self, "_unregister_process_group", None)
+        if unregister_group is not None:
+            try:
+                unregister_group(process.pid)
+            except Exception:
+                pass
+
+    def _reap_process_later(
+        self, process: subprocess.Popen[str], authority: Any, *, clear_holds: bool = False
+    ) -> None:
+        def reap() -> None:
+            try:
+                process.communicate()
+            except (OSError, ValueError):
+                try:
+                    process.wait()
+                except (OSError, subprocess.SubprocessError):
+                    return
+            if clear_holds and self._publish_holds is not None:
+                try:
+                    self._publish_holds(authority, set(), set())
+                except Exception:
+                    pass
+            self._forget_process(process)
+
+        threading.Thread(target=reap, name="crowley-process-reaper", daemon=True).start()
+
+    @staticmethod
+    def _terminate_process(process: subprocess.Popen[str]) -> bool:
+        if process.poll() is not None:
+            return True
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except OSError:
+            try:
+                process.terminate()
+            except OSError:
+                pass
+        try:
+            process.wait(timeout=0.5)
+        except subprocess.TimeoutExpired:
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except OSError:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+            try:
+                process.wait(timeout=0.5)
+            except subprocess.TimeoutExpired:
+                return False
+        return process.poll() is not None
+
+    def _xprop(
+        self,
+        xid: str,
+        *properties: str,
+        deadline_monotonic: float | None = None,
+    ) -> str:
+        return self._run(["xprop", "-id", xid, *properties], deadline_monotonic=deadline_monotonic).stdout
+
+    def _release_command(self, args: list[str]) -> bool:
+        environment = os.environ.copy()
+        environment["DISPLAY"] = self.profile.display
+        if not self.xauthority:
+            return False
+        environment["XAUTHORITY"] = self.xauthority
+        command = list(args)
+        pass_fds: tuple[int, ...] = ()
+        if command and os.path.basename(command[0]) == "xdotool":
+            self._check_published_tool(emergency_release=True)
+            command[0] = self.input_tool.proc_path
+            pass_fds = (self.input_tool.image.fd,)
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=1.0,
+                env=environment,
+                pass_fds=pass_fds,
+            )
+            return completed.returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            return False
+
+    def observe_keymap(self, *, deadline_monotonic: float | None = None) -> dict[str, int]:
+        """Read the current X server keymap through the owned backend."""
+
+        mapping: dict[str, int] = {}
+        for keycode, symbols in self.observe_keymap_levels(deadline_monotonic=deadline_monotonic).items():
+            # Calibration's generic vocabulary is level-zero only.  Shifted
+            # symbols stay in the level table and are never flattened into a
+            # runtime movement binding.
+            mapping.setdefault(symbols[0], keycode)
+        if not mapping:
+            raise DriverError("owned X11 backend returned an empty keymap")
+        return mapping
+
+    def observe_keymap_levels(self, *, deadline_monotonic: float | None = None) -> dict[int, tuple[str, ...]]:
+        """Return each keycode's ordered XKB level-0/shift symbols.
+
+        Runtime movement may emit only a level-0 keysym.  The old flattened
+        map cannot distinguish ``w`` from a shifted ``W`` that shares the same
+        keycode, so callers that emit physical movement keys must use this
+        sealed level ordering as well as the keycode.
+        """
+
+        output = self._run(["xmodmap", "-pke"], timeout=5, deadline_monotonic=deadline_monotonic).stdout
+        levels: dict[int, tuple[str, ...]] = {}
+        for line in output.splitlines():
+            match = re.match(r"^\s*keycode\s+(\d+)\s*=\s*(.*?)\s*$", line)
+            if not match:
+                continue
+            keycode = int(match.group(1))
+            symbols = tuple(keysym for keysym in match.group(2).split() if keysym and keysym != "NoSymbol")
+            if not symbols or keycode in levels:
+                if keycode in levels and levels[keycode] != symbols:
+                    raise DriverError("owned X11 keymap repeats a keycode with conflicting levels")
+                continue
+            levels[keycode] = symbols
+        if not levels:
+            raise DriverError("owned X11 backend returned no keymap levels")
+        return levels
+
+    def synthetic_keyboard_profile(
+        self,
+        operations: tuple[Any, ...],
+        *,
+        calibration_ticket: CalibrationTicket,
+    ) -> None:
+        """Emit the finite keyboard profile through the owned XTEST path.
+
+        The calibration workflow supplies operations whose steps describe the
+        physical transitions that the runtime will later correlate.  A simple
+        press/release pair is emitted with ``xdotool key``; a chord such as
+        Control+A is emitted as one key sequence so xdotool preserves the
+        measured modifier transition order.  Every subprocess carries the
+        exact GTK ticket and therefore remains behind the common calibration
+        admission fence.
+        """
+
+        if not isinstance(calibration_ticket, CalibrationTicket):
+            raise DriverError("keyboard calibration requires an exact calibration ticket")
+        if not operations:
+            raise DriverError("keyboard calibration profile is empty")
+        from .calibration import KeyboardProbeOperation, KeyboardProbeStep
+
+        def token(keysym: str) -> str:
+            return {
+                "Control_L": "ctrl",
+                "Control_R": "ctrl",
+                "Return": "Return",
+                "Escape": "Escape",
+            }.get(keysym, keysym)
+
+        for operation in operations:
+            if not isinstance(operation, KeyboardProbeOperation) or not operation.steps:
+                raise DriverError("keyboard calibration operation is malformed")
+            if any(not isinstance(step, KeyboardProbeStep) for step in operation.steps):
+                raise DriverError("keyboard calibration step is malformed")
+            steps = operation.steps
+            index = 0
+            while index < len(steps):
+                step = steps[index]
+                # The normal runtime emissions are complete key pairs.  This
+                # keeps ASCII text bounded one character at a time and makes
+                # the profile rows directly reusable for dispatch.
+                if (
+                    index + 1 < len(steps)
+                    and step.phase == "press"
+                    and steps[index + 1].phase == "release"
+                    and steps[index + 1].keysym == step.keysym
+                ):
+                    sequence = token(step.keysym)
+                    index += 2
+                else:
+                    # Chords are represented as an ordered press/release
+                    # stream.  xdotool's ``+`` sequence produces that same
+                    # stream without asking it to clear or restore modifiers.
+                    chord = list(steps[index:])
+                    if not chord or any(not item.keysym for item in chord):
+                        raise DriverError("keyboard calibration chord is malformed")
+                    pressed = [item.keysym for item in chord if item.phase == "press"]
+                    released = [item.keysym for item in chord if item.phase == "release"]
+                    if not pressed or not released or released != list(reversed(pressed[1:])) + [pressed[0]]:
+                        raise DriverError("keyboard calibration chord transition order is malformed")
+                    sequence = "+".join(token(keysym) for keysym in pressed)
+                    index = len(steps)
+                    held = set(pressed)
+                    self._run(
+                        ["xdotool", "key", "--", sequence],
+                        calibration_ticket=calibration_ticket,
+                        held_keys=held,
+                    )
+                    continue
+                self._run(
+                    ["xdotool", "key", "--", sequence],
+                    calibration_ticket=calibration_ticket,
+                    held_keys={step.keysym},
+                )
+
+    def release_held_input(self) -> None:
+        """Cancel active command groups, then release every tracked key/button."""
+
+        if not hasattr(self, "_cancel_active"):
+            self._cancel_active = threading.Event()
+        if not hasattr(self, "_canceled_generations"):
+            self._canceled_generations = set()
+        with self._process_lock:
+            if not hasattr(self, "_capture_revocation_epoch"):
+                self._capture_revocation_epoch = 0
+            self._capture_revocation_epoch += 1
+            self._cancel_active.set()
+            processes = tuple(self._active_processes)
+            self._canceled_generations.update(
+                generation
+                for generation in getattr(self, "_process_generations", {}).values()
+                if generation is not None
+            )
+        failed = False
+        for process in processes:
+            self._terminate_process(process)
+            if process.poll() is None:
+                failed = True
+        keys = tuple(self._held_keys)
+        buttons = tuple(self._held_buttons)
+        for key in keys:
+            result = self._release_command(["xdotool", "keyup", key])
+            if result is not False:
+                self._held_keys.discard(key)
+            else:
+                failed = True
+        for button in buttons:
+            result = self._release_command(["xdotool", "mouseup", str(button)])
+            if result is not False:
+                self._held_buttons.discard(button)
+            else:
+                failed = True
+        if failed:
+            raise DriverError("one or more native process groups or held inputs could not be released")
+
+    def install_measured_anchor(self, anchor: MeasuredAnchor) -> None:
+        anchor.verify_seal()
+        with self._anchor_lock:
+            self._measured_anchors[anchor.action] = anchor
+            getattr(self, "_consumed_anchor_seals", set()).discard(anchor.evidence_hash)
+
+    def consume_measured_anchor(self, action: str, anchor: MeasuredAnchor) -> None:
+        with self._anchor_lock:
+            current = self._measured_anchors.get(action)
+            if current is not anchor or current.evidence_hash != anchor.evidence_hash:
+                raise DriverError("measured anchor is no longer current")
+            if anchor.evidence_hash in getattr(self, "_consumed_anchor_seals", set()):
+                raise DriverError("measured anchor has already been consumed")
+            try:
+                digest = hashlib.sha256(Path(anchor.capture_path).read_bytes()).hexdigest()
+            except OSError as exc:
+                raise DriverError("native anchor retained capture is unavailable") from exc
+            if digest != anchor.capture_sha256:
+                raise DriverError("native anchor retained capture changed")
+            if (
+                isinstance(anchor.capture_monotonic, bool)
+                or not isinstance(anchor.capture_monotonic, (int, float))
+                or anchor.capture_monotonic < 0
+                or not anchor.identity_fingerprint
+            ):
+                raise DriverError("native anchor capture timestamp is incomplete")
+            prior_sequence = self._consumed_anchor_sequences.get(action)
+            if prior_sequence is not None and anchor.capture_sequence <= prior_sequence:
+                raise DriverError("native anchor capture sequence is not newer than the consumed proof")
+            getattr(self, "_consumed_anchor_seals", set()).add(anchor.evidence_hash)
+            self._consumed_anchor_sequences[action] = anchor.capture_sequence
+
+    @staticmethod
+    def _pid(text: str) -> int:
+        match = re.search(r"_NET_WM_PID\([^)]*\)\s*=\s*(\d+)", text)
+        if not match:
+            raise DriverError("game window has no _NET_WM_PID")
+        return int(match.group(1))
+
+    @staticmethod
+    def _wm_name(text: str) -> str:
+        match = re.search(r"(?:_NET_WM_NAME|WM_NAME)\([^)]*\)\s*=\s*(?:UTF8_STRING\s+)?\"(.*?)\"", text)
+        if not match:
+            raise DriverError("game window has no WM_NAME")
+        return match.group(1)
+
+    @staticmethod
+    def _wm_class(text: str) -> str:
+        match = re.search(r"WM_CLASS\([^)]*\)\s*=\s*\"(.*?)\",\s*\"(.*?)\"", text)
+        if not match:
+            raise DriverError("game window has no WM_CLASS")
+        return f"{match.group(1)},{match.group(2)}"
+
+    def _process_executable(self, pid: int) -> tuple[str, str]:
+        try:
+            cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+            start = Path(f"/proc/{pid}/stat").read_text(encoding="ascii").split()[21]
+            status = Path(f"/proc/{pid}/status").read_text(encoding="ascii")
+            linux_executable = os.path.realpath(os.readlink(f"/proc/{pid}/exe"))
+        except (OSError, IndexError) as exc:
+            raise DriverError(f"cannot inspect game process {pid}") from exc
+        expected = self.profile.executable
+        candidates = [re.split(r"[/\\]", value)[-1] for value in cmdline if value]
+        matches = [value for value in candidates if value == expected]
+        if len(matches) != 1:
+            raise DriverError("game PID does not expose the configured Windows executable")
+        process_name = next(
+            (line.split(":", 1)[1].strip() for line in status.splitlines() if line.startswith("Name:")),
+            "",
+        )
+        if not process_name or process_name != expected:
+            raise DriverError("game PID has an unexpected Linux process identity")
+        loader = os.path.basename(linux_executable)
+        if loader != "wine-preloader":
+            raise DriverError("game PID is not running under the configured Wine loader")
+        if self.profile.wine_prefix:
+            environment = Path(f"/proc/{pid}/environ").read_bytes().decode("utf-8", "replace")
+            values = {
+                item.split("=", 1)[0]: item.split("=", 1)[1]
+                for item in environment.split("\0")
+                if "=" in item
+            }
+            configured = os.path.realpath(os.path.expanduser(self.profile.wine_prefix))
+            observed = os.path.realpath(os.path.expanduser(values.get("WINEPREFIX", "")))
+            if not observed or observed != configured:
+                raise DriverError("game PID is outside the configured Wine prefix")
+        return matches[0], start
+
+    def _matching_game_pids(self) -> set[int]:
+        matches: set[int] = set()
+        for entry in Path("/proc").iterdir():
+            if not entry.name.isdigit():
+                continue
+            try:
+                pid = int(entry.name)
+                self._process_executable(pid)
+            except (DriverError, OSError, ValueError):
+                continue
+            matches.add(pid)
+        return matches
+
+    def _child_geometry(
+        self,
+        xid: str,
+        outer: tuple[int, int, int, int],
+        *,
+        deadline_monotonic: float | None = None,
+    ) -> tuple[int, tuple[int, int, int, int]]:
+        tree = self._run(["xwininfo", "-id", xid, "-tree"], deadline_monotonic=deadline_monotonic).stdout
+        root, parents, geometries = _parse_xwininfo_tree(tree)
+        outer_xid = int(xid, 0)
+        if root != outer_xid:
+            raise DriverError("X11 window tree root does not match the verified outer window")
+        candidates = [
+            (child, *geometries[child])
+            for child, parent in parents.items()
+            if parent == outer_xid
+            and child in geometries
+            and geometries[child][2:] == (self.profile.client_width, self.profile.client_height)
+        ]
+        if not candidates:
+            raise DriverError("configured game child geometry is missing")
+        if len(candidates) != 1:
+            raise DriverError("multiple client children match configured geometry")
+        child, rel_x, rel_y, width, height = candidates[0]
+        return child, (outer[0] + rel_x, outer[1] + rel_y, width, height)
+
+    def _verified_window_relationship(
+        self, outer_xid: int, child_xid: int, *, deadline_monotonic: float | None = None
+    ) -> tuple[int, frozenset[int]]:
+        """Pin the measured root -> fullscreen outer -> client relationship.
+
+        The game certificate is deliberately narrower than a generic window
+        ancestry predicate.  A root, WM helper, or sibling must never become
+        an event target merely because it happens to be an ancestor in a later
+        tree.  The current native layout is a direct root child with exactly
+        one direct client child; a reparenting or extra helper fails closed.
+        """
+
+        tree = self._run(["xwininfo", "-root", "-tree"], deadline_monotonic=deadline_monotonic).stdout
+        root, parents, _geometries = _parse_xwininfo_tree(tree)
+        if parents.get(outer_xid) != root:
+            raise DriverError("game outer window is not the verified direct root child")
+        if parents.get(child_xid) != outer_xid:
+            raise DriverError("game client is not the verified direct outer child")
+        direct_children = {xid for xid, parent in parents.items() if parent == outer_xid}
+        if direct_children != {child_xid}:
+            raise DriverError("game outer has an unexpected helper or sibling child")
+        return root, frozenset({outer_xid, child_xid})
+
+    def resolve_identity(
+        self,
+        *,
+        require_foreground: bool = True,
+        deadline_monotonic: float | None = None,
+    ) -> WindowIdentity:
+        if not self.xauthority:
+            raise DriverError("Xauthority path must be explicitly configured or inherited")
+        if not self.profile.wine_prefix:
+            raise DriverError("Wine prefix must be explicitly configured")
+        matching_pids = self._matching_game_pids()
+        if len(matching_pids) != 1:
+            raise DriverError(f"expected one verified game process, found {len(matching_pids)}")
+        result = self._run(
+            ["xdotool", "search", "--name", self.profile.window_title],
+            deadline_monotonic=deadline_monotonic,
+        )
+        candidates = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        identities: list[WindowIdentity] = []
+        identity_errors: list[str] = []
+        for xid in candidates:
+            try:
+                outer = _parse_shell_geometry(
+                    self._run(
+                        ["xdotool", "getwindowgeometry", "--shell", xid],
+                        deadline_monotonic=deadline_monotonic,
+                    ).stdout
+                )
+                props = self._xprop(
+                    xid,
+                    "WM_NAME",
+                    "_NET_WM_PID",
+                    "WM_CLASS",
+                    deadline_monotonic=deadline_monotonic,
+                )
+                title = self._wm_name(props)
+                wm_class = self._wm_class(props)
+                if title != self.profile.window_title:
+                    continue
+                if any(value != self.profile.window_class for value in wm_class.split(",")):
+                    continue
+                pid = self._pid(props)
+                if pid not in matching_pids:
+                    continue
+                executable, start = self._process_executable(pid)
+                child_xid, child_geometry = self._child_geometry(
+                    xid, outer, deadline_monotonic=deadline_monotonic
+                )
+                root_xid, target_event_xids = self._verified_window_relationship(
+                    int(xid, 0), child_xid, deadline_monotonic=deadline_monotonic
+                )
+                focus = int(
+                    self._run(
+                        ["xdotool", "getwindowfocus"], deadline_monotonic=deadline_monotonic
+                    ).stdout.strip(),
+                    0,
+                )
+                root_props = self._run(
+                    ["xprop", "-root", "_NET_ACTIVE_WINDOW"],
+                    deadline_monotonic=deadline_monotonic,
+                ).stdout
+                active_match = re.search(r"=\s*(0x[0-9a-fA-F]+)", root_props)
+                active = int(active_match.group(1), 16) if active_match else 0
+                payload = {
+                    "xid": int(xid, 0),
+                    "pid": pid,
+                    "exe": executable,
+                    "start": start,
+                    "child": child_xid,
+                    "outer": outer,
+                    "childGeometry": child_geometry,
+                    "root": root_xid,
+                    "targetEventXids": sorted(target_event_xids),
+                    "display": self.profile.display,
+                    "xauthority": self.xauthority,
+                    "winePrefix": os.path.realpath(os.path.expanduser(self.profile.wine_prefix)),
+                    "wineLoader": "wine-preloader",
+                    "driver": self.input_tool_version,
+                }
+                fingerprint = hashlib.sha256(
+                    json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+                ).hexdigest()
+                identities.append(
+                    WindowIdentity(
+                        int(xid, 0),
+                        pid,
+                        executable,
+                        title,
+                        wm_class,
+                        child_xid,
+                        outer,
+                        child_geometry,
+                        focus if focus else active,
+                        start,
+                        self.profile.display,
+                        fingerprint,
+                        root_xid,
+                        int(xid, 0),
+                        target_event_xids,
+                    )
+                )
+            except DriverError as exc:
+                identity_errors.append(str(exc))
+                continue
+        if len(identities) != 1:
+            if len(candidates) == 1 and identity_errors:
+                raise DriverError(identity_errors[0])
+            raise DriverError(f"expected one verified game client, found {len(identities)}")
+        identity = identities[0]
+        if identity.outer_geometry[2:] != (self.profile.outer_width, self.profile.outer_height):
+            raise DriverError("game outer geometry changed")
+        if identity.child_geometry[2:] != (self.profile.client_width, self.profile.client_height):
+            raise DriverError("game client geometry changed")
+        if require_foreground and identity.foreground_xid not in {identity.xid, identity.child_xid}:
+            raise DriverError("game client is not foreground")
+        if identity.outer_geometry[:2] != (0, 0) or identity.child_geometry[:2] != (0, 0):
+            raise DriverError("game outer/child origin changed from the calibrated origin")
+        self.window_id = hex(identity.xid)
+        self.last_identity = identity
+        return identity
+
+    def _find_window(self) -> str:
+        return hex(self.resolve_identity().xid)
+
+    def verify_identity(self, identity: WindowIdentity) -> WindowIdentity:
+        fresh = self.resolve_identity()
+        if fresh.fingerprint != identity.fingerprint:
+            raise DriverError("verified client identity is stale")
+        return fresh
+
+    def _verify_window(self, window: str) -> WindowIdentity:
+        identity = self.resolve_identity()
+        if int(window, 0) != identity.xid:
+            raise DriverError("window identity changed")
+        return identity
+
+    def _focus(self, identity: WindowIdentity, *, generation: int | None = None) -> None:
+        self._run(["xdotool", "windowactivate", "--sync", hex(identity.xid)], generation=generation)
+        fresh = self.resolve_identity()
+        if fresh.fingerprint != identity.fingerprint or fresh.foreground_xid not in {
+            fresh.xid,
+            fresh.child_xid,
+        }:
+            raise DriverError("verified game window did not retain focus")
+
+    @staticmethod
+    def _keysym_for_char(char: str) -> str | None:
+        if char.isascii() and char.isalpha() and char.isupper():
+            return f"shift+{char.lower()}"
+        if char.isascii() and char.isalnum():
+            return char
+        return {
+            "/": "slash",
+            " ": "space",
+            "-": "minus",
+        }.get(char)
+
+    def _key(self, key: str, *, generation: int | None = None) -> None:
+        try:
+            self._run(["xdotool", "key", key], generation=generation, held_keys={key})
+        except Exception:
+            raise
+        else:
+            self._held_keys.discard(key)
+
+    def _type(self, text: str, *, generation: int | None = None) -> None:
+        # ``xdotool type`` emits one opaque command with no way to correlate
+        # each character's raw/delivered press and release.  Emit the bounded
+        # allowlisted text as one XTEST key action per character so the
+        # guardian can require the exact multi-character stream and modifier
+        # state while retaining every currently owned key for cancellation.
+        for char in text:
+            mapped = self._keysym_for_char(char)
+            if mapped is None:
+                raise DriverError(f"character {char!r} has no allowlisted XTEST keysym")
+            components = tuple(part for part in mapped.split("+") if part)
+            try:
+                self._run(
+                    ["xdotool", "key", "--", mapped],
+                    generation=generation,
+                    held_keys=set(components),
+                )
+            except Exception:
+                raise
+
+    def pointer_position(
+        self, *, generation: int | None = None, deadline_monotonic: float | None = None
+    ) -> tuple[int, int, int]:
+        """Read one allowlisted native pointer position and target window."""
+
+        result = self._run(
+            ["xdotool", "getmouselocation", "--shell"],
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        )
+        values: dict[str, int] = {}
+        allowed = {"X", "Y", "SCREEN", "WINDOW"}
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            key, separator, value = line.partition("=")
+            valid_value = (
+                bool(re.fullmatch(r"-?[0-9]+", value))
+                if key != "WINDOW"
+                else bool(re.fullmatch(r"(?:0x[0-9a-fA-F]+|[0-9]+)", value))
+            )
+            if not separator or key not in allowed or key in values or not valid_value:
+                raise DriverError("native pointer position output is malformed")
+            values[key] = int(value, 0) if key == "WINDOW" else int(value)
+        if (
+            not {"X", "Y", "SCREEN", "WINDOW"}.issubset(values)
+            or values["SCREEN"] != 0
+            or values["WINDOW"] <= 0
+        ):
+            raise DriverError("native pointer position output is incomplete")
+        return values["X"], values["Y"], values["WINDOW"]
+
+    def _pointer(self, identity: WindowIdentity, x: int, y: int, *, generation: int | None = None) -> None:
+        left, top, width, height = identity.child_geometry
+        if not (0 <= x < width and 0 <= y < height):
+            raise DriverError("pointer anchor is outside the verified client child")
+        self._run(["xdotool", "mousemove", str(left + x), str(top + y)], generation=generation)
+
+    def is_descendant(self, xid: int, ancestor: int) -> bool:
+        """Prove an XI2 target is in the verified client's current subtree."""
+
+        if xid == ancestor:
+            return True
+        tree = self._run(["xwininfo", "-id", hex(ancestor), "-tree"]).stdout
+        root, parents, _geometries = _parse_xwininfo_tree(tree)
+        if root != ancestor:
+            return False
+        current = xid
+        seen: set[int] = set()
+        while current in parents and current not in seen:
+            seen.add(current)
+            current = parents[current]
+            if current == ancestor:
+                return True
+        return False
+
+    def _is_owned_client_target(self, xid: int, identity: WindowIdentity) -> bool:
+        """Use the sealed native target set for X11 reports."""
+
+        # A certificate without an exact event-target set is incomplete.  A
+        # generic ancestry fallback would admit the root, WM helpers, or a
+        # foreign sibling after a reparenting transition.
+        return bool(identity.target_event_xids) and xid in identity.target_event_xids
+
+    def action(self, name: str, *, generation: int | None = None, **kwargs: Any) -> None:
+        if generation is None:
+            raise DriverError("input action requires a current game generation")
+        anchor_record = self._measured_anchors.get(name)
+        admitted_anchor = kwargs.pop("_admitted_anchor", None)
+        pointer_plan = kwargs.pop("_pointer_plan", None)
+        click_plan = kwargs.pop("_click_plan", None)
+        refresh_anchor = kwargs.pop("_refresh_anchor", None)
+        if name in DesktopDriver.POINTER_ACTIONS:
+            if anchor_record is None:
+                raise DriverError(f"action anchor for {name} has not passed live calibration")
+            if (
+                anchor_record.evidence_hash in getattr(self, "_consumed_anchor_seals", set())
+                and admitted_anchor is not anchor_record
+            ):
+                raise DriverError(f"action anchor for {name} has already been consumed")
+            if (
+                generation is not None
+                and anchor_record.generation is not None
+                and anchor_record.generation != generation
+            ):
+                raise DriverError(f"action anchor for {name} belongs to a stale generation")
+        identity = self.resolve_identity(require_foreground=False)
+        if name in DesktopDriver.POINTER_ACTIONS:
+            if anchor_record is None or anchor_record.identity_fingerprint != identity.fingerprint:
+                raise DriverError(f"action anchor for {name} has not passed live calibration")
+            facts = dict(anchor_record.facts)
+            if (
+                facts.get("control") != DesktopDriver.ANCHOR_CONTROLS[name]
+                or facts.get("capture") != anchor_record.capture_id
+                or facts.get("target") != str(anchor_record.target_xid)
+            ):
+                raise DriverError(f"action anchor for {name} is stale or unbound")
+            anchor = (anchor_record.x, anchor_record.y)
+        else:
+            anchor = None
+        self._focus(identity, generation=generation)
+        if name in DesktopDriver.POINTER_ACTIONS:
+            assert anchor is not None
+            if pointer_plan is not None or click_plan is not None:
+                if pointer_plan is not None and not isinstance(pointer_plan, PointerTrajectory):
+                    raise DriverError("pointer trajectory plan is malformed")
+                if not isinstance(click_plan, ClickPlan):
+                    raise DriverError("pointer click plan is malformed")
+                binding = click_plan.binding
+                if pointer_plan is not None and (
+                    pointer_plan.binding != binding
+                    or pointer_plan.control != click_plan.control
+                    or pointer_plan.endpoint != click_plan.point
+                ):
+                    raise DriverError("pointer trajectory does not cross-match the click plan")
+                if binding.generation != generation or binding.identity_fingerprint != identity.fingerprint:
+                    raise DriverError("pointer plan binding is stale")
+                button = {1: PointerButton.LEFT, 3: PointerButton.RIGHT}.get(
+                    DesktopDriver.POINTER_BUTTONS.get(name, 0)
+                )
+                if button is None or click_plan.button is not button:
+                    raise DriverError("pointer plan semantic button is not bound to the named action")
+                if (
+                    anchor_record is None
+                    or admitted_anchor is not anchor_record
+                    or binding.capture_id != anchor_record.capture_id
+                    or binding.capture_sequence != anchor_record.capture_sequence
+                    or binding.target_xid != anchor_record.target_xid
+                    or binding.target_ancestry != anchor_record.target_ancestry
+                ):
+                    raise DriverError("pointer plan anchor binding is stale")
+                left, top, width, height = identity.child_geometry
+                expected_start = click_plan.point if pointer_plan is None else pointer_plan.samples[0].point
+                actual_x, actual_y, actual_window = self.pointer_position(generation=generation)
+                if not self._is_owned_client_target(actual_window, identity):
+                    raise DriverError("native pointer is outside the verified client")
+                if (actual_x, actual_y) != (left + int(expected_start.x), top + int(expected_start.y)):
+                    raise DriverError("native pointer start changed before the admitted gesture")
+                if pointer_plan is not None:
+                    chain = build_pointer_motion_chain(pointer_plan, identity.child_geometry)
+                    self._run(
+                        chain,
+                        generation=generation,
+                        input_schema="pointer-motion",
+                        expected_argv=tuple(chain),
+                    )
+                # Recheck foreground identity and consume a fresh anchor after
+                # motion, immediately before the pointer/window commit query.
+                # Profile reads remain outside this protected click boundary.
+                current = self.resolve_identity(require_foreground=True)
+                if (
+                    current.fingerprint != binding.identity_fingerprint
+                    or current.child_xid != identity.child_xid
+                ):
+                    raise DriverError("pointer identity changed before click commitment")
+                if pointer_plan is not None:
+                    if not callable(refresh_anchor):
+                        raise DriverError("pointer motion has no fresh anchor re-observation")
+                    refreshed_anchor = refresh_anchor(current, anchor_record)
+                    if not isinstance(refreshed_anchor, MeasuredAnchor):
+                        raise DriverError("fresh pointer anchor provider returned unbound evidence")
+                    if (
+                        refreshed_anchor.action != name
+                        or refreshed_anchor.identity_fingerprint != binding.identity_fingerprint
+                        or refreshed_anchor.generation != binding.generation
+                        or refreshed_anchor.target_xid != anchor_record.target_xid
+                        or refreshed_anchor.target_ancestry != anchor_record.target_ancestry
+                        or dict(refreshed_anchor.facts).get("control") != click_plan.control
+                        or refreshed_anchor.capture_sequence <= anchor_record.capture_sequence
+                        or refreshed_anchor.capture_monotonic <= anchor_record.capture_monotonic
+                        or refreshed_anchor.evidence_hash == anchor_record.evidence_hash
+                        or not DesktopDriver._fresh_anchor_contains_endpoint(
+                            refreshed_anchor,
+                            click_plan.point,
+                            identity.child_geometry,
+                            anchor_record.bounds,
+                        )
+                    ):
+                        raise DriverError("fresh pointer anchor changed control, bounds, or identity")
+                current_anchor = self._measured_anchors.get(name)
+                if (
+                    current_anchor is not anchor_record
+                    or current_anchor.evidence_hash not in self._consumed_anchor_seals
+                ):
+                    raise DriverError("pointer anchor changed before click commitment")
+                pre_click_x, pre_click_y, pre_click_window = self.pointer_position(generation=generation)
+                if not self._is_owned_client_target(pre_click_window, current):
+                    raise DriverError("native pointer left the verified client before click")
+                expected_point = (
+                    current.child_geometry[0] + int(click_plan.point.x),
+                    current.child_geometry[1] + int(click_plan.point.y),
+                )
+                if (pre_click_x, pre_click_y) != expected_point:
+                    raise DriverError("native pointer endpoint changed before click commitment")
+                click_button = click_plan.button
+                native_button = {PointerButton.LEFT: 1, PointerButton.RIGHT: 3}[click_button]
+                click_argv = [
+                    "xdotool",
+                    "mousedown",
+                    str(native_button),
+                    "sleep",
+                    f"{click_plan.dwell:.6f}",
+                    "mouseup",
+                    str(native_button),
+                ]
+                self._run(
+                    click_argv,
+                    generation=generation,
+                    held_buttons={native_button},
+                    input_schema="single-click",
+                    expected_argv=tuple(click_argv),
+                )
+                if click_plan is not None:
+                    final_x, final_y, final_window = self.pointer_position(generation=generation)
+                    if not self._is_owned_client_target(final_window, current):
+                        raise DriverError("native pointer postcondition left the verified client")
+                    left, top, _width, _height = current.child_geometry
+                    expected_point = (
+                        left + int(click_plan.point.x),
+                        top + int(click_plan.point.y),
+                    )
+                    if (final_x, final_y) != expected_point:
+                        raise DriverError("native pointer postcondition endpoint changed")
+            else:
+                self._pointer(identity, *anchor, generation=generation)
+                button = DesktopDriver.POINTER_BUTTONS.get(name)
+                if button is None:
+                    raise DriverError(f"pointer button for {name} has not passed live calibration")
+                self._run(
+                    ["xdotool", "click", str(button)],
+                    generation=generation,
+                    held_buttons={button},
+                )
+        elif name == "focus_game":
+            return
+        elif name == "open_chat":
+            self._key("Return", generation=generation)
+        elif name == "submit_command":
+            self._key("Return", generation=generation)
+        elif name == "escape_command_buffer":
+            self._key("Escape", generation=generation)
+        elif name == "type_allowlisted_command":
+            command = kwargs.get("command")
+            if command not in DesktopDriver.COMMANDS:
+                raise DriverError("attempted to type a non-allowlisted command")
+            self._type(command, generation=generation)
+        else:
+            raise DriverError(f"unsupported X11 action {name}")
+
+    def _capture_epoch_snapshot(self) -> int:
+        with self._process_lock:
+            return self._capture_revocation_epoch
+
+    def _check_capture_epoch_locked(self, epoch: int) -> None:
+        if epoch != self._capture_revocation_epoch or self._cancel_active.is_set():
+            raise DriverError("desktop capture was revoked")
+
+    def _check_capture_epoch(self, epoch: int) -> None:
+        with self._process_lock:
+            self._check_capture_epoch_locked(epoch)
+
+    def capture(
+        self,
+        path: Path,
+        *,
+        identity: WindowIdentity | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> WindowIdentity:
+        capture_epoch = self._capture_epoch_snapshot()
+        deadline = _capture_deadline(deadline_monotonic)
+        self._check_capture_epoch(capture_epoch)
+        before = self.resolve_identity(deadline_monotonic=deadline)
+        self._check_capture_epoch(capture_epoch)
+        if identity is not None and before.fingerprint != identity.fingerprint:
+            raise DriverError("capture identity changed before screenshot")
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        attempt_dir: Path | None = None
+        try:
+            with _capture_lock(deadline, check=lambda: self._check_capture_epoch(capture_epoch)):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DriverError("capture deadline expired before screenshot")
+                attempt_dir = Path(tempfile.mkdtemp(prefix=f".{path.name}.capture-", dir=path.parent))
+                stage = attempt_dir / "capture.png"
+                self._check_capture_epoch(capture_epoch)
+                self._run(
+                    ["gnome-screenshot", "-f", str(stage)],
+                    timeout=min(15.0, remaining),
+                    deadline_monotonic=deadline,
+                )
+                _wait_for_complete_png(
+                    stage,
+                    (self.profile.client_width, self.profile.client_height),
+                    deadline,
+                    check=lambda: self._check_capture_epoch(capture_epoch),
+                )
+                self._check_capture_epoch(capture_epoch)
+                after = self.resolve_identity(deadline_monotonic=deadline)
+                self._check_capture_epoch(capture_epoch)
+                if after.fingerprint != before.fingerprint:
+                    raise DriverError("capture identity changed during screenshot")
+                if time.monotonic() >= deadline:
+                    raise DriverError("capture deadline expired before screenshot publication")
+                with self._process_lock:
+                    self._check_capture_epoch_locked(capture_epoch)
+                    if time.monotonic() >= deadline:
+                        raise DriverError("capture deadline expired before screenshot publication")
+                    os.chmod(stage, 0o600)
+                    os.replace(stage, path)
+                    self.last_identity = after
+                    return after
+        finally:
+            if attempt_dir is not None:
+                retired_dir = attempt_dir.with_name(f".{attempt_dir.name}.retired-{uuid.uuid4().hex}")
+                try:
+                    os.replace(attempt_dir, retired_dir)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    shutil.rmtree(attempt_dir, ignore_errors=True)
+                else:
+                    shutil.rmtree(retired_dir, ignore_errors=True)
+
+    def capture_native_region(
+        self,
+        path: Path,
+        *,
+        identity: WindowIdentity,
+        rectangle: tuple[int, int, int, int],
+        deadline_monotonic: float | None = None,
+    ) -> WindowIdentity:
+        """Capture one exact profile-derived region through the private producer."""
+
+        executable = self.profile.telemetry_region_executable
+        executable_sha256 = self.profile.telemetry_region_executable_sha256
+        if executable is None or executable_sha256 is None:
+            raise DriverError("telemetry region capability is not configured")
+        if len(rectangle) != 4 or any(
+            isinstance(value, bool) or not isinstance(value, int) for value in rectangle
+        ):
+            raise DriverError("telemetry region rectangle is not four integers")
+        x, y, width, height = rectangle
+        if width != 256 or height != 256:
+            raise DriverError("telemetry region rectangle must be exactly 256x256")
+        left, top, client_width, client_height = identity.child_geometry
+        crop_left, crop_top, crop_width, crop_height = self.profile.canvas_crop
+        expected = (left + crop_left, top + crop_top, crop_width, crop_height)
+        if rectangle != expected:
+            raise DriverError("telemetry region rectangle is not derived from the fresh profile identity")
+        if (
+            crop_left < 0
+            or crop_top < 0
+            or crop_width != 256
+            or crop_height != 256
+            or crop_left + crop_width > client_width
+            or crop_top + crop_height > client_height
+            or x < left
+            or y < top
+            or x + width > left + client_width
+            or y + height > top + client_height
+        ):
+            raise DriverError("telemetry region rectangle is outside the verified client geometry")
+        deadline = _capture_deadline(deadline_monotonic)
+        capture_epoch = self._capture_epoch_snapshot()
+        self._check_capture_epoch(capture_epoch)
+        before = self.resolve_identity(deadline_monotonic=deadline)
+        if before.fingerprint != identity.fingerprint:
+            raise DriverError("telemetry region identity changed before capture")
+        path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        attempt_dir: Path | None = None
+        image_fd: int | None = None
+        parent_sock: socket.socket | None = None
+        child_sock: socket.socket | None = None
+        process: subprocess.Popen[str] | None = None
+        gate_read = -1
+        gate_write = -1
+        owner_record: dict[str, Any] | None = None
+        nonce = uuid.uuid4().hex
+        output_path_digest = ""
+        request_started = time.monotonic()
+        try:
+            with _capture_lock(deadline, check=lambda: self._check_capture_epoch(capture_epoch)):
+                self._check_capture_epoch(capture_epoch)
+                attempt_dir = Path(tempfile.mkdtemp(prefix=f".{path.name}.telemetry-", dir=path.parent))
+                os.chmod(attempt_dir, 0o700)
+                stage = attempt_dir / "capture.png"
+                output_path_digest = hashlib.sha256(str(stage).encode("utf-8")).hexdigest()
+                image_fd, verified_digest = _open_sealed_executable(executable, executable_sha256)
+                parent_sock, child_sock = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+                parent_sock.setblocking(True)
+                child_fd = child_sock.fileno()
+                gate_read, gate_write = os.pipe()
+                target = f"/proc/self/fd/{image_fd}"
+                args = [
+                    target,
+                    "--telemetry-region",
+                    "--telemetry-x",
+                    str(x),
+                    "--telemetry-y",
+                    str(y),
+                    "--telemetry-width",
+                    str(width),
+                    "--telemetry-height",
+                    str(height),
+                    "--telemetry-owner-fd",
+                    str(child_fd),
+                    "--telemetry-exec-fd",
+                    str(image_fd),
+                    "--telemetry-nonce",
+                    nonce,
+                    "--file",
+                    str(stage),
+                ]
+                environment = os.environ.copy()
+                environment["DISPLAY"] = self.profile.display
+                if not self.xauthority:
+                    raise DriverError("Xauthority path must be explicitly configured or inherited")
+                environment["XAUTHORITY"] = self.xauthority
+                # Hold the same revocation fence across the final epoch check,
+                # spawn, process registration, and positive admission gate.
+                # A release may therefore either precede this entire sequence
+                # or observe the registered child and revoke it before any
+                # protocol ACK can be sent.
+                with self._process_lock:
+                    self._check_capture_epoch_locked(capture_epoch)
+                    if time.monotonic() >= deadline:
+                        raise DriverError("telemetry region capture deadline expired before admission")
+                    process = subprocess.Popen(
+                        [
+                            sys.executable,
+                            "-I",
+                            "-S",
+                            "-c",
+                            _EXEC_ADMISSION_WRAPPER,
+                            str(gate_read),
+                            target,
+                            *args[1:],
+                        ],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True,
+                        env=environment,
+                        start_new_session=True,
+                        pass_fds=(gate_read, child_fd, image_fd),
+                    )
+                    self._active_processes.add(process)
+                    self._active_process_groups.add(process.pid)
+                    self._check_capture_epoch_locked(capture_epoch)
+                    admission_gate = AdmissionGate(gate_write)
+                    admission_gate.release()
+                    gate_write = -1
+                    os.close(gate_read)
+                    gate_read = -1
+                child_sock.close()
+                child_sock = None
+                owner_record = _json_record(
+                    parent_sock,
+                    deadline,
+                    check=lambda: self._check_capture_epoch(capture_epoch),
+                )
+                required_owner = {
+                    "type",
+                    "protocol",
+                    "nonce",
+                    "pid",
+                    "process_start",
+                    "ppid",
+                    "pgid",
+                    "exec_fd",
+                    "executable_sha256",
+                    "primary_owner",
+                    "remote",
+                    "branch",
+                    "rectangle",
+                    "output_path_digest",
+                }
+                if set(owner_record) != required_owner or owner_record.get("type") != "owner_ready":
+                    raise DriverError("telemetry owner proof has an unexpected schema")
+                live_identity = _proc_identity(process.pid)
+                if (
+                    not _protocol_int(owner_record["protocol"])
+                    or owner_record["protocol"] != 1
+                    or not _protocol_string(owner_record["nonce"])
+                    or owner_record["nonce"] != nonce
+                    or not _protocol_int(owner_record["pid"])
+                    or owner_record["pid"] != process.pid
+                    or not _protocol_string(owner_record["process_start"])
+                    or owner_record["process_start"] != live_identity[0]
+                    or not _protocol_int(owner_record["ppid"])
+                    or owner_record["ppid"] != os.getpid()
+                    or not _protocol_int(owner_record["pgid"])
+                    or owner_record["pgid"] != process.pid
+                    or not _protocol_int(owner_record["exec_fd"])
+                    or owner_record["exec_fd"] != image_fd
+                    or not _protocol_string(owner_record["executable_sha256"])
+                    or owner_record["executable_sha256"] != verified_digest
+                    or owner_record["primary_owner"] is not True
+                    or owner_record["remote"] is not False
+                    or owner_record["branch"] != "ScreenshotArea"
+                    or _protocol_rectangle(owner_record["rectangle"]) != rectangle
+                    or not _protocol_string(owner_record["output_path_digest"])
+                    or owner_record["output_path_digest"] != output_path_digest
+                ):
+                    raise DriverError("telemetry owner proof does not match the admitted process")
+                _verify_admitted_process(process, image_fd, verified_digest, os.getpid())
+                ack = json.dumps({"type": "ACK", "protocol": 1, "nonce": nonce}, separators=(",", ":"))
+                with self._process_lock:
+                    self._check_capture_epoch_locked(capture_epoch)
+                    if process.poll() is not None or time.monotonic() >= deadline:
+                        raise DriverError("telemetry capture was revoked before owner ACK")
+                    _verify_admitted_process(process, image_fd, verified_digest, os.getpid())
+                    parent_sock.sendall((ack + "\n").encode())
+                started = _json_record(
+                    parent_sock,
+                    deadline,
+                    check=lambda: self._check_capture_epoch(capture_epoch),
+                )
+                if set(started) != {
+                    "type",
+                    "protocol",
+                    "nonce",
+                    "branch",
+                    "rectangle",
+                    "output_path_digest",
+                    "capture_started",
+                } or (
+                    started.get("type") != "capture_started"
+                    or not _protocol_int(started.get("protocol"))
+                    or started.get("protocol") != 1
+                    or not _protocol_string(started.get("nonce"))
+                    or started.get("nonce") != nonce
+                    or not _protocol_string(started.get("branch"))
+                    or started.get("branch") != "ScreenshotArea"
+                    or _protocol_rectangle(started.get("rectangle")) != rectangle
+                    or not _protocol_string(started.get("output_path_digest"))
+                    or started.get("output_path_digest") != output_path_digest
+                    or not _protocol_float(started.get("capture_started"))
+                    or float(started["capture_started"]) < request_started
+                    or float(started["capture_started"]) > time.monotonic()
+                ):
+                    raise DriverError("telemetry capture-start proof is malformed")
+                _wait_for_complete_png(
+                    stage,
+                    (256, 256),
+                    deadline,
+                    check=lambda: self._check_capture_epoch(capture_epoch),
+                )
+                completed = _json_record(
+                    parent_sock,
+                    deadline,
+                    check=lambda: self._check_capture_epoch(capture_epoch),
+                )
+                if set(completed) != {
+                    "type",
+                    "protocol",
+                    "nonce",
+                    "branch",
+                    "rectangle",
+                    "output_path_digest",
+                    "output_sha256",
+                    "output_bytes",
+                } or (
+                    completed.get("type") != "capture_complete"
+                    or not _protocol_int(completed.get("protocol"))
+                    or completed.get("protocol") != 1
+                    or not _protocol_string(completed.get("nonce"))
+                    or completed.get("nonce") != nonce
+                    or not _protocol_string(completed.get("branch"))
+                    or completed.get("branch") != "ScreenshotArea"
+                    or _protocol_rectangle(completed.get("rectangle")) != rectangle
+                    or not _protocol_string(completed.get("output_path_digest"))
+                    or completed.get("output_path_digest") != output_path_digest
+                    or not _protocol_string(completed.get("output_sha256"))
+                    or not _protocol_int(completed.get("output_bytes"))
+                    or completed.get("output_bytes", 0) < 1
+                ):
+                    raise DriverError("telemetry capture-complete proof is malformed")
+                output_bytes = stage.read_bytes()
+                output_digest = hashlib.sha256(output_bytes).hexdigest()
+                if completed.get("output_sha256") != output_digest or completed.get("output_bytes") != len(
+                    output_bytes
+                ):
+                    raise DriverError("telemetry output digest proof does not match the complete PNG")
+                _validate_exact_png(stage, (256, 256))
+                self._check_capture_epoch(capture_epoch)
+                if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
+                    raise DriverError("telemetry producer failed after capture completion")
+                after = self.resolve_identity(deadline_monotonic=deadline)
+                self._check_capture_epoch(capture_epoch)
+                if after.fingerprint != before.fingerprint:
+                    raise DriverError("telemetry region identity changed during capture")
+                with self._process_lock:
+                    self._check_capture_epoch_locked(capture_epoch)
+                    if time.monotonic() >= deadline:
+                        raise DriverError("telemetry region capture deadline expired")
+                    os.chmod(stage, 0o600)
+                    os.replace(stage, path)
+                    self.last_identity = after
+                    self.last_region_receipt = TelemetryRegionReceipt(
+                        nonce=nonce,
+                        rectangle=rectangle,
+                        executable_sha256=verified_digest,
+                        owner_pid=int(owner_record["pid"]),
+                        owner_process_start=str(owner_record["process_start"]),
+                        owner_ppid=int(owner_record["ppid"]),
+                        owner_pgid=int(owner_record["pgid"]),
+                        owner_exec_fd=int(owner_record["exec_fd"]),
+                        owner_branch="ScreenshotArea",
+                        capture_started=float(started["capture_started"]),
+                        output_path_digest=output_path_digest,
+                        output_sha256=output_digest,
+                        output_bytes=len(output_bytes),
+                        capture_epoch=capture_epoch,
+                    )
+                    return after
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            raise DriverError(f"telemetry region process failed: {exc}") from exc
+        finally:
+            if gate_write >= 0:
+                try:
+                    os.close(gate_write)
+                except OSError:
+                    pass
+            if gate_read >= 0:
+                try:
+                    os.close(gate_read)
+                except OSError:
+                    pass
+            if child_sock is not None:
+                child_sock.close()
+            if parent_sock is not None:
+                parent_sock.close()
+            if process is not None:
+                if process.poll() is None:
+                    self._terminate_process(process)
+                try:
+                    process.communicate(timeout=0.5)
+                except (OSError, ValueError, subprocess.SubprocessError):
+                    pass
+                self._forget_process(process)
+            if image_fd is not None:
+                try:
+                    os.close(image_fd)
+                except OSError:
+                    pass
+            if attempt_dir is not None:
+                retired_dir = attempt_dir.with_name(f".{attempt_dir.name}.retired-{uuid.uuid4().hex}")
+                try:
+                    os.replace(attempt_dir, retired_dir)
+                except FileNotFoundError:
+                    pass
+                except OSError:
+                    shutil.rmtree(attempt_dir, ignore_errors=True)
+                else:
+                    shutil.rmtree(retired_dir, ignore_errors=True)
+
+    def synthetic_calibration(
+        self, window_id: str, x: int, y: int, *, calibration_ticket: CalibrationTicket | None = None
+    ) -> None:
+        if calibration_ticket is None:
+            raise DriverError("synthetic calibration requires an exact calibration ticket")
+        try:
+            target_xid = int(window_id, 0)
+        except (TypeError, ValueError) as exc:
+            raise DriverError("calibration target XID is malformed") from exc
+        if target_xid <= 0:
+            raise DriverError("calibration target XID is malformed")
+        geometry = _parse_shell_geometry(
+            self._run(["xdotool", "getwindowgeometry", "--shell", window_id]).stdout
+        )
+        left, top, width, height = geometry
+        if not (left <= x < left + width and top <= y < top + height):
+            raise DriverError("calibration point is outside the measured owned target geometry")
+        self._last_synthetic_motion_query = None
+        self._run(
+            ["xdotool", "windowactivate", "--sync", window_id],
+            calibration_ticket=calibration_ticket,
+        )
+        if int(self._run(["xdotool", "getwindowfocus"]).stdout.strip(), 0) != int(window_id, 0):
+            raise DriverError("calibration target did not receive focus")
+        # The absolute XTEST command is allowed to start only from a pointer
+        # that is already inside the certified target.  In particular, do not
+        # use a bootstrap warp to manufacture an origin for the proof.
+        requested = (int(x), int(y))
+        origin_x, origin_y, origin_window = self.pointer_position()
+        if origin_window != target_xid or not (
+            left <= origin_x < left + width and top <= origin_y < top + height
+        ):
+            raise DriverError("calibration pointer origin is outside the owned target")
+        if (origin_x, origin_y) == requested:
+            raise DriverError("calibration move must produce a nonzero measured displacement")
+        self._calibration_focus_ticket = calibration_ticket
+        self._run(
+            ["xdotool", "key", "F13"],
+            calibration_ticket=calibration_ticket,
+            held_keys={"F13"},
+        )
+        self._run(
+            ["xdotool", "mousemove", str(x), str(y)],
+            calibration_ticket=calibration_ticket,
+        )
+        post_x, post_y, post_window = self.pointer_position()
+        if (post_x, post_y) != requested or post_window != target_xid:
+            raise DriverError("calibration pointer postcondition changed")
+        self._last_synthetic_motion_query = (
+            origin_x,
+            origin_y,
+            origin_window,
+            requested[0],
+            requested[1],
+            post_x,
+            post_y,
+            post_window,
+        )
+        try:
+            self._run(
+                ["xdotool", "click", "1"],
+                calibration_ticket=calibration_ticket,
+                held_buttons={1},
+            )
+        except Exception:
+            raise
+
+    def calibration_focus(
+        self,
+        window_id: str,
+        *,
+        generation: int | None = None,
+        calibration_ticket: CalibrationTicket | None = None,
+    ) -> None:
+        """Harmless delayed action used only by the owned GTK target test."""
+
+        if calibration_ticket is None or generation is not None:
+            raise DriverError("calibration focus requires an exact calibration ticket")
+        props = self._run(["xprop", "-id", window_id, "WM_NAME", "_NET_WM_PID"]).stdout
+        if calibration_ticket.title not in props or not re.search(
+            rf"_NET_WM_PID\([^)]*\).*\b{calibration_ticket.target_pid}\b", props
+        ):
+            raise DriverError("owned GTK calibration target identity changed")
+        self._run(
+            ["xdotool", "windowactivate", "--sync", window_id],
+            calibration_ticket=calibration_ticket,
+        )
+        focused = int(
+            self._run(["xdotool", "getwindowfocus"]).stdout.strip(),
+            0,
+        )
+        if focused != int(window_id, 0):
+            raise DriverError("owned calibration target did not retain focus")
+        self._calibration_focus_ticket = calibration_ticket
+
+    def xtest_input_profile(
+        self,
+        hierarchy: tuple[tuple[int, int, str, str], ...],
+        *,
+        generation: int | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> Any:
+        """Read and seal the exact attached XTEST pointer profile."""
+
+        from .calibration import _parse_xinput_profile, _parse_xwininfo_root_stats, xtest_sources
+
+        _keyboard_source, source = xtest_sources(hierarchy)
+        parent = next((row[1] for row in hierarchy if row[0] == source), 0)
+        if parent <= 0:
+            raise DriverError("XTEST pointer source has no measured parent")
+        long_text = self._run(
+            ["xinput", "list", "--long", str(source)],
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        ).stdout
+        properties_text = self._run(
+            ["xinput", "list-props", str(source)],
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        ).stdout
+        root_text = self._run(
+            ["xwininfo", "-root", "-stats"],
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        ).stdout
+        try:
+            root_xid, root_geometry = _parse_xwininfo_root_stats(root_text)
+            return _parse_xinput_profile(
+                long_text,
+                properties_text,
+                hierarchy,
+                source_device=source,
+                parent_device=parent,
+                root_xid=root_xid,
+                root_geometry=root_geometry,
+            )
+        except Exception as exc:
+            raise DriverError(f"XTEST input profile is not admissible: {exc}") from exc
+
+
+class XI2Observer:
+    """Read-only XI2 observer using the same strict parser as runtime."""
+
+    def __init__(self, display: str = ":0", xauthority: str = ""):
+        self.display = display
+        self.xauthority = xauthority
+        self.process: subprocess.Popen[str] | None = None
+        self._admission_gate_write = -1
+        self._admission_gate: AdmissionGate | None = None
+        self._expected_executable = ""
+        self._expected_process_start = ""
+        self._exec_verified = False
+
+    @staticmethod
+    def _process_start(pid: int) -> str:
+        try:
+            text = Path(f"/proc/{pid}/stat").read_text(encoding="ascii")
+            closing = text.rfind(")")
+            fields = text[closing + 2 :].split()
+            if closing < 0 or len(fields) <= 19:
+                raise ValueError("malformed process stat")
+            return fields[19]
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise DriverError("observer process start identity is unavailable") from exc
+
+    def start(self) -> None:
+        if self.process is not None:
+            raise DriverError("XI2 observer is already running")
+        environment = os.environ.copy()
+        environment["DISPLAY"] = self.display
+        if not self.xauthority:
+            raise DriverError("Xauthority path must be explicitly configured")
+        environment["XAUTHORITY"] = self.xauthority
+        executable = _resolve_wrapped_executable("xinput")
+        gate_read, gate_write = os.pipe()
+        try:
+            self.process = subprocess.Popen(
+                [
+                    sys.executable,
+                    "-I",
+                    "-S",
+                    "-c",
+                    _EXEC_ADMISSION_WRAPPER,
+                    str(gate_read),
+                    os.path.realpath(executable),
+                    "test-xi2",
+                    "--root",
+                ],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=environment,
+                start_new_session=True,
+                bufsize=1,
+                pass_fds=(gate_read,),
+            )
+            self._expected_executable = executable
+            self._expected_process_start = self._process_start(self.process.pid)
+            self._exec_verified = False
+            os.close(gate_read)
+            gate_read = -1
+            self._admission_gate_write = gate_write
+            self._admission_gate = AdmissionGate(gate_write)
+        except (OSError, DriverError, ValueError) as exc:
+            try:
+                os.close(gate_read)
+            except OSError:
+                pass
+            try:
+                os.close(gate_write)
+            except OSError:
+                pass
+            process = self.process
+            reaped = process is None
+            if process is not None:
+                try:
+                    process.kill()
+                except OSError:
+                    pass
+                try:
+                    process.wait(timeout=1)
+                except (OSError, subprocess.SubprocessError, TypeError):
+                    pass
+                reaped = getattr(process, "poll", lambda: 0)() is not None
+            self.process = None if reaped else process
+            self._admission_gate_write = -1
+            self._admission_gate = None
+            self._expected_executable = ""
+            self._expected_process_start = ""
+            raise DriverError(f"cannot start XI2 observer: {exc}") from exc
+
+    def release_admission_gate(self) -> None:
+        gate = self._admission_gate_write
+        self._admission_gate_write = -1
+        admission_gate = self._admission_gate
+        self._admission_gate = None
+        if gate < 0 or admission_gate is None:
+            return
+        try:
+            admission_gate.release()
+        except OSError as exc:
+            raise DriverError("XI2 observer admission gate failed") from exc
+
+    def abort_admission_gate(self) -> None:
+        gate = self._admission_gate
+        self._admission_gate = None
+        self._admission_gate_write = -1
+        if gate is not None:
+            gate.close()
+
+    def verify_exec_identity(self) -> None:
+        process = self.process
+        if process is None or not self._expected_executable or not self._expected_process_start:
+            raise DriverError("XI2 observer has no admitted executable identity")
+        deadline = time.monotonic() + 1.0
+        while time.monotonic() < deadline:
+            if process.poll() is not None:
+                raise DriverError("XI2 observer exited before the resolved xinput executable ran")
+            try:
+                executable = os.path.realpath(os.readlink(f"/proc/{process.pid}/exe"))
+                start = self._process_start(process.pid)
+                pgid = os.getpgid(process.pid)
+            except (OSError, DriverError) as exc:
+                raise DriverError("XI2 observer executable identity could not be rechecked") from exc
+            if executable == self._expected_executable and start == self._expected_process_start:
+                if pgid != process.pid:
+                    raise DriverError("XI2 observer process group is not its admitted PID")
+                self._exec_verified = True
+                return
+            time.sleep(0.01)
+        raise DriverError("XI2 observer wrapper did not exec the resolved xinput executable")
+
+    def stop(self) -> str:
+        if self.process is None:
+            raise DriverError("XI2 observer is not running")
+        process = self.process
+        # Stop is an abort boundary. An observer that was started but never
+        # registered must never be admitted merely because it is being closed.
+        self.abort_admission_gate()
+        process.terminate()
+        wait = getattr(process, "wait", None)
+        if not callable(wait):
+            self.process = None
+            return ""
+        try:
+            wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            try:
+                wait(timeout=2)
+            except subprocess.TimeoutExpired as exc:
+                raise DriverError("XI2 observer termination could not be confirmed") from exc
+        if getattr(process, "poll", lambda: 0)() is None:
+            raise DriverError("XI2 observer termination could not be confirmed")
+        self.process = None
+        self._exec_verified = False
+        self._expected_executable = ""
+        self._expected_process_start = ""
+        # The monitor's reader thread is the sole owner of stdout.  Returning
+        # communicate() output here would race that reader and lose or
+        # duplicate the final complete XI2 block.
+        return ""
+
+    @staticmethod
+    def records(output: str) -> list[XI2Event]:
+        try:
+            return parse_xi2_records(output, require_event=True)
+        except InputEventError as exc:
+            raise DriverError(str(exc)) from exc
+
+    @staticmethod
+    def sources(output: str) -> set[int]:
+        return source_ids(XI2Observer.records(output))
+
+    @staticmethod
+    def events(output: str) -> list[tuple[int, str, str]]:
+        return [
+            (event.source_device, event.event_class.value, hex(event.target_xid or 0))
+            for event in XI2Observer.records(output)
+        ]
+
+
+class InputMonitor:
+    """Incremental runtime event monitor; every parsed event reaches callback."""
+
+    def __init__(
+        self,
+        display: str,
+        callback: Callable[[XI2Event | None], None],
+        *,
+        xauthority: str = "",
+    ):
+        self.display = display
+        self.callback = callback
+        self.observer = XI2Observer(display, xauthority)
+        self.thread: threading.Thread | None = None
+        self._stop = threading.Event()
+        self._events: list[XI2Event] = []
+        self._text: list[str] = []
+        self._parser: XI2StreamParser | None = None
+        self._failure_diagnostic: dict[str, str] | None = None
+        self._condition = threading.Condition()
+        self._started = threading.Event()
+
+    def start(self) -> None:
+        self.observer.start()
+        self._stop.clear()
+        self._started.clear()
+        self.thread = threading.Thread(target=self._read, name="crowley-xi2-guardian", daemon=True)
+        self.thread.start()
+
+    def release_admission_gate(self) -> None:
+        self.observer.release_admission_gate()
+
+    def wait_ready(self, timeout: float = 1.0) -> None:
+        """Wait for the reader/exec handshake outside the guardian fence."""
+
+        self.observer.verify_exec_identity()
+        if not self._started.wait(timeout):
+            self.stop()
+            raise DriverError("XI2 observer reader did not start")
+        process = self.observer.process
+        poll = getattr(process, "poll", None)
+        if callable(poll) and poll() is not None:
+            self.stop()
+            raise DriverError("XI2 observer exited during startup")
+
+    @property
+    def alive(self) -> bool:
+        process = self.observer.process
+        if self.thread is None or not self.thread.is_alive():
+            return False
+        poll = getattr(process, "poll", None)
+        return not callable(poll) or poll() is None
+
+    @property
+    def failure_diagnostic(self) -> dict[str, str] | None:
+        """Return the complete observer text and exact parser failure, if any."""
+
+        with self._condition:
+            return dict(self._failure_diagnostic) if self._failure_diagnostic is not None else None
+
+    def _read(self) -> None:
+        process = self.observer.process
+        if process is None or process.stdout is None:
+            return
+        parser = XI2StreamParser()
+        self._parser = parser
+        self._started.set()
+        while not self._stop.is_set():
+            line = process.stdout.readline()
+            if not line:
+                unexpected = not self._stop.is_set()
+                try:
+                    event = parser.finish()
+                except InputEventError as exc:
+                    with self._condition:
+                        parser_diagnostic = parser.failure_diagnostic
+                        self._failure_diagnostic = {
+                            "text": "".join(self._text),
+                            "reason": (
+                                parser_diagnostic["reason"] if parser_diagnostic is not None else str(exc)
+                            ),
+                        }
+                    if unexpected:
+                        self.callback(None)
+                else:
+                    if event is not None:
+                        self._record_event(event)
+                    if unexpected:
+                        # EOF without an explicit stop is an observer death,
+                        # even when its final block was valid.  Runtime code
+                        # must revoke rather than continue with stale proof.
+                        self.callback(None)
+                return
+            self._text.append(line)
+            try:
+                event = parser.feed(line)
+            except InputEventError as exc:
+                with self._condition:
+                    parser_diagnostic = parser.failure_diagnostic
+                    self._failure_diagnostic = {
+                        "text": "".join(self._text),
+                        "reason": (
+                            parser_diagnostic["reason"] if parser_diagnostic is not None else str(exc)
+                        ),
+                    }
+                self.callback(None)
+                return
+            if event is not None:
+                self._record_event(event)
+
+    def _record_event(self, event: XI2Event) -> None:
+        """Publish an event only after its callback has updated completion state."""
+
+        with self._condition:
+            self._events.append(event)
+        try:
+            self.callback(event)
+        finally:
+            with self._condition:
+                self._condition.notify_all()
+
+    def events(self) -> list[XI2Event]:
+        with self._condition:
+            return list(self._events)
+
+    def collect_until(self, predicate: Callable[[list[XI2Event]], bool], *, timeout: float) -> str:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while not predicate(list(self._events)):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DriverError("XI2 calibration event deadline expired")
+                self._condition.wait(remaining)
+            return "".join(self._text)
+
+    def wait_for_human(self, predicate: Callable[[list[XI2Event]], bool], *, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while not predicate(list(self._events)):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DriverError("human input sample deadline expired")
+                self._condition.wait(remaining)
+
+    def wait_for_event(self, predicate: Callable[[list[XI2Event]], bool], *, timeout: float) -> None:
+        deadline = time.monotonic() + timeout
+        with self._condition:
+            while not predicate(list(self._events)):
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DriverError("expected XTEST event was not observed")
+                self._condition.wait(remaining)
+
+    def stop(self) -> str:
+        self._stop.set()
+        trailing = ""
+        if self.observer.process is not None:
+            try:
+                trailing = self.observer.stop()
+            except DriverError:
+                pass
+        if self.thread is not None and self.thread is not threading.current_thread():
+            self.thread.join(timeout=1)
+        if trailing:
+            self._text.append(trailing)
+            parser = self._parser or XI2StreamParser()
+            try:
+                for line in trailing.splitlines(keepends=True):
+                    event = parser.feed(line)
+                    if event is not None:
+                        self._record_event(event)
+                event = parser.finish()
+                if event is not None:
+                    self._record_event(event)
+            except InputEventError as exc:
+                with self._condition:
+                    parser_diagnostic = parser.failure_diagnostic
+                    self._failure_diagnostic = {
+                        "text": "".join(self._text),
+                        "reason": (
+                            parser_diagnostic["reason"] if parser_diagnostic is not None else str(exc)
+                        ),
+                    }
+                self.callback(None)
+        return "".join(self._text)
+
+
+class DesktopDriver:
+    """Allowlisted actions bound to one verified client and one lease."""
+
+    ACTIONS = {
+        "focus_game",
+        "open_chat",
+        "type_allowlisted_command",
+        "submit_command",
+        "escape_command_buffer",
+        "dismiss_disconnect",
+        "reconnect_game",
+        "select_arthur",
+        "enter_world",
+        "open_ah",
+        "logout",
+    }
+    POINTER_ACTIONS = {
+        "dismiss_disconnect",
+        "reconnect_game",
+        "select_arthur",
+        "enter_world",
+        "open_ah",
+        "logout",
+    }
+    POINTER_BUTTONS = {
+        "dismiss_disconnect": 1,
+        "reconnect_game": 1,
+        "select_arthur": 1,
+        "enter_world": 1,
+        "open_ah": 3,
+        "logout": 1,
+    }
+    # Native visual anchors are bound to the named control proved by the
+    # provider's fresh capture.  A generic world/config coordinate cannot
+    # satisfy a modal or character-select action.
+    ANCHOR_CONTROLS = {
+        "dismiss_disconnect": "dismiss_disconnect",
+        "reconnect_game": "reconnect_game",
+        "select_arthur": "arthur_row",
+        "enter_world": "enter_world",
+        "open_ah": "auctioneer_buckler",
+        "logout": "world",
+    }
+    ANCHOR_SCENES = {
+        "dismiss_disconnect": "disconnect_dialog",
+        "reconnect_game": "game_client",
+        "select_arthur": "character_select",
+        "enter_world": "character_select",
+        "open_ah": "world",
+        "logout": "world",
+    }
+    COMMANDS = {"/crowley status", "/crowley scan", "/crowley session fence", "/reload", "/logout"}
+
+    def __init__(
+        self,
+        profile: DriverProfile | None = None,
+        backend: Backend | None = None,
+        *,
+        lease_path: str | os.PathLike[str] | None = None,
+        monotonic: Callable[[], float] = time.monotonic,
+        character_select_observer: Callable[[WindowIdentity, str], NamedStateObservation] | None = None,
+        named_state_observer: Callable[[WindowIdentity, str], NamedStateObservation] | None = None,
+        native_measurement_provider: Callable[[WindowIdentity, str, int], Any] | None = None,
+        native_memory_meter: Any | None = None,
+        measured_anchor_provider: Callable[[WindowIdentity, str], MeasuredAnchor] | None = None,
+        pointer_motion_profile: MotionProfile | None = None,
+        camera_motion_profile: MotionProfile | None = None,
+        move_motion_profile: MotionProfile | None = None,
+    ):
+        self.profile = profile or DriverProfile()
+        self._clock = monotonic
+        self.pointer_motion_profile = pointer_motion_profile or MotionProfile()
+        self.camera_motion_profile = camera_motion_profile or MotionProfile(role=DemonstrationRole.CAMERA)
+        self.move_motion_profile = move_motion_profile or MotionProfile(role=DemonstrationRole.MOVE)
+        if self.pointer_motion_profile.role is not DemonstrationRole.POINTER:
+            raise DriverError("pointer motion profile has the wrong role")
+        if self.camera_motion_profile.role is not DemonstrationRole.CAMERA:
+            raise DriverError("camera motion profile has the wrong role")
+        if self.move_motion_profile.role is not DemonstrationRole.MOVE:
+            raise DriverError("move motion profile has the wrong role")
+        self.backend = backend or X11Backend(self.profile)
+        if isinstance(self.backend, X11Backend):
+            try:
+                self.profile.validate()
+                _validate_x11_display_screen(self.profile.display)
+            except Exception:
+                self.backend.input_tool.close()
+                raise
+            if self.backend.profile.display != self.profile.display:
+                self.backend.input_tool.close()
+                raise DriverError("injected X11 backend display does not match the selected profile")
+            expected_xauthority = self.profile.xauthority or os.environ.get("XAUTHORITY", "")
+            expected_xauthority = (
+                os.path.realpath(os.path.expanduser(expected_xauthority)) if expected_xauthority else ""
+            )
+            if self.backend.xauthority != expected_xauthority:
+                self.backend.input_tool.close()
+                raise DriverError("injected X11 backend Xauthority does not match the selected profile")
+        self._held_input = False
+        watchdog_command: tuple[str, ...] = ()
+        watchdog_env: dict[str, str] = {}
+        watchdog_release_spec = None
+        try:
+            if lease_path is None and not isinstance(self.backend, X11Backend):
+                lease_path = Path(tempfile.gettempdir()) / f"crowley-desktop-test-{uuid.uuid4().hex}.lock"
+            default_lease = Path(os.environ.get("XDG_RUNTIME_DIR", "/tmp")) / "crowley" / "desktop.lock"
+            self.lease_path = Path(lease_path or os.environ.get("CROWLEY_DESKTOP_LEASE", str(default_lease)))
+            if isinstance(self.backend, X11Backend):
+                if not hasattr(self.backend, "input_tool"):
+                    try:
+                        self.backend.input_tool = PinnedInputTool.load()
+                    except InputToolError as exc:
+                        raise DriverError(f"private XTEST input tool is not admissible: {exc}") from exc
+                # The independent watchdog receives the exact held item set and
+                # a duplicate of the already pinned image.  A global
+                # ``keyup --all`` fallback would release unrelated desktop input.
+                watchdog_release_spec = self.backend.input_tool.duplicate_release_spec()
+                watchdog_env = {
+                    "DISPLAY": self.profile.display,
+                    "XAUTHORITY": self.backend.xauthority,
+                }
+            self.guardian = InputGuardian(
+                self.lease_path,
+                release_input=self._release_physical_input,
+                monotonic=monotonic,
+                watchdog_command=watchdog_command,
+                watchdog_env=watchdog_env,
+                watchdog_release_spec=watchdog_release_spec,
+            )
+        except Exception:
+            if isinstance(self.backend, X11Backend):
+                self.backend.input_tool.close()
+            raise
+        self.guardian.on_revoke(self._on_guardian_revoke)
+        if isinstance(self.backend, X11Backend):
+            self.backend.set_tool_drift_callback(self._on_input_tool_drift)
+            self.backend.set_admission(self.guardian.dispatch_admission)
+            self.backend.set_calibration_admission(self.guardian.calibration_dispatch_admission)
+            self.backend.set_calibration_ticket_validator(self.guardian.calibration_ticket_current)
+            self.backend.set_hold_publisher(self._publish_holds)
+            self.backend.set_admission_health(self.guardian.admission_gate_ready)
+            self.backend.set_process_group_callbacks(
+                lambda generation, pgid: self.guardian.register_process_group(pgid, generation),
+                self.guardian.unregister_process_group,
+                lambda ticket, pgid: self.guardian.register_calibration_process_group(pgid, ticket),
+            )
+        self._queued: list[tuple[int, str, dict[str, Any]]] = []
+        self._calibration_action_lock = threading.RLock()
+        self._monitor: InputMonitor | None = None
+        self._monitor_calibration = False
+        self._calibration_timers: dict[int, threading.Timer] = {}
+        self._calibration_due_waiters: dict[int, threading.Event] = {}
+        self._calibration_epoch = 0
+        self._calibration_ticket: CalibrationTicket | None = None
+        self._calibration_executions = 0
+        self._calibration_due_count = 0
+        self._calibration_rejected_count = 0
+        self._calibration_due_deadline: float | None = None
+        self._calibration_target_process_groups: set[int] = set()
+        self._calibration_bootstrap_process_groups: set[int] = set()
+        self._revoke_callbacks: list[Callable[[str, int], None]] = []
+        self._input_evidence: Any | None = None
+        self._retained_input_evidence: Any | None = None
+        self._input_calibration_readiness: Any | None = None
+        self.driver_version = (
+            f"{DRIVER_VERSION};{getattr(self.backend, 'input_tool_version', self.backend.input_tool.version)}"
+            if isinstance(self.backend, X11Backend)
+            else DRIVER_VERSION
+        )
+        self._last_identity: WindowIdentity | None = None
+        self._character_select_observer = character_select_observer
+        self._named_state_observer = named_state_observer or character_select_observer
+        self._last_named_observation: NamedStateObservation | None = None
+        self._named_action_before: dict[str, NamedStateObservation] = {}
+        self.native_measurement_provider = native_measurement_provider
+        self.native_memory_meter = native_memory_meter
+        self.notify_native_memory_reset_ready: Callable[[WindowIdentity, Any], Any] | None = None
+        self.notify_native_hold_required: Callable[[WindowIdentity], None] | None = None
+        self.notify_native_memory_ready: Callable[[WindowIdentity, Any], None] | None = None
+        # The pre-resume hook receives a sealed NativeResumeBoundary, before
+        # the provider is asked to publish normal/0.  The final resume-ready
+        # hook receives the completed NativeCalibrationEvidence and its fresh
+        # observation after that publication is decoded.
+        self.notify_native_resume_required: Callable[[WindowIdentity, Any], None] | None = None
+        self.notify_native_resume_ready: Callable[[WindowIdentity, Any, Any], None] | None = None
+        self.notify_native_measurement_failed: Callable[[WindowIdentity, str], Any] | None = None
+        # Lead-owned hook invoked immediately before the native reset5 memory
+        # baseline. It establishes an idle renderer/bootstrap boundary but
+        # must not construct addon textures or provide metrics.
+        self.native_preconstruction_provider: Callable[..., Any] | None = None
+        self.measured_anchor_provider = measured_anchor_provider
+        self._measured_anchors: dict[str, MeasuredAnchor] = {}
+        self._measured_anchor_generations: dict[str, int] = {}
+        self._consumed_anchor_seals: set[str] = set()
+
+    @property
+    def queued_calibration_count(self) -> int:
+        return len(self._queued)
+
+    @property
+    def xauthority(self) -> str:
+        if isinstance(self.backend, X11Backend):
+            return self.backend.xauthority
+        return self.profile.xauthority or os.environ.get("XAUTHORITY", "")
+
+    def character_select_observed(self) -> bool:
+        """Return a verified, named character-select scene observation.
+
+        A plain callback returning ``True`` is intentionally not accepted.  The
+        callback must return :class:`NamedStateObservation`, which is tied to a
+        fresh capture and includes the configured character/realm facts.
+        """
+
+        self.verify_named_action("logout", "after")
+        return True
+
+    @property
+    def last_named_observation(self) -> NamedStateObservation | None:
+        return self._last_named_observation
+
+    _NAMED_ACTION_STATES: dict[str, tuple[str, str]] = {
+        "dismiss_disconnect": ("disconnect_dialog", "game_client"),
+        "reconnect_game": ("game_client", "character_select"),
+        "select_arthur": ("character_select", "arthur_selected"),
+        "enter_world": ("arthur_selected", "world"),
+        "open_ah": ("world", "auction_house_open"),
+        "logout": ("world", "character_select"),
+    }
+    _NAMED_OBSERVATION_SOURCES = frozenset({"native-visual", "native-addon"})
+
+    def _named_state_facts(self, state: str) -> dict[str, str]:
+        expected = {
+            "disconnect_dialog": {
+                "scene": "disconnect_dialog",
+                "character": "",
+                "realm": "",
+                "modal": "WOW51900319",
+                "code": "WOW51900319",
+                "control": "dismiss_disconnect",
+                "idle": "false",
+            },
+            "game_client": {
+                "scene": "game_client",
+                "character": "",
+                "realm": "",
+                "modal": "none",
+                "code": "",
+                "control": "client",
+                "idle": "false",
+            },
+            "character_select": {
+                "scene": "character_select",
+                "character": self.profile.character,
+                "realm": self.profile.realm,
+                "modal": "character_select",
+                "code": "",
+                "control": "character_list",
+                "idle": "true",
+            },
+            "arthur_selected": {
+                "scene": "character_select",
+                "character": self.profile.character,
+                "realm": self.profile.realm,
+                "modal": "character_select",
+                "code": "",
+                "control": "arthur_row",
+                "idle": "true",
+            },
+            "world": {
+                "scene": "world",
+                "character": self.profile.character,
+                "realm": self.profile.realm,
+                "modal": "none",
+                "code": "",
+                "control": "world",
+                "idle": "true",
+            },
+            "auction_house_open": {
+                "scene": "world",
+                "character": self.profile.character,
+                "realm": self.profile.realm,
+                "modal": "auction_house",
+                "code": "",
+                "control": "auctioneer_buckler",
+                "idle": "true",
+            },
+        }
+        try:
+            return expected[state]
+        except KeyError as exc:
+            raise DriverError(f"unknown named game state {state!r}") from exc
+
+    def _validate_named_observation(
+        self,
+        identity: WindowIdentity,
+        expected_state: str,
+        observation: NamedStateObservation,
+    ) -> None:
+        if observation.state != expected_state:
+            raise DriverError(f"named state mismatch: expected {expected_state}, got {observation.state}")
+        if observation.identity_fingerprint != identity.fingerprint:
+            raise DriverError("named state observation identity is stale")
+        if observation.target_xid <= 0:
+            raise DriverError("named state observation has no target XID")
+        if isinstance(self.backend, X11Backend):
+            if not self._is_owned_client_target(observation.target_xid, identity):
+                raise DriverError("named state observation target is outside the verified client")
+        elif observation.target_xid != identity.child_xid:
+            raise DriverError("fake named state observation target does not match the client child")
+        if not observation.capture_id or observation.capture_sequence <= 0:
+            raise DriverError("named state observation has no fresh capture identity")
+        if observation.source not in self._NAMED_OBSERVATION_SOURCES:
+            raise DriverError("named state observation source is not native evidence")
+        now = self._clock()
+        if (
+            isinstance(observation.observed_monotonic, bool)
+            or not isinstance(observation.observed_monotonic, (int, float))
+            or not math.isfinite(float(observation.observed_monotonic))
+        ):
+            raise DriverError("named state observation timestamp is not numeric")
+        age = now - float(observation.observed_monotonic)
+        if age < -0.25 or age > 5.0:
+            raise DriverError("named state observation is stale")
+        facts = dict(observation.facts)
+        if len(facts) != len(observation.facts):
+            raise DriverError("named state observation contains duplicate facts")
+        if isinstance(self.backend, X11Backend):
+            required = self._named_state_facts(expected_state)
+        else:
+            # Deterministic non-X11 backends predate the native visual
+            # producer and intentionally expose only the stable scene facts.
+            # They still must provide a named observation object with a fresh
+            # capture; identity-only booleans are rejected above.
+            required = {
+                "disconnect_dialog": {"scene": "disconnect_dialog"},
+                "game_client": {"scene": "game_client"},
+                "character_select": {"scene": "character_select", "realm": self.profile.realm},
+                "arthur_selected": {
+                    "scene": "character_select",
+                    "character": self.profile.character,
+                    "realm": self.profile.realm,
+                },
+                "world": {
+                    "scene": "world",
+                    "character": self.profile.character,
+                    "realm": self.profile.realm,
+                },
+                "auction_house_open": {
+                    "scene": "world",
+                    "character": self.profile.character,
+                    "realm": self.profile.realm,
+                    "auction_house": "open",
+                },
+            }[expected_state]
+        if any(facts.get(key) != value for key, value in required.items()):
+            raise DriverError("named state observation lacks the required visual/state facts")
+
+    def observe_named_state(self, state: str) -> NamedStateObservation:
+        """Collect and verify one named scene from the configured native observer."""
+
+        self._named_state_facts(state)
+        identity = self.resolve_identity()
+        observer = self._named_state_observer
+        if observer is None:
+            observer = getattr(self.backend, "observe_named_state", None)
+        if not callable(observer):
+            raise DriverError("native named-state observer is not configured")
+        try:
+            observation = observer(identity, state)
+        except Exception as exc:
+            raise DriverError(f"native named-state observation failed: {exc}") from exc
+        if not isinstance(observation, NamedStateObservation):
+            raise DriverError("native named-state observer returned identity-only or boolean evidence")
+        self._validate_named_observation(identity, state, observation)
+        self._last_named_observation = observation
+        return observation
+
+    def verify_named_action(
+        self,
+        name: str,
+        stage: str,
+        snapshot_or_capture: NamedStateObservation | None = None,
+        *,
+        observation: NamedStateObservation | None = None,
+    ) -> bool:
+        """Verify an action's modal pre/post state against fresh native evidence.
+
+        ``stage`` is ``"before"`` or ``"after"``.  If no observation is
+        supplied, the configured observer is called with the required state.
+        Supplied observations still undergo every identity, ancestry, freshness,
+        and named-fact check; a snapshot containing only an equal identity is
+        rejected.
+        """
+
+        try:
+            before, after = self._NAMED_ACTION_STATES[name]
+        except KeyError as exc:
+            raise DriverError(f"action {name!r} has no named-state contract") from exc
+        if stage not in {"before", "after"}:
+            raise DriverError("named action stage must be before or after")
+        expected_state = before if stage == "before" else after
+        if snapshot_or_capture is not None and observation is not None:
+            raise DriverError("named action received two observations")
+        selected_observation = snapshot_or_capture or observation or self.observe_named_state(expected_state)
+        if not isinstance(selected_observation, NamedStateObservation):
+            raise DriverError("named action requires explicit native state evidence")
+        identity = self.resolve_identity()
+        self._validate_named_observation(identity, expected_state, selected_observation)
+        if stage == "after":
+            before_observation = self._named_action_before.pop(name, None)
+            if before_observation is not None and (
+                selected_observation.capture_sequence <= before_observation.capture_sequence
+                or selected_observation.observed_monotonic <= before_observation.observed_monotonic
+            ):
+                raise DriverError("named action postcondition reused the pre-action capture")
+        else:
+            self._named_action_before[name] = selected_observation
+        self._last_named_observation = selected_observation
+        return True
+
+    def on_revoke(self, callback: Callable[[str, int], None]) -> None:
+        self._revoke_callbacks.append(callback)
+
+    def _release_physical_input(self) -> None:
+        release = getattr(self.backend, "release_held_input", None)
+        if release is not None:
+            release()
+        self._held_input = False
+
+    def _on_input_tool_drift(self, reason: str) -> None:
+        """Invalidate all retained native evidence when the emitter changes."""
+
+        self._input_evidence = None
+        self._retained_input_evidence = None
+        self._input_calibration_readiness = None
+        if self.guardian.armed:
+            self.guardian.revoke(reason)
+
+    def _publish_holds(
+        self,
+        authority: int | CalibrationTicket,
+        keys: set[str],
+        buttons: set[int],
+    ) -> None:
+        if isinstance(authority, CalibrationTicket):
+            self.guardian.publish_calibration_holds(authority, keys, buttons)
+        else:
+            self.guardian.publish_current_holds(authority, keys, buttons)
+
+    def _on_guardian_revoke(self, reason: str, generation: int) -> None:
+        if isinstance(self.backend, X11Backend):
+            self.backend._calibration_focus_ticket = None
+        with self._calibration_action_lock:
+            # The timer and revocation share this lock so a due callback cannot
+            # pass its generation check after a human event has cleared it.
+            self._queued.clear()
+            # Human input closes the calibration-only epoch as well as the
+            # game epoch.  A ticket from before takeover can never revive on a
+            # later arm or retry.
+            self._calibration_ticket = None
+            waiters = tuple(self._calibration_due_waiters.values())
+            self._calibration_due_waiters.clear()
+        for waiter in waiters:
+            waiter.set()
+        # Let an already scheduled calibration timer reach its bounded due
+        # point and record that it was suppressed by the generation fence.
+        # Cancelling it here would leave a fast human sample unable to prove
+        # that the queued harmless action was actually prevented.
+        self._held_input = False
+        for callback in tuple(self._revoke_callbacks):
+            callback(reason, generation)
+        if self._monitor is not None and not self._monitor_calibration:
+            # Keep the observer registry in lockstep with the actual helper;
+            # stopping the subprocess without unregistering its PGID would
+            # leave the owner-death watchdog believing a dead observer is
+            # still live.
+            self.stop_input_observer()
+
+    def begin_calibration_operation(self) -> int:
+        """Start a fresh calibration epoch and return its admission epoch."""
+
+        with self._calibration_action_lock:
+            try:
+                epoch = self.guardian.begin_calibration_operation()
+            except GuardianError as exc:
+                raise DriverError(str(exc)) from exc
+            timers = tuple(self._calibration_timers.values())
+            self._calibration_timers.clear()
+            waiters = tuple(self._calibration_due_waiters.values())
+            self._calibration_due_waiters.clear()
+            self._queued.clear()
+            self._calibration_due_count = 0
+            self._calibration_executions = 0
+            self._calibration_rejected_count = 0
+            self._calibration_due_deadline = None
+            self._calibration_epoch = epoch
+            self._calibration_ticket = None
+            if isinstance(self.backend, X11Backend):
+                self.backend._calibration_focus_ticket = None
+        for waiter in waiters:
+            waiter.set()
+        for timer in timers:
+            timer.cancel()
+        for pid in tuple(self._calibration_target_process_groups):
+            if not Path(f"/proc/{pid}").exists():
+                self.guardian.unregister_process_group(pid)
+                self._calibration_target_process_groups.discard(pid)
+        for pid in tuple(self._calibration_bootstrap_process_groups):
+            if not Path(f"/proc/{pid}").exists():
+                self.guardian.unregister_process_group(pid)
+                self._calibration_bootstrap_process_groups.discard(pid)
+        return epoch
+
+    def _calibration_dispatch_admission(self, ticket: CalibrationTicket, dispatch: Callable[[], Any]) -> Any:
+        """Admit only the currently owned GTK target before human takeover."""
+
+        if not isinstance(ticket, CalibrationTicket):
+            raise GuardianError("calibration admission requires a calibration ticket")
+        return self.guardian.calibration_dispatch_admission(ticket, dispatch)
+
+    def admit_calibration_target_process(
+        self, pgid: int, release_gate: Callable[[], None]
+    ) -> Callable[[], None]:
+        """Register and positively admit a gated GTK process.
+
+        The epoch, watchdog health check, registration, and gate release share
+        the Guardian lock.  A failed target verification can then call the
+        returned capability to remove this exact bootstrap group before the
+        next calibration epoch is requested.
+        """
+
+        try:
+            with self._calibration_action_lock:
+                expected_epoch = self._calibration_epoch
+                with self.guardian._lock:
+                    epoch = self.guardian._calibration_epoch
+                    if expected_epoch <= 0 or epoch <= 0:
+                        raise DriverError("calibration target startup has no active epoch")
+                    if epoch != expected_epoch:
+                        raise DriverError("calibration target startup epoch is stale")
+                    if self.guardian._watchdog_failed:
+                        raise DriverError("calibration target startup watchdog is unhealthy")
+                    self.guardian.admission_gate_ready()
+                    self.guardian.register_calibration_bootstrap_process(pgid, expected_epoch)
+                    if self.guardian._calibration_epoch != expected_epoch:
+                        raise DriverError("calibration target startup epoch changed during admission")
+                    self.guardian.admission_gate_ready()
+                    release_gate()
+        except Exception as exc:
+            try:
+                self.guardian.unregister_process_group(pgid)
+            except Exception as cleanup_exc:
+                exc.add_note(f"calibration target startup unregister failed: {cleanup_exc}")
+            if isinstance(exc, DriverError):
+                raise
+            admission_error = DriverError("calibration target startup admission failed")
+            for note in getattr(exc, "__notes__", ()):
+                admission_error.add_note(note)
+            raise admission_error from exc
+        self._calibration_bootstrap_process_groups.add(pgid)
+
+        released = False
+
+        def unregister() -> None:
+            nonlocal released
+            if released:
+                return
+            released = True
+            try:
+                self.guardian.unregister_process_group(pgid)
+            finally:
+                self._calibration_bootstrap_process_groups.discard(pgid)
+
+        return unregister
+
+    @staticmethod
+    def _calibration_target_certificate(target: Any) -> tuple[frozenset[int], int, tuple[int, int, int, int]]:
+        """Return the exact certified GTK/X11 event target set.
+
+        The calibration owner certifies one managed frame and the GTK client
+        subtree.  The driver consumes that certificate as an exact set; it
+        never infers extra parents or accepts a root/sibling supplied by a
+        caller.
+        """
+
+        allowed = frozenset(target.allowed_event_target_xids)
+        descendants = frozenset(target.descendant_xids)
+        target_xid = target.xid
+        frame_xid = target.managed_frame_xid
+        frame_geometry = tuple(target.managed_frame_geometry)
+        target_executable = getattr(target, "executable", "")
+        target_process_start = getattr(target, "process_start", "")
+        if (
+            not allowed
+            or not descendants
+            or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in allowed)
+            or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in descendants)
+            or isinstance(target_xid, bool)
+            or not isinstance(target_xid, int)
+            or target_xid <= 0
+            or target_xid not in descendants
+            or isinstance(frame_xid, bool)
+            or not isinstance(frame_xid, int)
+            or frame_xid <= 0
+            or frame_xid in descendants
+            or allowed != frozenset({frame_xid, *descendants})
+            or len(frame_geometry) != 4
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in frame_geometry)
+            or frame_geometry[2] <= 0
+            or frame_geometry[3] <= 0
+            or not isinstance(target_executable, str)
+            or not target_executable
+            or not os.path.isabs(target_executable)
+            or not isinstance(target_process_start, str)
+            or not target_process_start
+        ):
+            raise DriverError("owned GTK target event-target certificate is incomplete or altered")
+        target_geometry = tuple(target.geometry)
+        if (
+            len(target_geometry) != 4
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in target_geometry)
+            or target_geometry[2] <= 0
+            or target_geometry[3] <= 0
+            or not (
+                frame_geometry[0] <= target_geometry[0]
+                and frame_geometry[1] <= target_geometry[1]
+                and frame_geometry[0] + frame_geometry[2] >= target_geometry[0] + target_geometry[2]
+                and frame_geometry[1] + frame_geometry[3] >= target_geometry[1] + target_geometry[3]
+            )
+        ):
+            raise DriverError("owned GTK managed-frame geometry certificate is invalid")
+        return allowed, frame_xid, frame_geometry
+
+    @classmethod
+    def _verify_calibration_target(cls, ticket: CalibrationTicket, target: Any) -> None:
+        allowed, frame_xid, frame_geometry = cls._calibration_target_certificate(target)
+        if (
+            int(getattr(target, "pid", 0)) != ticket.target_pid
+            or int(getattr(target, "xid", 0)) != ticket.target_xid
+            or getattr(target, "title", "") != ticket.title
+            or tuple(getattr(target, "geometry", ())) != ticket.geometry
+            or getattr(target, "executable", "") != ticket.target_executable
+            or getattr(target, "process_start", "") != ticket.target_process_start
+            or allowed != ticket.target_xids
+            or frame_xid != ticket.managed_frame_xid
+            or frame_geometry != ticket.managed_frame_geometry
+        ):
+            raise DriverError("owned GTK calibration target changed after ticket issue")
+
+    def cancel_calibration_actions(self) -> None:
+        """Discard timers/queue after a calibration result is retained."""
+
+        with self._calibration_action_lock:
+            # Invalidate the guardian ticket while this bookkeeping lock is
+            # held.  Releasing the local lock first would let a concurrent
+            # retry issue a replacement ticket before cancellation observes
+            # the old identity, leaving that stale epoch live.
+            ticket = self._calibration_ticket
+            self.guardian.cancel_calibration_operation(ticket)
+            timers = tuple(self._calibration_timers.values())
+            self._calibration_timers.clear()
+            self._queued.clear()
+            self._calibration_ticket = None
+            self._calibration_due_deadline = None
+            waiters = tuple(self._calibration_due_waiters.values())
+            self._calibration_due_waiters.clear()
+        for waiter in waiters:
+            waiter.set()
+        for timer in timers:
+            timer.cancel()
+        # Owned GTK helpers are registered when their ticket is issued.  Do
+        # not drop that ownership until close() has confirmed process reap;
+        # once /proc is gone, unregister the exact group exactly once.
+        for pid in tuple(self._calibration_target_process_groups):
+            if Path(f"/proc/{pid}").exists():
+                continue
+            self.guardian.unregister_process_group(pid)
+            self._calibration_target_process_groups.discard(pid)
+        for pid in tuple(self._calibration_bootstrap_process_groups):
+            if not Path(f"/proc/{pid}").exists():
+                self.guardian.unregister_process_group(pid)
+                self._calibration_bootstrap_process_groups.discard(pid)
+
+    def _issue_calibration_ticket(self, target: Any) -> CalibrationTicket:
+        """Create or reuse the exact guardian-owned GTK capability."""
+
+        from .calibration import OwnedGtkCalibrationWindow, OwnedWindow
+
+        if not isinstance(target, OwnedWindow) or target.title != OwnedGtkCalibrationWindow.TITLE:
+            raise DriverError("calibration target is not the owned GTK window")
+        target_xids, managed_frame_xid, managed_frame_geometry = self._calibration_target_certificate(target)
+        with self._calibration_action_lock:
+            expected_epoch = self._calibration_epoch
+            with self.guardian._lock:
+                guardian_epoch = self.guardian._calibration_epoch
+                if expected_epoch <= 0 or guardian_epoch <= 0:
+                    raise DriverError("calibration operation epoch is not active")
+                if guardian_epoch != expected_epoch:
+                    raise DriverError("calibration operation epoch is stale")
+                current = self._calibration_ticket
+                if current is not None and not (
+                    not self.guardian.armed
+                    and self.guardian._calibration_ticket is current
+                    and getattr(current, "epoch", 0) == guardian_epoch
+                ):
+                    # The guardian is authoritative for epoch lifetime.  A
+                    # local mirror can lag a revoke/begin transition, so it
+                    # must never be reused merely because the GTK object
+                    # still compares equal.
+                    self._calibration_ticket = None
+                    current = None
+            if current is not None:
+                self._verify_calibration_target(current, target)
+                return current
+            epoch = expected_epoch
+            ticket = CalibrationTicket(
+                epoch,
+                int(target.pid),
+                int(target.xid),
+                target_xids,
+                target.title,
+                tuple(target.geometry),
+                managed_frame_xid,
+                managed_frame_geometry,
+                str(target.executable),
+                str(target.process_start),
+            )
+            try:
+                self.guardian.issue_calibration_ticket(ticket)
+            except GuardianError as exc:
+                raise DriverError(str(exc)) from exc
+            if isinstance(self.backend, X11Backend) and isinstance(target.process, subprocess.Popen):
+                try:
+                    if os.getpgid(ticket.target_pid) != ticket.target_pid:
+                        raise DriverError("owned GTK target is not an independently owned process group")
+                except OSError as exc:
+                    raise DriverError("owned GTK target process group is unavailable") from exc
+                try:
+                    if ticket.target_pid in self._calibration_bootstrap_process_groups:
+                        self.guardian.adopt_calibration_bootstrap_process(ticket.target_pid, ticket)
+                        self._calibration_bootstrap_process_groups.discard(ticket.target_pid)
+                    else:
+                        self.guardian.register_calibration_process_group(ticket.target_pid, ticket)
+                except GuardianError as exc:
+                    raise DriverError(str(exc)) from exc
+                self._calibration_target_process_groups.add(ticket.target_pid)
+            self._calibration_ticket = ticket
+            return ticket
+
+    def issue_calibration_ticket(self, target: Any) -> CalibrationTicket:
+        """Publish the calibration capability before target preparation.
+
+        The ticket is deliberately separate from delayed scheduling: callers
+        must hold this exact capability while focus/synthetic proof runs, then
+        pass it back when they schedule the bounded delayed action.
+        """
+
+        return self._issue_calibration_ticket(target)
+
+    def arm(self, evidence: Any | None = None) -> int:
+        # Calibration owns a temporary observer.  Explicit resume replaces it
+        # with a live runtime observer so events cannot pass through a stopped
+        # monitor after the generation fence is re-armed.
+        if self._monitor is not None and self._monitor_calibration:
+            calibration_monitor = self._monitor
+            self.stop_input_observer(calibration_monitor)
+        try:
+            evidence.verify_seal()
+        except Exception as exc:
+            raise DriverError("input arm requires owned live calibration evidence") from exc
+        if isinstance(self.backend, X11Backend):
+            self.backend._check_published_tool()
+        if getattr(evidence, "display", self.profile.display) != self.profile.display:
+            raise DriverError("input calibration display does not match the configured display")
+        if getattr(evidence, "driver_version", self.driver_version) != self.driver_version:
+            raise DriverError("input calibration was produced by a different driver version")
+        evidence_xauthority = getattr(evidence, "xauthority", "")
+        if evidence_xauthority and evidence_xauthority != self.xauthority:
+            raise DriverError("input calibration Xauthority changed")
+        if isinstance(self.backend, X11Backend):
+            current_hierarchy = self.input_hierarchy()
+            if current_hierarchy != tuple(getattr(evidence, "xinput_hierarchy", ())):
+                raise DriverError("input calibration XInput hierarchy changed")
+            current_profile = self.xtest_input_profile(current_hierarchy)
+            sealed_profile = getattr(evidence, "xtest_profile", None)
+            if (
+                sealed_profile is None
+                or current_profile.canonical_payload() != sealed_profile.canonical_payload()
+            ):
+                raise DriverError("input calibration XTEST profile changed")
+            evidence_identity = getattr(evidence, "game_identity_fingerprint", "")
+            if not evidence_identity:
+                raise DriverError("input calibration has no verified game identity")
+            current_identity = self.resolve_identity(require_foreground=False)
+            if current_identity.fingerprint != evidence_identity:
+                raise DriverError("input calibration game identity changed")
+            if tuple(getattr(evidence, "game_geometry", ())) != current_identity.child_geometry:
+                raise DriverError("input calibration game geometry changed")
+        self._input_evidence = evidence
+        started_runtime_monitor: InputMonitor | None = None
+        try:
+            if isinstance(self.backend, X11Backend) and self._monitor is not None:
+                monitor_alive = getattr(self._monitor, "alive", True)
+                if callable(monitor_alive):
+                    monitor_alive = monitor_alive()
+                if monitor_alive is False:
+                    dead_monitor = self._monitor
+                    self.stop_input_observer(dead_monitor, already_stopped=True)
+            if isinstance(self.backend, X11Backend) and self._monitor is None:
+                started_runtime_monitor = self.start_input_observer()
+                monitor_alive = getattr(started_runtime_monitor, "alive", True)
+                if callable(monitor_alive):
+                    monitor_alive = monitor_alive()
+                if monitor_alive is False:
+                    raise DriverError("runtime XI2 observer is not alive at arm boundary")
+            # The observer must have a live stdout reader before the lease is
+            # armed.  A monitor dying between arm and startup would otherwise
+            # leave a generation that can never observe revocation.
+            generation = self.guardian.arm(evidence)
+            if isinstance(self.backend, X11Backend):
+                self.guardian.dispatch_admission(
+                    generation,
+                    lambda: self.backend.activate_generation(generation),
+                )
+                live_after_arm = getattr(self._monitor, "alive", True)
+                if callable(live_after_arm):
+                    live_after_arm = live_after_arm()
+                if live_after_arm is False:
+                    self.guardian.revoke("runtime XI2 observer died at arm boundary")
+                    raise DriverError("runtime XI2 observer died at arm boundary")
+        except Exception:
+            self._input_evidence = None
+            if self.guardian.armed:
+                self.guardian.revoke("runtime XI2 observer could not be started")
+            elif started_runtime_monitor is not None:
+                self.stop_input_observer(started_runtime_monitor)
+            raise
+        return generation
+
+    def stop_input_observer(
+        self, monitor: InputMonitor | None = None, *, already_stopped: bool = False
+    ) -> None:
+        """Stop and forget a calibration/runtime monitor exactly once."""
+
+        if self._monitor is None or (monitor is not None and monitor is not self._monitor):
+            return
+        current = self._monitor
+        process = getattr(getattr(current, "observer", None), "process", None)
+        pid = getattr(process, "pid", None)
+        if not already_stopped:
+            current.stop()
+        if process is not None and getattr(process, "poll", lambda: 0)() is None:
+            raise DriverError("XI2 observer termination could not be confirmed")
+        self._monitor = None
+        self._monitor_calibration = False
+        # Keep the PGID in the guardian/watchdog registry until the helper's
+        # stop path has returned.  A failed termination must remain owned for
+        # owner-death cleanup rather than becoming an untracked child.
+        if isinstance(pid, int) and pid > 0:
+            self.guardian.unregister_observer_process(pid)
+
+    def start_input_observer(
+        self,
+        *,
+        calibration: bool = False,
+        callback: Callable[[XI2Event | None], None] | None = None,
+    ) -> InputMonitor:
+        if self._monitor is not None:
+            return self._monitor
+        observer_callback = callback or ((lambda _event: None) if calibration else self._external_input)
+        xauthority = self.xauthority
+        monitor = InputMonitor(self.profile.display, observer_callback, xauthority=xauthority)
+        try:
+            self.guardian.observer_dispatch_admission(
+                lambda: monitor.start() or monitor,
+                calibration=calibration,
+            )
+            monitor.wait_ready()
+        except Exception:
+            process = getattr(getattr(monitor, "observer", None), "process", None)
+            pid = getattr(process, "pid", None)
+            try:
+                monitor.stop()
+            except Exception:
+                # Keep a failed-to-reap observer reachable by the driver so a
+                # later close/revoke can retry it.  Its PGID remains in the
+                # watchdog registry until termination is confirmed.
+                self._monitor = monitor
+                self._monitor_calibration = calibration
+                raise
+            if process is not None and getattr(process, "poll", lambda: 0)() is None:
+                self._monitor = monitor
+                self._monitor_calibration = calibration
+            elif isinstance(pid, int) and pid > 0:
+                self.guardian.unregister_observer_process(pid)
+            raise
+        self._monitor = monitor
+        self._monitor_calibration = calibration
+        return monitor
+
+    def input_hierarchy(
+        self, *, generation: int | None = None, deadline_monotonic: float | None = None
+    ) -> tuple[tuple[int, int, str, str], ...]:
+        """Read the current XInput hierarchy used by calibration fingerprints."""
+
+        from .calibration import xinput_hierarchy
+
+        if not isinstance(self.backend, X11Backend):
+            return ((0, 0, "test", "test"),)
+        output = self.backend._run(
+            ["xinput", "--list", "--short"],
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        ).stdout
+        try:
+            return xinput_hierarchy(output)
+        except Exception as exc:
+            raise DriverError(str(exc)) from exc
+
+    def xtest_input_profile(
+        self,
+        hierarchy: tuple[tuple[int, int, str, str], ...],
+        *,
+        generation: int | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> Any:
+        if not isinstance(self.backend, X11Backend):
+            raise DriverError("XTEST input profile requires the owned X11 backend")
+        return self.backend.xtest_input_profile(
+            hierarchy,
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        )
+
+    def _verify_current_xtest_profile(
+        self,
+        evidence: Any,
+        hierarchy: tuple[tuple[int, int, str, str], ...] | None = None,
+        *,
+        generation: int | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> None:
+        if not isinstance(self.backend, X11Backend):
+            return
+        sealed = getattr(evidence, "xtest_profile", None)
+        if sealed is None:
+            raise DriverError("native XTEST action has no sealed input profile")
+        try:
+            sealed.verify()
+        except Exception as exc:
+            raise DriverError("native XTEST action has an invalid sealed input profile") from exc
+        query_kwargs = {
+            key: value
+            for key, value in (
+                ("generation", generation),
+                ("deadline_monotonic", deadline_monotonic),
+            )
+            if value is not None
+        }
+        if hierarchy is None:
+            hierarchy = self.input_hierarchy(**query_kwargs)
+        current = self.xtest_input_profile(hierarchy, **query_kwargs)
+        if current is None:
+            raise DriverError("native XTEST action has no freshly observed input profile")
+        try:
+            current.verify()
+        except Exception as exc:
+            raise DriverError("fresh XTEST input profile is invalid") from exc
+        if current.canonical_payload() != sealed.canonical_payload():
+            raise DriverError("XTEST input profile changed before native pointer dispatch")
+
+    def _external_input(self, event: XI2Event | None) -> None:
+        if event is None:
+            self.revoke("malformed XI2 event stream")
+            return
+        try:
+            self.guardian.observe(event)
+        except Exception as exc:
+            self.revoke(f"XI2 guardian failure: {exc}")
+
+    def revoke(self, reason: str) -> int:
+        with self._calibration_action_lock:
+            self._queued.clear()
+        generation = self.guardian.revoke(reason)
+        self._input_evidence = None
+        return generation
+
+    def retain_input_evidence(self, evidence: Any) -> None:
+        """Keep completed calibration proof while the controller remains paused.
+
+        Retention never arms the lease.  Resume must explicitly pass this record
+        back to :meth:`arm`, after identity and hierarchy checks run again.
+        """
+
+        try:
+            evidence.verify_seal()
+        except Exception as exc:
+            raise DriverError("cannot retain unverified input calibration evidence") from exc
+        self._retained_input_evidence = evidence
+
+    @property
+    def retained_input_evidence(self) -> Any | None:
+        return self._retained_input_evidence
+
+    def discard_retained_input_evidence(self) -> None:
+        self._retained_input_evidence = None
+
+    @property
+    def input_calibration_readiness(self) -> Any | None:
+        """Return owned GTK/observer proof while the human sample is pending."""
+
+        return self._input_calibration_readiness
+
+    def notify_input_calibration_ready(self, readiness: Any) -> None:
+        if not getattr(readiness, "target_pid", 0) or not getattr(readiness, "target_xid", 0):
+            raise DriverError("calibration readiness has no owned target identity")
+        self._input_calibration_readiness = readiness
+
+    def clear_input_calibration_ready(self) -> None:
+        self._input_calibration_readiness = None
+
+    def queue(self, name: str, generation: int, **kwargs: Any) -> None:
+        if name not in self.ACTIONS:
+            raise DriverError(f"action {name!r} is not allowlisted")
+        try:
+            self.guardian.check(generation)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        self._queued.append((generation, name, kwargs))
+
+    def install_measured_anchors(self, anchors: tuple[MeasuredAnchor, ...] | list[MeasuredAnchor]) -> None:
+        """Validate a complete batch only for isolated fixture tooling.
+
+        Live X11 dispatch measures and admits exactly one scene-local control
+        immediately before use; the old all-scenes install path is rejected.
+        """
+
+        if isinstance(self.backend, X11Backend):
+            raise DriverError("live X11 dispatch requires measure_pointer_anchor(action)")
+
+        required = set(self.POINTER_ACTIONS)
+        observed = {anchor.action for anchor in anchors}
+        if observed != required or len(anchors) != len(required):
+            raise DriverError("measured anchor set must cover every pointer action exactly once")
+        identity = self.resolve_identity()
+        now = self._clock()
+        for anchor in anchors:
+            self._validate_measured_anchor(anchor, identity)
+            if anchor.source not in {"native-visual", "native-addon"}:
+                raise DriverError("anchor is not native visual evidence")
+            facts = dict(anchor.facts)
+            required_control = self.ANCHOR_CONTROLS.get(anchor.action)
+            required_scene = self.ANCHOR_SCENES[anchor.action]
+            if (
+                facts.get("control") != required_control
+                or facts.get("scene") != required_scene
+                or facts.get("capture") != anchor.capture_id
+                or facts.get("target") != str(anchor.target_xid)
+            ):
+                raise DriverError("anchor lacks bound control/scene/capture proof")
+            if anchor.identity_fingerprint != identity.fingerprint:
+                raise DriverError("anchor identity is stale")
+            if anchor.target_xid <= 0 or anchor.capture_sequence <= 0 or not anchor.capture_id:
+                raise DriverError("anchor capture identity is incomplete")
+            if now - anchor.capture_monotonic < -0.25 or now - anchor.capture_monotonic > 5.0:
+                raise DriverError("anchor evidence is stale")
+            if (
+                isinstance(anchor.x, bool)
+                or isinstance(anchor.y, bool)
+                or not isinstance(anchor.x, int)
+                or not isinstance(anchor.y, int)
+            ):
+                raise DriverError("anchor coordinates are not measured integers")
+            if isinstance(self.backend, X11Backend):
+                if not self._is_owned_client_target(anchor.target_xid, identity):
+                    raise DriverError("anchor target is outside the verified client")
+            elif anchor.target_xid != identity.child_xid:
+                raise DriverError("anchor target does not match the client child")
+            if not (
+                0 <= anchor.x < identity.child_geometry[2] and 0 <= anchor.y < identity.child_geometry[3]
+            ):
+                raise DriverError("anchor is outside the verified client child")
+        if isinstance(self.backend, X11Backend):
+            for anchor in anchors:
+                self.backend.install_measured_anchor(anchor)
+        self.profile.anchor_fingerprints.update(
+            {anchor.action: anchor.identity_fingerprint for anchor in anchors}
+        )
+
+    def measure_pointer_anchor(self, action: str, *, generation: int | None = None) -> MeasuredAnchor:
+        """Measure one control from a fresh owned-client scene capture."""
+
+        if action not in self.POINTER_ACTIONS:
+            raise DriverError(f"{action} is not a measured pointer action")
+        provider = self.measured_anchor_provider
+        if provider is None:
+            raise DriverError("native control-specific anchor provider is not configured")
+        if generation is None:
+            raise DriverError("native control anchor admission requires a current generation")
+        identity = self.resolve_identity()
+        try:
+            anchor = provider(identity, action)
+        except Exception as exc:
+            raise DriverError(f"native anchor measurement failed for {action}: {exc}") from exc
+        if not isinstance(anchor, MeasuredAnchor):
+            raise DriverError("native anchor provider returned unbound coordinate evidence")
+        if anchor.generation != generation:
+            raise DriverError("native anchor belongs to a different generation")
+        self._validate_measured_anchor(anchor, identity)
+        if anchor.evidence_hash in self._consumed_anchor_seals:
+            raise DriverError("native control anchor has already been consumed")
+        if isinstance(self.backend, X11Backend):
+            try:
+                self.guardian.check(generation)
+            except GuardianError as exc:
+                raise DriverError(str(exc)) from exc
+        if isinstance(self.backend, X11Backend):
+            self.backend.install_measured_anchor(anchor)
+        self._measured_anchors[action] = anchor
+        if generation is not None:
+            self._measured_anchor_generations[action] = generation
+        self.profile.anchor_fingerprints[action] = anchor.identity_fingerprint
+        return anchor
+
+    def _refresh_pointer_anchor(
+        self,
+        action: str,
+        generation: int,
+        identity: WindowIdentity,
+        previous: MeasuredAnchor,
+    ) -> MeasuredAnchor:
+        """Re-observe the same control while its Guardian action is active."""
+
+        try:
+            self.guardian.check(generation)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        current = self.resolve_identity(require_foreground=True)
+        if current.fingerprint != identity.fingerprint:
+            raise DriverError("pointer identity changed before fresh control observation")
+        provider = self.measured_anchor_provider
+        if not callable(provider):
+            raise DriverError("fresh pointer control-anchor provider is not configured")
+        try:
+            anchor = provider(current, action)
+        except Exception as exc:
+            raise DriverError(f"fresh pointer control-anchor observation failed: {exc}") from exc
+        if not isinstance(anchor, MeasuredAnchor):
+            raise DriverError("fresh pointer anchor provider returned unbound evidence")
+        if anchor.generation != generation:
+            raise DriverError("fresh pointer anchor belongs to a stale generation")
+        self._validate_measured_anchor(anchor, current)
+        if anchor.capture_sequence <= previous.capture_sequence:
+            raise DriverError("fresh pointer anchor did not advance its capture sequence")
+        try:
+            self.guardian.check(generation)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        return anchor
+
+    @staticmethod
+    def _fresh_anchor_contains_endpoint(
+        refreshed: MeasuredAnchor,
+        endpoint: Point,
+        client_geometry: tuple[int, int, int, int],
+        previous_bounds: tuple[int, int, int, int],
+    ) -> bool:
+        """Accept model jitter while rejecting a real target displacement."""
+
+        try:
+            client = Rect(0, 0, client_geometry[2], client_geometry[3])
+            fresh_bounds = Rect(*refreshed.bounds)
+            previous = Rect(*previous_bounds)
+        except (TypeError, ValueError, ExecutorError):
+            return False
+        if not client.encloses(fresh_bounds):
+            return False
+        padding = 1 if min(fresh_bounds.width, fresh_bounds.height) >= 3 else 0
+        safe = Rect(
+            fresh_bounds.x + padding,
+            fresh_bounds.y + padding,
+            fresh_bounds.width - 2 * padding,
+            fresh_bounds.height - 2 * padding,
+        )
+        if not safe.contains(endpoint):
+            return False
+        size = max(1.0, min(previous.width, previous.height, fresh_bounds.width, fresh_bounds.height))
+        limit = max(2.0, size * 0.35)
+        return (
+            abs(previous.x - fresh_bounds.x) <= limit
+            and abs(previous.y - fresh_bounds.y) <= limit
+            and abs(previous.width - fresh_bounds.width) <= limit
+            and abs(previous.height - fresh_bounds.height) <= limit
+        )
+
+    def build_measured_anchor(
+        self,
+        *,
+        action: str,
+        x: int,
+        y: int,
+        capture_path: Path,
+        capture_id: str,
+        capture_sequence: int,
+        capture_monotonic: float,
+        scene: str,
+        bounds: tuple[int, int, int, int],
+        target_xid: int,
+        target_ancestry: tuple[int, ...],
+        generation: int,
+        source: str = "native-visual",
+        facts: tuple[tuple[str, str], ...] = (),
+    ) -> MeasuredAnchor:
+        """Create an anchor sealed to one retained native capture.
+
+        The Luna visual producer supplies the measured point and scene facts;
+        this method supplies the actual file hash and canonical admission seal
+        so a coordinate cannot be detached from the capture that produced it.
+        """
+
+        identity = self.resolve_identity(require_foreground=False)
+        try:
+            self.guardian.check(generation)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        if (
+            isinstance(capture_monotonic, bool)
+            or not isinstance(capture_monotonic, (int, float))
+            or not math.isfinite(float(capture_monotonic))
+            or capture_monotonic < 0
+        ):
+            raise DriverError("native anchor original capture time is malformed")
+        capture_path = capture_path.expanduser().resolve()
+        if not capture_path.is_file():
+            raise DriverError("native anchor capture does not exist")
+        digest = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+        normalized_facts = dict(facts)
+        normalized_facts.update(
+            {
+                "action": action,
+                "bounds": ",".join(str(value) for value in bounds),
+                "capture": capture_id,
+                "capturePath": str(capture_path),
+                "captureSha256": digest,
+                "captureMonotonic": str(capture_monotonic),
+                "control": self.ANCHOR_CONTROLS.get(action, ""),
+                "generation": str(generation),
+                "scene": scene,
+                "target": str(target_xid),
+                "targetAncestry": ",".join(str(value) for value in target_ancestry),
+            }
+        )
+        anchor = MeasuredAnchor.from_capture(
+            action=action,
+            x=x,
+            y=y,
+            identity_fingerprint=identity.fingerprint,
+            target_xid=target_xid,
+            capture_id=capture_id,
+            capture_sequence=capture_sequence,
+            source=source,
+            observed_monotonic=capture_monotonic,
+            capture_monotonic=capture_monotonic,
+            scene=scene,
+            bounds=bounds,
+            target_ancestry=target_ancestry,
+            capture_path=str(capture_path),
+            capture_sha256=digest,
+            generation=generation,
+            facts=tuple(sorted(normalized_facts.items())),
+        )
+        self._validate_measured_anchor(anchor, identity)
+        return anchor
+
+    def _validate_measured_anchor(self, anchor: MeasuredAnchor, identity: WindowIdentity) -> None:
+        anchor.verify_seal()
+        if anchor.action not in self.POINTER_ACTIONS:
+            raise DriverError("anchor action is not allowlisted")
+        if anchor.source not in {"native-visual", "native-addon"}:
+            raise DriverError("anchor is not native visual evidence")
+        facts = dict(anchor.facts)
+        if len(facts) != len(anchor.facts):
+            raise DriverError("anchor facts contain duplicate keys")
+        expected_scene = self.ANCHOR_SCENES[anchor.action]
+        if (
+            facts.get("control") != self.ANCHOR_CONTROLS[anchor.action]
+            or facts.get("capture") != anchor.capture_id
+            or facts.get("target") != str(anchor.target_xid)
+            or facts.get("scene") != expected_scene
+            or anchor.scene != expected_scene
+        ):
+            raise DriverError("anchor lacks bound control/scene/capture proof")
+        if anchor.identity_fingerprint != identity.fingerprint:
+            raise DriverError("anchor identity is stale")
+        if (
+            anchor.target_xid <= 0
+            or anchor.capture_sequence <= 0
+            or not anchor.capture_id
+            or not anchor.capture_path
+            or not Path(anchor.capture_path).is_absolute()
+            or not re.fullmatch(r"[0-9a-f]{64}", anchor.capture_sha256)
+            or anchor.generation is None
+            or not anchor.target_ancestry
+            or anchor.target_xid not in anchor.target_ancestry
+            or identity.child_xid not in anchor.target_ancestry
+            or len(anchor.bounds) != 4
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in anchor.bounds)
+            or anchor.bounds[2] <= 0
+            or anchor.bounds[3] <= 0
+            or not facts.get("bounds")
+            or facts.get("bounds") != ",".join(str(value) for value in anchor.bounds)
+            or facts.get("targetAncestry") != ",".join(str(value) for value in anchor.target_ancestry)
+            or facts.get("captureSha256") != anchor.capture_sha256
+            or facts.get("captureMonotonic") != str(anchor.capture_monotonic)
+            or facts.get("capturePath") != anchor.capture_path
+            or facts.get("generation") != str(anchor.generation)
+            or facts.get("action") != anchor.action
+        ):
+            raise DriverError("anchor capture identity is incomplete")
+        if (
+            isinstance(anchor.observed_monotonic, bool)
+            or not isinstance(anchor.observed_monotonic, (int, float))
+            or not math.isfinite(float(anchor.observed_monotonic))
+            or isinstance(anchor.capture_monotonic, bool)
+            or not isinstance(anchor.capture_monotonic, (int, float))
+            or not math.isfinite(float(anchor.capture_monotonic))
+            or anchor.capture_monotonic < 0
+        ):
+            raise DriverError("anchor observation timestamp is malformed")
+        now = self._clock()
+        if now - anchor.capture_monotonic < -0.25 or now - anchor.capture_monotonic > 5.0:
+            raise DriverError("anchor evidence is stale")
+        if (
+            isinstance(anchor.x, bool)
+            or isinstance(anchor.y, bool)
+            or not isinstance(anchor.x, int)
+            or not isinstance(anchor.y, int)
+        ):
+            raise DriverError("anchor coordinates are not measured integers")
+        if isinstance(self.backend, X11Backend):
+            if not self._is_owned_client_target(anchor.target_xid, identity):
+                raise DriverError("anchor target is outside the verified client")
+            if any(not self._is_owned_client_target(xid, identity) for xid in anchor.target_ancestry):
+                raise DriverError("anchor target ancestry is outside the verified client")
+        elif anchor.target_xid != identity.child_xid:
+            raise DriverError("anchor target does not match the client child")
+        left, top, width, height = anchor.bounds
+        if not (
+            0 <= left < identity.child_geometry[2]
+            and 0 <= top < identity.child_geometry[3]
+            and left + width <= identity.child_geometry[2]
+            and top + height <= identity.child_geometry[3]
+            and left <= anchor.x < left + width
+            and top <= anchor.y < top + height
+        ):
+            raise DriverError("anchor is outside the verified client child")
+        try:
+            actual_hash = hashlib.sha256(Path(anchor.capture_path).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise DriverError("native anchor retained capture is unavailable") from exc
+        if actual_hash != anchor.capture_sha256:
+            raise DriverError("native anchor retained capture changed")
+
+    def measure_pointer_anchors(self) -> tuple[MeasuredAnchor, ...]:
+        """Reject the obsolete all-scenes anchor batch API.
+
+        Controls are mutually exclusive across scenes.  Callers must invoke
+        :meth:`measure_pointer_anchor` immediately before the named action.
+        """
+
+        raise DriverError("scene-local controls require measure_pointer_anchor(action)")
+
+    def queue_delayed_calibration_action(
+        self,
+        target: Any,
+        *,
+        delay: float,
+        calibration_ticket: CalibrationTicket | None = None,
+    ) -> CalibrationTicket:
+        from .calibration import OwnedGtkCalibrationWindow, OwnedWindow
+
+        if (
+            not isinstance(target, OwnedWindow)
+            or target.title != OwnedGtkCalibrationWindow.TITLE
+            or target.xid <= 0
+            or delay <= 0
+        ):
+            raise DriverError("calibration delayed action target/deadline is malformed")
+        if not isinstance(calibration_ticket, CalibrationTicket):
+            raise DriverError("delayed calibration action requires an exact calibration ticket")
+        ticket = calibration_ticket
+        self._verify_calibration_target(ticket, target)
+        if not self.guardian.calibration_ticket_current(ticket):
+            raise DriverError("calibration ticket is stale or revoked")
+        with self._calibration_action_lock:
+            self._queued.append((ticket.epoch, "calibration_focus", {"target": target, "ticket": ticket}))
+        timer = threading.Timer(delay, self._run_delayed_calibration_action, args=(ticket, target))
+        timer.daemon = True
+        self._calibration_timers[id(timer)] = timer
+        self._calibration_due_deadline = self._clock() + delay
+        with self._calibration_action_lock:
+            self._calibration_due_waiters[id(timer)] = threading.Event()
+        if not self.guardian.calibration_ticket_current(ticket):
+            with self._calibration_action_lock:
+                self._queued = [entry for entry in self._queued if entry[2].get("ticket") is not ticket]
+                self._calibration_due_waiters.pop(id(timer), None)
+            raise DriverError("calibration ticket was revoked before timer start")
+        timer.start()
+        return ticket
+
+    def focus_calibration_target(self, target: Any, *, calibration_ticket: CalibrationTicket) -> None:
+        """Focus the owned GTK target under its exact pre-arm capability."""
+
+        if not isinstance(calibration_ticket, CalibrationTicket):
+            raise DriverError("calibration focus requires an exact calibration ticket")
+        self._verify_calibration_target(calibration_ticket, target)
+        if not self.guardian.calibration_ticket_current(calibration_ticket):
+            raise DriverError("calibration ticket is stale or revoked")
+        if isinstance(self.backend, X11Backend):
+            self.backend.calibration_focus(
+                hex(calibration_ticket.target_xid), calibration_ticket=calibration_ticket
+            )
+            return
+        callback = getattr(self.backend, "calibration_focus", None)
+        if not callable(callback):
+            raise DriverError("fake calibration backend has no owned focus action")
+        try:
+            self.guardian.calibration_dispatch_admission(
+                calibration_ticket, lambda: callback(calibration_ticket.target_xid)
+            )
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+
+    def _run_delayed_calibration_action(
+        self,
+        ticket: CalibrationTicket,
+        target: Any,
+    ) -> None:
+        current = threading.current_thread()
+        self._calibration_timers.pop(id(current), None)
+        with self._calibration_action_lock:
+            self._calibration_due_count += 1
+            waiter = self._calibration_due_waiters.pop(id(current), None)
+            entry_present = any(
+                entry[0] == ticket.epoch
+                and entry[1] == "calibration_focus"
+                and entry[2].get("ticket") == ticket
+                for entry in self._queued
+            )
+            admissible = (
+                self._calibration_ticket is ticket
+                and entry_present
+                and self.guardian.calibration_ticket_current(ticket)
+            )
+            if not admissible:
+                self._calibration_rejected_count += 1
+                if waiter is not None:
+                    waiter.set()
+                return
+        if waiter is not None:
+            waiter.set()
+        # The generation check above is deliberately outside the blocking
+        # focus operation.  X11Backend's generation admission repeats it at
+        # the actual Popen/registration boundary, so revoke never waits on a
+        # calibration lock or permits a stale process to start.
+        poll = getattr(target.process, "poll", None)
+        if callable(poll) and poll() is not None:
+            with self._calibration_action_lock:
+                self._queued = [entry for entry in self._queued if entry[0] != ticket.epoch]
+            return
+        try:
+            self._verify_calibration_target(ticket, target)
+            if isinstance(self.backend, X11Backend):
+                self.backend.calibration_focus(hex(target.xid), calibration_ticket=ticket)
+            else:
+                callback = getattr(self.backend, "calibration_focus", None)
+                if not callable(callback):
+                    raise DriverError("fake calibration backend has no owned focus action")
+                admission = self._calibration_dispatch_admission
+                if callable(admission):
+                    admission(ticket, lambda: callback(target.xid))
+                else:
+                    callback(target.xid)
+            with self._calibration_action_lock:
+                if self._calibration_ticket is not ticket or not self.guardian.calibration_ticket_current(
+                    ticket
+                ):
+                    self._calibration_rejected_count += 1
+                    return
+                self._calibration_executions += 1
+                self._queued = [entry for entry in self._queued if entry[0] != ticket.epoch]
+        except GuardianError:
+            with self._calibration_action_lock:
+                self._calibration_rejected_count += 1
+        except DriverError as exc:
+            with self._calibration_action_lock:
+                self._calibration_rejected_count += 1
+            if self._calibration_ticket == ticket:
+                self.revoke(f"owned calibration action failed: {exc}")
+        except Exception:
+            self.revoke("owned calibration action failed")
+
+    @property
+    def calibration_executions(self) -> int:
+        return self._calibration_executions
+
+    @property
+    def calibration_due_count(self) -> int:
+        return self._calibration_due_count
+
+    @property
+    def calibration_rejected_count(self) -> int:
+        return self._calibration_rejected_count
+
+    @property
+    def calibration_due_deadline(self) -> float | None:
+        return self._calibration_due_deadline
+
+    @staticmethod
+    def _validate_deadline(deadline_monotonic: float | None) -> float | None:
+        if deadline_monotonic is not None and (
+            isinstance(deadline_monotonic, bool)
+            or not isinstance(deadline_monotonic, (int, float))
+            or not math.isfinite(float(deadline_monotonic))
+        ):
+            raise DriverError("operation deadline is malformed")
+        return None if deadline_monotonic is None else float(deadline_monotonic)
+
+    def _identity(
+        self,
+        *,
+        require_foreground: bool = True,
+        deadline_monotonic: float | None = None,
+    ) -> WindowIdentity:
+        deadline_monotonic = self._validate_deadline(deadline_monotonic)
+        if isinstance(self.backend, X11Backend):
+            if deadline_monotonic is None:
+                identity = self.backend.resolve_identity(require_foreground=require_foreground)
+            else:
+                identity = self.backend.resolve_identity(
+                    require_foreground=require_foreground,
+                    deadline_monotonic=deadline_monotonic,
+                )
+        else:
+            identity = getattr(self.backend, "identity", None)
+            if identity is None:
+                identity = WindowIdentity(
+                    1,
+                    os.getpid(),
+                    "test",
+                    self.profile.window_title,
+                    self.profile.window_class,
+                    2,
+                    (0, 0, self.profile.outer_width, self.profile.outer_height),
+                    (0, 0, self.profile.client_width, self.profile.client_height),
+                    1,
+                    "test",
+                    self.profile.display,
+                    "test-identity",
+                )
+        self._last_identity = identity
+        return identity
+
+    def resolve_identity(
+        self,
+        *,
+        require_foreground: bool = True,
+        deadline_monotonic: float | None = None,
+    ) -> WindowIdentity:
+        """Return fresh identity evidence for the configured client."""
+
+        return self._identity(
+            require_foreground=require_foreground,
+            deadline_monotonic=deadline_monotonic,
+        )
+
+    def verify_identity(self, identity: WindowIdentity) -> WindowIdentity:
+        if isinstance(self.backend, X11Backend):
+            return self.backend.verify_identity(identity)
+        fresh = self._identity()
+        if fresh.fingerprint != identity.fingerprint:
+            raise DriverError("verified client identity is stale")
+        return fresh
+
+    def _is_owned_client_target(self, xid: int, identity: WindowIdentity) -> bool:
+        """Accept a measured client root or a structurally owned descendant."""
+
+        if not isinstance(self.backend, X11Backend):
+            return xid == identity.child_xid
+        return self.backend._is_owned_client_target(xid, identity)
+
+    @staticmethod
+    def _proof_events(evidence: Any) -> list[tuple[Any, ...]]:
+        records = getattr(evidence, "event_proof", ())
+        if not records:
+            raise DriverError("input calibration has no complete event proof")
+        return [tuple(record) for record in records]
+
+    @staticmethod
+    def _keyboard_profile(evidence: Any) -> dict[tuple[str, str], tuple[tuple[Any, ...], ...]]:
+        """Return the immutable, sealed operation facts from input calibration."""
+
+        raw_profile = getattr(evidence, "keyboard_profile", ())
+        if not isinstance(raw_profile, (tuple, list)) or not raw_profile:
+            raise DriverError("input calibration has no sealed keyboard operation profile")
+        profile: dict[tuple[str, str], tuple[tuple[Any, ...], ...]] = {}
+        for row in raw_profile:
+            if not isinstance(row, (tuple, list)) or len(row) != 3:
+                raise DriverError("input calibration keyboard operation profile is malformed")
+            operation, payload, raw_steps = row
+            if (
+                not isinstance(operation, str)
+                or not operation
+                or not isinstance(payload, str)
+                or not isinstance(raw_steps, (tuple, list))
+                or not raw_steps
+                or (operation, payload) in profile
+            ):
+                raise DriverError("input calibration keyboard operation profile is malformed")
+            steps: list[tuple[Any, ...]] = []
+            for raw_step in raw_steps:
+                if (
+                    not isinstance(raw_step, (tuple, list))
+                    or len(raw_step) != 5
+                    or raw_step[0] not in {"press", "release"}
+                    or not isinstance(raw_step[1], str)
+                    or not raw_step[1]
+                    or isinstance(raw_step[2], bool)
+                    or not isinstance(raw_step[2], int)
+                    or raw_step[2] <= 0
+                    or not isinstance(raw_step[3], (tuple, list))
+                    or len(raw_step[3]) != 3
+                    or any(
+                        isinstance(value, bool) or not isinstance(value, int) or value < 0
+                        for value in raw_step[3]
+                    )
+                    or isinstance(raw_step[4], bool)
+                    or not isinstance(raw_step[4], int)
+                    or raw_step[4] < 0
+                    or raw_step[4] != raw_step[3][0] | raw_step[3][1] | raw_step[3][2]
+                ):
+                    raise DriverError("input calibration keyboard transition is malformed")
+                steps.append((raw_step[0], raw_step[1], raw_step[2], tuple(raw_step[3]), raw_step[4]))
+            profile[(operation, payload)] = tuple(steps)
+        return profile
+
+    def _sealed_keyboard_keymap(
+        self, evidence: Any, *, deadline_monotonic: float | None = None
+    ) -> dict[str, int]:
+        raw_keymap = getattr(evidence, "keyboard_keymap", ())
+        if not isinstance(raw_keymap, (tuple, list)) or not raw_keymap:
+            raise DriverError("input calibration has no sealed keyboard keymap")
+        sealed: dict[str, int] = {}
+        for row in raw_keymap:
+            if (
+                not isinstance(row, (tuple, list))
+                or len(row) != 2
+                or not isinstance(row[0], str)
+                or not row[0]
+                or isinstance(row[1], bool)
+                or not isinstance(row[1], int)
+                or row[1] <= 0
+                or row[0] in sealed
+            ):
+                raise DriverError("input calibration keyboard keymap is malformed")
+            sealed[row[0]] = row[1]
+        if tuple(sorted(sealed.items())) != tuple(raw_keymap):
+            raise DriverError("input calibration keyboard keymap is not canonical")
+        if isinstance(self.backend, X11Backend):
+            observed = (
+                self.backend.observe_keymap()
+                if deadline_monotonic is None
+                else self.backend.observe_keymap(deadline_monotonic=deadline_monotonic)
+            )
+            for keysym, detail in sealed.items():
+                base = keysym.rsplit("+", 1)[-1]
+                if observed.get(keysym, observed.get(base)) != detail:
+                    raise DriverError("owned backend keyboard keymap changed after calibration")
+        return sealed
+
+    def _keyboard_operation_facts(
+        self,
+        operation: str,
+        payload: str,
+        evidence: Any,
+    ) -> tuple[tuple[Any, ...], ...]:
+        profile = self._keyboard_profile(evidence)
+        self._sealed_keyboard_keymap(evidence)
+        try:
+            return profile[(operation, payload)]
+        except KeyError as exc:
+            raise DriverError(
+                f"input calibration has no sealed keyboard operation {operation!r}/{payload!r}"
+            ) from exc
+
+    @staticmethod
+    def _keyboard_sequence(
+        steps: tuple[tuple[Any, ...], ...],
+    ) -> tuple[tuple[str, ...], tuple[int, ...], tuple[tuple[int, int, int], ...]]:
+        event_classes: list[str] = []
+        details: list[int] = []
+        modifiers: list[tuple[int, int, int]] = []
+        for phase, _keysym, detail, modifier_state, _effective in steps:
+            if phase == "press":
+                event_classes.extend((EventClass.RAW_KEY_PRESS.value, EventClass.KEY_PRESS.value))
+            else:
+                event_classes.extend((EventClass.RAW_KEY_RELEASE.value, EventClass.KEY_RELEASE.value))
+            details.extend((detail, detail))
+            modifiers.append(modifier_state)
+        # Guardian correlates one raw/delivered press or release pair at a
+        # time.  Details therefore have two entries for each physical step.
+        return tuple(event_classes), tuple(details), tuple(modifiers)
+
+    def _calibration_keyboard_operations(self) -> tuple[Any, ...]:
+        from .calibration import KeyboardProbeOperation, KeyboardProbeStep
+
+        def pair(keysym: str) -> tuple[Any, Any]:
+            return (
+                KeyboardProbeStep("press", keysym),
+                KeyboardProbeStep("release", keysym),
+            )
+
+        operations: list[Any] = [
+            KeyboardProbeOperation("open_chat", "", pair("Return")),
+            KeyboardProbeOperation("submit_command", "", pair("Return")),
+            KeyboardProbeOperation("escape_command_buffer", "", pair("Escape")),
+            # This is a calibration fact for the existing bounded chat chord;
+            # it is not a new public DesktopDriver action.
+            KeyboardProbeOperation(
+                "select_chat_all",
+                "",
+                (
+                    KeyboardProbeStep("press", "Control_L"),
+                    KeyboardProbeStep("press", "a"),
+                    KeyboardProbeStep("release", "a"),
+                    KeyboardProbeStep("release", "Control_L"),
+                ),
+            ),
+        ]
+        for command in sorted(self.COMMANDS):
+            steps: list[Any] = []
+            for char in command:
+                keysym = X11Backend._keysym_for_char(char)
+                if keysym is None:
+                    raise DriverError(f"character {char!r} has no allowlisted XTEST keysym")
+                steps.extend(pair(keysym))
+            operations.append(KeyboardProbeOperation("type_allowlisted_command", command, tuple(steps)))
+        return tuple(operations)
+
+    def calibration_keyboard_operations(self) -> tuple[Any, ...]:
+        """Return the finite, runtime-owned keyboard emission vocabulary."""
+
+        return self._calibration_keyboard_operations()
+
+    def calibration_keyboard_keymap(self) -> dict[str, int]:
+        """Measure the actual keymap used by the owned XTEST backend."""
+
+        if isinstance(self.backend, X11Backend):
+            return self.backend.observe_keymap()
+        provider = getattr(self.backend, "observe_keymap", None)
+        if not callable(provider):
+            raise DriverError("owned keyboard backend has no keymap observation provider")
+        mapping = provider()
+        if not isinstance(mapping, dict) or not mapping:
+            raise DriverError("owned keyboard backend returned no keymap")
+        return dict(mapping)
+
+    def _expected_modifiers(self, evidence: Any) -> tuple[int, int, int]:
+        sealed = getattr(evidence, "synthetic_modifiers", ())
+        if (
+            not isinstance(sealed, (tuple, list))
+            or len(sealed) != 3
+            or any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in sealed)
+        ):
+            raise DriverError("input calibration lacks sealed synthetic modifier state")
+        expected = tuple(sealed)
+        synthetic_sources = {
+            getattr(evidence, "synthetic_key_source", 0),
+            getattr(evidence, "synthetic_pointer_source", 0),
+        }
+        delivered_records = [
+            record
+            for record in self._proof_events(evidence)
+            if len(record) >= 12
+            and record[0]
+            in {
+                EventClass.KEY_PRESS.value,
+                EventClass.KEY_RELEASE.value,
+                EventClass.BUTTON_PRESS.value,
+                EventClass.BUTTON_RELEASE.value,
+            }
+            and len(record) >= 3
+            and record[2] in synthetic_sources
+        ]
+        key_delivered = [
+            (record[10], record[11])
+            for record in delivered_records
+            if record[2] == getattr(evidence, "synthetic_key_source", 0)
+        ]
+        # The first F13 key pair and the complete pointer click are the stable
+        # baseline facts.  Later keyboard profile rows intentionally carry
+        # class-specific modifier states (for example Ctrl+A), so they must be
+        # checked against their sealed rows rather than this baseline tuple.
+        baseline = key_delivered[:2] + [
+            (record[10], record[11])
+            for record in delivered_records
+            if record[2] == getattr(evidence, "synthetic_pointer_source", 0)
+        ]
+        if not baseline or any(modifiers is None or effective is None for modifiers, effective in baseline):
+            raise DriverError("input calibration lacks delivered modifier records")
+        if any(
+            not isinstance(modifiers, (tuple, list))
+            or len(modifiers) != 3
+            or any(isinstance(component, bool) or not isinstance(component, int) for component in modifiers)
+            or tuple(modifiers) != expected
+            or isinstance(effective, bool)
+            or not isinstance(effective, int)
+            or effective != modifiers[0] | modifiers[1] | modifiers[2]
+            for modifiers, effective in baseline
+        ):
+            raise DriverError("input calibration modifier record is malformed")
+        return expected  # type: ignore[return-value]
+
+    def _expected_key_details(self, text: str, evidence: Any) -> tuple[int, ...]:
+        _event_classes, details, _modifiers = self._keyboard_sequence(
+            self._keyboard_operation_facts("type_allowlisted_command", text, evidence)
+        )
+        return details
+
+    def _expected_named_key_details(self, keysym: str, evidence: Any) -> tuple[int, ...]:
+        operation = {
+            "Return": "open_chat",
+            "Escape": "escape_command_buffer",
+        }.get(keysym)
+        if operation is None:
+            raise DriverError(f"named keysym {keysym!r} is not an owned runtime operation")
+        _event_classes, details, _modifiers = self._keyboard_sequence(
+            self._keyboard_operation_facts(operation, "", evidence)
+        )
+        return details
+
+    def _expected_key_operation(
+        self, name: str, kwargs: dict[str, Any], evidence: Any
+    ) -> tuple[tuple[str, ...], tuple[int, ...], tuple[tuple[int, int, int], ...]]:
+        if name == "type_allowlisted_command":
+            operation, payload = name, kwargs.get("command")
+        elif name == "open_chat":
+            operation, payload = "open_chat", ""
+        elif name == "submit_command":
+            operation, payload = "submit_command", ""
+        elif name == "escape_command_buffer":
+            operation, payload = "escape_command_buffer", ""
+        else:
+            return (), (), ()
+        if not isinstance(payload, str):
+            raise DriverError("keyboard action payload is malformed")
+        return self._keyboard_sequence(self._keyboard_operation_facts(operation, payload, evidence))
+
+    def _motion_input_context(
+        self,
+        generation: int,
+        *,
+        pointer: bool,
+        deadline_monotonic: float | None = None,
+    ) -> tuple[WindowIdentity, Any, int, int, tuple[int, int, int], dict[str, int]]:
+        """Return the current identity and sealed native input contract."""
+
+        try:
+            self.guardian.check(generation)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        if not isinstance(self.backend, X11Backend):
+            raise DriverError("bounded native motion requires the X11 backend")
+        evidence = self._input_evidence
+        if evidence is None:
+            raise DriverError("motion requires owned input calibration evidence")
+        source = getattr(evidence, "synthetic_pointer_source" if pointer else "synthetic_key_source", 0)
+        if isinstance(source, bool) or not isinstance(source, int) or source <= 0:
+            raise DriverError("motion input source is not calibrated")
+        master = next(
+            (
+                parent
+                for device, parent, _role, _name in getattr(evidence, "xinput_hierarchy", ())
+                if device == source
+            ),
+            0,
+        )
+        if isinstance(master, bool) or not isinstance(master, int) or master <= 0:
+            raise DriverError("motion input master is not calibrated")
+        identity = self.resolve_identity(
+            require_foreground=True,
+            deadline_monotonic=deadline_monotonic,
+        )
+        keymap = (
+            {} if pointer else self._sealed_keyboard_keymap(evidence, deadline_monotonic=deadline_monotonic)
+        )
+        return identity, evidence, source, master, self._expected_modifiers(evidence), keymap
+
+    def run_motion_key_hold(
+        self,
+        role: KeyRole,
+        duration: float,
+        frame: Any,
+        *,
+        generation: int,
+        deadline_monotonic: float | None = None,
+    ) -> None:
+        """Dispatch one measured-binding key pulse under one Guardian action."""
+
+        if deadline_monotonic is not None and (
+            isinstance(deadline_monotonic, bool)
+            or not isinstance(deadline_monotonic, (int, float))
+            or not math.isfinite(float(deadline_monotonic))
+        ):
+            raise DriverError("motion key deadline is malformed")
+        if not isinstance(role, KeyRole):
+            raise DriverError("motion key role is not a closed role")
+        if (
+            isinstance(duration, bool)
+            or not isinstance(duration, (int, float))
+            or not math.isfinite(float(duration))
+        ):
+            raise DriverError("motion key duration is malformed")
+        duration = float(duration)
+        if not 0.01 <= duration <= 0.35:
+            raise DriverError("motion key duration exceeds the bounded pulse limit")
+        identity, evidence, source, master, modifiers, keymap = self._motion_input_context(
+            generation, pointer=False, deadline_monotonic=deadline_monotonic
+        )
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise DriverError("motion key deadline expired before admission")
+        native_fields = {
+            KeyRole.MOVE_FORWARD: "moveForward",
+            KeyRole.MOVE_BACKWARD: "moveBackward",
+            KeyRole.STRAFE_LEFT: "strafeLeft",
+            KeyRole.STRAFE_RIGHT: "strafeRight",
+        }
+        field = native_fields.get(role)
+        if field is None:
+            raise DriverError("motion key role is not supported by the native schema")
+        binding = frame.binding(field)
+        if not isinstance(binding, str) or len(binding) != 1 or binding.upper() not in {"W", "S", "A", "D"}:
+            raise DriverError("native motion binding is not an approved unmodified movement key")
+        keysym = binding.lower()
+        keycode = keymap.get(keysym)
+        if isinstance(keycode, bool) or not isinstance(keycode, int) or keycode <= 0:
+            raise DriverError("native motion binding is absent from the calibrated keymap")
+        if isinstance(self.backend, X11Backend):
+            levels = (
+                self.backend.observe_keymap_levels()
+                if deadline_monotonic is None
+                else self.backend.observe_keymap_levels(deadline_monotonic=deadline_monotonic)
+            ).get(keycode)
+            if not levels or levels[0] != keysym:
+                raise DriverError("native motion binding is not the sealed level-zero keysym")
+        event_classes = {
+            EventClass.RAW_KEY_PRESS.value,
+            EventClass.KEY_PRESS.value,
+            EventClass.RAW_KEY_RELEASE.value,
+            EventClass.KEY_RELEASE.value,
+        }
+        action = None
+        try:
+            action_timeout = 10.0
+            if deadline_monotonic is not None:
+                action_timeout = max(0.001, float(deadline_monotonic) - time.monotonic())
+            action = self.guardian.begin_action(
+                generation,
+                target_xid=identity.child_xid,
+                source_device=source,
+                master_device=master,
+                event_classes=event_classes,
+                device_by_class={
+                    event_class: master if event_class.startswith("Raw") else source
+                    for event_class in event_classes
+                },
+                target_ancestor=lambda xid: self._is_owned_client_target(xid, identity),
+                required_sequence=(
+                    EventClass.RAW_KEY_PRESS.value,
+                    EventClass.KEY_PRESS.value,
+                    EventClass.RAW_KEY_RELEASE.value,
+                    EventClass.KEY_RELEASE.value,
+                ),
+                expected_details=(keycode,) * 4,
+                expected_modifiers=modifiers,
+                held_keys={keysym},
+                modifier_group_size=2,
+                timeout=action_timeout,
+            )
+            self.guardian.dispatch_admission(generation, lambda: None)
+            self._held_input = True
+            argv = ["xdotool", "keydown", keysym, "sleep", f"{duration:.6f}", "keyup", keysym]
+            self.backend._run(
+                argv,
+                generation=generation,
+                held_keys={keysym},
+                input_schema="motion-key",
+                expected_argv=tuple(argv),
+                deadline_monotonic=deadline_monotonic,
+            )
+            self.guardian.check(generation)
+            if self._monitor is None:
+                raise DriverError("motion key completion requires the live XI2 observer")
+            wait_timeout = 2.0
+            if deadline_monotonic is not None:
+                wait_timeout = min(wait_timeout, max(0.0, deadline_monotonic - time.monotonic()))
+            self._monitor.wait_for_event(lambda _events: action.complete, timeout=wait_timeout)
+            if not action.complete:
+                raise DriverError("motion key event trace did not complete")
+            self.guardian.finish_action(generation, action)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        except Exception as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"motion key hold failed: {exc}")
+            raise
+        finally:
+            self._held_input = False
+
+    def run_camera_drag(
+        self,
+        plan: CameraDragPlan,
+        *,
+        generation: int,
+        deadline_monotonic: float | None = None,
+    ) -> None:
+        """Dispatch one bounded right-button drag while the button is held."""
+
+        if not isinstance(plan, CameraDragPlan):
+            raise DriverError("camera drag plan is malformed")
+        if deadline_monotonic is not None and (
+            isinstance(deadline_monotonic, bool)
+            or not isinstance(deadline_monotonic, (int, float))
+            or not math.isfinite(float(deadline_monotonic))
+        ):
+            raise DriverError("camera drag deadline is malformed")
+        identity, evidence, source, master, modifiers, _keymap = self._motion_input_context(
+            generation, pointer=True, deadline_monotonic=deadline_monotonic
+        )
+        if isinstance(self.backend, X11Backend):
+            self._verify_current_xtest_profile(
+                evidence,
+                generation=generation,
+                deadline_monotonic=deadline_monotonic,
+            )
+        if plan.binding.identity_fingerprint != identity.fingerprint or plan.binding.generation != generation:
+            raise DriverError("camera drag binding is stale")
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise DriverError("camera drag deadline expired before admission")
+        root_x, root_y, window = self.backend.pointer_position(
+            generation=generation, deadline_monotonic=deadline_monotonic
+        )
+        if not self._is_owned_client_target(window, identity):
+            raise DriverError("camera drag pointer is outside the verified client")
+        left, top, width, height = identity.child_geometry
+        start = plan.samples[0].point
+        current = Point(root_x - left, root_y - top).to_pixel()
+        client = Rect(0, 0, width, height)
+        if not client.contains(current):
+            raise DriverError("camera drag pointer is outside the verified client pixels")
+        positioning: PointerTrajectory | None = None
+        if current != start:
+            try:
+                positioning = plan_pointer_curve(
+                    current,
+                    PointerTarget(
+                        "camera-viewport",
+                        Rect(int(start.x), int(start.y), 1, 1),
+                        plan.binding,
+                        padding=0,
+                    ),
+                    client,
+                    profile=self.pointer_motion_profile,
+                )
+            except ExecutorError as exc:
+                raise DriverError(f"camera positioning plan is invalid: {exc}") from exc
+        positioning_trace: list[tuple[int, int, int, int]] = []
+        canonical_motion = (
+            isinstance(self.backend, X11Backend) and getattr(evidence, "xtest_profile", None) is not None
+        )
+        if positioning is not None:
+            prior = positioning.samples[0].point
+            for sample in positioning.samples[1:]:
+                if sample.point != prior:
+                    root_point = (left + int(sample.point.x), top + int(sample.point.y))
+                    positioning_trace.append(
+                        (*root_point, *root_point)
+                        if canonical_motion
+                        else (*root_point, int(sample.point.x), int(sample.point.y))
+                    )
+                    prior = sample.point
+        trace: list[tuple[int, int, int, int]] = []
+        prior = start
+        for sample in plan.samples[1:]:
+            if sample.point == prior:
+                continue
+            root_point = (left + int(sample.point.x), top + int(sample.point.y))
+            trace.append(
+                (*root_point, *root_point)
+                if canonical_motion
+                else (*root_point, int(sample.point.x), int(sample.point.y))
+            )
+            prior = sample.point
+        if canonical_motion and not trace:
+            raise DriverError("camera drag has no native motion trace")
+        echo = getattr(evidence, "synthetic_echo_proof", ())
+        action = None
+        try:
+            action_timeout = 10.0
+            if deadline_monotonic is not None:
+                action_timeout = max(0.001, float(deadline_monotonic) - time.monotonic())
+            event_classes = {
+                EventClass.RAW_BUTTON_PRESS.value,
+                EventClass.BUTTON_PRESS.value,
+                EventClass.RAW_BUTTON_RELEASE.value,
+                EventClass.BUTTON_RELEASE.value,
+                EventClass.DEVICE_CHANGED.value,
+                EventClass.RAW_MOTION.value,
+                EventClass.MOTION.value,
+                EventClass.ENTER.value,
+                EventClass.LEAVE.value,
+            }
+            certified_event_targets = frozenset(identity.target_event_xids)
+            if canonical_motion and not certified_event_targets:
+                raise DriverError("native camera action has no certified event-target set")
+            action = self.guardian.begin_action(
+                generation,
+                target_xid=identity.child_xid,
+                source_device=source,
+                master_device=master,
+                event_classes=event_classes,
+                detail=3,
+                device_by_class={
+                    event_class: master
+                    if event_class.startswith("Raw") or event_class == EventClass.DEVICE_CHANGED.value
+                    else source
+                    for event_class in event_classes
+                },
+                target_ancestor=lambda xid: self._is_owned_client_target(xid, identity),
+                required_sequence=(
+                    EventClass.RAW_BUTTON_PRESS.value,
+                    EventClass.BUTTON_PRESS.value,
+                    EventClass.RAW_BUTTON_RELEASE.value,
+                    EventClass.BUTTON_RELEASE.value,
+                ),
+                optional_classes={
+                    EventClass.DEVICE_CHANGED.value,
+                    EventClass.RAW_MOTION.value,
+                    EventClass.MOTION.value,
+                    EventClass.ENTER.value,
+                    EventClass.LEAVE.value,
+                },
+                expected_modifiers=modifiers,
+                expected_details=(3, 3, 3, 3),
+                expected_motion_trace=tuple(trace),
+                expected_positioning_trace=tuple(positioning_trace),
+                expected_press_coordinates=(float(left + int(start.x)), float(top + int(start.y))),
+                expected_press_event_coordinates=(
+                    (float(left + int(start.x)), float(top + int(start.y)))
+                    if canonical_motion
+                    else (float(start.x), float(start.y))
+                ),
+                expected_release_coordinates=(
+                    float(left + int(plan.samples[-1].point.x)),
+                    float(top + int(plan.samples[-1].point.y)),
+                ),
+                expected_release_event_coordinates=(
+                    (
+                        float(left + int(plan.samples[-1].point.x)),
+                        float(top + int(plan.samples[-1].point.y)),
+                    )
+                    if canonical_motion
+                    else (
+                        float(plan.samples[-1].point.x),
+                        float(plan.samples[-1].point.y),
+                    )
+                ),
+                initial_origin=(root_x, root_y, root_x, root_y) if canonical_motion else None,
+                expected_root_xid=(
+                    getattr(evidence.xtest_profile, "root_xid", None) if canonical_motion else None
+                ),
+                expected_event_xid=(
+                    getattr(evidence.xtest_profile, "root_xid", None) if canonical_motion else None
+                ),
+                expected_child_xids=(certified_event_targets if canonical_motion else frozenset()),
+                canonical_motion=canonical_motion,
+                require_motion_before_button=positioning is not None,
+                require_motion_before_release=True,
+                echo_proof=tuple(tuple(row) for row in echo),
+                held_buttons={3},
+                timeout=action_timeout,
+            )
+            self.guardian.dispatch_admission(generation, lambda: None)
+            self._held_input = True
+            chain = build_camera_drag_chain(plan, identity.child_geometry, positioning)
+            self.backend._run(
+                chain,
+                generation=generation,
+                held_buttons={3},
+                input_schema="camera-drag",
+                expected_argv=tuple(chain),
+                deadline_monotonic=deadline_monotonic,
+            )
+            self.guardian.check(generation)
+            if self._monitor is None:
+                raise DriverError("camera drag completion requires the live XI2 observer")
+            wait_timeout = 3.0
+            if deadline_monotonic is not None:
+                wait_timeout = min(wait_timeout, max(0.0, deadline_monotonic - time.monotonic()))
+            self._monitor.wait_for_event(lambda _events: action.complete, timeout=wait_timeout)
+            if not action.complete:
+                raise DriverError("camera drag event trace did not complete")
+            if canonical_motion:
+                final_x, final_y, final_window = self.backend.pointer_position(
+                    generation=generation,
+                    deadline_monotonic=deadline_monotonic,
+                )
+                if not self._is_owned_client_target(final_window, identity):
+                    raise DriverError("camera drag postcondition left the verified client")
+                left, top, _width, _height = identity.child_geometry
+                endpoint = plan.samples[-1].point
+                if (final_x, final_y) != (left + int(endpoint.x), top + int(endpoint.y)):
+                    raise DriverError("camera drag postcondition endpoint changed")
+            self.guardian.finish_action(generation, action)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        except Exception as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"camera drag failed: {exc}")
+            raise
+        finally:
+            self._held_input = False
+
+    def run(
+        self,
+        name: str,
+        generation: int,
+        *,
+        precondition: Callable[[WindowIdentity], bool] | None = None,
+        postcondition: Callable[[WindowIdentity], bool] | None = None,
+        **kwargs: Any,
+    ) -> None:
+        if name not in self.ACTIONS:
+            raise DriverError(f"action {name!r} is not allowlisted")
+        try:
+            self.guardian.check(generation)
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        if name == "type_allowlisted_command" and kwargs.get("command") not in self.COMMANDS:
+            raise DriverError("command is not allowlisted")
+        identity = (
+            self._identity(require_foreground=False)
+            if isinstance(self.backend, X11Backend)
+            else self._identity()
+        )
+        if precondition is None and isinstance(self.backend, X11Backend):
+            raise DriverError(f"{name} requires actual telemetry/visual precondition evidence")
+        if precondition is not None and not precondition(identity):
+            raise DriverError(f"{name} precondition failed")
+        if name == "focus_game":
+            # Focus recovery emits no key/button proof, but its activation
+            # command can block.  Register an empty owned action so revoke()
+            # still cancels the active process even when no physical item is
+            # held and the generation fence remains atomic.
+            action = None
+            try:
+                focus_kwargs: dict[str, Any] = {
+                    "target_xid": identity.child_xid,
+                    "source_device": 0,
+                    "master_device": 0,
+                    "event_classes": set(),
+                    "target_ancestor": (
+                        (lambda xid: self._is_owned_client_target(xid, identity))
+                        if isinstance(self.backend, X11Backend)
+                        else None
+                    ),
+                    "required_sequence": (),
+                }
+                if isinstance(self.backend, X11Backend) and self._input_evidence is not None:
+                    focus_source = getattr(self._input_evidence, "synthetic_pointer_source", 0)
+                    focus_master = next(
+                        (
+                            parent
+                            for device, parent, _role, _name in getattr(
+                                self._input_evidence, "xinput_hierarchy", ()
+                            )
+                            if device == focus_source
+                        ),
+                        0,
+                    )
+                    if focus_source <= 0 or focus_master <= 0:
+                        raise DriverError("focus recovery has no measured pointer source")
+                    transitions = {
+                        EventClass.DEVICE_CHANGED.value,
+                        EventClass.MOTION.value,
+                        EventClass.ENTER.value,
+                        EventClass.LEAVE.value,
+                    }
+                    focus_kwargs.update(
+                        source_device=focus_source,
+                        master_device=focus_master,
+                        event_classes=transitions,
+                        device_by_class={
+                            EventClass.DEVICE_CHANGED.value: focus_master,
+                            EventClass.MOTION.value: focus_source,
+                            EventClass.ENTER.value: focus_source,
+                            EventClass.LEAVE.value: focus_source,
+                        },
+                        optional_classes=transitions,
+                    )
+                action = self.guardian.begin_action(
+                    generation,
+                    **focus_kwargs,
+                )
+                if isinstance(self.backend, X11Backend):
+                    self.guardian.dispatch_admission(generation, lambda: None)
+                    self.backend.action(name, generation=generation, **kwargs)
+                else:
+                    self.guardian.dispatch_admission(generation, lambda: self.backend.action(name, **kwargs))
+                fresh = self._identity()
+                if fresh.fingerprint != identity.fingerprint:
+                    raise DriverError("game client identity changed during focus recovery")
+                if postcondition is not None and not postcondition(fresh):
+                    raise DriverError("focus recovery postcondition failed")
+            except GuardianError as exc:
+                raise DriverError(str(exc)) from exc
+            except Exception as exc:
+                if self.guardian.armed and self.guardian.generation == generation:
+                    self.revoke(f"{name} failed: {exc}")
+                raise
+            finally:
+                if action is not None and self.guardian.armed and self.guardian.generation == generation:
+                    self.guardian.finish_action(generation, action)
+            return
+        pointer_action = name in self.POINTER_ACTIONS
+        backend_action = getattr(self.backend.action, "__func__", None)
+        native_pointer_dispatch = isinstance(self.backend, X11Backend) and backend_action is X11Backend.action
+        evidence = self._input_evidence
+        if evidence is None:
+            raise DriverError("input action requires owned calibration evidence")
+        if pointer_action and isinstance(self.backend, X11Backend):
+            # Controls are mutually exclusive across scenes.  Measure exactly
+            # the named control immediately before dispatch, then bind that
+            # capture to this generation; there is no all-scenes anchor batch.
+            self._verify_current_xtest_profile(evidence, generation=generation)
+            self.measure_pointer_anchor(name, generation=generation)
+        source = (
+            getattr(evidence, "synthetic_pointer_source", 0)
+            if pointer_action
+            else getattr(evidence, "synthetic_key_source", 0)
+        )
+        if not isinstance(source, int) or source <= 0:
+            raise DriverError("input calibration has no measured source device")
+        master: int | None = None
+        hierarchy = getattr(evidence, "xinput_hierarchy", ())
+        for device_id, parent_id, _role, _name in hierarchy:
+            if device_id == source:
+                master = parent_id
+                break
+        if master is None or master <= 0:
+            raise DriverError("input calibration has no measured master device")
+        event_classes = (
+            {
+                EventClass.RAW_BUTTON_PRESS.value,
+                EventClass.BUTTON_PRESS.value,
+                EventClass.RAW_BUTTON_RELEASE.value,
+                EventClass.BUTTON_RELEASE.value,
+                EventClass.DEVICE_CHANGED.value,
+                EventClass.RAW_MOTION.value,
+                EventClass.MOTION.value,
+                EventClass.ENTER.value,
+                EventClass.LEAVE.value,
+            }
+            if pointer_action
+            else {
+                EventClass.RAW_KEY_PRESS.value,
+                EventClass.KEY_PRESS.value,
+                EventClass.RAW_KEY_RELEASE.value,
+                EventClass.KEY_RELEASE.value,
+            }
+        )
+        required_sequence: tuple[str, ...]
+        expected_details: tuple[int, ...]
+        expected_modifier_sequence: tuple[tuple[int, int, int], ...] = ()
+        modifier_group_size = 4
+        if pointer_action:
+            required_sequence = (
+                EventClass.RAW_BUTTON_PRESS.value,
+                EventClass.BUTTON_PRESS.value,
+                EventClass.RAW_BUTTON_RELEASE.value,
+                EventClass.BUTTON_RELEASE.value,
+            )
+            expected_details = (self.POINTER_BUTTONS[name],) * 4
+        else:
+            key_sequence, expected_details, expected_modifier_sequence = self._expected_key_operation(
+                name, kwargs, evidence
+            )
+            if not key_sequence:
+                raise DriverError(f"action {name!r} has no sealed keyboard operation")
+            required_sequence = key_sequence
+            modifier_group_size = 2
+        optional_classes = (
+            {
+                EventClass.DEVICE_CHANGED.value,
+                EventClass.RAW_MOTION.value,
+                EventClass.MOTION.value,
+                EventClass.ENTER.value,
+                EventClass.LEAVE.value,
+            }
+            if pointer_action
+            else set()
+        )
+        held_keys: set[str] = set()
+        held_buttons: set[int] = set()
+        # The watchdog receives actual current holds from each bounded backend
+        # command.  Future characters in a planned text string never enter
+        # the release set before they are emitted.
+        # The synthetic probe seals the host's actual locked/latched/base
+        # state.  Runtime dispatch must carry that measured tuple forward; it
+        # never starts from a guessed zero state.
+        expected_modifiers = self._expected_modifiers(evidence)
+        if pointer_action:
+            native_button = self.POINTER_BUTTONS.get(name)
+            if native_button is None:
+                raise DriverError(f"pointer button for {name} has not passed live calibration")
+            held_buttons.add(native_button)
+        else:
+            if name == "type_allowlisted_command":
+                operation, payload = name, kwargs.get("command")
+            elif name in {"open_chat", "submit_command", "escape_command_buffer"}:
+                operation, payload = name, ""
+            else:
+                operation, payload = "", ""
+            if operation:
+                for step in self._keyboard_operation_facts(operation, payload, evidence):
+                    keysym = step[1]
+                    if not isinstance(keysym, str) or not keysym:
+                        raise DriverError("sealed keyboard operation has malformed keysym")
+                    held_keys.update(part for part in keysym.split("+") if part)
+        echo_proof: tuple[tuple[Any, ...], ...] = ()
+        if pointer_action:
+            raw_echo = getattr(evidence, "synthetic_echo_proof", ())
+            if not isinstance(raw_echo, (tuple, list)):
+                raise DriverError("input calibration controlled echo proof is malformed")
+            echo_proof = tuple(tuple(record) for record in raw_echo)
+        anchor = self._measured_anchors.get(name) if pointer_action else None
+        pointer_plan: PointerTrajectory | None = None
+        click_plan = None
+        expected_motion_trace: tuple[tuple[int, int, int, int], ...] = ()
+        expected_coordinates = None
+        expected_event_coordinates = None
+        initial_origin: tuple[int, int, int, int] | None = None
+        canonical_motion = bool(
+            pointer_action
+            and native_pointer_dispatch
+            and getattr(evidence, "xtest_profile", None) is not None
+        )
+        if pointer_action and native_pointer_dispatch and isinstance(anchor, MeasuredAnchor):
+            if anchor is None:
+                raise DriverError(f"action anchor for {name} is missing at plan construction")
+            try:
+                current = self.resolve_identity(require_foreground=True)
+                if current.fingerprint != identity.fingerprint:
+                    raise DriverError("native pointer plan identity changed before admission")
+                client_bounds = Rect(0, 0, current.child_geometry[2], current.child_geometry[3])
+                target_bounds = Rect(*anchor.bounds)
+                binding = BindingMetadata(
+                    identity_fingerprint=anchor.identity_fingerprint,
+                    capture_id=anchor.capture_id,
+                    capture_sequence=anchor.capture_sequence,
+                    generation=generation,
+                    target_xid=anchor.target_xid,
+                    target_ancestry=anchor.target_ancestry,
+                    source=anchor.source,
+                )
+                native_button = self.POINTER_BUTTONS.get(name)
+                button = {1: PointerButton.LEFT, 3: PointerButton.RIGHT}.get(native_button or 0)
+                if button is None:
+                    raise DriverError(f"pointer button for {name} has not passed live calibration")
+                root_x, root_y, pointer_window = self.backend.pointer_position(generation=generation)
+                if not self._is_owned_client_target(pointer_window, current):
+                    raise DriverError("native pointer start is outside the verified client")
+                start = Point(
+                    root_x - current.child_geometry[0],
+                    root_y - current.child_geometry[1],
+                ).to_pixel()
+                if not client_bounds.contains(start):
+                    raise DriverError("native pointer start is outside verified client pixels")
+                initial_origin = (root_x, root_y, root_x, root_y)
+                padding = 1 if min(target_bounds.width, target_bounds.height) >= 3 else 0
+                target = PointerTarget(self.ANCHOR_CONTROLS[name], target_bounds, binding, padding=padding)
+                click_plan = plan_single_click(
+                    target,
+                    client_bounds,
+                    button=button,
+                    profile=self.pointer_motion_profile,
+                )
+                if start != click_plan.point:
+                    pointer_plan = plan_pointer_curve(
+                        start,
+                        target,
+                        client_bounds,
+                        profile=self.pointer_motion_profile,
+                    )
+                    trace: list[tuple[int, int, int, int]] = []
+                    prior = pointer_plan.samples[0].point
+                    for sample in pointer_plan.samples[1:]:
+                        if sample.point == prior:
+                            continue
+                        root = (
+                            current.child_geometry[0] + int(sample.point.x),
+                            current.child_geometry[1] + int(sample.point.y),
+                        )
+                        trace.append(
+                            (*root, *root)
+                            if canonical_motion
+                            else (*root, int(sample.point.x), int(sample.point.y))
+                        )
+                        prior = sample.point
+                    expected_motion_trace = tuple(trace)
+                expected_coordinates = (
+                    float(current.child_geometry[0] + click_plan.point.x),
+                    float(current.child_geometry[1] + click_plan.point.y),
+                )
+                expected_event_coordinates = (
+                    (
+                        float(current.child_geometry[0] + click_plan.point.x),
+                        float(current.child_geometry[1] + click_plan.point.y),
+                    )
+                    if canonical_motion
+                    else (float(click_plan.point.x), float(click_plan.point.y))
+                )
+            except ExecutorError as exc:
+                raise DriverError(f"native pointer plan is invalid: {exc}") from exc
+        elif anchor is not None:
+            expected_coordinates = (
+                float(identity.child_geometry[0] + anchor.x),
+                float(identity.child_geometry[1] + anchor.y),
+            )
+            expected_event_coordinates = (float(anchor.x), float(anchor.y))
+        action = None
+        admitted_anchor: MeasuredAnchor | None = None
+        try:
+            device_by_class: dict[str, int] = {}
+            for event_class in event_classes:
+                if event_class.startswith("Raw") or event_class in {
+                    EventClass.DEVICE_CHANGED.value,
+                }:
+                    device_by_class[event_class] = master
+                else:
+                    device_by_class[event_class] = source
+            target_ancestor = (
+                (lambda xid: self._is_owned_client_target(xid, identity))
+                if isinstance(self.backend, X11Backend)
+                else None
+            )
+            certified_event_targets = frozenset(identity.target_event_xids)
+            if canonical_motion and not certified_event_targets:
+                raise DriverError("native pointer action has no certified event-target set")
+            action = self.guardian.begin_action(
+                generation,
+                target_xid=identity.child_xid,
+                source_device=source,
+                master_device=master,
+                event_classes=event_classes,
+                detail=self.POINTER_BUTTONS[name] if pointer_action else None,
+                device_by_class=device_by_class,
+                target_ancestor=target_ancestor,
+                required_sequence=required_sequence,
+                optional_classes=optional_classes,
+                held_keys=held_keys,
+                held_buttons=held_buttons,
+                expected_modifiers=expected_modifiers,
+                echo_proof=echo_proof,
+                expected_details=expected_details,
+                expected_modifier_sequence=expected_modifier_sequence,
+                expected_coordinates=expected_coordinates,
+                expected_event_coordinates=expected_event_coordinates,
+                expected_motion_trace=expected_motion_trace,
+                initial_origin=initial_origin,
+                expected_root_xid=(
+                    getattr(getattr(evidence, "xtest_profile", None), "root_xid", None)
+                    if canonical_motion
+                    else None
+                ),
+                expected_event_xid=(
+                    getattr(getattr(evidence, "xtest_profile", None), "root_xid", None)
+                    if canonical_motion
+                    else None
+                ),
+                expected_child_xids=(certified_event_targets if canonical_motion else frozenset()),
+                canonical_motion=canonical_motion,
+                expected_press_coordinates=expected_coordinates if canonical_motion else None,
+                expected_press_event_coordinates=expected_event_coordinates if canonical_motion else None,
+                expected_release_coordinates=expected_coordinates if canonical_motion else None,
+                expected_release_event_coordinates=expected_event_coordinates if canonical_motion else None,
+                modifier_group_size=modifier_group_size,
+                require_delivered_modifiers=True,
+            )
+            if pointer_action and isinstance(self.backend, X11Backend):
+                if anchor is None:
+                    raise DriverError(f"action anchor for {name} is missing at admission")
+                admitted_anchor = anchor
+
+            def admit_anchor() -> None:
+                if anchor is None:
+                    return
+                try:
+                    current_identity = self.resolve_identity(require_foreground=False)
+                    if current_identity.fingerprint != anchor.identity_fingerprint:
+                        raise DriverError("native anchor identity changed before one-use admission")
+                    age = self._clock() - anchor.capture_monotonic
+                    if not math.isfinite(float(age)) or age < -0.25 or age > 5.0:
+                        raise DriverError("native anchor capture expired before one-use admission")
+                    if isinstance(self.backend, X11Backend):
+                        self.backend.consume_measured_anchor(name, anchor)
+                except Exception:
+                    # Admission itself is one-use.  Even a stale generation
+                    # attempt burns the visual proof and cannot be retried by
+                    # a later epoch.
+                    self._consumed_anchor_seals.add(anchor.evidence_hash)
+                    if isinstance(self.backend, X11Backend):
+                        self.backend._consumed_anchor_seals.add(anchor.evidence_hash)
+                    raise
+                self._consumed_anchor_seals.add(anchor.evidence_hash)
+
+            if isinstance(self.backend, X11Backend):
+                try:
+                    self.guardian.dispatch_admission(generation, admit_anchor)
+                except Exception:
+                    if anchor is not None:
+                        self._consumed_anchor_seals.add(anchor.evidence_hash)
+                        self.backend._consumed_anchor_seals.add(anchor.evidence_hash)
+                    raise
+                self._held_input = True
+                if pointer_action:
+                    kwargs = {
+                        **kwargs,
+                        "_admitted_anchor": admitted_anchor,
+                        "_pointer_plan": pointer_plan,
+                        "_click_plan": click_plan,
+                    }
+                    if pointer_plan is not None:
+                        kwargs["_refresh_anchor"] = lambda current, previous: self._refresh_pointer_anchor(
+                            name, generation, current, previous
+                        )
+                self.backend.action(name, generation=generation, **kwargs)
+            else:
+
+                def dispatch_fake() -> None:
+                    admit_anchor()
+                    self._held_input = True
+                    self.backend.action(name, **kwargs)
+
+                try:
+                    self.guardian.dispatch_admission(generation, dispatch_fake)
+                except Exception:
+                    if anchor is not None:
+                        self._consumed_anchor_seals.add(anchor.evidence_hash)
+                    raise
+            if isinstance(self.backend, X11Backend) and self._monitor is not None:
+                self._monitor.wait_for_event(
+                    lambda _events: bool(self.guardian.action is not None and self.guardian.action.complete),
+                    timeout=2.0,
+                )
+            fresh = self._identity()
+            if fresh.fingerprint != identity.fingerprint:
+                raise DriverError("game client identity changed during action")
+            if (
+                postcondition is None
+                and isinstance(self.backend, X11Backend)
+                and name != "type_allowlisted_command"
+            ):
+                raise DriverError(f"{name} requires actual postcondition evidence")
+            if postcondition is not None and not postcondition(fresh):
+                raise DriverError(f"{name} postcondition failed")
+        except GuardianError as exc:
+            raise DriverError(str(exc)) from exc
+        except Exception as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"{name} failed: {exc}")
+            raise
+        finally:
+            if action is not None and self.guardian.armed and self.guardian.generation == generation:
+                self.guardian.finish_action(generation, action)
+                self._held_input = False
+
+    def flush_queued(self) -> None:
+        queued, self._queued = self._queued, []
+        for generation, name, kwargs in queued:
+            self.run(name, generation, **kwargs)
+
+    def prepare_command(
+        self,
+        generation: int,
+        command: str,
+        telemetry: dict[str, Any],
+        *,
+        readback: Callable[[], str] | None = None,
+        precondition: Callable[[WindowIdentity], bool] | None = None,
+        postcondition: Callable[[WindowIdentity], bool] | None = None,
+    ) -> None:
+        if command not in self.COMMANDS:
+            raise DriverError("command is not allowlisted")
+        edit = telemetry.get("chatEdit")
+        if not isinstance(edit, dict) or edit != {"active": True, "focused": True, "text": ""}:
+            raise DriverError("chat edit box is not a fresh focused empty buffer")
+        if readback is None:
+            raise DriverError("typed command has no fresh native EditBox readback")
+        self.run("type_allowlisted_command", generation, command=command, precondition=precondition)
+        observed = readback()
+        if observed != command:
+            # Even cleanup of an unexpected EditBox value follows the same
+            # measured XTEST path and receives a fresh readback pre/postcondition.
+            try:
+                self.run(
+                    "escape_command_buffer",
+                    generation,
+                    precondition=lambda identity: readback() == observed,
+                    postcondition=lambda identity: readback() == "",
+                )
+            finally:
+                self.revoke("active EditBox readback mismatch")
+            raise DriverError("active EditBox text did not match requested command")
+        self.run("submit_command", generation, command=command, postcondition=postcondition)
+
+    def capture_client_crop(
+        self,
+        path: str | os.PathLike[str],
+        *,
+        model: bool = False,
+        deadline_monotonic: float | None = None,
+    ) -> Path:
+        deadline_monotonic = self._validate_deadline(deadline_monotonic)
+        target = Path(path)
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        identity = self._identity(deadline_monotonic=deadline_monotonic)
+        if isinstance(self.backend, X11Backend):
+            if deadline_monotonic is None:
+                captured = self.backend.capture(target, identity=identity)
+            else:
+                captured = self.backend.capture(
+                    target, identity=identity, deadline_monotonic=deadline_monotonic
+                )
+        else:
+            captured = self.backend.capture(target, identity=identity)
+        if captured is None or captured.fingerprint != identity.fingerprint:
+            raise DriverError("capture identity does not match the verified client")
+        return self._crop_capture_file(target, identity, model=model)
+
+    def _crop_capture_file(self, target: Path, identity: WindowIdentity, *, model: bool) -> Path:
+        try:
+            from PIL import Image
+
+            with Image.open(target) as image:
+                image.load()
+                left, top, _, _ = identity.child_geometry
+                if image.size == (self.profile.client_width, self.profile.client_height):
+                    if (left, top) != (0, 0):
+                        raise DriverError("client-sized capture cannot prove a nonzero child origin")
+                    base_x, base_y = 0, 0
+                else:
+                    base_x, base_y = left, top
+                crop = self.profile.model_crop if model else self.profile.canvas_crop
+                x, y, width, height = crop
+                if (
+                    x < 0
+                    or y < 0
+                    or x + width > self.profile.client_width
+                    or y + height > self.profile.client_height
+                ):
+                    raise DriverError("capture crop is outside verified client area")
+                if (
+                    base_x + self.profile.client_width > image.width
+                    or base_y + self.profile.client_height > image.height
+                ):
+                    raise DriverError("desktop capture does not contain the verified game child")
+                output = target.with_suffix(".crop.png")
+                image.crop((base_x + x, base_y + y, base_x + x + width, base_y + y + height)).save(
+                    output, format="PNG"
+                )
+            os.chmod(output, 0o600)
+            return output
+        except ImportError as exc:
+            raise DriverError("Pillow is required for lossless capture decoding") from exc
+
+    def capture_client_crop_for_identity(
+        self,
+        identity: WindowIdentity,
+        *,
+        destination: Path | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> Path:
+        deadline_monotonic = self._validate_deadline(deadline_monotonic)
+        target = destination or (Path(tempfile.mkdtemp(prefix="crowley-capture-")) / "desktop.png")
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if isinstance(self.backend, X11Backend):
+            if deadline_monotonic is None:
+                captured = self.backend.capture(target, identity=identity)
+            else:
+                captured = self.backend.capture(
+                    target, identity=identity, deadline_monotonic=deadline_monotonic
+                )
+        else:
+            captured = self.backend.capture(target, identity=identity)
+        if captured is None or captured.fingerprint != identity.fingerprint:
+            raise DriverError("screenshot is not bound to the verified client identity")
+        return self._crop_capture_file(target, identity, model=False)
+
+    def capture_native_region_for_identity(
+        self,
+        identity: WindowIdentity,
+        *,
+        destination: Path | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> Path:
+        """Capture the exact native status rectangle without selecting model crops."""
+
+        deadline_monotonic = self._validate_deadline(deadline_monotonic)
+        crop_left, crop_top, crop_width, crop_height = self.profile.canvas_crop
+        rectangle = (
+            identity.child_geometry[0] + crop_left,
+            identity.child_geometry[1] + crop_top,
+            crop_width,
+            crop_height,
+        )
+        target = destination or (Path(tempfile.mkdtemp(prefix="crowley-region-")) / "status.png")
+        target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+        if not isinstance(self.backend, X11Backend):
+            region_capture = getattr(self.backend, "capture_native_region", None)
+            if not callable(region_capture):
+                raise DriverError("native region capture requires the configured X11 producer")
+            captured = region_capture(target, identity=identity, rectangle=rectangle)
+        else:
+            captured = self.backend.capture_native_region(
+                target,
+                identity=identity,
+                rectangle=rectangle,
+                deadline_monotonic=deadline_monotonic,
+            )
+        if captured is None or captured.fingerprint != identity.fingerprint:
+            raise DriverError("native region capture identity does not match the verified client")
+        return target
+
+    def new_native_decoder(self) -> Any:
+        try:
+            from .decoder import PixelDecoder
+
+            return PixelDecoder(crop=self.profile.canvas_crop)
+        except ImportError as exc:
+            raise DriverError("native decoder dependencies are unavailable") from exc
+
+    def decode_native_capture(
+        self, path: Path, *, identity: WindowIdentity, decoder: Any | None = None
+    ) -> Any:
+        try:
+            from PIL import Image
+
+            from .decoder import PixelDecoder
+
+            with Image.open(path) as image:
+                image.load()
+                if image.size != (self.profile.canvas_crop[2], self.profile.canvas_crop[3]):
+                    raise DriverError("native capture is not the calibrated status crop")
+                active_decoder = decoder or PixelDecoder(crop=self.profile.canvas_crop)
+                return active_decoder.decode(
+                    image, monotonic=self._clock(), window_identity=identity.fingerprint
+                )
+        except ImportError as exc:
+            raise DriverError("Pillow is required for native calibration evidence") from exc
+
+    def native_calibration(self, measurements: Any | None = None) -> Any:
+        from .calibration import NativeCalibrationRunner
+
+        if measurements is not None:
+            raise DriverError("native calibration metrics must come from the live measurement provider")
+        try:
+            return NativeCalibrationRunner(self).run()
+        except DriverError:
+            raise
+        except Exception as exc:
+            raise DriverError(str(exc)) from exc
+
+    def input_calibration(self, evidence: Any | None = None, **legacy: Any) -> str:
+        if legacy:
+            raise DriverError("source sets and caller booleans cannot arm input")
+        try:
+            evidence.verify_seal()
+        except Exception as exc:
+            raise DriverError("input calibration must come from the owned live workflow") from exc
+        self._input_evidence = evidence
+        return evidence.fingerprint
+
+    def calibrate_input_events(self, output: str, **legacy: Any) -> Any:
+        if legacy:
+            raise DriverError("caller-supplied source/correlation flags are not calibration evidence")
+        try:
+            parse_xi2_records(output, require_event=True)
+        except InputEventError as exc:
+            raise DriverError(str(exc)) from exc
+        raise DriverError("captured trace alone cannot arm; run owned input calibration")
+
+    def synthetic_target_key_click(
+        self,
+        target: Any,
+        *,
+        calibration_ticket: CalibrationTicket | None = None,
+    ) -> None:
+        from .calibration import OwnedGtkCalibrationWindow, OwnedWindow
+
+        if not isinstance(self.backend, X11Backend):
+            raise DriverError("owned GTK input calibration requires the X11 backend")
+        if not isinstance(target, OwnedWindow) or target.title != OwnedGtkCalibrationWindow.TITLE:
+            raise DriverError("synthetic calibration target is not the owned GTK window")
+        if not Path(f"/proc/{target.pid}").exists():
+            raise DriverError("owned GTK calibration process no longer exists")
+        if not isinstance(calibration_ticket, CalibrationTicket):
+            raise DriverError("calibration key click requires an exact calibration ticket")
+        ticket = calibration_ticket
+        self._verify_calibration_target(ticket, target)
+        if not self.guardian.calibration_ticket_current(ticket):
+            raise DriverError("calibration ticket is stale or revoked")
+        props = self.backend._xprop(hex(target.xid), "WM_NAME", "_NET_WM_PID")
+        if target.title not in props or not re.search(rf"_NET_WM_PID\([^)]*\).*\b{target.pid}\b", props):
+            raise DriverError("owned GTK calibration XID/PID changed")
+        left, top, width, height = target.geometry
+        self.backend.synthetic_calibration(
+            hex(target.xid),
+            left + max(0, width // 2),
+            top + max(0, height // 2),
+            calibration_ticket=ticket,
+        )
+
+    def synthetic_target_keyboard_profile(
+        self,
+        target: Any,
+        *,
+        operations: tuple[Any, ...],
+        calibration_ticket: CalibrationTicket | None = None,
+    ) -> None:
+        """Capture the exact runtime keyboard emissions on the owned GTK target."""
+
+        from .calibration import KeyboardProbeOperation, OwnedGtkCalibrationWindow, OwnedWindow
+
+        if not isinstance(self.backend, X11Backend):
+            raise DriverError("owned GTK keyboard calibration requires the X11 backend")
+        if not isinstance(target, OwnedWindow) or target.title != OwnedGtkCalibrationWindow.TITLE:
+            raise DriverError("keyboard calibration target is not the owned GTK window")
+        if not isinstance(calibration_ticket, CalibrationTicket):
+            raise DriverError("keyboard calibration requires an exact calibration ticket")
+        if not operations or any(not isinstance(item, KeyboardProbeOperation) for item in operations):
+            raise DriverError("keyboard calibration operations are malformed")
+        owned_operations = {
+            (item.operation, item.payload): item.steps for item in self.calibration_keyboard_operations()
+        }
+        if any(
+            (item.operation, item.payload) not in owned_operations
+            or item.steps != owned_operations[(item.operation, item.payload)]
+            for item in operations
+        ):
+            raise DriverError("keyboard calibration operations are not the owned runtime profile")
+        self._verify_calibration_target(calibration_ticket, target)
+        if not self.guardian.calibration_ticket_current(calibration_ticket):
+            raise DriverError("calibration ticket is stale or revoked")
+        props = self.backend._xprop(hex(target.xid), "WM_NAME", "_NET_WM_PID")
+        if target.title not in props or not re.search(rf"_NET_WM_PID\([^)]*\).*\b{target.pid}\b", props):
+            raise DriverError("owned GTK calibration XID/PID changed")
+        # F13, motion, and click establish the baseline and controlled target
+        # proof expected by the calibration workflow.  All of these commands
+        # carry the same ticket as the keyboard profile below.
+        left, top, width, height = target.geometry
+        self.backend.synthetic_calibration(
+            hex(target.xid),
+            left + max(0, width // 2),
+            top + max(0, height // 2),
+            calibration_ticket=calibration_ticket,
+        )
+        self.backend.synthetic_keyboard_profile(operations, calibration_ticket=calibration_ticket)
+
+    def close(self) -> None:
+        self.revoke("driver closed")
+        self.clear_input_calibration_ready()
+        if self._monitor is not None:
+            self.stop_input_observer()
+        for pid in tuple(self._calibration_target_process_groups):
+            if Path(f"/proc/{pid}").exists():
+                try:
+                    os.killpg(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                deadline = time.monotonic() + 0.5
+                while Path(f"/proc/{pid}").exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                if Path(f"/proc/{pid}").exists():
+                    try:
+                        os.killpg(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            if not Path(f"/proc/{pid}").exists():
+                self.guardian.unregister_process_group(pid)
+                self._calibration_target_process_groups.discard(pid)
+        for pid in tuple(self._calibration_bootstrap_process_groups):
+            if Path(f"/proc/{pid}").exists():
+                try:
+                    os.killpg(pid, signal.SIGTERM)
+                except OSError:
+                    pass
+                deadline = time.monotonic() + 0.5
+                while Path(f"/proc/{pid}").exists() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                if Path(f"/proc/{pid}").exists():
+                    try:
+                        os.killpg(pid, signal.SIGKILL)
+                    except OSError:
+                        pass
+            if not Path(f"/proc/{pid}").exists():
+                self.guardian.unregister_process_group(pid)
+                self._calibration_bootstrap_process_groups.discard(pid)
+        # Preserve the pinned image when guardian cleanup fails.  A caller can
+        # retry physical release through the same immutable capability; closing
+        # it here would make the retry path silently unavailable.
+        self.guardian.close()
+        if isinstance(self.backend, X11Backend):
+            self.backend.input_tool.close()
+
+
+__all__ = [
+    "Anchor",
+    "Backend",
+    "CalibrationTicket",
+    "DesktopDriver",
+    "DriverError",
+    "DriverProfile",
+    "InputGuardian",
+    "InputMonitor",
+    "NamedStateObservation",
+    "MeasuredAnchor",
+    "RecordingBackend",
+    "WindowIdentity",
+    "XI2Observer",
+    "X11Backend",
+    "build_camera_drag_chain",
+    "build_pointer_motion_chain",
+]

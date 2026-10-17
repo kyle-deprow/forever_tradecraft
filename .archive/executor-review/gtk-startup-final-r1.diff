@@ -1,0 +1,1434 @@
+--- baseline/.archive/executor-review/owned-gesture-proof.md
++++ transition/.archive/executor-review/owned-gesture-proof.md
+@@ -23,7 +23,11 @@
+ 
+ The helper follows that source-ready order. Every mutating backend command carries the production typed schema (`pointer-motion` or `single-click`), its exact planned argv tuple, and the exact held-button set where applicable. A `BLOCKED` result remains possible for verified graphical prerequisites or a live admission failure and includes the actual Guardian group sets. It never falls back to a fake observer, fake evidence, ambient recording, a legacy generic input grammar, or an unrestricted subprocess.
+ 
+-The helper wraps only the production GTK command callback with a read-only recorder. It forwards the original argument list and keyword arguments unchanged and returns the exact stdout from the production runner. The startup-admission callback records the actual GTK PID, invokes the real Guardian admission unchanged, and returns its unregister capability to the GTK owner. When production verification requests `xwininfo -root -tree`, the recorder runs the production parser on that complete output and captures `xwininfo -stats` plus full `xprop` output for the GTK client, its measured managed frame, and every measured immediate frame child while the target is still alive. It also records the current Mutter/GNOME Shell process identities. The resulting JSONL file is created mode `0600` in the owner-only evidence directory; it contains the untruncated root tree and raw command output. This diagnostic path does not change production verification or any command arguments.
++The helper wraps the production GTK command callback with a passive recorder. It forwards the original arguments unchanged and returns the exact stdout, issuing no additional X11 queries. Stored `wmctrl` diagnostics contain only the admitted GTK PID/title rows plus the original response count/digest. Every production root-tree attempt produces a fresh summary of the owned client and its actual candidate frame branch; an absent or direct-root parent is `startup-unreparented`, never a certified frame or a reason to enumerate unrelated root children. Production frame/helper stats and properties are recorded when the strict verifier requests them. New diagnostic JSONL files remain mode `0600` in the owner-only evidence directory; historical failed captures remain unchanged.
++
++The owned GTK startup uses one admitted process and one finite deadline for identity publication, mapping/reparenting readiness and strict certification. Its initial mouse-relative placement request does not establish ownership. Actual native geometry/window and the existing pointer query must confirm the start is owned before any motion. Recognized initial incomplete states can wait within that deadline; malformed or contradictory facts fail immediately. Post-ready recertification has no startup grace period.
++
++Each positive or cancellation proof chooses one distinct inset target from its own measured owned origin. The production trajectory and click planners receive that same pinned target; it is never recomputed from the post-motion pointer. This keeps a newly mouse-centered window from producing a zero or tiny path. A preparation seed in another window is unnecessary and cannot establish distinctness for the current window.
+ 
+ The pinned emitter identity is read from the constructed driver's `backend.input_tool` object. The helper does not infer an artifact from a module constant or a path. Driver construction, GTK-owner construction, recorder setup, target creation, observer startup, and ticket/focus setup all execute inside one cleanup boundary. If any stage fails before a `ProofContext` is returned, the owned recorder, GTK target owner, Guardian registrations, backend groups, and production lease are closed before the exception escapes; cleanup failures are retained in the raised proof error. The offline helper regression exercises the real admission callback shape and an observer-start failure with external GTK/XI2 doubles, and verifies the lease, registration, owner, and driver are all released.
+ 
+--- baseline/.archive/executor-review/owned-gesture-proof.py
++++ transition/.archive/executor-review/owned-gesture-proof.py
+@@ -44,8 +44,8 @@
+ 
+     Calls are forwarded with their original argv and keyword arguments, and
+     the exact stdout returned by the production command runner is returned to
+-    the caller. Additional queries are read-only X11 property/stat requests
+-    derived only from the live parsed window tree.
++    the caller. Diagnostics are derived only from those captured outputs and
++    never issue additional X11 queries.
+     """
+ 
+     def __init__(self, command: Any, path: Path) -> None:
+@@ -56,7 +56,6 @@
+         self.stream = os.fdopen(self.fd, "w", encoding="utf-8")
+         self.gtk_pid: int | None = None
+         self.wmctrl_output = ""
+-        self.tree_captured = False
+ 
+     def _record(self, payload: dict[str, Any]) -> None:
+         payload.setdefault("observedUtc", time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()))
+@@ -70,30 +69,45 @@
+     def __call__(self, argv: list[str], **kwargs: Any) -> str:
+         # Preserve the actual production argv and return value exactly.
+         output = self.command(argv, **kwargs)
+-        self._record(
+-            {
+-                "kind": "production-verification-command",
+-                "argv": argv,
+-                "display": kwargs.get("display"),
+-                "xauthority": kwargs.get("xauthority"),
+-                "stdout": output,
+-            }
+-        )
+         if argv == ["wmctrl", "-lp"]:
+             self.wmctrl_output = output
+-        elif argv == ["xwininfo", "-root", "-tree"] and not self.tree_captured:
+-            self.tree_captured = True
+-            self._capture_live_branch(output, kwargs)
++            rows = self._admitted_wmctrl_rows()
++            self._record(
++                {
++                    "kind": "production-verification-command",
++                    "argv": argv,
++                    "display": kwargs.get("display"),
++                    "xauthority": kwargs.get("xauthority"),
++                    "wmctrlLineCount": len(output.splitlines()),
++                    "wmctrlSha256": hashlib.sha256(output.encode()).hexdigest(),
++                    "admittedWmctrlRows": rows,
++                }
++            )
++        elif argv == ["xwininfo", "-root", "-tree"]:
++            self._record(
++                {
++                    "kind": "production-verification-command",
++                    "argv": argv,
++                    "display": kwargs.get("display"),
++                    "xauthority": kwargs.get("xauthority"),
++                    "treeLineCount": len(output.splitlines()),
++                }
++            )
++            self._capture_live_branch(output)
++        else:
++            self._record(
++                {
++                    "kind": "production-verification-command",
++                    "argv": argv,
++                    "display": kwargs.get("display"),
++                    "xauthority": kwargs.get("xauthority"),
++                    "stdout": output,
++                }
++            )
+         return output
+ 
+-    def _capture_live_branch(self, tree_output: str, kwargs: dict[str, Any]) -> None:
+-        modules = _runtime()
+-        try:
+-            root, parents, geometries = modules["driver"]._parse_xwininfo_tree(tree_output)
+-        except Exception as exc:
+-            self._record({"kind": "parsed-tree-error", "error": f"{type(exc).__name__}: {exc}"})
+-            return
+-        rows = []
++    def _admitted_wmctrl_rows(self) -> list[list[Any]]:
++        rows: list[list[Any]] = []
+         for line in self.wmctrl_output.splitlines():
+             fields = line.split(maxsplit=4)
+             if (
+@@ -101,8 +115,19 @@
+                 and fields[2].isdigit()
+                 and self.gtk_pid is not None
+                 and int(fields[2]) == self.gtk_pid
++                and fields[4].strip() == "CROWLEY INPUT CALIBRATION ONLY"
+             ):
+-                rows.append((int(fields[0], 16), fields))
++                rows.append([int(fields[0], 16), *fields[1:]])
++        return rows
++
++    def _capture_live_branch(self, tree_output: str) -> None:
++        modules = _runtime()
++        try:
++            root, parents, geometries = modules["driver"]._parse_xwininfo_tree(tree_output)
++        except Exception as exc:
++            self._record({"kind": "parsed-tree-error", "error": f"{type(exc).__name__}: {exc}"})
++            return
++        rows = self._admitted_wmctrl_rows()
+         if len(rows) != 1:
+             self._record(
+                 {
+@@ -114,44 +139,30 @@
+                 }
+             )
+             return
+-        client_xid = rows[0][0]
+-        frame_xid = parents.get(client_xid, 0)
+-        children = sorted(child for child, parent in parents.items() if parent == frame_xid)
+-        branch = {
++        client_xid = int(rows[0][0])
++        client_parent = parents.get(client_xid, 0)
++        branch: dict[str, Any] = {
+             "kind": "live-frame-branch",
+             "gtkPid": self.gtk_pid,
+             "rootXid": root,
+             "clientXid": client_xid,
+-            "frameXid": frame_xid,
+-            "immediateFrameChildren": children,
+-            "treeParentMap": sorted((child, parent) for child, parent in parents.items()),
+-            "treeGeometryMap": sorted((xid, geometry) for xid, geometry in geometries.items()),
+-            "mutterProcesses": _desktop_window_manager_identities(),
++            "clientParentXid": client_parent,
++            "clientGeometry": geometries.get(client_xid),
++            "wmctrlLineCount": len(self.wmctrl_output.splitlines()),
++            "wmctrlSha256": hashlib.sha256(self.wmctrl_output.encode()).hexdigest(),
+         }
++        if client_parent <= 0 or client_parent == root:
++            branch["state"] = "startup-unreparented"
++        elif parents.get(client_parent) != root:
++            branch["state"] = "unverified-parent"
++        else:
++            branch["state"] = "ready-candidate"
++            branch["frameXid"] = client_parent
++            branch["frameGeometry"] = geometries.get(client_parent)
++            branch["frameChildren"] = sorted(
++                child for child, parent in parents.items() if parent == client_parent
++            )
+         self._record(branch)
+-        if frame_xid <= 0:
+-            return
+-        display = kwargs.get("display")
+-        xauthority = kwargs.get("xauthority")
+-        timeout = kwargs.get("timeout", 5.0)
+-        for xid in [client_xid, frame_xid, *children]:
+-            for argv in (
+-                ["xwininfo", "-id", hex(xid), "-stats"],
+-                ["xprop", "-id", hex(xid)],
+-            ):
+-                try:
+-                    output = self.command(argv, display=display, xauthority=xauthority, timeout=timeout)
+-                except Exception as exc:
+-                    self._record(
+-                        {
+-                            "kind": "live-window-query-error",
+-                            "xid": xid,
+-                            "argv": argv,
+-                            "error": f"{type(exc).__name__}: {exc}",
+-                        }
+-                    )
+-                else:
+-                    self._record({"kind": "live-window-query", "xid": xid, "argv": argv, "stdout": output})
+ 
+     def close(self) -> None:
+         if not self.stream.closed:
+@@ -174,24 +185,6 @@
+     else:
+         result["available"] = True
+     return result
+-
+-
+-def _desktop_window_manager_identities() -> list[dict[str, Any]]:
+-    identities: list[dict[str, Any]] = []
+-    try:
+-        entries = list(Path("/proc").iterdir())
+-    except OSError:
+-        return identities
+-    for entry in entries:
+-        if not entry.name.isdigit():
+-            continue
+-        try:
+-            comm = (entry / "comm").read_text(encoding="utf-8").strip().casefold()
+-        except OSError:
+-            continue
+-        if "mutter" in comm or "gnome-shell" in comm:
+-            identities.append(_process_identity(int(entry.name)))
+-    return sorted(identities, key=lambda row: row["pid"])
+ 
+ 
+ @dataclass
+@@ -881,6 +874,7 @@
+     start: tuple[int, int],
+     *,
+     preferred_speed: float,
++    target_plan: Any,
+ ) -> Any:
+     _left, _top, width, height = target.geometry
+     if not (0 <= start[0] < width and 0 <= start[1] < height):
+@@ -888,7 +882,6 @@
+     if width <= 16 or height <= 16:
+         raise ProofError("owned GTK target is too small for a bounded motion proof")
+     profile = _pointer_profile(executor, preferred_speed)
+-    target_plan = _target_plan(target, ticket, executor)
+     return executor.plan_pointer_curve(
+         executor.Point(*start),
+         target_plan,
+@@ -909,14 +902,33 @@
+     )
+ 
+ 
+-def _target_plan(target: Any, ticket: Any, executor: Any) -> Any:
++def _target_plan(
++    target: Any,
++    ticket: Any,
++    executor: Any,
++    *,
++    target_point: tuple[int, int],
++) -> Any:
+     _left, _top, width, height = target.geometry
++    point_x, point_y = target_point
++    if not (8 <= point_x < width - 8 and 8 <= point_y < height - 8):
++        raise ProofError("distinct proof target is outside the safely inset GTK client")
++    # A three-pixel plan centered on the selected endpoint keeps the
++    # planner's exact safe point pinned while retaining a certified inset.
++    bounds = executor.Rect(point_x - 1, point_y - 1, 3, 3)
+     return executor.PointerTarget(
+         "owned_gtk_calibration_target",
+-        executor.Rect(8, 8, width - 16, height - 16),
++        bounds,
+         _plan_binding(target, ticket, executor),
+-        padding=4,
+-    )
++        padding=0,
++    )
++
++
++def _distinct_target_point(target: Any, start: tuple[int, int]) -> tuple[int, int]:
++    """Choose one safely inset endpoint from this window's measured origin."""
++
++    _left, _top, width, height = target.geometry
++    return _seed_endpoint((0, 0, width, height), start)
+ 
+ 
+ def _chain_motion_points(chain: list[str]) -> list[tuple[int, int]]:
+@@ -1594,12 +1606,20 @@
+ def _positive(context: ProofContext, modules: dict[str, Any]) -> dict[str, Any]:
+     executor = modules["executor"]
+     start = _ensure_pointer_seed(context)
++    target_point = _distinct_target_point(context.target, start)
++    target_plan = _target_plan(
++        context.target,
++        context.ticket,
++        executor,
++        target_point=target_point,
++    )
+     trajectory = _trajectory(
+         context.target,
+         context.ticket,
+         executor,
+         start,
+         preferred_speed=300.0,
++        target_plan=target_plan,
+     )
+     chain = modules["driver"].build_pointer_motion_chain(trajectory, context.target.geometry)
+     points = _chain_motion_points(chain)
+@@ -1633,7 +1653,6 @@
+ 
+     left, top, width, height = context.target.geometry
+     del left, top
+-    target_plan = _target_plan(context.target, context.ticket, executor)
+     click_plan = executor.plan_single_click(
+         target_plan,
+         executor.Rect(0, 0, width, height),
+@@ -1719,12 +1738,20 @@
+ def _cancel_midpath(context: ProofContext, modules: dict[str, Any]) -> dict[str, Any]:
+     executor = modules["executor"]
+     start = _ensure_pointer_seed(context)
++    target_point = _distinct_target_point(context.target, start)
++    target_plan = _target_plan(
++        context.target,
++        context.ticket,
++        executor,
++        target_point=target_point,
++    )
+     trajectory = _trajectory(
+         context.target,
+         context.ticket,
+         executor,
+         start,
+         preferred_speed=80.0,
++        target_plan=target_plan,
+     )
+     chain = modules["driver"].build_pointer_motion_chain(trajectory, context.target.geometry)
+     expected_points = _chain_motion_points(chain)
+@@ -1816,12 +1843,20 @@
+ def _cancel_midbuttonhold(context: ProofContext, modules: dict[str, Any]) -> dict[str, Any]:
+     executor = modules["executor"]
+     start = _ensure_pointer_seed(context)
++    target_point = _distinct_target_point(context.target, start)
++    target_plan = _target_plan(
++        context.target,
++        context.ticket,
++        executor,
++        target_point=target_point,
++    )
+     trajectory = _trajectory(
+         context.target,
+         context.ticket,
+         executor,
+         start,
+         preferred_speed=350.0,
++        target_plan=target_plan,
+     )
+     motion_chain = modules["driver"].build_pointer_motion_chain(trajectory, context.target.geometry)
+     motion_baseline = len(context.events)
+--- baseline/.archive/executor-review/test_owned_gesture_proof.py
++++ transition/.archive/executor-review/test_owned_gesture_proof.py
+@@ -2,6 +2,8 @@
+ 
+ import hashlib
+ import importlib.util
++import json
++import os
+ import sys
+ import threading
+ import time
+@@ -52,6 +54,121 @@
+         assert identity["inputTool"]["memfd"]["requiredSealsPresent"]
+     finally:
+         driver.close()
++
++
++@pytest.mark.parametrize("state", ["startup-unreparented", "ready"])
++def test_gtk_command_recorder_is_passive_and_scopes_the_owned_branch(tmp_path: Path, state: str) -> None:
++    helper = _helper_module()
++    pid = os.getpid()
++    client = 0x600119
++    frame = 0x600192
++    helper_xid = 0x600193
++    unrelated = 0x700001
++    calls: list[list[str]] = []
++    if state == "startup-unreparented":
++        tree = (
++            "xwininfo: Window id: 0x374 (the root window)\n"
++            f'  {hex(client)} "CROWLEY INPUT CALIBRATION ONLY": ("-c" "-c") '
++            "480x240+753+456  +753+456\n"
++            f'  {hex(unrelated)} "other desktop window": ("other" "other") 1x1+1+1  +1+1\n'
++        )
++    else:
++        tree = (
++            "xwininfo: Window id: 0x374 (the root window)\n"
++            f'  {hex(frame)} "CROWLEY INPUT CALIBRATION ONLY": '
++            '("mutter-x11-frames" "mutter-x11-frames") 602x401+692+362  +692+362\n'
++            f'    {hex(client)} "CROWLEY INPUT CALIBRATION ONLY": ("-c" "-c") '
++            "480x240+753+456  +753+456\n"
++            f"    {hex(helper_xid)} (has no name): () 1x1+-1+-1  +691+361\n"
++            f'  {hex(unrelated)} "other desktop window": ("other" "other") 1x1+1+1  +1+1\n'
++        )
++
++    def command(argv: list[str], **_kwargs: object) -> str:
++        calls.append(argv)
++        if argv == ["wmctrl", "-lp"]:
++            return f"{hex(client)}  -1 {pid} host CROWLEY INPUT CALIBRATION ONLY\n"
++        if argv == ["xwininfo", "-root", "-tree"]:
++            return tree
++        raise AssertionError(argv)
++
++    path = tmp_path / f"{state}.jsonl"
++    recorder = helper.OwnedGtkCommandRecorder(command, path)
++    recorder.note_gtk_pid(pid)
++    recorder(["wmctrl", "-lp"], display=":test", xauthority="Xauthority")
++    recorder(["xwininfo", "-root", "-tree"], display=":test", xauthority="Xauthority")
++    recorder.close()
++
++    assert calls == [["wmctrl", "-lp"], ["xwininfo", "-root", "-tree"]]
++    records = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
++    branch = next(record for record in records if record.get("kind") == "live-frame-branch")
++    assert branch["clientXid"] == client
++    assert branch["rootXid"] == 0x374
++    assert hex(unrelated) not in str(branch)
++    assert "mutterProcesses" not in branch
++    if state == "startup-unreparented":
++        assert branch["state"] == "startup-unreparented"
++        assert "frameXid" not in branch
++    else:
++        assert branch["frameXid"] == frame
++        assert branch["frameXid"] != branch["rootXid"]
++
++
++def test_gtk_command_recorder_keeps_only_scoped_rows_across_readiness_trees(
++    tmp_path: Path,
++) -> None:
++    helper = _helper_module()
++    pid = os.getpid()
++    client = 0x600119
++    frame = 0x600192
++    helper_xid = 0x600193
++    startup_tree = (
++        "xwininfo: Window id: 0x374 (the root window)\n"
++        f'  {hex(client)} "CROWLEY INPUT CALIBRATION ONLY": ("-c" "-c") '
++        "480x240+753+456  +753+456\n"
++        '  0x700001 "unrelated desktop marker": ("other" "other") 1x1+1+1  +1+1\n'
++    )
++    ready_tree = (
++        "xwininfo: Window id: 0x374 (the root window)\n"
++        f'  {hex(frame)} "CROWLEY INPUT CALIBRATION ONLY": '
++        '("mutter-x11-frames" "mutter-x11-frames") 602x401+692+362  +692+362\n'
++        f'    {hex(client)} "CROWLEY INPUT CALIBRATION ONLY": ("-c" "-c") '
++        "480x240+753+456  +753+456\n"
++        f"    {hex(helper_xid)} (has no name): () 1x1+-1+-1  +691+361\n"
++    )
++    trees = iter((startup_tree, ready_tree))
++    calls: list[list[str]] = []
++
++    def command(argv: list[str], **_kwargs: object) -> str:
++        calls.append(argv)
++        if argv == ["wmctrl", "-lp"]:
++            return (
++                f"{hex(client)}  -1 {pid} host CROWLEY INPUT CALIBRATION ONLY\n"
++                "0x700001  -1 999 host unrelated desktop marker\n"
++            )
++        if argv == ["xwininfo", "-root", "-tree"]:
++            return next(trees)
++        raise AssertionError(argv)
++
++    path = tmp_path / "readiness.jsonl"
++    recorder = helper.OwnedGtkCommandRecorder(command, path)
++    recorder.note_gtk_pid(pid)
++    wmctrl_result = recorder(["wmctrl", "-lp"], display=":test", xauthority="Xauthority")
++    first_tree = recorder(["xwininfo", "-root", "-tree"], display=":test", xauthority="Xauthority")
++    second_tree = recorder(["xwininfo", "-root", "-tree"], display=":test", xauthority="Xauthority")
++    recorder.close()
++
++    text = path.read_text(encoding="utf-8")
++    records = [json.loads(line) for line in text.splitlines()]
++    wmctrl = next(record for record in records if record.get("argv") == ["wmctrl", "-lp"])
++    branches = [record for record in records if record.get("kind") == "live-frame-branch"]
++    assert wmctrl["wmctrlLineCount"] == 2
++    assert len(wmctrl["admittedWmctrlRows"]) == 1
++    assert "unrelated desktop marker" in wmctrl_result
++    assert "unrelated desktop marker" in first_tree
++    assert "unrelated desktop marker" not in second_tree
++    assert "unrelated desktop marker" not in text
++    assert [branch["state"] for branch in branches] == ["startup-unreparented", "ready-candidate"]
++    assert len([record for record in records if record.get("argv") == ["xwininfo", "-root", "-tree"]]) == 2
+ 
+ 
+ def test_raw_motion_pairing_requires_primary_endpoint_and_preserves_valuator_lines() -> None:
+@@ -208,7 +325,11 @@
+ def test_pointer_seed_rejects_an_unowned_start_window() -> None:
+     helper = _helper_module()
+     context = SimpleNamespace(
+-        target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
++        target=SimpleNamespace(
++            xid=0x600119,
++            geometry=(0, 0, 480, 240),
++            allowed_event_target_xids={0x600119},
++        ),
+         backend=SimpleNamespace(pointer_position=lambda: (120, 120, 0x600118)),
+         phase_state={},
+     )
+@@ -246,13 +367,28 @@
+         return 8124, {"returncode": 0}
+ 
+     context = SimpleNamespace(
+-        target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
++        target=SimpleNamespace(
++            xid=0x600119,
++            geometry=(0, 0, 480, 240),
++            allowed_event_target_xids={0x600119},
++        ),
+         backend=SimpleNamespace(
+             pointer_position=lambda: next(pointer_reads),
+             active_process_groups=set(),
+             _run=backend_run,
+         ),
+-        ticket=SimpleNamespace(epoch=1),
++        ticket=SimpleNamespace(
++            epoch=1,
++            target_pid=os.getpid(),
++            target_xid=0x600119,
++            target_xids=frozenset({0x600119}),
++            title="CROWLEY INPUT CALIBRATION ONLY",
++            geometry=(0, 0, 480, 240),
++            managed_frame_xid=0,
++            managed_frame_geometry=(),
++            target_executable="/usr/bin/python3",
++            target_process_start="fixture-start",
++        ),
+         events=[],
+         stage_marks=[],
+         callback_lock=threading.RLock(),
+@@ -261,7 +397,7 @@
+     )
+     trajectory = SimpleNamespace(endpoint=SimpleNamespace(x=20, y=20))
+     modules = {
+-        "executor": SimpleNamespace(),
++        "executor": helper._runtime()["executor"],
+         "driver": SimpleNamespace(build_pointer_motion_chain=lambda *_args: ["xdotool", "mousemove"]),
+     }
+     monkeypatch.setattr(helper, "_trajectory", lambda *_args, **_kwargs: trajectory)
+@@ -292,6 +428,53 @@
+     assert helper._seed_endpoint(geometry, (701, 401)) == (700 + 120, 400 + 120)
+     with pytest.raises(helper.ProofError, match="two distinct"):
+         helper._seed_endpoint((0, 0, 4, 4), (0, 0))
++
++
++@pytest.mark.parametrize("start", [(239, 119), (240, 120)])
++def test_same_window_target_is_distinct_and_shared_by_motion_and_click_planners(
++    start: tuple[int, int],
++) -> None:
++    """The actual production planners share one safely inset target per window."""
++
++    helper = _helper_module()
++    executor = helper._runtime()["executor"]
++    target = SimpleNamespace(
++        xid=0x600119,
++        geometry=(700, 400, 480, 240),
++        allowed_event_target_xids=frozenset({0x600119}),
++    )
++    ticket = SimpleNamespace(
++        epoch=1,
++        target_pid=os.getpid(),
++        target_xid=0x600119,
++        target_xids=frozenset({0x600119}),
++        title="CROWLEY INPUT CALIBRATION ONLY",
++        geometry=target.geometry,
++        managed_frame_xid=0x600192,
++        managed_frame_geometry=(692, 362, 602, 401),
++        target_executable="/usr/bin/python3",
++        target_process_start="fixture-start",
++    )
++    point = helper._distinct_target_point(target, start)
++    assert point != start
++    plan = helper._target_plan(target, ticket, executor, target_point=point)
++    trajectory = helper._trajectory(
++        target,
++        ticket,
++        executor,
++        start,
++        preferred_speed=300.0,
++        target_plan=plan,
++    )
++    click = executor.plan_single_click(
++        plan,
++        executor.Rect(0, 0, target.geometry[2], target.geometry[3]),
++        button=executor.PointerButton.LEFT,
++        profile=helper._pointer_profile(executor, 300.0),
++    )
++    assert trajectory.endpoint == executor.Point(*point)
++    assert click.point == trajectory.endpoint
++    assert plan.safe_point == trajectory.endpoint
+ 
+ 
+ def test_motion_duration_uses_card32_elapsed_time() -> None:
+--- baseline/src/crowley/session/calibration.py
++++ transition/src/crowley/session/calibration.py
+@@ -242,6 +242,7 @@
+ box.pack_start(entry, False, False, 0)
+ window.add(box)
+ window.connect("destroy", Gtk.main_quit)
++window.set_position(Gtk.WindowPosition.MOUSE)
+ window.show_all()
+ Gtk.main_iteration_do(False)
+ entry.grab_focus()
+@@ -2236,6 +2237,44 @@
+     return matches[0]
+ 
+ 
++class _GtkStartupPending(CalibrationError):
++    """The GTK target has published identity but Mutter is not ready yet."""
++
++
++def _xwininfo_single_map_state(text: str) -> str:
++    lines = [line for line in text.splitlines() if re.match(r"^[ \t]*Map State:", line)]
++    matches = [
++        match.group(1)
++        for line in lines
++        if (match := re.fullmatch(r"[ \t]*Map State:[ \t]*(IsUnMapped|IsUnviewable|IsViewable)[ \t]*", line))
++    ]
++    if not lines:
++        raise _GtkStartupPending("GTK client map state is not published yet")
++    if len(lines) != 1 or len(matches) != 1:
++        raise CalibrationError("GTK client map state is malformed or duplicated")
++    return matches[0]
++
++
++def _xprop_single_frame_extents(text: str) -> tuple[int, int, int, int]:
++    lines = _xprop_property_lines(text, "_NET_FRAME_EXTENTS")
++    matches = [
++        match.groups()
++        for line in lines
++        if (
++            match := re.fullmatch(
++                r"[ \t]*_NET_FRAME_EXTENTS\(CARDINAL\)[ \t]*=[ \t]*"
++                r"(\d+)[ \t]*,[ \t]*(\d+)[ \t]*,[ \t]*(\d+)[ \t]*,[ \t]*(\d+)[ \t]*",
++                line,
++            )
++        )
++    ]
++    if not lines:
++        raise _GtkStartupPending("GTK client frame extents are not published yet")
++    if len(lines) != 1 or len(matches) != 1:
++        raise CalibrationError("GTK client frame extents are malformed or duplicated")
++    return tuple(int(value) for value in matches[0])  # type: ignore[return-value]
++
++
+ class OwnedGtkCalibrationWindow:
+     """Create and verify the ephemeral GTK/X11 target used by input calibration."""
+ 
+@@ -2426,7 +2465,24 @@
+             abort()
+             raise CalibrationError("GTK calibration identity is not owned by its process")
+         try:
+-            window = self._verify(pid, xid, process)
++            while True:
++                remaining = deadline - time.monotonic()
++                if remaining <= 0:
++                    raise CalibrationError("owned GTK target did not become ready before startup deadline")
++                try:
++                    window = self._verify(
++                        pid,
++                        xid,
++                        process,
++                        timeout=remaining,
++                        startup_readiness=True,
++                    )
++                except _GtkStartupPending:
++                    if process.poll() is not None:
++                        raise CalibrationError("owned GTK target exited during startup readiness") from None
++                    time.sleep(min(0.01, remaining))
++                    continue
++                break
+         except Exception as exc:
+             reap_error: Exception | None = None
+             try:
+@@ -2484,7 +2540,13 @@
+         # The label update and the ACK are both child-side state.  Recertify
+         # the client/tree after that transition so readiness cannot rely on a
+         # stale pre-prompt frame certificate.
+-        refreshed = self._verify(window.pid, window.xid, window.process)
++        refreshed = self._verify(
++            window.pid,
++            window.xid,
++            window.process,
++            timeout=2.0,
++            startup_readiness=True,
++        )
+         if (
+             refreshed.pid != window.pid
+             or refreshed.xid != window.xid
+@@ -2497,8 +2559,29 @@
+             raise CalibrationError("owned GTK target certificate changed before readiness")
+         self.window = refreshed
+ 
+-    def _verify(self, pid: int, xid: int, process: subprocess.Popen[str]) -> OwnedWindow:
+-        listing = self.command(["wmctrl", "-lp"], display=self.display, xauthority=self.xauthority)
++    def _verify(
++        self,
++        pid: int,
++        xid: int,
++        process: subprocess.Popen[str],
++        *,
++        timeout: float = 5.0,
++        startup_readiness: bool = False,
++    ) -> OwnedWindow:
++        verify_deadline = time.monotonic() + timeout
++
++        def run_command(argv: list[str]) -> str:
++            remaining = verify_deadline - time.monotonic()
++            if remaining <= 0:
++                raise CalibrationError("GTK target verification exceeded its startup deadline")
++            return self.command(
++                argv,
++                display=self.display,
++                xauthority=self.xauthority,
++                timeout=remaining,
++            )
++
++        listing = run_command(["wmctrl", "-lp"])
+         client_matches: list[int] = []
+         for line in listing.splitlines():
+             # wmctrl -lp is five columns: XID, desktop (commonly -1), PID,
+@@ -2515,12 +2598,14 @@
+             if int(fields[2]) == pid:
+                 client_matches.append(int(fields[0], 16))
+         if client_matches != [xid]:
++            if startup_readiness and not client_matches:
++                raise _GtkStartupPending("owned GTK client is not in wmctrl yet")
+             raise CalibrationError("owned GTK target title/PID is not unique")
+-        props = self.command(
+-            ["xprop", "-id", hex(xid)],
+-            display=self.display,
+-            xauthority=self.xauthority,
+-        )
++        props = run_command(["xprop", "-id", hex(xid)])
++        if startup_readiness and (
++            not _xprop_property_lines(props, "WM_NAME") or not _xprop_property_lines(props, "_NET_WM_PID")
++        ):
++            raise _GtkStartupPending("owned GTK client properties are not published yet")
+         try:
+             client_name = _xprop_single_name(props)
+             client_pid = _xprop_single_cardinal(props, "_NET_WM_PID")
+@@ -2528,19 +2613,16 @@
+             raise CalibrationError("owned GTK target X11 properties are incomplete") from exc
+         if client_name != self.TITLE or client_pid != pid:
+             raise CalibrationError("owned GTK target XID/PID properties do not match")
+-        geometry_text = self.command(
+-            ["xwininfo", "-id", hex(xid), "-stats"],
+-            display=self.display,
+-            xauthority=self.xauthority,
+-        )
++        geometry_text = run_command(["xwininfo", "-id", hex(xid), "-stats"])
+         geometry = _parse_xwininfo_geometry(geometry_text)
+         if geometry[2:] != self.size:
+             raise CalibrationError("owned GTK target geometry changed")
+-        tree = self.command(
+-            ["xwininfo", "-root", "-tree"],
+-            display=self.display,
+-            xauthority=self.xauthority,
+-        )
++        if startup_readiness:
++            map_state = _xwininfo_single_map_state(geometry_text)
++            _xprop_single_frame_extents(props)
++            if map_state != "IsViewable":
++                raise _GtkStartupPending(f"owned GTK client is {map_state}")
++        tree = run_command(["xwininfo", "-root", "-tree"])
+         try:
+             from .driver import _parse_xwininfo_tree
+ 
+@@ -2548,21 +2630,31 @@
+         except Exception as exc:
+             raise CalibrationError("owned GTK target ancestry is not a structural X11 tree") from exc
+         managed_frame_xid = parents.get(xid, 0)
+-        if root <= 0 or xid == root or managed_frame_xid == root:
++        if root <= 0 or xid == root:
+             raise CalibrationError("owned GTK target ancestry includes the X11 root")
+-        if managed_frame_xid <= 0 or parents.get(managed_frame_xid) != root:
++        if managed_frame_xid == root or managed_frame_xid <= 0 or managed_frame_xid not in parents:
++            if startup_readiness:
++                raise _GtkStartupPending("owned GTK target is not reparented under its managed frame")
++            raise CalibrationError("owned GTK target ancestry includes the X11 root")
++        if parents.get(managed_frame_xid) != root:
+             raise CalibrationError("owned GTK target ancestry is not under its verified managed frame")
+-        frame_props = self.command(
+-            ["xprop", "-id", hex(managed_frame_xid)],
+-            display=self.display,
+-            xauthority=self.xauthority,
+-        )
++        frame_props = run_command(["xprop", "-id", hex(managed_frame_xid)])
+         try:
+             frame_for = _xprop_single_window_id(frame_props, "_MUTTER_FRAME_FOR")
+             helper_xid = _xprop_single_window_id(frame_props, "_NET_WM_USER_TIME_WINDOW")
+             frame_pid = _xprop_single_cardinal(frame_props, "_NET_WM_PID")
+             frame_class = _xprop_single_class(frame_props)
+         except CalibrationError as exc:
++            if startup_readiness and any(
++                not _xprop_property_lines(frame_props, property_name)
++                for property_name in (
++                    "_MUTTER_FRAME_FOR",
++                    "_NET_WM_USER_TIME_WINDOW",
++                    "_NET_WM_PID",
++                    "WM_CLASS",
++                )
++            ):
++                raise _GtkStartupPending("managed GTK frame properties are not complete yet") from exc
+             raise CalibrationError("managed GTK frame properties are incomplete") from exc
+         if (
+             frame_for != xid
+@@ -2575,25 +2667,21 @@
+         try:
+             frame_executable, _frame_start, frame_comm = _process_identity(frame_pid)
+         except CalibrationError as exc:
++            if startup_readiness:
++                raise _GtkStartupPending("managed GTK frame process identity is not ready") from exc
+             raise CalibrationError("managed GTK frame process identity is unavailable") from exc
+         if frame_executable != "/usr/libexec/mutter-x11-frames" or frame_comm != "mutter-x11-fram":
+             raise CalibrationError("managed GTK frame is not the observed Mutter frame process")
+-        frame_geometry_text = self.command(
+-            ["xwininfo", "-id", hex(managed_frame_xid), "-stats"],
+-            display=self.display,
+-            xauthority=self.xauthority,
+-        )
++        frame_geometry_text = run_command(["xwininfo", "-id", hex(managed_frame_xid), "-stats"])
+         frame_geometry = _parse_xwininfo_geometry(frame_geometry_text)
+         if not _rect_contains(frame_geometry, geometry):
+             raise CalibrationError("managed GTK frame does not enclose its client geometry")
+         frame_children = {child for child, parent in parents.items() if parent == managed_frame_xid}
++        if startup_readiness and not {xid, helper_xid}.issubset(frame_children):
++            raise _GtkStartupPending("managed GTK frame children are not ready")
+         if frame_children != {xid, helper_xid}:
+             raise CalibrationError("managed GTK frame children do not match its advertised helper")
+-        helper_stats_text = self.command(
+-            ["xwininfo", "-id", hex(helper_xid), "-stats"],
+-            display=self.display,
+-            xauthority=self.xauthority,
+-        )
++        helper_stats_text = run_command(["xwininfo", "-id", hex(helper_xid), "-stats"])
+         helper_geometry = _parse_xwininfo_geometry(helper_stats_text)
+         if (
+             helper_geometry[2:] != (1, 1)
+@@ -2604,11 +2692,7 @@
+             or _xwininfo_single_class(helper_stats_text) != "InputOnly"
+         ):
+             raise CalibrationError("managed GTK helper geometry or class is invalid")
+-        helper_props = self.command(
+-            ["xprop", "-id", hex(helper_xid)],
+-            display=self.display,
+-            xauthority=self.xauthority,
+-        )
++        helper_props = run_command(["xprop", "-id", hex(helper_xid)])
+         try:
+             user_time = _xprop_single_cardinal(helper_props, "_NET_WM_USER_TIME")
+         except CalibrationError as exc:
+@@ -2633,6 +2717,8 @@
+         try:
+             executable, process_start, _ = _process_identity(pid)
+         except CalibrationError as exc:
++            if startup_readiness:
++                raise _GtkStartupPending("owned GTK process identity is not ready") from exc
+             raise CalibrationError("owned GTK process identity is unavailable") from exc
+         certified_targets = frozenset({managed_frame_xid, *descendants})
+         return OwnedWindow(
+--- baseline/tests/test_session_native.py
++++ transition/tests/test_session_native.py
+@@ -12,6 +12,7 @@
+ import subprocess
+ import sys
+ import time
++import types
+ from dataclasses import replace
+ from pathlib import Path
+ from types import SimpleNamespace
+@@ -19,6 +20,7 @@
+ import pytest
+ 
+ from crowley.session.calibration import (
++    _GTK_SCRIPT,
+     CalibrationError,
+     InputCalibrationEvidence,
+     InputCalibrationWorkflow,
+@@ -33,8 +35,11 @@
+     OwnedGtkCalibrationWindow,
+     OwnedWindow,
+     XTestInputProfile,
++    _GtkStartupPending,
+     _parse_xinput_profile,
+     _parse_xwininfo_geometry,
++    _xprop_single_frame_extents,
++    _xwininfo_single_map_state,
+ )
+ from crowley.session.driver import (
+     _EXEC_ADMISSION_WRAPPER,
+@@ -3329,7 +3334,11 @@
+         if args[:2] == ["wmctrl", "-lp"]:
+             return f"{hex(client_xid)}  -1  {pid} host CROWLEY INPUT CALIBRATION ONLY\n"
+         if args == ["xprop", "-id", hex(client_xid)]:
+-            return f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n_NET_WM_PID(CARDINAL) = {pid}\n'
++            return (
++                f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n'
++                f"_NET_WM_PID(CARDINAL) = {pid}\n"
++                "_NET_FRAME_EXTENTS(CARDINAL) = 5, 31, 5, 38\n"
++            )
+         if args == ["xprop", "-id", hex(frame_xid)]:
+             return (
+                 f"_MUTTER_FRAME_FOR(WINDOW): window id # {hex(client_xid)}\n"
+@@ -3393,6 +3402,92 @@
+     assert ["xwininfo", "-id", hex(frame_xid), "-stats"] in calls
+ 
+ 
++def test_gtk_script_requests_mouse_placement_at_the_toolkit_boundary(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    calls: list[object] = []
++
++    class FakeWindow:
++        def set_title(self, _title: str) -> None:
++            pass
++
++        def set_default_size(self, _width: int, _height: int) -> None:
++            pass
++
++        def set_resizable(self, _resizable: bool) -> None:
++            pass
++
++        def add(self, _child: object) -> None:
++            pass
++
++        def connect(self, _signal: str, _callback: object) -> None:
++            pass
++
++        def set_position(self, position: object) -> None:
++            calls.append(("set_position", position))
++
++        def show_all(self) -> None:
++            calls.append("show_all")
++
++        def get_window(self) -> object:
++            return object()
++
++    class FakeBox:
++        def __init__(self, **_kwargs: object) -> None:
++            pass
++
++        def pack_start(self, *_args: object) -> None:
++            pass
++
++    class FakeLabel:
++        def __init__(self, **_kwargs: object) -> None:
++            pass
++
++        def set_text(self, _text: str) -> None:
++            pass
++
++    class FakeEntry:
++        def set_name(self, _name: str) -> None:
++            pass
++
++        def set_placeholder_text(self, _text: str) -> None:
++            pass
++
++        def grab_focus(self) -> None:
++            pass
++
++    gi = types.ModuleType("gi")
++    gi.require_version = lambda *_args: None  # type: ignore[attr-defined]
++    repository = types.ModuleType("gi.repository")
++    gtk = types.ModuleType("gi.repository.Gtk")
++    gtk.Window = FakeWindow  # type: ignore[attr-defined]
++    gtk.Box = FakeBox  # type: ignore[attr-defined]
++    gtk.Label = FakeLabel  # type: ignore[attr-defined]
++    gtk.Entry = FakeEntry  # type: ignore[attr-defined]
++    gtk.Orientation = types.SimpleNamespace(VERTICAL=1)  # type: ignore[attr-defined]
++    gtk.WindowPosition = types.SimpleNamespace(MOUSE="mouse")  # type: ignore[attr-defined]
++    gtk.main_iteration_do = lambda _blocking: None  # type: ignore[attr-defined]
++    gtk.main_quit = lambda: None  # type: ignore[attr-defined]
++    gtk.main = lambda: None  # type: ignore[attr-defined]
++    glib = types.ModuleType("gi.repository.GLib")
++    glib.IO_IN = 1  # type: ignore[attr-defined]
++    glib.io_add_watch = lambda *_args: None  # type: ignore[attr-defined]
++    gdkx11 = types.ModuleType("gi.repository.GdkX11")
++    gdkx11.X11Window = types.SimpleNamespace(get_xid=lambda _window: 0x600119)  # type: ignore[attr-defined]
++    repository.Gtk = gtk  # type: ignore[attr-defined]
++    repository.GLib = glib  # type: ignore[attr-defined]
++    repository.GdkX11 = gdkx11  # type: ignore[attr-defined]
++    monkeypatch.setitem(sys.modules, "gi", gi)
++    monkeypatch.setitem(sys.modules, "gi.repository", repository)
++    monkeypatch.setitem(sys.modules, "gi.repository.Gtk", gtk)
++    monkeypatch.setitem(sys.modules, "gi.repository.GLib", glib)
++    monkeypatch.setitem(sys.modules, "gi.repository.GdkX11", gdkx11)
++    monkeypatch.setattr(sys, "stdin", types.SimpleNamespace(fileno=lambda: 0))
++
++    exec(_GTK_SCRIPT, {"__name__": "__main__"})
++    assert calls == [("set_position", "mouse"), "show_all"]
++
++
+ def test_xwininfo_geometry_parser_requires_actual_stats_fields() -> None:
+     stats = "Absolute upper-left X: 11\nAbsolute upper-left Y: 22\nWidth: 480\nHeight: 240\n"
+     assert _parse_xwininfo_geometry(stats) == (11, 22, 480, 240)
+@@ -3415,6 +3510,29 @@
+         _parse_xwininfo_geometry(invalid)
+ 
+ 
++def test_gtk_startup_readiness_parsers_distinguish_pending_from_malformed() -> None:
++    viewable = (
++        "Absolute upper-left X: 753\n"
++        "Absolute upper-left Y: 456\n"
++        "Width: 480\n"
++        "Height: 240\n"
++        "Map State: IsViewable\n"
++    )
++    assert _xwininfo_single_map_state(viewable) == "IsViewable"
++    with pytest.raises(_GtkStartupPending, match="map state"):
++        _xwininfo_single_map_state(viewable.replace("Map State: IsViewable\n", ""))
++    with pytest.raises(CalibrationError, match="map state"):
++        _xwininfo_single_map_state(viewable + "Map State: IsViewable\n")
++    frame_extents = "_NET_FRAME_EXTENTS(CARDINAL) = 5, 31, 5, 38\n"
++    assert _xprop_single_frame_extents(frame_extents) == (5, 31, 5, 38)
++    with pytest.raises(_GtkStartupPending, match="frame extents"):
++        _xprop_single_frame_extents("")
++    with pytest.raises(CalibrationError, match="frame extents"):
++        _xprop_single_frame_extents(frame_extents + frame_extents)
++    with pytest.raises(CalibrationError, match="frame extents"):
++        _xprop_single_frame_extents("_NET_FRAME_EXTENTS(CARDINAL) = 5, nope, 5, 38\n")
++
++
+ def test_owned_gtk_create_pins_x11_backend_only_for_child(monkeypatch: pytest.MonkeyPatch) -> None:
+     import crowley.session.calibration as calibration_module
+ 
+@@ -3434,7 +3552,11 @@
+         if args == ["wmctrl", "-lp"]:
+             return f"{hex(client_xid)}  -1  {pid} host CROWLEY INPUT CALIBRATION ONLY\n"
+         if args == ["xprop", "-id", hex(client_xid)]:
+-            return f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n_NET_WM_PID(CARDINAL) = {pid}\n'
++            return (
++                f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n'
++                f"_NET_WM_PID(CARDINAL) = {pid}\n"
++                "_NET_FRAME_EXTENTS(CARDINAL) = 5, 31, 5, 38\n"
++            )
+         if args == ["xprop", "-id", hex(frame_xid)]:
+             return (
+                 f"_MUTTER_FRAME_FOR(WINDOW): window id # {hex(client_xid)}\n"
+@@ -3459,7 +3581,11 @@
+         if args == ["xwininfo", "-id", hex(frame_xid), "-stats"]:
+             return stats(692, 362, 602, 401) + "Depth: 32\nBorder width: 0\nClass: InputOutput\n"
+         if args == ["xwininfo", "-id", hex(client_xid), "-stats"]:
+-            return stats(753, 456, 480, 240) + "Depth: 24\nBorder width: 0\nClass: InputOutput\n"
++            return (
++                stats(753, 456, 480, 240)
++                + "Depth: 24\nBorder width: 0\nClass: InputOutput\n"
++                + "Map State: IsViewable\n"
++            )
+         if args == ["xwininfo", "-id", hex(helper_xid), "-stats"]:
+             return (
+                 stats(691, 361, 1, 1) + "Relative upper-left X: -1\nRelative upper-left Y: -1\n"
+@@ -3480,20 +3606,27 @@
+             self.stdout = stdout
+             self.stdin = None
+             self._gate_reader = gate_reader
++            self.returncode = None
+ 
+         def poll(self):
++            return self.returncode
++
++        def terminate(self) -> None:
++            if self._gate_reader >= 0:
++                os.close(self._gate_reader)
++                self._gate_reader = -1
++            self.returncode = -15
+             return None
+ 
+-        def terminate(self) -> None:
+-            os.close(self._gate_reader)
+-            return None
+-
+         def kill(self) -> None:
+-            os.close(self._gate_reader)
++            self.terminate()
++            self.returncode = -9
+             return None
+ 
+         def wait(self, timeout: float = 2.0) -> int:
+             del timeout
++            if self.returncode is None:
++                self.returncode = 0
+             return 0
+ 
+     def fake_popen(args: list[str], **kwargs):
+--- baseline/tests/test_session_native_regressions.py
++++ transition/tests/test_session_native_regressions.py
+@@ -112,7 +112,11 @@
+         if args[:2] == ["wmctrl", "-lp"]:
+             return f"{hex(target)}  -1 {pid} host CROWLEY INPUT CALIBRATION ONLY\n"
+         if args == ["xprop", "-id", hex(target)]:
+-            return f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n_NET_WM_PID(CARDINAL) = {pid}\n'
++            return (
++                f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n'
++                f"_NET_WM_PID(CARDINAL) = {pid}\n"
++                "_NET_FRAME_EXTENTS(CARDINAL) = 5, 31, 5, 38\n"
++            )
+         if args == ["xprop", "-id", hex(frame)]:
+             return frame_props or (
+                 f"_MUTTER_FRAME_FOR(WINDOW): window id # {hex(frame_for)}\n"
+@@ -144,7 +148,11 @@
+         if args == ["xwininfo", "-id", hex(frame), "-stats"]:
+             return stats(692, 362, 602, 401) + "Depth: 32\nBorder width: 0\nClass: InputOutput\n"
+         if args == ["xwininfo", "-id", hex(target), "-stats"]:
+-            return stats(753, 456, 480, 240) + "Depth: 24\nBorder width: 0\nClass: InputOutput\n"
++            return (
++                stats(753, 456, 480, 240)
++                + "Depth: 24\nBorder width: 0\nClass: InputOutput\n"
++                + "Map State: IsViewable\n"
++            )
+         if args == ["xwininfo", "-id", hex(helper), "-stats"]:
+             return helper_stats or (
+                 stats(691, 361, 1, 1) + "Relative upper-left X: -1\nRelative upper-left Y: -1\n"
+@@ -965,7 +973,13 @@
+         processes.append(process)
+         return process
+ 
+-    def verify(_target: OwnedGtkCalibrationWindow, pid: int, xid: int, process: object) -> object:
++    def verify(
++        _target: OwnedGtkCalibrationWindow,
++        pid: int,
++        xid: int,
++        process: object,
++        **_kwargs: object,
++    ) -> object:
+         del pid, xid
+         nonlocal verify_calls
+         verify_calls += 1
+@@ -1011,6 +1025,177 @@
+             process.terminate()  # type: ignore[attr-defined]
+             process.stdout.close()  # type: ignore[attr-defined]
+         driver.close()
++
++
++def test_gtk_create_waits_for_reparented_readiness_without_respawn(
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++) -> None:
++    """Identity publication is not readiness, and one child owns the retry loop."""
++
++    import crowley.session.calibration as calibration_module
++
++    processes: list[object] = []
++    verify_timeouts: list[float] = []
++    releases: list[bool] = []
++
++    class FakeProcess:
++        def __init__(self, pid: int, stdout: io.TextIOBase, gate_reader: int) -> None:
++            self.pid = pid
++            self.stdout = stdout
++            self.stdin = io.StringIO()
++            self.returncode: int | None = None
++            self.gate_reader = gate_reader
++
++        def poll(self) -> int | None:
++            return self.returncode
++
++        def terminate(self) -> None:
++            if self.gate_reader >= 0:
++                os.close(self.gate_reader)
++                self.gate_reader = -1
++            self.returncode = -15
++
++        def kill(self) -> None:
++            self.terminate()
++            self.returncode = -9
++
++        def wait(self, timeout: float = 2.0) -> int:
++            del timeout
++            if self.returncode is None:
++                self.returncode = 0
++            return self.returncode
++
++    def fake_popen(argv: list[str], **_kwargs: object) -> FakeProcess:
++        pid = 601_000 + len(processes)
++        read_fd, write_fd = os.pipe()
++        os.write(write_fd, (json.dumps({"pid": pid, "xid": TARGET}) + "\n").encode())
++        os.close(write_fd)
++        wrapper_index = argv.index(_EXEC_ADMISSION_WRAPPER)
++        gate_reader = os.dup(int(argv[wrapper_index + 1]))
++        process = FakeProcess(pid, os.fdopen(read_fd, "r", encoding="utf-8"), gate_reader)
++        processes.append(process)
++        return process
++
++    def verify(
++        _target: OwnedGtkCalibrationWindow,
++        pid: int,
++        xid: int,
++        process: object,
++        **kwargs: object,
++    ) -> object:
++        assert kwargs["startup_readiness"] is True
++        timeout = kwargs["timeout"]
++        assert isinstance(timeout, float)
++        verify_timeouts.append(timeout)
++        if len(verify_timeouts) == 1:
++            raise calibration_module._GtkStartupPending("Mutter has not reparented the client")
++        return SimpleNamespace(pid=pid, xid=xid, process=process)
++
++    monkeypatch.setattr(calibration_module.subprocess, "Popen", fake_popen)
++    monkeypatch.setattr(OwnedGtkCalibrationWindow, "_verify", verify)
++    target = OwnedGtkCalibrationWindow(
++        display=":gtk-readiness",
++        xauthority=str(tmp_path / "Xauthority"),
++        python_executable=sys.executable,
++    )
++
++    def admit(_pid: int, release: Callable[[], None]) -> None:
++        releases.append(True)
++        release()
++
++    try:
++        window = target.create(timeout=0.2, startup_admission=admit)
++        assert window.pid == 601_000
++        assert len(processes) == 1
++        assert len(verify_timeouts) >= 2
++        assert verify_timeouts[0] > verify_timeouts[1] > 0
++        assert releases == [True]
++    finally:
++        if target.window is not None:
++            target.close()
++        for process in processes:
++            process.stdout.close()  # type: ignore[attr-defined]
++
++
++def test_gtk_create_readiness_deadline_is_shrinking_and_reaps_pending_child(
++    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
++) -> None:
++    """A never-ready client times out once and cannot leak or respawn a child."""
++
++    import crowley.session.calibration as calibration_module
++
++    processes: list[object] = []
++    verify_timeouts: list[float] = []
++    lifecycle: list[str] = []
++
++    class FakeProcess:
++        def __init__(self, pid: int, stdout: io.TextIOBase, gate_reader: int) -> None:
++            self.pid = pid
++            self.stdout = stdout
++            self.stdin = io.StringIO()
++            self.returncode: int | None = None
++            self.gate_reader = gate_reader
++
++        def poll(self) -> int | None:
++            return self.returncode
++
++        def terminate(self) -> None:
++            lifecycle.append("terminate")
++            if self.gate_reader >= 0:
++                os.close(self.gate_reader)
++                self.gate_reader = -1
++            self.returncode = -15
++
++        def kill(self) -> None:
++            lifecycle.append("kill")
++            self.terminate()
++            self.returncode = -9
++
++        def wait(self, timeout: float = 2.0) -> int:
++            del timeout
++            lifecycle.append("wait")
++            if self.returncode is None:
++                self.returncode = 0
++            return self.returncode
++
++    def fake_popen(argv: list[str], **_kwargs: object) -> FakeProcess:
++        pid = 602_000 + len(processes)
++        read_fd, write_fd = os.pipe()
++        os.write(write_fd, (json.dumps({"pid": pid, "xid": TARGET}) + "\n").encode())
++        os.close(write_fd)
++        wrapper_index = argv.index(_EXEC_ADMISSION_WRAPPER)
++        gate_reader = os.dup(int(argv[wrapper_index + 1]))
++        process = FakeProcess(pid, os.fdopen(read_fd, "r", encoding="utf-8"), gate_reader)
++        processes.append(process)
++        return process
++
++    def verify(
++        _target: OwnedGtkCalibrationWindow,
++        _pid: int,
++        _xid: int,
++        _process: object,
++        **kwargs: object,
++    ) -> object:
++        timeout = kwargs["timeout"]
++        assert isinstance(timeout, float)
++        verify_timeouts.append(timeout)
++        raise calibration_module._GtkStartupPending("GTK frame remains pending")
++
++    monkeypatch.setattr(calibration_module.subprocess, "Popen", fake_popen)
++    monkeypatch.setattr(OwnedGtkCalibrationWindow, "_verify", verify)
++    target = OwnedGtkCalibrationWindow(
++        display=":gtk-readiness-timeout",
++        xauthority=str(tmp_path / "Xauthority"),
++        python_executable=sys.executable,
++    )
++    with pytest.raises(CalibrationError, match="startup deadline"):
++        target.create(timeout=0.025, startup_admission=lambda _pid, release: release())
++    assert len(processes) == 1
++    assert verify_timeouts
++    assert all(left >= right for left, right in zip(verify_timeouts, verify_timeouts[1:], strict=False))
++    assert lifecycle[:2] == ["terminate", "wait"]
++    assert processes[0].poll() is not None
++    processes[0].stdout.close()  # type: ignore[attr-defined]
+ 
+ 
+ def test_gtk_failure_reaps_before_surface_registration_cleanup_error(
+@@ -1066,7 +1251,13 @@
+         processes.append(process)
+         return process
+ 
+-    def verify(_target: OwnedGtkCalibrationWindow, _pid: int, _xid: int, _process: object) -> object:
++    def verify(
++        _target: OwnedGtkCalibrationWindow,
++        _pid: int,
++        _xid: int,
++        _process: object,
++        **_kwargs: object,
++    ) -> object:
+         raise CalibrationError("synthetic GTK verification failure")
+ 
+     def admit(_pid: int, release: Callable[[], None]) -> Callable[[], None]:
+@@ -1170,7 +1361,13 @@
+         processes.append(process)
+         return process
+ 
+-    def verify(_target: OwnedGtkCalibrationWindow, pid: int, xid: int, process: object) -> object:
++    def verify(
++        _target: OwnedGtkCalibrationWindow,
++        pid: int,
++        xid: int,
++        process: object,
++        **_kwargs: object,
++    ) -> object:
+         return SimpleNamespace(pid=pid, xid=xid, process=process)
+ 
+     monkeypatch.setattr(calibration_module.subprocess, "Popen", fake_popen)
+@@ -1471,6 +1668,113 @@
+     target = OwnedGtkCalibrationWindow(display=":test", xauthority="Xauthority", command=command)
+     with pytest.raises(CalibrationError, match="not the observed Mutter frame"):
+         target._verify(pid, TARGET, object())  # type: ignore[arg-type]
++
++
++def test_owned_gtk_startup_direct_root_sibling_waits_for_fresh_certificate(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """A direct-root client and tiny same-title sibling never form a frame."""
++
++    import crowley.session.calibration as calibration_module
++
++    pid = os.getpid()
++    frame = 0x600192
++    helper = 0x600193
++    child = 0x600121
++    base = _mutter_gtk_fixture_command(
++        pid=pid,
++        target=TARGET,
++        frame=frame,
++        helper=helper,
++        child=child,
++    )
++    startup_tree = (
++        "xwininfo: Window id: 0x374 (the root window)\n"
++        f'  {hex(TARGET)} "CROWLEY INPUT CALIBRATION ONLY": ("-c" "-c") '
++        "480x240+753+456  +753+456\n"
++        f'  {hex(frame)} "CROWLEY INPUT CALIBRATION ONLY": '
++        '("mutter-x11-frames" "mutter-x11-frames") 1x1+1+1  +1+1\n'
++    )
++    tree_calls = 0
++
++    def command(args: list[str], **kwargs: object) -> str:
++        nonlocal tree_calls
++        if args == ["xwininfo", "-root", "-tree"]:
++            tree_calls += 1
++            if tree_calls == 1:
++                return startup_tree
++        return base(args, **kwargs)
++
++    def process_identity(process_pid: int) -> tuple[str, str, str]:
++        if process_pid == pid:
++            return "/usr/bin/python3", "client-start", "python3"
++        if process_pid == 5717:
++            return "/usr/libexec/mutter-x11-frames", "frame-start", "mutter-x11-fram"
++        raise AssertionError(process_pid)
++
++    monkeypatch.setattr(calibration_module, "_process_identity", process_identity)
++    target = OwnedGtkCalibrationWindow(display=":test", xauthority="Xauthority", command=command)
++    with pytest.raises(calibration_module._GtkStartupPending, match="reparented"):
++        target._verify(pid, TARGET, object(), timeout=1.0, startup_readiness=True)  # type: ignore[arg-type]
++    window = target._verify(pid, TARGET, object(), timeout=1.0, startup_readiness=True)  # type: ignore[arg-type]
++    assert window.managed_frame_xid == frame
++    assert tree_calls == 2
++
++
++def test_owned_gtk_prompt_recertifies_ready_certificate_without_startup_grace(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    """Prompt acknowledgement cannot preserve a certificate after structural drift."""
++
++    read_fd, write_fd = os.pipe()
++    os.write(write_fd, b"PROMPT_ACK\n")
++    os.close(write_fd)
++    stdout = os.fdopen(read_fd, "r", encoding="utf-8")
++
++    class FakeProcess:
++        pid = 603_001
++        stdin = io.StringIO()
++
++        def poll(self) -> None:
++            return None
++
++    process = FakeProcess()
++    original = OwnedWindow(
++        process.pid,
++        TARGET,
++        OwnedGtkCalibrationWindow.TITLE,
++        (0, 0, 480, 240),
++        process,  # type: ignore[arg-type]
++        frozenset({TARGET}),
++        "/usr/bin/python3",
++        "start",
++        0x600192,
++        (0, 0, 500, 260),
++        frozenset({TARGET, 0x600192}),
++    )
++    drifted = replace(original, geometry=(1, 0, 480, 240))
++    target = OwnedGtkCalibrationWindow(display=":test", xauthority="Xauthority")
++    target.window = replace(original, process=process)  # type: ignore[arg-type]
++    process.stdout = stdout  # type: ignore[attr-defined]
++    calls: list[bool] = []
++
++    def verify(
++        _target: OwnedGtkCalibrationWindow,
++        _pid: int,
++        _xid: int,
++        _process: object,
++        **kwargs: object,
++    ) -> OwnedWindow:
++        calls.append(bool(kwargs["startup_readiness"]))
++        return drifted
++
++    monkeypatch.setattr(OwnedGtkCalibrationWindow, "_verify", verify)
++    try:
++        with pytest.raises(CalibrationError, match="certificate changed"):
++            target.show_human_prompt()
++        assert calls == [True]
++    finally:
++        stdout.close()
+ 
+ 
+ class _WorkflowObserver:

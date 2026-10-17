@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-REGIONS = frozenset({"us", "eu", "kr", "tw", "cn"})
+REGIONS = frozenset({"us", "eu", "kr", "tw", "cn", "beta"})
 RULESETS = frozenset({"normal", "pvp", "rp", "hardcore"})
 # Cut taken from the seller on a successful sale.
 AH_CUT = {"alliance": 0.05, "horde": 0.05, "neutral": 0.15}

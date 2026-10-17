@@ -1,0 +1,20 @@
+{
+  "receipt": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-benchmark-20261017T034732774222Z-1164337/receipt.json",
+  "receipt_sha256": "0b98d6835dfe26fb1a8823b44916baa1fc851aae7904c4bebfd0fdb0ea9b1182",
+  "status_verified": "COMPLETED_TIMING_ONLY",
+  "samples": 8,
+  "sequence": [
+    234,
+    236,
+    238,
+    240,
+    242,
+    244,
+    246,
+    247
+  ],
+  "full_path_median_s": 1.836845056999664,
+  "command_median_s": 0.8772803365009167,
+  "owner_observer_overhead_median_s": 0.3060316015016724,
+  "interpretation": "Diagnostic only; one-Hz/100 native resource proof not passed."
+}

@@ -1,0 +1,36 @@
+{
+  "recordedUtc": "2026-10-17T01:28:48.159325+00:00",
+  "onlyChanged": [
+    "profile.outer_width",
+    "profile.outer_height"
+  ],
+  "oldOuter": [
+    1920,
+    1080
+  ],
+  "measuredOuter": [
+    1928,
+    1092
+  ],
+  "clientUnchanged": [
+    1920,
+    1080
+  ],
+  "canvasCropUnchanged": [
+    80,
+    48,
+    256,
+    256
+  ],
+  "modelCropUnchanged": [
+    80,
+    48,
+    1760,
+    984
+  ],
+  "preflight": "native-window-rebind-preflight.json",
+  "backupMode": "0o600",
+  "profileSHA256": "6205b7a10fef679a65f51eb87a73c247e366df70d8f46e7c6ec1f4fca9e7abbe",
+  "sourceGuardsUnchanged": true,
+  "inputSent": false
+}

@@ -1,0 +1,13 @@
+# Source-established attached XTEST transition
+
+Native r11 failed receipt unchanged SHA7b328149a463526708e22d06e0e468404272a7b7ed96acbedffa342e8e1b7a0b. Start873,576, requested1113,576, actualpost1113,576. Raw type17 device2/source4/detail0 and Motion type6device4/source4same timestamp303971237. Motion root/event873,576; deliveredaxes1113,576. Only2events, cleanresources/lease, no click.
+
+Sol source diagnosis: genericDIXslavedeliverybeforemaster copy, notXwayland-only defect. xinputfirstfieldisdeviceid(sourceid), notalwaysmaster. test-xi2root selectsMotionXIAllDevices/rawXIAllMasterDevices. XTESTabsolutePOINTER_DESKTOP request usesattachedXTESTslave and axes0/1; deliveredvaluators postconfinement preserveendpoint. ProcessDeviceEvent runsCheckMotion onlymaster/floating and overwritesslaveroot/event fromoldSprite; mastercopysubsequentlyupdatespointer. Source4deliveryroot/eventis transitionorigin, deliveredaxesendpoint. No reason tomigrateXorg.
+
+Canonicalcorrection mustrequirehierarchy-provenXTESTsource,parent,same-timeFIFOrawdetail0+primaryMotiondevice/source=self/detail0, exactcompleteunique finiteaxes0/1endpoint, verifiedstart/priorendpointroot/eventorigin, existingtarget/XIDs/modifiers/path/admission and exactpostqueryendpoint/window. Rawalonecannotendpoint; no ORroot/axesfallback. Human/nonXTESTMotionsemanticsmustnotbepretendedsame. Absenceofmaster2/source4Motionnotdiagnosedandnotrequired; unexpectedrealrecordsremainfailclosedunlesscontractexplicitlysupports.
+
+Primarysourcesallretained: xwayland-24.1.6-source/{Xext__xtest.c,dix__getevents.c,dix__devices.c,mi__mieq.c,Xi__exevents.c}, archiveSHA737e612ca36bbdf415a911644eb7592cf9389846847b47fa46dc705bd754d2d7. xinput-1.6.4-source/src__test_xi2.c archiveSHAad04d00d656884d133110eeddc34e9c69e626ebebbbab04dc95791c2907057c8. XI2proto.txt SHA5c3fbec3651274f150aeb929778b8568cbf282234c733bc70d99e98d0cc6a6aa. ProvenanceURLs/integrityinrespectivedirs. Officialx.orgsources, downloaded2026-10-16.
+
+Actualread-onlyaxisprobeconfirmsXTESTsource4/master2, twoRelX/RelY axes0/1 modeRelative range-1..-1 resolution0, CTMidentity, Enabled1/XTESTDevice1. Single root/screen0 1920x1080at0,0. Querysourcevaluatorvalues1113,576 andbuttonsallUP; masterqueryunsupported. Nativeaxisclassaloneisnotabscoordinateproof: pinnedabsoluteXTESTcommand/sourceestablishthatsemantic.
+
+RequestedSolgpt-5.6-sol; servingmetadataunverified. C/D1existingreviewREADYdoesnotqualifycurrentnativeassumption. NativeNEEDSWORKuntilcanonicalcontractimplemented/reviewed/newseedpasses. Noinputauthorityfromthisnote.

@@ -1,0 +1,11 @@
+{
+  "receipt": "/home/dev/.local/state/crowley/executor-evidence/owned-gesture-proof/owned-gesture-proof-1792180878-1980816.json",
+  "sha256": "b8a41e519e02501e7014a0d04ce88a5f8d7e94b358bb904f86cd105dba23e572",
+  "mode": "0o600",
+  "status": "FAIL",
+  "error": "CalibrationError: owned GTK target ancestry includes the X11 root",
+  "source_hashes_match": true,
+  "owned_pids_absent": true,
+  "global_lease_reacquired_and_released": true,
+  "no_observer_or_gesture_reached": true
+}

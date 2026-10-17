@@ -1,0 +1,11 @@
+{
+  "build_exit": 0,
+  "executable_sha256": "a2219ab2708cd6fe79d7d3461dc039e9cb02ad01c7a7d018204271718aa64e1a",
+  "sealed_image_sha256_matches": true,
+  "version_exit": 0,
+  "version": "xdotool version 4.20260920.1",
+  "needed_libxdo": false,
+  "xdo_move_mouse_calls_XTestFakeMotionEvent": true,
+  "input_sent": false,
+  "artifact_directory": "/tmp/crowley-parent-tool-build-eyv11hep/artifact"
+}

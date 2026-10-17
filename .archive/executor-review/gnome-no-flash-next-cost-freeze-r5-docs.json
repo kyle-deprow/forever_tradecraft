@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "label": "r5-documentation-only",
+  "created_utc": "2026-10-17T04:24:25.811432+00:00",
+  "harness_and_binary_unchanged": true,
+  "parent_32tests_and_r4_code_reviews_remain_applicable": true,
+  "hashes": {
+    "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan.md": "52ccbb186736e872a502c78a9ee5dfe068ac56f213a9aef1362ef8e207cc6920",
+    "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report.md": "273d8616ba8da06b2c10628e027d52b4b4dc87dcf89662c2be6c0e90f4763c59",
+    "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-manifest.json": "28f20658b21fd45ec7ca820eafdf062def6d504f8042d608f47df4119915a7bb",
+    "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r5-docs.diff": "86385229c836b5c7728a7ceb33c2e9f5960fdae1c91bf042f5ed6d5189d4c37b",
+    "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6",
+    "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/prefix/bin/gnome-screenshot": "b988bc4c49251c7951805b0af6ad942dd82d50052feffd338f5f6b72d43b025c"
+  },
+  "deferred_nits": [
+    "Emitter selftest hash assertion/minimal environment; parent verifies frozen binary before release.",
+    "Combined safety-error-plus-retry-marker test; ordering reviewed, existing code unchanged.",
+    "Legacy live receipt raw_stderr_retention key names; success stream is driver-decoded text as documented."
+  ],
+  "live_capture": false,
+  "review_required_before_live": true
+}

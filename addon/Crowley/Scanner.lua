@@ -11,18 +11,98 @@ local OWNED_TIMEOUT = 30
 local SWEEP_TIMEOUT = 600
 local MAX_PAGES = 10
 local MAX_SAFE = 9007199254740991
+local QUERY_TRACE_VERSION = 1
+local QUERY_TRACE_CAP = 256
+local CANONICAL_PLAN_HASH = "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4"
+local CANONICAL_CLIENT_BUILD = "1.60.1.70450"
+local CANONICAL_CLIENT_VERSION, CANONICAL_BUILD = string.match(CANONICAL_CLIENT_BUILD, "^(.*)%.(%d+)$")
+local CANONICAL_INTERFACE = 16001
+local CANONICAL_COUNT = 428
+local CANONICAL_LEVELS = 20
+local CANONICAL_SCHEMA = 2
+local CANONICAL_ID = "first-run"
+local CANONICAL_REVISION = 2
+local CANONICAL_CATALOG_HASH = "90918db5cc912e889553b5ddd422b829f3c6cb3773ab6da56a2e79a5a8db04f3"
+-- One compact, source-catalog-derived representation: each entry is the positive
+-- delta from the prior item ID and its canonical pool (0=core, 1=discovery).
+local CANONICAL_PLAN_ENTRIES = "118:0,41:0,571:0,35:0,9:0,9:0,2:0,2:0,31:0,40:0,15:1,56:0,277:0,4:0,78:0,187:0,54:0,176:0,5:0,594:0,9:0,5:0,1:0,128:0,2:0,1:0,2:0,1:0,1:0,1:0,4:0,96:1,34:0,3:0,178:0,1:0,1:0,3:0,1:0,49:1,10:0,1:0,2:0,2:0,1:0,1:0,92:0,62:0,1:0,185:0,173:0,1:0,1:0,1:0,11:0,14:0,2:0,2:0,4:0,4:1,75:0,8:0,8:0,89:0,1:0,1:0,136:0,105:0,1:0,1:0,1:0,2:0,1:0,1:0,2:0,3:1,27:0,1:0,1:0,1:0,4:0,64:0,303:0,1:0,1:0,1:0,1:0,1:0,2:0,2:0,1:0,4:0,20:0,27:1,12:0,1:0,1:0,31:0,1:0,1:0,3:0,15:0,2:0,2:0,2:0,1:0,7:0,4:0,2:0,5:0,5:0,2:0,5:0,1:0,7:0,2:0,3:0,9:1,176:0,33:0,842:0,7:0,10:1,14:0,2:0,4:0,130:0,1:0,2:0,5:1,123:0,10:1,221:0,1:0,40:0,5:0,2:1,105:0,62:1,78:0,2:0,12:0,5:0,18:1,2:1,30:0,1:0,2:0,9:0,1:0,151:0,135:0,4:1,1:0,1:1,51:0,2:1,351:0,1:0,1:0,1:0,1:0,4:0,1:0,1:0,1:0,2:0,1:0,1:0,594:0,2:1,231:0,1:0,1:0,1:0,54:0,1:0,4:0,1:0,4:1,93:0,81:0,3:0,14:0,1:0,1:0,1:0,1:0,1:0,1:0,192:0,3:0,176:0,287:0,5:0,2:0,1:0,6:0,1:0,105:0,110:0,111:0,34:0,4:0,50:0,35:1,3:1,6:1,746:0,235:0,1:0,212:0,7:0,2:0,41:0,10:0,1:0,1:0,1:0,47:1,12:0,24:1,4:0,290:0,1:0,1:0,38:0,20:0,84:0,1:0,1:0,50:0,1:0,2:0,1:0,1:0,35:0,1:0,1:0,1:0,1:0,109:0,1:0,82:0,1:0,383:0,283:0,169:0,10:0,1:0,22:1,120:0,1:0,1:0,2:0,1:0,1:0,39:0,239:0,1:0,1:0,10:0,37:1,107:0,1:0,3:0,5:0,2:0,148:1,464:0,1:0,20:0,1:0,2:0,9:0,1:0,1:0,1:0,1:0,2:0,2:0,1:0,1:0,1:0,1:0,1:0,9:1,9:1,1:1,1:1,1:1,1:1,1:1,3:1,1:1,1:1,1:1,2:1,20:1,236:0,1:0,2:0,1:0,1:0,129:0,37:0,2:0,3:0,1:0,10:1,3:1,1:1,100:0,1:0,1:0,107:0,72:0,29:0,85:0,1:0,1:0,1:0,124:1,31:1,11:1,897:0,2:0,1:0,2:0,2:0,1:0,1:0,1:0,147:0,428:0,1:0,1:0,3:0,44:1,1:1,9:1,60:1,2:1,89:0,1:0,1:0,48:1,804:0,1200:0,6:0,369:0,22:1,788:0,567:0,416:0,28:0,295:0,1:0,1:0,1:0,4:1,1:1,316:0,1:0,27:1,54:0,64:0,2:1,1027:0,2:0,59:1,1:1,224931:0,1:0,1:0,545:0,1029:0,9:0,450:0,117:0,8:0,10:0,1:0,14:0,1:0,4:0,1:0,1:0,1:0,912:0,2:0,34:1,2:1,551:0,5:0,1:0,6:0,32:1,5:1,1:1,6:1,302:0,1145:0,1:0,15:0,1:0,9:0,1:0,24:0,1:0,295:1,1:1,27:1,1:1,130:1,722:0,1:1,2:0,1:1,305:0,62:0,44:0,54:0,1590:1,2:1,4:1,5065:0,3410:1"
+local PRE_LOGOUT_FENCE_COMMAND = "/crowley session fence"
 local state
 local generation = 0
 local scheduleToken = 0
+local scheduleBlocked = false
+local scheduleFence = { state = "inactive", reason = "", command = PRE_LOGOUT_FENCE_COMMAND }
 local internalSendDepth = 0
+local keyFields
+
+local function traceIdentity(key)
+  local itemID, itemLevel, itemSuffix, battlePetSpeciesID = keyFields(key)
+  if not itemID then return nil end
+  return { itemID = itemID, itemLevel = itemLevel, itemSuffix = itemSuffix, battlePetSpeciesID = battlePetSpeciesID }
+end
+
+local function traceEvent(eventType, s, fields)
+  local trace = state and state.queryTrace
+  if not trace then return end
+  trace.sequence = trace.sequence + 1
+  if #trace.events >= trace.cap then
+    trace.dropped = trace.dropped + 1
+    return
+  end
+  local event = { sequence = trace.sequence, type = eventType, at = time(), generation = state.generation }
+  if s then
+    local owned = s.ownedSentRequested ~= nil
+    event.itemID, event.attempt = s.itemID, s.pages or 0
+    event.kind = s.kind or "unknown"
+    event.identity = traceIdentity(s.itemKey)
+    event.barriers = {
+      sentRequested = owned and s.ownedSentRequested == true or s.sentRequested == true,
+      sent = owned and s.ownedSentBarrier == true or s.sentBarrier == true,
+      response = owned and s.ownedResponseBarrier == true or s.responseBarrier == true,
+      awaiting = owned and s.ownedAwaiting == true or s.awaiting == true,
+    }
+  end
+  for key, value in pairs(fields or {}) do event[key] = value end
+  trace.events[#trace.events + 1] = event
+end
+
+local function traceNativeCall(name, fn, ...)
+  if type(fn) ~= "function" then return { status = "unsupported" } end
+  local ok, value = pcall(fn, ...)
+  if not ok then return { status = "error" } end
+  local result = { status = "ok" }
+  if type(value) == "boolean" or type(value) == "number" then result.value = value
+  else result.valueType = type(value) end
+  return result
+end
+
+local function traceReadiness(s, phase)
+  if not s then return end
+  local key = s.itemKey
+  local readiness = {
+    hasSearchResults = traceNativeCall("HasSearchResults", C_AuctionHouse.HasSearchResults, key),
+  }
+  if s.kind == "commodity" then
+    readiness.hasFull = traceNativeCall("HasFullCommoditySearchResults", C_AuctionHouse.HasFullCommoditySearchResults, s.itemID)
+    readiness.quantity = traceNativeCall("GetCommoditySearchResultsQuantity", C_AuctionHouse.GetCommoditySearchResultsQuantity, s.itemID)
+    readiness.count = traceNativeCall("GetNumCommoditySearchResults", C_AuctionHouse.GetNumCommoditySearchResults, s.itemID)
+  elseif s.kind == "item" then
+    readiness.hasFull = traceNativeCall("HasFullItemSearchResults", C_AuctionHouse.HasFullItemSearchResults, key)
+    readiness.quantity = traceNativeCall("GetItemSearchResultsQuantity", C_AuctionHouse.GetItemSearchResultsQuantity, key)
+    readiness.count = traceNativeCall("GetNumItemSearchResults", C_AuctionHouse.GetNumItemSearchResults, key)
+  end
+  traceEvent("readiness", s, { phase = phase, readiness = readiness })
+end
 
 local function markForeignSearch()
   if internalSendDepth > 0 or not state then return end
+  traceEvent("foreign_search", state.item, { source = "hooksecurefunc" })
   if state.item then state.item.reasonCode = "identity_mismatch" end
 end
 
 local function markForeignOwned()
   if internalSendDepth > 0 or not state or not state.ownedHandler then return end
+  traceEvent("foreign_owned", state, { source = "hooksecurefunc" })
   state.ownedExternal = true
 end
 
@@ -40,12 +120,134 @@ ns.On("AUCTION_HOUSE_CLOSED", function()
   scheduleToken = scheduleToken + 1
   if state then Scanner.Abort("ah_closed") end
 end)
-ns.On("PLAYER_LOGOUT", function() if state then Scanner.Abort("logout") end end)
+ns.On("PLAYER_LOGOUT", function()
+  -- PLAYER_LOGOUT is the final client-owned scheduling fence.  In-flight
+  -- queries are marked as logout-tailed, and a cooldown timer that was
+  -- created by the completed sweep cannot start a new sweep while the client
+  -- is leaving the world.
+  scheduleToken = scheduleToken + 1
+  ns.ahOpen = false
+  if state then Scanner.Abort("logout") end
+end)
+ns.On("ADDON_LOADED", function(_, name)
+  if name ~= "Crowley" or not ns.db then return end
+  ns.db.agentLastSaved = ns.db.agentLastSaved or {
+    memoryUid = "", finishedAt = 0, planned = 0, attempted = 0, failures = 0, rows = 0,
+  }
+end)
 
 local function safeProduct(a, b)
   if type(a) ~= "number" or type(b) ~= "number" or a < 0 or b < 0 or a > MAX_SAFE or b > MAX_SAFE then return nil end
   if a ~= 0 and b > math.floor(MAX_SAFE / a) then return nil end
   return a * b
+end
+
+local canonicalPlan
+
+local function canonicalPlanDefinition()
+  if canonicalPlan then return canonicalPlan end
+  local ids, core, discovery = {}, {}, {}
+  local previous = 0
+  for token in string.gmatch(CANONICAL_PLAN_ENTRIES, "[^,]+") do
+    local deltaText, pool = string.match(token, "^(%d+):([01])$")
+    local delta = tonumber(deltaText)
+    if not delta or delta <= 0 then return nil end
+    previous = previous + delta
+    ids[#ids + 1] = previous
+    if pool == "0" then core[#core + 1] = previous else discovery[#discovery + 1] = previous end
+  end
+  if #ids ~= CANONICAL_COUNT then return nil end
+  canonicalPlan = { itemIDs = ids, pools = { core = core, discovery = discovery } }
+  return canonicalPlan
+end
+
+local canonicalPlanText
+
+local function canonicalNumberArray(values)
+  local parts = {}
+  for index, value in ipairs(values) do parts[index] = tostring(value) end
+  return "[" .. table.concat(parts, ",") .. "]"
+end
+
+local function canonicalPlanJSON()
+  if canonicalPlanText then return canonicalPlanText end
+  local definition = canonicalPlanDefinition()
+  if not definition then return nil end
+  canonicalPlanText = '{"cadenceSeconds":900,"catalogHash":"' .. CANONICAL_CATALOG_HASH ..
+    '","id":"' .. CANONICAL_ID .. '","initialPriceLevels":20,"itemIDs":' ..
+    canonicalNumberArray(definition.itemIDs) .. ',"pools":{"core":' ..
+    canonicalNumberArray(definition.pools.core) .. ',"discovery":' ..
+    canonicalNumberArray(definition.pools.discovery) .. '},"revision":' .. CANONICAL_REVISION .. ',"schemaVersion":2,"targetClientBuild":"' ..
+    CANONICAL_CLIENT_BUILD .. '"}'
+  return canonicalPlanText
+end
+
+local function sameArray(left, right)
+  if type(left) ~= "table" or type(right) ~= "table" or #left ~= #right then return false end
+  for index = 1, #left do
+    if left[index] ~= right[index] then return false end
+  end
+  return true
+end
+
+local function exactKeys(value, allowed)
+  if type(value) ~= "table" then return false end
+  for key in pairs(value) do if not allowed[key] then return false end end
+  for key in pairs(allowed) do if value[key] == nil then return false end end
+  return true
+end
+
+local function planMatchesCanonical(source, loaded)
+  local definition = canonicalPlanDefinition()
+  if not definition or type(source) ~= "table" or type(loaded) ~= "table" then return false end
+  if not exactKeys(loaded, {
+    schemaVersion = true, id = true, revision = true, catalogHash = true,
+    targetClientBuild = true, cadenceSeconds = true, initialPriceLevels = true,
+    itemIDs = true, pools = true,
+  }) then return false end
+  if loaded.schemaVersion ~= CANONICAL_SCHEMA or loaded.id ~= CANONICAL_ID or
+      loaded.revision ~= CANONICAL_REVISION or loaded.catalogHash ~= CANONICAL_CATALOG_HASH or
+      loaded.targetClientBuild ~= CANONICAL_CLIENT_BUILD or loaded.cadenceSeconds ~= CADENCE or
+      loaded.initialPriceLevels ~= CANONICAL_LEVELS or
+      not sameArray(loaded.itemIDs, definition.itemIDs) then return false end
+  if not exactKeys(loaded.pools, { core = true, discovery = true }) or
+      not sameArray(loaded.pools.core, definition.pools.core) or
+      not sameArray(loaded.pools.discovery, definition.pools.discovery) then return false end
+  if source.planHash ~= CANONICAL_PLAN_HASH or source.schemaVersion ~= loaded.schemaVersion or
+      source.id ~= loaded.id or source.revision ~= loaded.revision or
+      source.catalogHash ~= loaded.catalogHash or source.targetClientBuild ~= loaded.targetClientBuild or
+      source.cadenceSeconds ~= loaded.cadenceSeconds or source.initialPriceLevels ~= loaded.initialPriceLevels or
+      not sameArray(source.itemIDs, loaded.itemIDs) then return false end
+  if not exactKeys(source.pools, { core = true, discovery = true }) or
+      not sameArray(source.pools.core, loaded.pools.core) or
+      not sameArray(source.pools.discovery, loaded.pools.discovery) then return false end
+  if (source.sweepCapSeconds == nil) ~= (loaded.sweepCapSeconds == nil) or
+      (source.sweepCapSeconds ~= nil and source.sweepCapSeconds ~= loaded.sweepCapSeconds) or
+      (loaded.sweepCapSeconds ~= nil and loaded.sweepCapSeconds ~= SWEEP_TIMEOUT) then return false end
+  return true
+end
+
+local function runtimeMatchesCanonical()
+  if type(GetBuildInfo) ~= "function" then return false end
+  local version, build, _, interface = GetBuildInfo()
+  return type(version) == "string" and type(build) == "string" and type(interface) == "number" and
+    version == CANONICAL_CLIENT_VERSION and build == CANONICAL_BUILD and interface == CANONICAL_INTERFACE
+end
+
+local function loadPlan()
+  local source = CROWLEY_DATA and CROWLEY_DATA.scanPlan
+  if type(source) ~= "table" or type(source.planJSON) ~= "string" or source.planJSON == "" then
+    return nil, "no scan plan loaded"
+  end
+  if not C_EncodingUtil or not C_EncodingUtil.DeserializeJSON then
+    return nil, "plan_invalid"
+  end
+  if source.planJSON ~= canonicalPlanJSON() then return nil, "plan_invalid" end
+  local ok, loaded = pcall(C_EncodingUtil.DeserializeJSON, source.planJSON)
+  if not ok or type(loaded) ~= "table" then return nil, "plan_invalid" end
+  if not planMatchesCanonical(source, loaded) then return nil, "plan_invalid" end
+  if not runtimeMatchesCanonical() then return loaded, "client_invalid" end
+  return loaded
 end
 
 local function compare(a, b)
@@ -68,13 +270,24 @@ local function rational(numerator, denominator)
   return { numerator = numerator / divisor, denominator = denominator / divisor }
 end
 
-local function keyFields(key)
+keyFields = function(key)
   if type(key) ~= "table" then return nil end
   local itemID, itemLevel, itemSuffix, pet = key.itemID, key.itemLevel, key.itemSuffix, key.battlePetSpeciesID
   if type(itemID) ~= "number" or type(itemLevel) ~= "number" or type(itemSuffix) ~= "number" or type(pet) ~= "number" then return nil end
   if itemID <= 0 or itemID > MAX_SAFE or itemLevel < 0 or itemLevel > MAX_SAFE or itemSuffix < 0 or itemSuffix > MAX_SAFE or pet < 0 or pet > MAX_SAFE or
       itemID ~= math.floor(itemID) or itemLevel ~= math.floor(itemLevel) or itemSuffix ~= math.floor(itemSuffix) or pet ~= math.floor(pet) then return nil end
   return itemID, itemLevel, itemSuffix, pet
+end
+
+local function classifyItem(itemID)
+  if type(C_Item) ~= "table" or type(C_Item.GetItemInfoInstant) ~= "function" then return nil end
+  local ok, _, _, _, _, _, classID = pcall(C_Item.GetItemInfoInstant, itemID)
+  if not ok then return nil end
+  if type(classID) ~= "number" or classID < 0 or classID > MAX_SAFE or classID ~= math.floor(classID) then return nil end
+  if type(Enum) ~= "table" or type(Enum.ItemClass) ~= "table" then return nil end
+  local classes = Enum.ItemClass
+  if type(classes.Weapon) ~= "number" or type(classes.Armor) ~= "number" or type(classes.Profession) ~= "number" then return nil end
+  return classID, classID == classes.Weapon or classID == classes.Armor or classID == classes.Profession
 end
 
 local function keysEqual(left, right)
@@ -257,6 +470,7 @@ local function failCurrent(reason)
   }
   state.cursor, state.nextOrdinal, state.item = s.itemID, s.ordinal + 1, nil
   ns.db.failureCount = (ns.db.failureCount or 0) + 1
+  traceEvent("query_outcome", s, { outcome = "incomplete", reason = reason, rowCount = #s.rows })
 end
 
 local function sourceComplete(s)
@@ -287,6 +501,10 @@ local function finishItem(s)
     for _, row in ipairs(s.rows) do if compare(row.unitPrice, cutoff) <= 0 then retained[#retained + 1] = row end end
     s.rows = retained
     coverage = "bounded"
+  elseif complete then
+    -- A complete source with no higher witness reached at most the advertised
+    -- depth. It is fully covered, so its cutoff is unbounded.
+    cutoff, witness = nil, nil
   elseif not complete then
     -- An incomplete commodity cannot claim full coverage without a proven depth boundary;
     -- item results always wait for HasFullItemSearchResults before reaching this branch.
@@ -302,6 +520,7 @@ local function finishItem(s)
     sourceComplete = source, cutoff = cutoffWire, higherPriceWitness = witnessWire, reasonCode = reason or "ok",
     rowCount = #s.rows, rows = rowMap(s.rows),
   }
+  traceEvent("query_outcome", s, { outcome = coverage, reason = reason or "ok", rowCount = #s.rows })
   state.cursor, state.nextOrdinal, state.item = s.itemID, s.ordinal + 1, nil
   Scanner.Next()
 end
@@ -423,6 +642,7 @@ local function collectResults(s)
   local sent = sendMessage(s, function()
     if state and state.item == s then
       s.sentRequested, s.awaiting, s.sentBarrier, s.responseBarrier = true, false, false, false
+      traceEvent("query_send", s, { operation = "page" })
       internalSendDepth = internalSendDepth + 1
       if s.kind == "commodity" then C_AuctionHouse.RequestMoreCommoditySearchResults(s.itemID)
       else C_AuctionHouse.RequestMoreItemSearchResults(s.itemKey) end
@@ -432,16 +652,26 @@ local function collectResults(s)
 end
 
 local function bindSearchEvents(s)
-  local function commodityEvent(_, itemID)
-    if state and state.item == s and s.kind == "commodity" and type(itemID) == "number" and itemID == s.itemID then collectResults(s) end
+  local function commodityEvent(eventName, itemID)
+    local matching = state and state.item == s and s.kind == "commodity" and type(itemID) == "number" and itemID == s.itemID
+    traceEvent("dispatch", s, {
+      event = "commodity_result", nativeEvent = eventName, matching = matching == true, resultItemID = itemID,
+    })
+    if matching then traceReadiness(s, "result_event") collectResults(s) end
   end
-  local function itemEvent(_, itemKey)
-    if state and state.item == s and s.kind == "item" and keysEqual(itemKey, s.itemKey) then collectResults(s) end
+  local function itemEvent(eventName, itemKey)
+    local matching = state and state.item == s and s.kind == "item" and keysEqual(itemKey, s.itemKey)
+    traceEvent("dispatch", s, {
+      event = "item_result", nativeEvent = eventName, matching = matching == true, resultIdentity = traceIdentity(itemKey),
+    })
+    if matching then traceReadiness(s, "result_event") collectResults(s) end
   end
   local sentEvent = function()
+    traceEvent("throttle_sent", s, { matching = state ~= nil and state.item == s and s.sentRequested == true })
     if state and state.item == s and s.sentRequested then s.sentBarrier, s.awaiting = true, true end
   end
   local responseEvent = function()
+    traceEvent("throttle_response", s, { matching = state ~= nil and state.item == s and s.sentRequested == true and s.sentBarrier == true })
     if state and state.item == s and s.sentRequested and s.sentBarrier then s.responseBarrier = true end
   end
   s.handlers.AUCTION_HOUSE_THROTTLED_MESSAGE_SENT = sentEvent
@@ -454,11 +684,29 @@ local function bindSearchEvents(s)
   ns.On("ITEM_SEARCH_RESULTS_ADDED", itemEvent) ns.On("ITEM_SEARCH_RESULTS_UPDATED", itemEvent)
 end
 
+local function failItemStart(s, reason)
+  if state ~= nil and state.item == s then
+    if s.metadataHandler then
+      ns.Off("ITEM_KEY_ITEM_INFO_RECEIVED", s.metadataHandler)
+      s.handlers.ITEM_KEY_ITEM_INFO_RECEIVED, s.metadataHandler = nil, nil
+    end
+    failCurrent(reason)
+    Scanner.Next()
+  end
+end
+
 local function startSearch(s)
   if not state or state.item ~= s then return end
-  local metadata = C_AuctionHouse.GetItemKeyInfo(s.itemKey, false)
+  local nativeKey = C_AuctionHouse.MakeItemKey(s.itemID)
+  if not nativeKey then return failItemStart(s, "metadata_unavailable") end
+  local metadata = C_AuctionHouse.GetItemKeyInfo(nativeKey, false)
   if not metadata then return end
-  if type(metadata.isCommodity) ~= "boolean" then return failCurrent("metadata_unavailable") end
+  if type(metadata.isCommodity) ~= "boolean" then return failItemStart(s, "metadata_unavailable") end
+  local classID, equipment = classifyItem(s.itemID)
+  if not classID then return failItemStart(s, "metadata_unavailable") end
+  if metadata.isCommodity then equipment = false end
+  s.classID, s.isEquipment = classID, equipment
+  s.itemKey = equipment and { itemID = s.itemID, itemLevel = 0, itemSuffix = 0, battlePetSpeciesID = 0 } or nativeKey
   s.kind = metadata.isCommodity and "commodity" or "item"
   local sort = s.kind == "commodity" and Enum.AuctionHouseSortOrder.Price or Enum.AuctionHouseSortOrder.Buyout
   s.sorts = { { sortOrder = sort, reverseSort = false } }
@@ -466,8 +714,17 @@ local function startSearch(s)
   local sent = sendMessage(s, function()
     if state and state.item == s then
       s.sentRequested, s.awaiting, s.sentBarrier, s.responseBarrier = true, false, false, false
+      traceEvent("query_send", s, {
+        operation = "search",
+        nativeMethod = (s.kind == "commodity" or not s.isEquipment) and "SendSearchQuery" or "SendSellSearchQuery",
+        classID = s.classID, equipment = s.isEquipment, nativeKey = traceIdentity(s.itemKey),
+      })
       internalSendDepth = internalSendDepth + 1
-      C_AuctionHouse.SendSellSearchQuery(s.itemKey, s.sorts, false)
+      if s.kind == "commodity" or not s.isEquipment then
+        C_AuctionHouse.SendSearchQuery(s.itemKey, s.sorts, false)
+      else
+        C_AuctionHouse.SendSellSearchQuery(s.itemKey, s.sorts, false)
+      end
       internalSendDepth = internalSendDepth - 1
     end
   end)
@@ -488,6 +745,7 @@ local function failOwned(sweep, reason)
     status = "incomplete", query = { kind = "queried", startedAt = sweep.ownedStarted, finishedAt = time() },
     reasonCode = reason, rowCount = 0, rows = {},
   }
+  traceEvent("owned_outcome", sweep, { outcome = "incomplete", reason = reason, rowCount = 0 })
   Scanner.Finish()
 end
 
@@ -496,6 +754,7 @@ local function beginOwned(sweep)
   sweep.ownedAwaiting = false
   sweep.ownedHandler = function()
     if state ~= sweep then return end
+    traceEvent("dispatch", sweep, { event = "owned_result", matching = sweep.ownedAwaiting == true })
     if ns.Context.House().key ~= sweep.house.key then return failOwned(sweep, "house_changed") end
     if not sweep.ownedAwaiting or not sweep.ownedSentBarrier or not sweep.ownedResponseBarrier or sweep.ownedExternal then return end
     if not C_AuctionHouse.HasFullOwnedAuctionResults() then return end
@@ -522,13 +781,16 @@ local function beginOwned(sweep)
       end
       sweep.owned = { status = invalid and "incomplete" or "full", query = { kind = "queried", startedAt = sweep.ownedStarted, finishedAt = time() },
         reasonCode = invalid and "query_timeout" or "ok", rowCount = #rows, rows = (function() local out = {} for _, row in ipairs(rows) do out[tostring(row.auctionID)] = row end return out end)() }
+      traceEvent("owned_outcome", sweep, { outcome = sweep.owned.status, reason = sweep.owned.reasonCode, rowCount = sweep.owned.rowCount })
       disconnectOwned(sweep)
       Scanner.Finish()
   end
   sweep.ownedSentHandler = function()
+    traceEvent("throttle_sent", sweep, { matching = state == sweep and sweep.ownedSentRequested == true, operation = "owned" })
     if state == sweep and sweep.ownedSentRequested then sweep.ownedSentBarrier, sweep.ownedAwaiting = true, true end
   end
   sweep.ownedResponseHandler = function()
+    traceEvent("throttle_response", sweep, { matching = state == sweep and sweep.ownedSentRequested == true and sweep.ownedSentBarrier == true, operation = "owned" })
     if state == sweep and sweep.ownedSentRequested and sweep.ownedSentBarrier then sweep.ownedResponseBarrier = true end
   end
   ns.On("AUCTION_HOUSE_THROTTLED_MESSAGE_SENT", sweep.ownedSentHandler)
@@ -542,6 +804,7 @@ local function beginOwned(sweep)
   local sent = sendMessage(sweep, function()
     if state == sweep then
       sweep.ownedSentRequested, sweep.ownedAwaiting, sweep.ownedSentBarrier, sweep.ownedResponseBarrier = true, false, false, false
+      traceEvent("query_send", sweep, { operation = "owned" })
       internalSendDepth = internalSendDepth + 1
       sweep.ownedSorts = { { sortOrder = Enum.AuctionHouseSortOrder.Buyout, reverseSort = false } }
       C_AuctionHouse.QueryOwnedAuctions(sweep.ownedSorts)
@@ -551,17 +814,23 @@ local function beginOwned(sweep)
 end
 
 local function beginItem(itemID, ordinal)
-  local itemKey = C_AuctionHouse.MakeItemKey(itemID, 0, 0, 0)
+  local itemKey = C_AuctionHouse.MakeItemKey(itemID)
   local s = { itemID = itemID, ordinal = ordinal, itemKey = itemKey, rows = {}, seen = {}, pages = 1,
     handlers = {}, queryStarted = time(), planLevels = state.plan.initialPriceLevels }
   state.item, state.cursor = s, itemID
   local metadata = C_AuctionHouse.GetItemKeyInfo(itemKey, false)
   if not metadata then
     s.metadataWaiting = true
-    s.handlers.ITEM_KEY_ITEM_INFO_RECEIVED = function(_, readyID)
-      if state and state.item == s and readyID == itemID then s.metadataWaiting = false startSearch(s) end
+    s.metadataHandler = function(_, readyID)
+      if state and state.item == s and readyID == itemID then
+        s.metadataWaiting = false
+        ns.Off("ITEM_KEY_ITEM_INFO_RECEIVED", s.metadataHandler)
+        s.handlers.ITEM_KEY_ITEM_INFO_RECEIVED, s.metadataHandler = nil, nil
+        startSearch(s)
+      end
     end
-    ns.On("ITEM_KEY_ITEM_INFO_RECEIVED", s.handlers.ITEM_KEY_ITEM_INFO_RECEIVED)
+    s.handlers.ITEM_KEY_ITEM_INFO_RECEIVED = s.metadataHandler
+    ns.On("ITEM_KEY_ITEM_INFO_RECEIVED", s.metadataHandler)
     C_Item.RequestLoadItemDataByID(itemID)
   else startSearch(s) end
   s.timer = C_Timer.After(ITEM_TIMEOUT, function()
@@ -594,7 +863,9 @@ function Scanner.InProgress() return state ~= nil end
 function Scanner.CooldownRemaining() if not ns.db.lastSweepStart then return 0 end return math.max(0, CADENCE - (time() - ns.db.lastSweepStart)) end
 function Scanner.Due() return Scanner.CooldownRemaining() == 0 end
 function Scanner.Schedule()
-  if not ns.ahOpen or state or ns.db.storageBlocked then return end
+  if scheduleBlocked or not ns.ahOpen or state or ns.db.storageBlocked then return end
+  local _, planError = loadPlan()
+  if planError then return end
   scheduleToken = scheduleToken + 1
   local token = scheduleToken
   C_Timer.After(Scanner.CooldownRemaining(), function() if token == scheduleToken and ns.ahOpen then Scanner.Start(false) end end)
@@ -602,23 +873,11 @@ end
 
 function Scanner.Start(force)
   if state then return ns.Print("a sweep is already running") end
+  if scheduleBlocked then return ns.Print("scan refused: logout fence active") end
   if not ns.ahOpen then return ns.Print("open the auction house first") end
   if ns.PruneStorage then ns.PruneStorage() end
-  local plan, errorText = (function()
-    if not CROWLEY_DATA.scanPlan or not CROWLEY_DATA.scanPlan.planJSON then return nil, "no scan plan loaded" end
-    if not C_EncodingUtil or not C_EncodingUtil.DeserializeJSON then return nil, "required encoding API unavailable" end
-    local loaded = C_EncodingUtil.DeserializeJSON(CROWLEY_DATA.scanPlan.planJSON)
-    if not loaded or loaded.schemaVersion ~= 2 or loaded.cadenceSeconds ~= CADENCE or
-        type(loaded.initialPriceLevels) ~= "number" or loaded.initialPriceLevels < 1 or loaded.initialPriceLevels ~= math.floor(loaded.initialPriceLevels) or
-        type(loaded.itemIDs) ~= "table" or #loaded.itemIDs == 0 then return nil, "invalid scan plan" end
-    local previous = 0
-    for index, itemID in ipairs(loaded.itemIDs) do
-      if type(itemID) ~= "number" or itemID < 1 or itemID ~= math.floor(itemID) or itemID <= previous then return nil, "invalid scan plan" end
-      previous = itemID
-    end
-    return loaded
-  end)()
-  if not plan then return ns.Print("scan refused: " .. errorText) end
+  local plan, errorText = loadPlan()
+  if not plan or errorText then return ns.Print("scan refused: " .. (errorText or "plan_invalid")) end
   if ns.db.storageBlocked then return ns.Print("scan paused: storage blocked until acknowledgements are loaded") end
   if not force and not Scanner.Due() then return ns.Print(("scan due in %ds"):format(Scanner.CooldownRemaining())) end
   local cursor = ns.db.cursorItemID
@@ -631,12 +890,15 @@ function Scanner.Start(force)
   local sweepGeneration = generation
   local sweepPlanHash = CROWLEY_DATA.scanPlan.planHash
   local sweepPlanJSON = CROWLEY_DATA.scanPlan.planJSON
-  state = { generation = sweepGeneration, plan = plan, planHash = sweepPlanHash, planJSON = sweepPlanJSON, order = (function()
+  state = { generation = sweepGeneration, plan = plan, planHash = sweepPlanHash, planJSON = sweepPlanJSON, cursor = cursor, order = (function()
     local ids, start = {}, 1
     for i, itemID in ipairs(plan.itemIDs) do ids[i] = itemID if itemID == cursor then start = i + 1 end end
     if start > #ids then start = 1 end
     local ordered = {} for n = 0, #ids - 1 do ordered[#ordered + 1] = ids[((start + n - 1) % #ids) + 1] end return ordered
-  end)(), nextOrdinal = 1, observations = {}, startedAt = time(), house = ns.Context.House(), context = ns.Context.Snapshot() }
+  end)(), nextOrdinal = 1, observations = {}, startedAt = time(), house = ns.Context.House(), context = ns.Context.Snapshot(),
+    queryTrace = { version = QUERY_TRACE_VERSION, cap = QUERY_TRACE_CAP, sequence = 0, dropped = 0, events = {} } }
+  ns.db.activeQueryTrace = state.queryTrace
+  traceEvent("sweep_start", nil, { planned = #state.order, house = state.house.key })
   ns.db.lastSweepStart = state.startedAt
   ns.Print(("sweep started for %s (%d planned items)"):format(state.house.key, #state.order))
   local sweep = state
@@ -653,6 +915,28 @@ function Scanner.Start(force)
   Scanner.Next()
 end
 
+function Scanner.PreLogoutFence()
+  -- Lua event/timer callbacks are serialized.  Check the private active state
+  -- and revoke the timer token in this one handler, so a due callback cannot
+  -- slip between an idle check and token cancellation.  A live item/owned
+  -- query is refused and remains untouched; ordinary PLAYER_LOGOUT below
+  -- still preserves its partial-save behavior.
+  if state then
+    scheduleFence = { state = "refused", reason = "scan_active", command = PRE_LOGOUT_FENCE_COMMAND }
+    traceEvent("pre_logout_fence_refused", state, { command = PRE_LOGOUT_FENCE_COMMAND, reason = "scan_active" })
+    return false, "scan_active"
+  end
+  scheduleToken = scheduleToken + 1
+  scheduleBlocked = true
+  scheduleFence = { state = "armed", reason = "", command = PRE_LOGOUT_FENCE_COMMAND }
+  traceEvent("pre_logout_fence_armed", nil, { command = PRE_LOGOUT_FENCE_COMMAND })
+  return true, nil
+end
+
+function Scanner.PreLogoutFenceStatus()
+  return { state = scheduleFence.state, reason = scheduleFence.reason, command = scheduleFence.command }
+end
+
 function Scanner.Abort(reason)
   if not state then return end
   if state.item then failCurrent(reason) end
@@ -666,7 +950,9 @@ end
 
 function Scanner.Finish()
   if not state then return end
+  traceEvent("sweep_finish", nil, { planned = #state.order })
   local s = state state = nil
+  ns.db.lastQueryTrace, ns.db.activeQueryTrace = s.queryTrace, nil
   local owned = s.owned or { status = "unqueried", query = { kind = "unqueried" }, reasonCode = "not_started", rowCount = 0, rows = {} }
   local payload = { planHash = s.planHash, planJSON = s.planJSON, observations = s.observations, owned = owned }
   local compressed = C_EncodingUtil.CompressString(C_EncodingUtil.SerializeJSON(payload), Enum.CompressionMethod.Deflate)
@@ -681,8 +967,73 @@ function Scanner.Finish()
     if observation.coverage == "incomplete" or observation.coverage == "unqueried" then failures = failures + 1 end
   end
   ns.db.lastSweepPlanned, ns.db.lastSweepAttempted, ns.db.lastSweepFailures = #s.order, attempted, failures
+  local savedRows = ns.db.scans[id].numRows
+  ns.db.agentLastSaved = {
+    memoryUid = id, finishedAt = ns.db.scans[id].finishedAt, planned = #s.order,
+    attempted = attempted, failures = failures, rows = savedRows,
+  }
   ns.db.storageBlocked = stored >= ns.MAX_STORED_SCANS
   ns.db.cursorItemID, ns.db.cursorPlanHash = s.cursor, s.planHash
   ns.Print(("sweep saved: %d observations, %d rows for %s - /reload to upload"):format(#s.order, ns.db.scans[id].numRows, s.house.key))
   Scanner.Schedule()
+end
+
+-- A copied, read-only projection for Agent.lua. The projection intentionally keeps
+-- the empty active UID while a scan is running: this native scanner allocates its
+-- stable UID only when Finish writes CrowleyDB.scans.
+function Scanner.Status()
+  local db = ns.db or {}
+  local plan, planError
+  if state then plan = state.plan else plan, planError = loadPlan() end
+  local status = {
+    phase = "ready", activeSweepId = "", startedAt = 0, dueAt = 0, ordinal = 0,
+    planned = plan and #(plan.itemIDs or {}) or 0, cursorItemID = db.cursorItemID or 0,
+    reason = "",
+  }
+  if state then
+    status.phase = state.ownedHandler and "owned" or "item"
+    status.startedAt = state.startedAt or 0
+    status.dueAt = status.startedAt + CADENCE
+    status.ordinal = state.item and state.item.ordinal or math.min(state.nextOrdinal or 1, #state.order)
+    status.planned = #state.order
+    status.cursorItemID = state.cursor or status.cursorItemID
+  elseif not plan or planError then
+    status.phase = "blocked"
+    status.reason = "plan_invalid"
+  elseif db.storageBlocked then
+    status.phase = "blocked"
+    status.reason = "queue_full"
+  elseif ns.ahOpen and Scanner.CooldownRemaining() > 0 then
+    status.phase = "scheduled"
+    status.dueAt = (db.lastSweepStart or time()) + CADENCE
+  end
+  local planProjection = plan and {
+    hash = state and state.planHash or CANONICAL_PLAN_HASH,
+    count = #(plan.itemIDs or {}), cadenceSeconds = plan.cadenceSeconds or 0,
+    sweepCapSeconds = plan.sweepCapSeconds or SWEEP_TIMEOUT,
+    initialPriceLevels = plan.initialPriceLevels or 0,
+  } or nil
+  local last = db.agentLastSaved or {}
+  local pending = {}
+  local pendingSeen = {}
+  for id in pairs(db.scans or {}) do pendingSeen[id] = true end
+  for id in pairs(db.sweeps or {}) do pendingSeen[id] = true end
+  for id in pairs(pendingSeen) do pending[#pending + 1] = id end
+  table.sort(pending)
+  local acked = {}
+  for _, id in ipairs((CROWLEY_DATA and CROWLEY_DATA.ackedScans) or {}) do acked[#acked + 1] = id end
+  table.sort(acked)
+  local function copyArray(array)
+    local result = {} for i, value in ipairs(array) do result[i] = value end return result
+  end
+  return {
+    phase = status.phase, activeSweepId = status.activeSweepId, startedAt = status.startedAt,
+    dueAt = status.dueAt, ordinal = status.ordinal, planned = status.planned,
+    cursorItemID = status.cursorItemID, reason = status.reason, plan = planProjection,
+    scheduleFence = Scanner.PreLogoutFenceStatus(), lastSaved = {
+      memoryUid = last.memoryUid or "", finishedAt = last.finishedAt or 0,
+      planned = last.planned or 0, attempted = last.attempted or 0, failures = last.failures or 0,
+      rows = last.rows or 0, persistence = "unknown",
+    }, pending = copyArray(pending), loaded = copyArray(acked),
+  }
 end

@@ -1,0 +1,19 @@
+State your exact serving model ID first. This must be actual Opus. You are an independent read-only reviewer using Read/Grep/Glob only: do not edit, run commands/tests/git, or inspect private files outside this repository.
+
+Review the frozen delta named in the parent verification preamble against:
+- .archive/PLAN-xtest-motion-transition.md (the authoritative amended contract)
+- .archive/executor-review/executors-r9-arbitration.md
+- AGENTS.md, CLAUDE.md, .agents/skills/local-game-control/SKILL.md
+
+Keep this review bounded to the transition implementation and its integration with existing admission. Earlier executor, renderer and waypoint reviews remain context. Do not repeat all research or read the entire subsystem. The actual captured profile/transition fixtures and official source extracts are available under .archive/executor-review if needed to resolve a concrete contradiction.
+
+Intent: one canonical attached-XTEST absolute motion path preserves native root/event coordinates and child as origin evidence, obtains the endpoint from delivered axes 0/1, and requires same-time FIFO raw ancestry. It consumes the strict next planned endpoint and the last accepted endpoint as the next origin. The root observer requires matching root/event XIDs and coordinates. Initial pointer ownership is query-confirmed; outside bootstrap warps are removed. Endpoint ownership requires exact query results and button child evidence. The shared decoder is used by calibration, runtime and helper waits/proofs; physical relative human motion retains its separate meaning.
+
+The exact measured input profile and root geometry are sealed and rechecked at arm and before each action's origin query/begin_action. Mutable button state is excluded. Native queries preserve SCREEN0 and the three-value pointer API. Evidence/version/fingerprint bind all new fields and invalidate old evidence. Profile reads must not occur inside dispatch admission callbacks or between motion and click commitment. Preserve the existing precommit pointer endpoint query and add the postquery. Final generation/ownership checks remain effective.
+
+Echoes match only the latest accepted primary's normalized endpoint, complete window/modifier/effective/source signature and CARD32 elapsed window. An earlier pending echo cannot be overwritten by another primary. Parent/master Motion copies are unsupported and revoke. The actual controlled echo producer -> evidence builder -> seal verifier -> DesktopDriver.arm -> Guardian.begin_action must accept unchanged MAX-to-zero timestamps, while malformed timestamp/identity domains fail. A direct fake-evidence Guardian test alone does not establish that handoff.
+
+Scope: exactly four production files (input_events.py, calibration.py, guardian.py, driver.py), owned-gesture-proof.py/test/md and the existing test files specified in the plan. No controller, daemon, executor, motion, model, addon, service, DB, profile or tool redesign. Parent's freeze and verification context are supplied in the preamble. Tests should exercise native/default producers and actual admission/Guardian ownership, doubling only external boundaries rather than replacing those methods. Captured failures are fixtures, not successful native evidence.
+
+Assess correctness, regressions, scope, typing, meaningful tests, error handling and practical effectiveness. Check stream completion and retained malformed diagnostics, ownership at both ends, strict trajectory progression, seal replay, profile drift, cancellation/reaping and query ordering. Give only concrete actionable findings with file:line, grouped Must-Fix / Should-Fix / Nits. Separate source readiness from future GTK seed/positive/cancellation proof and still-unproved WoW camera/movement/physical-human behavior. End with exactly one line:
+STATUS: READY | NEEDS WORK | MAJOR ISSUES

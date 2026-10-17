@@ -1,0 +1,361 @@
+--- R2 canonical harness (preserved)
++++ R4 canonical harness
+@@ -298,10 +298,12 @@
+         self.retryable = retryable
+ 
+ 
+-def parse_marker_stderr(raw: str, *, token: str, expected_pid: int | None = None) -> list[dict[str, Any]]:
++def parse_marker_stderr(raw: str, *, token: str, expected_pid: int | None = None, allow_incomplete: bool = False) -> list[dict[str, Any]]:
+     """Parse the private executable's exact versioned timing protocol."""
+     rows: list[dict[str, Any]] = []
+     for line in raw.splitlines():
++        if MARKER_PREFIX in line and not line.startswith(MARKER_PREFIX):
++            raise MarkerError('malformed diagnostic marker prefix placement', retryable=False)
+         if not line.startswith(MARKER_PREFIX):
+             continue
+         match = MARKER_RE.fullmatch(line)
+@@ -327,8 +329,139 @@
+     if not rows:
+         raise MarkerError('diagnostic marker stream is missing', retryable=True)
+     if len(rows) != len(MARKER_EVENTS):
++        if allow_incomplete:
++            return rows
+         raise MarkerError('diagnostic marker stream is incomplete', retryable=True)
+     return rows
++
++
++
++class IntervalError(ValueError):
++    pass
++
++
++_INTERVAL_LABELS = {
++    ('main_enter', 'app_constructed'): 'application_construct',
++    ('app_constructed', 'startup_begin'): 'gapplication_registration',
++    ('startup_begin', 'config_load_begin'): 'gtk_libhandy_startup',
++    ('config_load_begin', 'config_load_end'): 'config_load',
++    ('config_load_end', 'startup_config_loaded'): 'config_boundary',
++    ('startup_config_loaded', 'startup_end'): 'startup_finalize',
++    ('startup_end', 'command_line_begin'): 'dispatch_registration',
++    ('command_line_begin', 'config_parse_begin'): 'dispatch_option_setup',
++    ('config_parse_begin', 'config_parse_end'): 'config_parse',
++    ('config_parse_end', 'screenshot_start_begin'): 'dispatch_capture',
++    ('screenshot_start_begin', 'screenshot_start_end'): 'screenshot_dispatch',
++    ('screenshot_start_end', 'command_line_end'): 'dispatch_return',
++    ('command_line_end', 'finish_capture_begin'): 'capture_schedule',
++    ('finish_capture_begin', 'shell_backend_begin'): 'capture_backend_setup',
++    ('shell_backend_begin', 'shell_dbus_call_begin'): 'shell_request_setup',
++    ('shell_dbus_call_begin', 'shell_dbus_call_end'): 'shell_call',
++    ('shell_dbus_call_end', 'shell_pixbuf_load_begin'): 'shell_response_to_decode',
++    ('shell_pixbuf_load_begin', 'shell_pixbuf_load_end'): 'shell_png_decode',
++    ('shell_pixbuf_load_end', 'shell_temp_unlink'): 'shell_unlink',
++    ('shell_temp_unlink', 'output_file_replace_begin'): 'output_open_dispatch',
++    ('output_file_replace_begin', 'output_stream_ready'): 'output_open',
++    ('output_stream_ready', 'output_png_save_begin'): 'output_save_setup',
++    ('output_png_save_begin', 'output_png_save_end'): 'output_png_encode_write',
++    ('output_png_save_end', 'recent_entry_begin'): 'recent_dispatch',
++    ('recent_entry_begin', 'recent_entry_end'): 'recent_in_memory',
++    ('recent_entry_end', 'app_release'): 'application_release',
++    ('app_release', 'run_return'): 'shutdown',
++}
++_MARKER_COST_EMPTY_PAIRS = (
++    ('config_load_end', 'startup_config_loaded'),
++    ('screenshot_start_end', 'command_line_end'),
++    ('recent_entry_end', 'app_release'),
++)
++
++
++def derive_intervals(entry: dict[str, Any]) -> dict[str, Any]:
++    """Derive same-clock, non-overlapping marker buckets without subtraction guesses."""
++    markers = entry.get('diagnostic_markers')
++    if not isinstance(markers, list) or len(markers) != len(MARKER_EVENTS):
++        raise IntervalError('interval derivation requires one complete marker stream')
++    start = entry.get('start_monotonic')
++    end = entry.get('end_monotonic')
++    if not isinstance(start, (int, float)) or isinstance(start, bool):
++        raise IntervalError('command start monotonic time is malformed')
++    if not isinstance(end, (int, float)) or isinstance(end, bool):
++        raise IntervalError('command end monotonic time is malformed')
++    times: dict[str, float] = {}
++    for index, row in enumerate(markers):
++        if not isinstance(row, dict) or row.get('event') != MARKER_EVENTS[index]:
++            raise IntervalError('marker event sequence is invalid for interval derivation')
++        mono_ns = row.get('mono_ns')
++        if not isinstance(mono_ns, int) or isinstance(mono_ns, bool) or mono_ns < 0:
++            raise IntervalError('marker monotonic timestamp is malformed')
++        times[MARKER_EVENTS[index]] = mono_ns / 1_000_000_000.0
++    first = times[MARKER_EVENTS[0]]
++    last = times[MARKER_EVENTS[-1]]
++    if start > first or last > end or start > end:
++        raise IntervalError('marker boundaries fall outside command monotonic interval')
++    intervals: list[dict[str, Any]] = []
++
++    def add(label: str, left: float, right: float, left_event: str, right_event: str) -> None:
++        if left > right:
++            raise IntervalError(f'interval {label} is negative or overlaps')
++        intervals.append({
++            'label': label, 'start_monotonic': left, 'end_monotonic': right,
++            'duration_s': right - left, 'from': left_event, 'to': right_event,
++        })
++
++    add('pre_main', float(start), first, 'command_start', MARKER_EVENTS[0])
++    for left_event, right_event in zip(MARKER_EVENTS, MARKER_EVENTS[1:]):
++        label = _INTERVAL_LABELS.get((left_event, right_event))
++        if label is None:
++            raise IntervalError(f'no semantic label for {left_event}->{right_event}')
++        add(label, times[left_event], times[right_event], left_event, right_event)
++    add('post_run_return_tail', last, float(end), MARKER_EVENTS[-1], 'command_end')
++    for previous, current in zip(intervals, intervals[1:]):
++        if previous['end_monotonic'] > current['start_monotonic']:
++            raise IntervalError('derived intervals overlap')
++    observed = float(end) - float(start)
++    summed = sum(float(item['duration_s']) for item in intervals)
++    if abs(summed - observed) > 1e-9:
++        raise IntervalError('derived interval sum does not equal command elapsed time')
++    empty_rows = []
++    for left_event, right_event in _MARKER_COST_EMPTY_PAIRS:
++        row = next(item for item in intervals if item['from'] == left_event and item['to'] == right_event)
++        empty_rows.append({'from': left_event, 'to': right_event, 'duration_s': row['duration_s']})
++    return {
++        'intervals': intervals,
++        'observed_elapsed_s': observed,
++        'sum_elapsed_s': summed,
++        'sum_matches': True,
++        'marker_cost_empty_pairs': empty_rows,
++        'sampled_empty_pair_total_s': sum(item['duration_s'] for item in empty_rows),
++        'sampled_empty_pair_max_s': max(item['duration_s'] for item in empty_rows),
++        'clock': 'CLOCK_MONOTONIC',
++    }
++
++def sample_attempt_decision(
++    ordinal: int,
++    *,
++    capture_error: BaseException | None = None,
++    image_error: str | None = None,
++    screenshot_command_count: int = 1,
++    owner_proof: bool = True,
++    marker_error: dict[str, Any] | None = None,
++) -> tuple[str, str]:
++    """Return the production loop decision without performing another attempt."""
++    if capture_error is not None:
++        return 'fail', f'{type(capture_error).__name__}: {capture_error}'
++    if image_error:
++        return 'fail', image_error
++    if screenshot_command_count != 1:
++        return 'fail', 'sample did not execute exactly one screenshot command'
++    if not owner_proof:
++        return 'fail', 'request owner evidence missing'
++    if marker_error:
++        message = str(marker_error.get('message', 'diagnostic marker validation failed'))
++        if marker_error.get('retryable') and ordinal == 0:
++            return 'retry', message
++        return 'fail', message
++    return 'complete', ''
+ 
+ def run_self_tests() -> int:
+     import unittest
+@@ -342,6 +475,60 @@
+     request_args = {'command_start_wall': 10, 'command_end_wall': 11,
+                     'previously_owned': set(), 'benchmark_pid': os.getpid()}
+     class Checks(unittest.TestCase):
++        def test_complete_first_marker_stream_stops_after_one_attempt(self):
++            self.assertEqual(sample_attempt_decision(0), ('complete', ''))
++        def test_only_incomplete_first_marker_stream_consumes_second_ordinal(self):
++            retry = {'message': 'diagnostic marker stream is incomplete', 'retryable': True}
++            self.assertEqual(sample_attempt_decision(0, marker_error=retry)[0], 'retry')
++            self.assertEqual(sample_attempt_decision(1, marker_error=retry)[0], 'fail')
++        def test_capture_decode_owner_and_malformed_marker_fail_without_retry(self):
++            self.assertEqual(sample_attempt_decision(0, capture_error=RuntimeError('timeout'))[0], 'fail')
++            self.assertEqual(sample_attempt_decision(0, image_error='wrong PNG')[0], 'fail')
++            self.assertEqual(sample_attempt_decision(0, owner_proof=False)[0], 'fail')
++            malformed = {'message': 'malformed or extra diagnostic marker', 'retryable': False}
++            self.assertEqual(sample_attempt_decision(0, marker_error=malformed)[0], 'fail')
++        def test_interval_derivation_checks_boundaries_sum_and_semantic_labels(self):
++            rows = []
++            for index, event in enumerate(MARKER_EVENTS):
++                rows.append({'event': event, 'pid': os.getpid(), 'token': 'x', 'mono_ns': 1_000_000_000 + index * 100})
++            derived = derive_intervals({'start_monotonic': 0.999999, 'end_monotonic': 1.000003,
++                                        'diagnostic_markers': rows})
++            self.assertTrue(derived['sum_matches'])
++            self.assertEqual(derived['intervals'][0]['label'], 'pre_main')
++            self.assertEqual(derived['intervals'][-1]['label'], 'post_run_return_tail')
++            self.assertIn('shell_call', {item['label'] for item in derived['intervals']})
++            self.assertIn('recent_in_memory', {item['label'] for item in derived['intervals']})
++            self.assertGreaterEqual(derived['sampled_empty_pair_total_s'], 0)
++            self.assertGreaterEqual(derived['sampled_empty_pair_max_s'], 0)
++        def test_interval_derivation_rejects_outside_or_overlapping_boundaries(self):
++            rows = [{'event': event, 'pid': os.getpid(), 'token': 'x', 'mono_ns': 1_000_000_000 + index * 100}
++                    for index, event in enumerate(MARKER_EVENTS)]
++            with self.assertRaisesRegex(IntervalError, 'outside'):
++                derive_intervals({'start_monotonic': 2.0, 'end_monotonic': 2.1, 'diagnostic_markers': rows})
++            with self.assertRaisesRegex(IntervalError, 'outside'):
++                derive_intervals({'start_monotonic': 0.9, 'end_monotonic': 1.00000001, 'diagnostic_markers': rows})
++        def test_marker_unknown_event_and_pid_change_without_expected_pid_are_rejected(self):
++            unknown = self._marker_text().replace('event=main_enter', 'event=unknown_event')
++            with self.assertRaisesRegex(MarkerError, 'unexpected'):
++                parse_marker_stderr(unknown, token='next-cost-test')
++            changed = self._marker_text().replace('pid=' + str(os.getpid()) + ' event=app_constructed',
++                                                   'pid=' + str(os.getpid() + 1) + ' event=app_constructed')
++            with self.assertRaisesRegex(MarkerError, 'PID changed'):
++                parse_marker_stderr(changed, token='next-cost-test')
++        def test_compiled_marker_emitter_has_valid_truncated_version_prefix(self):
++            token = 'next-cost-r4-emitter-test'
++            environment = os.environ.copy()
++            for key in ('DISPLAY', 'DBUS_SESSION_BUS_ADDRESS', 'XAUTHORITY'):
++                environment.pop(key, None)
++            environment['CROWLEY_NEXT_COST_TOKEN'] = token
++            completed = subprocess.run([str(PRIVATE_EXE), '--version'], env=environment,
++                                       capture_output=True, text=True, check=False, timeout=5)
++            self.assertEqual(completed.returncode, 0)
++            self.assertIn('gnome-screenshot 41.0', completed.stdout)
++            prefix = parse_marker_stderr(completed.stderr, token=token, allow_incomplete=True)
++            self.assertEqual([row['event'] for row in prefix], ['main_enter', 'app_constructed'])
++            with self.assertRaisesRegex(MarkerError, 'incomplete'):
++                parse_marker_stderr(completed.stderr, token=token)
+         def _marker_text(self, *, token: str = 'next-cost-test', pid: int | None = None,
+                          events: tuple[str, ...] = MARKER_EVENTS) -> str:
+             value = os.getpid() if pid is None else pid
+@@ -371,6 +558,9 @@
+             malformed = self._marker_text().replace('event=main_enter', 'event=main_enter extra=1')
+             with self.assertRaisesRegex(MarkerError, 'malformed'):
+                 parse_marker_stderr(malformed, token='next-cost-test')
++            midline = 'ordinary ' + self._marker_text()
++            with self.assertRaisesRegex(MarkerError, 'prefix placement'):
++                parse_marker_stderr(midline, token='next-cost-test')
+         def test_actual_monitor_startup_fixture(self):
+             parser = _MonitorParser()
+             records = [row for line in SMOKE_STARTUP.read_text().splitlines() for row in parser.feed(line)]
+@@ -863,23 +1053,28 @@
+ 
+ def live_run() -> int:
+     stamp = datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')
+-    outdir = Path.home() / '.local/state/crowley/executor-evidence' / f'gnome-no-flash-benchmark-{stamp}-{os.getpid()}'
++    outdir = Path.home() / '.local/state/crowley/executor-evidence' / f'gnome-no-flash-next-cost-benchmark-{stamp}-{os.getpid()}'
+     outdir.mkdir(mode=0o700, parents=True, exist_ok=False)
+     _mode_private(outdir, 0o700)
+     receipt_path = outdir / 'receipt.json'
+     receipt: dict[str, Any] = {
+-        'schema': 2, 'started_utc': datetime.now(timezone.utc).isoformat(),
++        'schema': 3, 'receipt_kind': 'gnome-no-flash-next-cost-diagnostic', 'started_utc': datetime.now(timezone.utc).isoformat(),
+         'status': 'RUNNING', 'samples': [], 'owner_events': [], 'errors': [],
+         'timing_includes_owner_observer_overhead': True,
+         'cleanup_errors': [], 'initial_bus_owner_verified': False,
+         'observer_scope': 'D-Bus daemon methods GetNameOwner/GetConnectionUnixProcessID and NameOwnerChanged only; never call org.gnome.Screenshot',
+-        'path_environment_change': 'process-local PATH prepend only; XDG_DATA_DIRS and GSETTINGS_SCHEMA_DIR inherited unchanged',
++        'path_environment_change': 'process-local PATH prepend plus process-local CROWLEY_NEXT_COST_TOKEN injection; XDG_DATA_DIRS and GSETTINGS_SCHEMA_DIR inherited unchanged',
+         'production_crop_helper': 'DesktopDriver._crop_capture_file',
+         'production_decoder_helper': 'DesktopDriver.decode_native_capture',
+         'daemon_hash_and_evidence_copy_included': False,
+         'benchmark_binary_kind': 'private-instrumented-diagnostic-executable',
+         'production_binary_kind': 'host-stock-gnome-screenshot',
+-        'marker_protocol': {'prefix': MARKER_PREFIX, 'events': list(MARKER_EVENTS), 'max_ordinals': MAX_SAMPLES},
++        'marker_protocol': {'prefix': MARKER_PREFIX, 'events': list(MARKER_EVENTS), 'max_ordinals': MAX_SAMPLES, 'clock': 'CLOCK_MONOTONIC'},
++        'raw_stderr_retention': {
++            'successful_completed_process': True,
++            'backend_exception': False,
++            'backend_exception_reason': 'unchanged production backend exposes no CompletedProcess on exception',
++        },
+     }
+     _write_receipt(receipt_path, receipt)
+     monitor: OwnerMonitor | None = None
+@@ -1031,13 +1226,22 @@
+                 assert completed is not None
+                 entry['exit_status'] = completed.returncode
+             if command == 'gnome-screenshot':
+-                raw_stderr = '' if completed is None else (completed.stderr or '')
+-                stderr_path = outdir / f'stderr-{len(timings) + 1:02d}.txt'
+-                stderr_path.write_text(raw_stderr, encoding='utf-8')
+-                _mode_private(stderr_path, 0o600)
+-                entry['diagnostic_stderr_path'] = stderr_path.name
+-                entry['diagnostic_stderr_sha256'] = hashlib.sha256(raw_stderr.encode()).hexdigest()
+                 entry['diagnostic_token'] = marker_token
++                if completed is not None:
++                    raw_stderr = completed.stderr or ''
++                    stderr_path = outdir / f'stderr-{len(timings) + 1:02d}.txt'
++                    stderr_path.write_text(raw_stderr, encoding='utf-8')
++                    _mode_private(stderr_path, 0o600)
++                    entry['diagnostic_stderr_available'] = True
++                    entry['diagnostic_stderr_path'] = stderr_path.name
++                    entry['diagnostic_stderr_sha256'] = hashlib.sha256(raw_stderr.encode()).hexdigest()
++                else:
++                    # The unchanged production backend raises without exposing
++                    # its child CompletedProcess; never invent an empty stream.
++                    entry['diagnostic_stderr_available'] = False
++                    entry['diagnostic_stderr_unavailable_reason'] = (
++                        'unchanged production backend exposes no CompletedProcess on exception'
++                    )
+                 entry['owner_observer_pre_s'] = observer_pre_s
+                 try:
+                     current = bus_owner()
+@@ -1084,14 +1288,16 @@
+                     try:
+                         entry['diagnostic_markers'] = parse_marker_stderr(
+                             completed.stderr or '', token=marker_token, expected_pid=marker_pid)
+-                    except MarkerError as exc:
++                        entry['derived_intervals'] = derive_intervals(entry)
++                    except (MarkerError, IntervalError) as exc:
+                         entry['diagnostic_marker_error'] = {
+-                            'type': type(exc).__name__, 'message': str(exc), 'retryable': exc.retryable,
++                            'type': type(exc).__name__, 'message': str(exc),
++                            'retryable': bool(getattr(exc, 'retryable', False)),
+                         }
+                 elif command == 'gnome-screenshot':
+                     entry['diagnostic_marker_error'] = {
+-                        'type': 'MarkerError', 'message': 'screenshot command did not return marker-bearing output',
+-                        'retryable': True,
++                        'type': 'MarkerError', 'message': 'driver returned no CompletedProcess; marker stream and stderr are unavailable',
++                        'retryable': False,
+                     }
+             timings.append(entry)
+             if original_error is not None:
+@@ -1220,24 +1426,32 @@
+             }
+             receipt['samples'].append(sample_record)
+             _write_receipt(receipt_path, receipt)
+-            if capture_exception is not None:
+-                raise capture_exception.with_traceback(capture_exception.__traceback__)
+-            if image_error:
+-                raise RuntimeError(image_error)
+-            if len(screenshot_commands) != 1:
+-                raise RuntimeError('sample did not execute exactly one screenshot command')
+-            if not screenshot_commands[0].get('owner_proof'):
+-                proof_error = screenshot_commands[0].get('owner_proof_error', 'request owner evidence missing')
+-                raise RuntimeError(proof_error)
+-            marker_error = screenshot_commands[0].get('diagnostic_marker_error')
+-            if marker_error:
+-                message = str(marker_error.get('message', 'diagnostic marker validation failed'))
+-                if marker_error.get('retryable') and ordinal == 0:
+-                    # The second ordinal was predeclared before the first request;
+-                    # only an absent/incomplete marker stream can consume it.
+-                    continue
+-                raise RuntimeError(message)
+-            # A valid slow sample is retained and the bounded distinct sequence continues.
++            marker_error = screenshot_commands[0].get('diagnostic_marker_error') if screenshot_commands else None
++            decision, decision_message = sample_attempt_decision(
++                ordinal,
++                capture_error=capture_exception,
++                image_error=image_error,
++                screenshot_command_count=len(screenshot_commands),
++                owner_proof=bool(screenshot_commands and screenshot_commands[0].get('owner_proof')),
++                marker_error=marker_error,
++            )
++            if decision == 'fail':
++                if capture_exception is not None:
++                    raise capture_exception.with_traceback(capture_exception.__traceback__)
++                if image_error:
++                    raise RuntimeError(image_error)
++                if len(screenshot_commands) != 1:
++                    raise RuntimeError('sample did not execute exactly one screenshot command')
++                if not screenshot_commands[0].get('owner_proof'):
++                    proof_error = screenshot_commands[0].get('owner_proof_error', 'request owner evidence missing')
++                    raise RuntimeError(proof_error)
++                raise RuntimeError(decision_message)
++            if decision == 'retry':
++                # The second ordinal was predeclared before the first request;
++                # only an absent/incomplete first marker stream can consume it.
++                continue
++            # A complete valid marker stream ends the bounded run after one attempt.
++            break
+ 
+         if monitor is not None:
+             final_events = monitor.drain_until_quiet()

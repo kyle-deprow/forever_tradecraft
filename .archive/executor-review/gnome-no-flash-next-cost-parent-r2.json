@@ -1,0 +1,16 @@
+{
+  "freeze": ".archive/executor-review/gnome-no-flash-next-cost-freeze-r2.json",
+  "freeze_sha256": "4445d81e4148a6337cb05042538bc13e3ee95891401d2467e54a0db820eb5f15",
+  "self_tests": {
+    "passed": 25,
+    "exit_code": 0
+  },
+  "self_check": {
+    "status": "PASS",
+    "exit_code": 0
+  },
+  "frozen_hashes_verified": 12,
+  "live_capture": false,
+  "production_mutation": false,
+  "review_state": "Sol and actual Claude CLI Opus running"
+}

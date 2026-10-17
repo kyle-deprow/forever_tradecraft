@@ -1,0 +1,14 @@
+{
+  "utc": "2026-10-17T02:30:34.520743+00:00",
+  "verified_hashes": {
+    "src/crowley/session/driver.py": "be4a59cdb7a381143447dc41c35b4c891a46d11a93a9a5f1c039898e2e75f1db",
+    "tests/test_session_capture.py": "d7f4b888e07421e3b13f78e095e931f939841fdd8c1e9258c6f41731fabf4c90",
+    "tests/test_session_driver_actions.py": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413"
+  },
+  "parent_focused_result": "36 passed in 7.93s",
+  "parent_focused_command": "env -u CROWLEY_TEST_DATABASE_URL uv run pytest -q tests/test_session_capture.py tests/test_session_driver_actions.py",
+  "scoped_ruff": "passed",
+  "scoped_format": "2 files already formatted",
+  "live_capture": "not yet performed after repair",
+  "native_qualification": "not passed"
+}

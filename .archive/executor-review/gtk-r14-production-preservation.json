@@ -1,0 +1,9 @@
+{
+  "frozenPaths": 43,
+  "onlyChangedTests": [
+    ".archive/executor-review/test_owned_gesture_proof.py",
+    "tests/test_session_native_regressions.py"
+  ],
+  "opusApprovedOtherPathsPreserved": 41,
+  "allCurrentHashesMatch": true
+}

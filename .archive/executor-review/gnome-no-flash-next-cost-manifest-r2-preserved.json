@@ -1,0 +1,79 @@
+{
+  "binary": {
+    "build_id": "9c7c8653a6f204fc281e74810b162ce12bf649e4",
+    "kind": "private-instrumented-diagnostic-executable",
+    "marker_header_sha256": "8eaa6ef0b62722e868c1f528a9ccba550fa13220c83904626377e08027a8a69e",
+    "path": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/prefix/bin/gnome-screenshot",
+    "sha256": "b988bc4c49251c7951805b0af6ad942dd82d50052feffd338f5f6b72d43b025c",
+    "version": "gnome-screenshot 41.0"
+  },
+  "boundaries": {
+    "accepted_stage2_mutated": false,
+    "dbus_activation_performed": false,
+    "desktop_input_performed": false,
+    "live_capture_performed": false,
+    "live_timing_qualified": false,
+    "production_binding": false,
+    "profile_or_settings_changed": false,
+    "screenshot_performed": false
+  },
+  "container": {
+    "build_config": {
+      "buildtype": "release",
+      "prefix": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/prefix",
+      "x11": "disabled"
+    },
+    "build_script": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/build-container-r1.sh",
+    "build_script_sha256": "0670fd2494ad52d7dccfcfb3c178639b38121b003fd939d7077fcc15bc6008c5",
+    "host_mounts": [
+      "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1"
+    ],
+    "host_packages_changed": false,
+    "image": "debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+    "network": "bridge during dependency fetch only"
+  },
+  "created_utc": "2026-10-17T04:00:00Z",
+  "harness": {
+    "marker_prefix": "CROWLEY_GNOME_NEXT_COST_V1",
+    "marker_protocol_version": 1,
+    "max_predeclared_ordinals": 2,
+    "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+    "production_model_or_stderr_changed": false,
+    "raw_stderr_retained_per_attempt": true,
+    "sha256": "86f977d6112e51f6d540c94c26914b6ea9ece33c58d6e28b5cf330fee6c32e38"
+  },
+  "production": {
+    "benchmark_binding": false,
+    "binary_kind": "host-stock-gnome-screenshot",
+    "capture_driver_sha256": "14ae6be4a901a17e396e68ac4501238db3d1cc0118c8c34ad6f7107fbcfacfa7"
+  },
+  "schema": 1,
+  "scope": "private benchmark diagnostic only; no live capture or D-Bus activation performed",
+  "source": {
+    "debian_dsc_sha256": "978f230fcd1d167a1368efedbf69ebfd963f12abf85ee84cddd29ee590815f2c",
+    "debian_tar_sha256": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d",
+    "flash_change_diff_sha256": "92b01f70603585f6fd9dfece2f1270d9c2c6c2a99e0c7727886c0d5559bbfd2f",
+    "instrumented_files": {
+      "src/crowley-next-cost-marker.h": "8eaa6ef0b62722e868c1f528a9ccba550fa13220c83904626377e08027a8a69e",
+      "src/gnome-screenshot.c": "f083f2267f936dee5c0b731556139f6c54c2aa3bfab39ffa95f99a98524d95f9",
+      "src/screenshot-application.c": "cafde8bdb1bdf5ba2047c15bf52ed05aad588d5c5eb065762f6343e6da76dbfc",
+      "src/screenshot-backend-shell.c": "ebfa5b737cfb949f952a0927e770fb4dd373db7d7bbca81084ed60a078f378be",
+      "src/screenshot-config.c": "1ec6cb08b1843f08aae670ca93021bb1cbf7afce91de4747a1fd3aa736b34059"
+    },
+    "instrumented_tree_hash_file": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/instrumented-source-tree.sha256",
+    "instrumented_tree_hash_file_sha256": "733e0b723708b76e87b8f73ba7bbdbf9afec34ff1acf02dcac69df8568efa959",
+    "no_flash_shell_sha256": "0b3d37896682aa244a24d11ae0b5282374451df27a45a5648f8660421d226f56",
+    "source_diff_sha256": "4d7bb2d8d8d21002fb939ca8fdfa8b358ebadaed764e2993c2590d571e5b6e4d",
+    "stock_shell_sha256": "2abbdede110a4e01a0a7846db67551463210ddcae1d581b6cdce2d72403f22f4",
+    "upstream_archive_sha256": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597"
+  },
+  "status": "built-private-not-benchmarked",
+  "verification": {
+    "binary_file_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.file",
+    "binary_help_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.help",
+    "binary_ldd_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.ldd",
+    "binary_version_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.version",
+    "build_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/container-build.log",
+    "offline_harness": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py"
+  }
+}

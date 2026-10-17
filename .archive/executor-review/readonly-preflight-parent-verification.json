@@ -1,0 +1,9 @@
+{
+  "files": {
+    "readonly-current-desktop-1792175205-1553138.json": "29d7d3617ca67d0d3ef987deda6ff11eeb8c890d5a456884d716e35ece5ba463",
+    "readonly-service-health-1792175285-1557401.json": "f6f8efe6d8158e5f8e7e639cf1e8c16bd4cf97fa0c0f2589bc3e39a89233f8d9",
+    "current-visible-desktop-1792175205.png": "0aa97de328fca33582f1abf08e2e44ceca0df4afa6b44d38067756f10bb22e81"
+  },
+  "permissions": "0600 independently verified",
+  "claim": "read-only prerequisite refresh; no native input acceptance"
+}

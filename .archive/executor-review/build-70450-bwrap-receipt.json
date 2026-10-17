@@ -1,0 +1,43 @@
+{
+  "authentic_binary": {
+    "path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "version": "codex-cli 0.162.1"
+  },
+  "global_changes": false,
+  "host_default": {
+    "path": "/home/dev/.local/share/pnpm/nodejs/22.23.1/bin/codex",
+    "version": "codex-cli 0.163.0"
+  },
+  "logs": [
+    ".archive/executor-review/build-70450-bwrap-one.log",
+    ".archive/executor-review/build-70450-bwrap-r3.log"
+  ],
+  "namespace": "bwrap user/pid/net namespace; authentic binary ro-bound over hardcoded default path; /tmp and /home/dev/.codex tmpfs; repo bind only for permitted logs; UV_CACHE_DIR tmpfs and UV_NO_SYNC=1",
+  "probes": [
+    {
+      "name": "isolated hardcoded --version",
+      "result": "pass; stdout codex-cli 0.162.1; stderr empty"
+    },
+    {
+      "name": "isolated LunaAdapter startup",
+      "result": "pass"
+    },
+    {
+      "name": "build-70450-bwrap-one",
+      "result": "1 passed"
+    },
+    {
+      "name": "build-70450-bwrap-r3",
+      "result": "264 passed in 119.82s (0:01:59), exit 0"
+    }
+  ],
+  "r2_root_cause": "r2 used read-only uv cache and HOME paths; r3 corrected this with tmpfs UV_CACHE_DIR, UV_NO_SYNC=1, and tmpfs /home/dev/.codex while retaining HOME=/home/dev.",
+  "read_only": true,
+  "reproduction_command": "bwrap --die-with-parent --unshare-user --unshare-pid --unshare-net --new-session --ro-bind / / --bind /home/dev/repos/pegasus /home/dev/repos/pegasus --ro-bind /home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex /home/dev/.local/share/pnpm/nodejs/22.23.1/bin/codex --tmpfs /home/dev/.codex --tmpfs /tmp --proc /proc --dev /dev --setenv HOME /home/dev --setenv UV_CACHE_DIR /tmp/uv-cache --setenv UV_NO_SYNC 1 --setenv CROWLEY_DESKTOP_LEASE /tmp/crowley-build-70450-bwrap-r3.lock --unsetenv CROWLEY_TEST_DATABASE_URL --chdir /home/dev/repos/pegasus /home/dev/.local/bin/uv run python .archive/executor-review/run_recorded_tests.py build-70450-bwrap-r3 tests/test_watchlist.py tests/test_addon.py tests/test_session_regressions.py tests/test_session_evidence.py tests/test_session.py tests/test_session_runtime.py",
+  "task": "build-70450-namespace-probe",
+  "tools": {
+    "bwrap": "bubblewrap 0.11.0",
+    "unshare": "util-linux 2.40.2"
+  }
+}

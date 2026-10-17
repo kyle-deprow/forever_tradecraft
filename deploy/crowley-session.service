@@ -1,0 +1,18 @@
+[Unit]
+Description=Crowley repeating scan session controller
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/crowley-session --config %h/.config/crowley/session.toml daemon
+Restart=on-failure
+RestartSec=5s
+Environment=DISPLAY=:0
+Environment=WAYLAND_DISPLAY=wayland-0
+Environment=XDG_RUNTIME_DIR=%t
+# Carry the authenticated user-session authority into the user unit without
+# copying a display-manager path into the repository or configuration.
+PassEnvironment=XAUTHORITY
+
+[Install]
+WantedBy=default.target

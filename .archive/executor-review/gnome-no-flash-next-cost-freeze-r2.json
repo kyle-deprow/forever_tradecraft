@@ -1,0 +1,87 @@
+{
+  "boundaries": {
+    "accepted_stage2_mutation": false,
+    "dbus_activation": false,
+    "desktop_input": false,
+    "host_package_changes": false,
+    "live_capture": false,
+    "production_binding": false
+  },
+  "corrections": [
+    "production remains host-stock; private owner evidence is benchmark-only",
+    "receipt interpretation is capped at two predeclared samples"
+  ],
+  "hashes": {
+    "accepted_stage2_binary": {
+      "path": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/prefix/bin/gnome-screenshot",
+      "sha256": "45750c8dca51a5f6ec5584be0e807a29a60284cca8a1cb5d13b8a2f45fde6af9"
+    },
+    "binary": {
+      "path": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/prefix/bin/gnome-screenshot",
+      "sha256": "b988bc4c49251c7951805b0af6ad942dd82d50052feffd338f5f6b72d43b025c"
+    },
+    "build_script": {
+      "path": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/build-container-r1.sh",
+      "sha256": "0670fd2494ad52d7dccfcfb3c178639b38121b003fd939d7077fcc15bc6008c5"
+    },
+    "harness": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+      "sha256": "86f977d6112e51f6d540c94c26914b6ea9ece33c58d6e28b5cf330fee6c32e38"
+    },
+    "manifest": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-manifest.json",
+      "sha256": "a99e3f3858b7797cbf9210f26c4b4a864c24d0dbcb7cd406dcb5976cf8aca7f8"
+    },
+    "plan": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan.md",
+      "sha256": "ae8a297ec3e1afa3a3560a0aa0cc691a270d77d03cfc34784997979e6c5f8220"
+    },
+    "report": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report.md",
+      "sha256": "12b103ded020087851f7bc231a54a7067133021558d554d77739b9eea71a266c"
+    },
+    "self_check_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r1/self-check.log",
+      "sha256": "fd78ff1ae719b1a6b0e47504f159922208fa8f3e6b570180c60ce451be8530db"
+    },
+    "self_check_r2_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r1/self-check-r2.log",
+      "sha256": "fd78ff1ae719b1a6b0e47504f159922208fa8f3e6b570180c60ce451be8530db"
+    },
+    "self_test_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r1/self-test.log",
+      "sha256": "6d922acc12146c834aed2c03fb4c7b2816834c2b215a8b98bf4433203fd0d29a"
+    },
+    "self_test_r2_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r1/self-test-r2.log",
+      "sha256": "c10ceef375d8373ad71f2dddce32d1f09c348648fa3c4c5effe52ef4d33f1f62"
+    },
+    "source_diff": {
+      "path": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/instrumentation-source.diff",
+      "sha256": "4d7bb2d8d8d21002fb939ca8fdfa8b358ebadaed764e2993c2590d571e5b6e4d"
+    }
+  },
+  "label": "gnome-no-flash-next-cost-r2",
+  "marker_protocol": "CROWLEY_GNOME_NEXT_COST_V1 exact token/PID/event/monotonic-ns stream",
+  "max_predeclared_capture_ordinals": 2,
+  "parent_freeze_r1": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-freeze-r1.json",
+  "review_required_before_live": true,
+  "schema": 1,
+  "source_scope": [
+    "gnome-screenshot.c",
+    "screenshot-application.c",
+    "screenshot-config.c",
+    "screenshot-backend-shell.c",
+    "crowley-next-cost-marker.h"
+  ],
+  "status": "FROZEN_PRIVATE_NOT_LIVE",
+  "tests": {
+    "binary_version_help": "PASS",
+    "command_self_check": "python3 /home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py --self-check",
+    "command_self_test": "python3 /home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py --self-test",
+    "harness_self_check": "PASS",
+    "harness_self_test": "25 passed",
+    "py_compile": "PASS",
+    "ruff": "UNAVAILABLE: command not found"
+  }
+}

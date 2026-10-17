@@ -1,0 +1,24 @@
+{
+  "status": "PASS",
+  "receipt": "/home/dev/.local/state/crowley/executor-evidence/owned-gesture-proof/owned-gesture-proof-1792184834-2257756.json",
+  "sha256": "f6cfeac7ddfef6fa84922f4bf1776c46c4dd110e2b7b9756bd03c64859f5f746",
+  "sourcePathsVerified": 43,
+  "origin": [
+    1524.0,
+    542.0
+  ],
+  "endpoint": [
+    1404,
+    581
+  ],
+  "pairedServerTime": 324598037,
+  "actualToolSeals": 15,
+  "ownedPidsAbsent": [
+    2257756,
+    2257784,
+    2257832,
+    2257824
+  ],
+  "globalLeaseReacquiredReleased": true,
+  "diagnosticDigestVerified": true
+}

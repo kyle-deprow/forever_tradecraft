@@ -1,0 +1,277 @@
+---
+name: local-game-control
+description: Operate and diagnose a running game on a local Linux desktop, including Wine and launcher windows, when the user authorizes game input. Use for live addon checks and game-window troubleshooting; excludes addon implementation and trading automation.
+---
+
+# Local game control
+
+Use this skill for authorized desktop interaction with a game. Preserve the user's
+current objective and model preference. A diagnostic task does not authorize trading,
+account changes, or unrelated display/streaming changes. Resolve routine interactions
+within existing authorization; respect any current movement limits.
+
+## Establish the actual target
+
+- Reused workers can retain an earlier worktree as their working directory.
+  Bind live diagnostics and source references to the current absolute repository
+  path and accepted hashes before using their conclusions.
+- Check processes and map window IDs to PIDs before launching anything. A running
+  game behind its launcher needs activation, not another click on Play. Match exact
+  process comm/Windows argv0 and PID/start; broad command-text searches can match
+  the diagnostic shell itself. Never infer
+  that the game stopped merely because Battle.net is visible.
+  Match fixtures to the exact command and flags: `wmctrl -lp` emits XID, desktop,
+  PID, client machine, then title. Desktop can be `-1`; omitting it in a fixture
+  conceals a broken process/window certificate parser.
+  In `xwininfo -tree`, the queried window is named in the header; indented
+  structural rows describe its children. Root/Parent diagnostic lines do not
+  prove ancestry. Use captured output rather than inventing a root row.
+  For an owned GTK target that must publish an XID, select GDK_BACKEND=x11
+  in that child's environment; DISPLAY alone does not select GTK's backend.
+  A published XID or wmctrl row does not prove mapping and WM reparenting have
+  settled. Retain startup ownership through bounded readiness of the exact
+  process/window. Root is never its certified frame; diagnostic capture must
+  not enumerate unrelated root children when the owned frame is still absent.
+  Distinguish the Wine outer window from its rendering child before forcing a
+  display size. Compare both measured geometries with the existing production
+  resolver and profile; a larger outer window can contain the exact desired
+  child. Inspect WM_NORMAL_HINTS and allowed actions when fullscreen is ignored.
+  Rebind a measured supported outer profile rather than changing correct client
+  dimensions or repeatedly requesting an unsupported window action.
+  Validate published identity before treating missing companion facts as startup
+  pending. Test mixed invalid-plus-missing cases at the actual lifecycle boundary;
+  a broad base-exception assertion does not prove an immediate hard refusal.
+  Verify installed command flags with a harmless actual invocation before
+  encoding them in fixtures; xwininfo -stats prints geometry, while -geometry
+  is not a supported option on this host.
+  Keep Wine identity channels distinct: `/proc/<pid>/exe` can identify the Linux
+  loader while `comm`/status `Name` identify the Windows program. Verify the
+  Windows command line and prefix separately; do not loosen one check to fit another.
+- Focus alone may leave a Wine window covered or minimized. Raise/activate the
+  verified game window, then inspect a fresh screenshot before entering input.
+  Launcher news, trailers, and broadcasts are not evidence of game state.
+- Use current screenshot dimensions and visible controls. Coordinates from a
+  previous resolution or window position are stale.
+- A worker shell can lack the graphical environment while the game is running.
+  Obtain `DISPLAY` and `XAUTHORITY` from the verified game or graphical session
+  and pass them to capture/query tools. Do not dump the full process environment
+  or treat a missing shell variable as evidence that the desktop is unavailable.
+- Persistent desktop notifications are historical evidence. Before attributing a
+  current game problem to memory pressure, check fresh available memory/pressure
+  readings and correlate the event time; do not infer a current shortage from
+  an old notification alone.
+
+## Make input observable
+
+- Verify the foreground screen before a click or command; inspect the result before
+  the next dependent action. Tool exit code zero proves input dispatch, not success.
+  Resolve actual controls rather than guessing a keybinding from an action name.
+  Stage deferred reload confirmations before a timed no-addon baseline;
+  checkbox selection does not load the addon until reload. Verify absence,
+  then use a bounded helper to cross readiness without a model-turn delay.
+  For xdotool key/type/click, an explicit `--window` uses XSendEvent; verified-focus
+  calls without a window stack use XTEST. Calibrate and observe the same injection
+  path used at runtime instead of treating those mechanisms as interchangeable.
+  Absolute mouse motion is version dependent: installed xdotool may use
+  XWarpPointer even while keys/buttons use XTEST. Verify the actual tool/library
+  mechanism before blaming the desktop or changing event attribution rules.
+  When binding a private input tool, cover calibration, runtime, ordinary release
+  and the independent watchdog together. A changed executable path must not
+  silently enter a generic helper branch that omits exact key/button releases.
+  Parse retained command output in device-profile regressions too; separate
+  axes can repeat the same class label. Do not invent a distinct class per axis.
+  Build input-parser fixtures from a captured trace. The measured XI2 output
+  identifies `device: <deviceid> (<sourceid>)`; the first ID may be an attached
+  slave, so resolve its role from the measured hierarchy. Invented `sourceid`
+  lines do not verify the host parser or takeover monitor. Attached XTEST slave
+  Motion can carry the prior cursor in root/event fields and the new endpoint
+  in delivered valuators; verify the source-defined transition and mapping,
+  preserving both fields rather than treating raw data as endpoint evidence.
+  Update every endpoint consumer together, including readiness predicates,
+  proof-helper waits, calibration, runtime correlation and receipts. Tests must
+  traverse the native argv gate and actual producer/seal/arm path; replacing
+  those methods can conceal a broken command schema or incomplete evidence.
+  Keep measured phase-start evidence immutable and separate from callback cursors.
+  Exercise callback delivery before final validation; prepopulating only the
+  initial state can hide a failure caused by the real lifecycle's state updates.
+  Map each accepted refusal and ordering requirement to a regression at its
+  actual boundary. Assert no input on refusal and record ordering explicitly;
+  a matching exception alone does not prove it happened before dispatch.
+  For sealed evidence, recompute the fingerprint in semantic-negative tests so
+  a generic integrity failure cannot hide missing structural validation.
+  Keep other invariants valid so the mutation reaches the intended guard;
+  assert that guard's error rather than accepting an earlier unrelated refusal.
+  Preserve complete raw blocks including detail, flags and accelerated/raw
+  valuator pairs. An early partial parse cannot prove that a field was absent.
+  Reject malformed complete blocks at their native delimiter and retain verbatim
+  observer text plus the exact parser error, including on failed proof runs.
+  Use XI2's CARD32 time domain consistently in runtime and calibration consumers;
+  test queued raw/primary interleaving as well as direct pairing helpers.
+  An advertised XTEST device does not prove source attribution. Require an
+  actual primary trace and strictly paired forwarded echoes; a stream containing
+  only another device's motions cannot qualify by whitelisting that device.
+  A corrected emitter can expose additional raw event classes. Diagnose the
+  first rejected native record before attributing later coordinates to the
+  compositor. Raw motion alone cannot establish a delivered target or endpoint.
+  Exercise the live stream at idle: its final release must be delivered without
+  waiting for a later event or EOF. Prove target ancestry from window-tree
+  relationships; root/parent IDs appearing in diagnostic text are not descendants.
+  Determine completeness per event class: XI2 crossing events can print their
+  window and modifier fields after device and time. Do not emit a partial event
+  merely because the fields needed by another event class have arrived.
+  Root-level XI2 delivery can name the managed window frame enclosing a GTK
+  client. Certify that frame's unique relationship to the owned client and its
+  process; do not guess it is a descendant or permit arbitrary parent windows.
+  A Mutter frame can also contain its advertised InputOnly user-time window.
+  Verify the property, process and structure; that metadata helper must never
+  become an allowed input target.
+- Verify native process dispatch with a harmless real command before GUI input.
+  A fake `Popen` misses exec-handshake deadlocks. Never wait for parent admission
+  or apply simulated input effects inside `Popen` construction; effects belong
+  after the real admission gate of an owned harmless child.
+  Never wait in `preexec_fn`; an executed wrapper can wait after `Popen` returns. Close its
+  admission pipe on cancellation and exit on EOF. Only an explicit admit token,
+  sent after process registration and held-state publication, may permit exec;
+  owner death closes the pipe too, so EOF cannot mean permission.
+  Initial watchdog readiness is insufficient: require live state ownership at
+  each admission, and preserve complete pipe-message framing through owner death.
+  A live wrapper PID or reader thread is not executable readiness. Verify that
+  the registered process has actually executed the intended observer before
+  arming input, and retain ownership through confirmed termination and reaping.
+  Live proof helpers use the production desktop lease; private lease paths are
+  for isolated tests and cannot establish exclusive ownership of the desktop.
+  Check both process reaping and empty Guardian registries during cleanup.
+  Retain handles and final summaries for long checks; collected test counts or
+  silence after a tool session ends do not establish a completed passing run.
+  Planner and argv-builder tests do not establish executor behavior. Exercise
+  the actual key/camera driver entrypoint and ordered observer completion;
+  model the external process/events rather than replacing the ownership gate.
+  Motion-planner checks must include bounded over/undershoot, not only exact
+  nominal travel. Minimum pulses and cumulative uncertainty can make an apparent
+  in-range target infeasible; refuse it before input rather than increasing bounds.
+  A failed owned-target bootstrap must reap and unregister its process so a
+  fresh attempt on the same driver can start without rebuilding the session.
+  Retain every owned resource before recording optional identity/diagnostics.
+  Build diagnostic helpers from the actual profile and cleanup interfaces;
+  verify field names and resource ownership before a live run. A nonexistent
+  cleanup method can mask an otherwise completed capture or button release.
+  Test exceptions at the actual failed setup stage and after context return;
+  a cleanup test at another stage does not prove that ownership transfer.
+  Accept movement measurements only from settled post-release telemetry.
+  Check the reconstructed runtime direction against the independently measured
+  vector at a nonzero facing; stored calibration values alone do not prove it.
+  Keep capture time and receipt/admission time distinct; missing receipt evidence
+  cannot be replaced by assuming the observation arrived when it was captured.
+- When typing slash commands through a clipboard helper, inspect the final chat
+  buffer. Opening chat with `/` and pasting a command starting with `/` can leave
+  `//command`. Correct the actual buffer before pressing Enter. Do not risk sending
+  commands as ordinary public chat.
+  For a timed confirmation, stage a bounded local capture/recognition helper
+  before Apply and complete Apply plus the measured confirmation within that
+  helper. Model-turn latency can exceed the timer; an expired confirmation
+  proves reversion rather than a committed change. Benchmark recognition against
+  the actual saved modal before dispatch: full-screen OCR can consume the timer.
+  Prefer a small measured visual template for a known unchanged confirmation,
+  with foreground evidence and one-shot input; preserve a real negative match.
+  A display change can move or resize the confirmation itself. Match its fresh
+  measured transform, and retain per-poll capture times and match scores. A tiny
+  final timeout may be the remaining overall deadline, not an initial capture
+  failure; inspect the last image and elapsed time before changing the helper.
+  Chain acquisition and consumption of a short-lived bootstrap proof in one
+  bounded local helper. A model turn, commentary or unrelated screenshot between
+  those commands can expire the proof; fix dispatch order rather than widening
+  its freshness limit. Stage the helper before acquiring the proof.
+  A readiness poll must stop waiting and dispatch the staged next action on its
+  first matching signal. Do not finish a fixed polling loop before acting. Bind
+  one action to each phase, retain its actual receipt, then wait for the next
+  phase; a model turn cannot serve a short construction window.
+  Exercise the helper's real entry path in a dry run as well as its pure guards;
+  read-only preflight can pass while receipt initialization still prevents the
+  first production command from being reached.
+  Bound each diagnostic slash command to the client's edit limit; split long
+  probes into short statements. Desktop selection shortcuts and very fast typing
+  are not established EditBox behavior. After malformed input, verify the whole
+  buffer is empty before replacing it; Ctrl+U can leave a suffix after the cursor.
+  Use verified paste or a measured typing rate and inspect both ends of a
+  horizontally scrolled command before submission.
+- After a black capture, establish whether the game is loading, obscured, disconnected,
+  or uncaptured. Compare capture paths when needed: on GNOME, scrot or XImage can be black
+  while gnome-screenshot captures a healthy visible application. A failed
+  capture path does not establish a hung client. Fresh capture and normal
+  window switching can distinguish these.
+  Do not keep clicking invisible controls or immediately restart the game.
+  A screenshot CLI exit of zero does not prove the requested image is ready.
+  GNOME's shared D-Bus screenshot service can return before file creation or PNG
+  completion under competing requests. Verify a new fully decoded image, retain
+  the original capture time, and serialize requests within the existing deadline.
+  Profile command, image completion and identity-query time separately before
+  optimizing cadence. Screenshot UI effects can dominate even with zero delay;
+  verify the installed implementation rather than guessing from total latency.
+  For nested timings, subtract every included stage before labeling a residual;
+  outer-minus-backend time can include identity checks as well as crop/decode.
+- If an action has no visible effect, diagnose foreground, coordinates, and input
+  delivery before repeating it. Repeated Play clicks can create duplicate clients.
+
+## Recover without widening the task
+
+- If an account-conflict dialog appears, check for duplicate local clients first.
+  Map windows to PIDs and distinguish the original from an accidentally launched
+  duplicate. Within existing authorization, close only the accidental duplicate
+  normally and reconnect the original; do not kill every matching process.
+  An expired in-client reconnect can show blank login fields while the launcher
+  remains logged in. Within normal recovery authorization, verify the launcher
+  session and close the old client gracefully; prove its PID/window absent before
+  one cached Play launch. Ask for login only if that normal launcher path needs it.
+  Correlate fresh launch logs with process/window lifetime. Token refresh or an
+  automatically completed challenge is not evidence that user login is needed;
+  establish that from the current visible login form or an explicit failure.
+  Prefer the application's Quit control or `wmctrl -ic <verified-XID>`, which
+  requests the window-manager close protocol (`WM_DELETE_WINDOW`).
+  `xdotool windowclose` destroys a window without ending its client; it is not a
+  graceful application exit, and a disappeared window does not prove process exit.
+  A pre-existing conflict dialog can outlast the user's prior play session. When
+  the latest handover authorizes normal login, one normal reconnect with the
+  sole local client may resolve it. If the conflict recurs, report that fact
+  rather than repeatedly displacing an unknown remote login.
+- Honor the latest user control instruction. A temporary stop for revival or login
+  ends when the user asks to resume. Continue already authorized routine steps;
+  do not invent a new restriction against entering the selected character.
+- Avoid navigation during stationary addon validation. If navigation is authorized,
+  use short verified movements and stop on hazards or uncertain location. Never
+  reuse movement plans based on a misidentified map or scene.
+
+## Report and finish
+
+Delegate an outcome such as scan, upload, and acknowledgement with clear boundaries
+and completion evidence. Give the operator room to chain routine interactions,
+helper repairs, and authorized recovery independently. The parent should review
+milestones and resolve substantive blockers, rather than approving individual clicks
+or repeatedly asking for updates while the worker is acting. Do not turn a temporary
+precaution into a permanent restriction that prevents the requested outcome.
+When only live execution is held, complete already-authorized offline integration,
+verification and artifact freezing; do not stop unnecessarily at a draft candidate.
+After promoting a candidate, check the canonical code and documentation against
+every accepted review correction before freezing; draft-only fixes are unfinished.
+Choose controller commands from the actual persisted state. A paused session can
+require `resume`, with missing gates returning it to unarmed calibration; repeating
+`start` with a new generation cannot fix a state-specific command refusal.
+A planned collection cutoff should stop new scans while allowing authorized save/logout
+cleanup. A user's explicit takeover or stop ends input immediately, including cleanup.
+
+Execute the next justified action instead of repeatedly announcing plans. Send a
+concrete result or exact blocker at least once a minute during active operation.
+Give the parent the current screen, attempted action, observed effect, and next
+diagnostic fact needed. Do not end with an offer to continue work already requested.
+
+For addon validation, distinguish command submission, an in-game success message,
+saved output, server ingestion, and loaded acknowledgement. Report the stages
+actually verified and preserve rejected data for the implementation worker.
+Opening the AH can start Crowley's scheduled scan before a manual scan command.
+Check status and actual start time before waiting or forcing another run; the
+sweep timeout is a maximum duration, not a required wait after every command.
+Before interpreting payload shapes or depth coverage, read
+[crowley-client-contracts](../crowley-client-contracts/SKILL.md).
+
+Maintain this skill by correcting guidance when an observed mistake reveals a
+reusable lesson. Consolidate related lessons here; omit incident logs, transient
+PIDs/coordinates, speculative rules, and one-file-per-mistake proliferation.

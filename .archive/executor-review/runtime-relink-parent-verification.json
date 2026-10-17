@@ -1,0 +1,16 @@
+{
+  "repo": "/home/dev/repos/crowley",
+  "installedToolEditableRoot": "/home/dev/repos/crowley",
+  "dependencyConstraints": ".archive/executor-review/runtime-relink-constraints.txt",
+  "toolInstallerExit": 0,
+  "packageDelta": [
+    "crowley editable path pegasus -> crowley",
+    "fastapi0.143.2 -> lock-pinned0.143.1"
+  ],
+  "installedSessionHelpExit": 0,
+  "installedDriverVersion": "native-x11-3",
+  "companionWorkingDirectory": "/home/dev/repos/crowley",
+  "companionRestartedActive": true,
+  "sessionServiceInactiveDisabled": true,
+  "sourcePathsUnchanged": 43
+}

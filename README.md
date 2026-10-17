@@ -1,4 +1,8 @@
-# Crowley
+# Forever Tradecraft
+
+Project repository: [kyle-deprow/forever_tradecraft](https://github.com/kyle-deprow/forever_tradecraft).
+The addon, Python package, configuration paths and `/crowley` commands currently retain
+the Crowley name.
 
 Auction house data platform and addon for **WoW Forever**. Scan the AH in game, store the
 retained observation history per house on a server, compute gold-making strategies, and push the results
@@ -16,16 +20,17 @@ deploy/              docker compose (db + server), companion systemd unit
 See [docs/HANDOFF.md](docs/HANDOFF.md) for requirements, history and roadmap, and
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the technical design.
 
-The [first-run watchlist](docs/WATCHLIST.md) contains the reviewed item catalog, its
-management commands and delivery path. The addon consumes the immutable format-2 plan and
-performs targeted 900-second watchlist sweeps with bounded retained depth.
+The [first-run watchlist](docs/WATCHLIST.md) contains the 544-item catalog, its management
+commands and delivery path; 428 active item IDs are in the current scan plan. The addon
+consumes the immutable format-2 plan and
+starts targeted sweeps every 900 seconds while the AH is open, with bounded retained depth.
 
 ## Quickstart (server and game on one Linux machine)
 
 ```sh
 # 1. Server + database
 cp deploy/.env.example deploy/.env      # set CROWLEY_API_TOKEN and CROWLEY_DB_PASSWORD
-docker compose -f deploy/docker-compose.yml up -d --build
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml up -d --build
 curl localhost:8080/healthz
 
 # 2. Companion config
@@ -64,13 +69,48 @@ confirmed sale. Confirmed own sales are recorded separately only after a full ow
 
 ## Game and server on different machines (Tailscale)
 
-1. On the server, set `CROWLEY_BIND` in `deploy/.env` to `tailscale ip -4` and restart compose.
+1. On the server, set `CROWLEY_BIND` in `deploy/.env` to `tailscale ip -4` and restart compose with `--env-file deploy/.env`.
 2. On the game machine, set `server_url = "http://<server-tailnet-name>:8080"` and run the companion there.
+
+## Historical local deployment (2026-10-15)
+
+The game, companion, API and database run on Linux host `3080servermach`; the repository is
+at `/home/dev/repos/pegasus`. WoW 1.60.1 build 70374/interface 16001 runs locally through
+Lutris/Wine. Auctionator 341 is installed with full autoscan disabled. Crowley is a repo
+symlink and generated `Crowley_Data` has the 428-active-ID, 900-second, 20-level plan. The
+verified house is `beta-normal-alliance`; Moonlight/Sunshine and the fullscreen watcher are
+disabled. The companion is active. The database has six accepted sweeps, 2,568 observations
+and 5,726 captured price rows.
+
+The full native verification sweep `beta-normal-alliance-1792040351-Arthur-6643` ran from
+2026-10-15 04:59:11 to 05:07:15 UTC (484 seconds). It queried all 428 active IDs with zero
+incomplete or unqueried items: 306 full commodity observations (1,328 rows), 23 bounded
+commodity observations (460 rows), and 99 full item observations (1,101 rows). It captured
+2,889 rows across 271 row-bearing IDs and 125,395 units, all under `beta-normal-alliance`.
+Native item examples include equipment 873, recipe 2555, and containers 4238, 4240, 4241,
+4245 and 5765.
+
+A later scheduled sweep, `beta-normal-alliance-1792041251-Arthur-0169`, ran 05:14:11–05:19:36
+UTC and stored 1,599 rows. It attempted 293 items (292 successful, one active item
+interrupted when the AH closed) and left 135 unqueried when the AH closed. This later scan is
+newer by scan time; the preceding 428-item run is the full verification result. After the
+second reload, the addon reported two uploaded scans cleared and loaded the 428-active-ID
+plan. A further normal reload persisted the cleared queue, independently verified empty on
+disk. Arthur is parked at Buckler with the AH closed. The earlier
+malformed 961-row sweep remains intact in private quarantine and was never ingested. The earlier three
+rows for item 2555 came from a cold level-zero SellSearch query and are not proof of current
+item dispatch. The class-aware correction is now verified natively for recipes, containers
+and equipment. Sol approved it; 118 addon/core tests and the normal suite (149 passed, 15 DB
+tests skipped) passed. The earlier isolated full database run preceded those later addon
+checks. See the [live validation record](.archive/live-client/real-validation.md) and
+[handoff](docs/HANDOFF.md) for chronology, remaining limits and preserved payload hashes.
+Repository guidance is in [AGENTS.md](AGENTS.md); reusable game/client workflows are in
+`.agents/skills/`.
 
 ## Tests
 
 ```sh
 uv run pytest                    # core + addon Lua (runs the real addon under Lua 5.1)
-docker compose -f deploy/docker-compose.yml exec db createdb -U crowley crowley_test
+docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec db createdb -U crowley crowley_test
 CROWLEY_TEST_DATABASE_URL=postgresql://crowley:<pw>@127.0.0.1:5432/crowley_test uv run pytest
 ```

@@ -1,0 +1,17 @@
+{
+  "hashes": {
+    "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/prefix/bin/gnome-screenshot": "45750c8dca51a5f6ec5584be0e807a29a60284cca8a1cb5d13b8a2f45fde6af9",
+    "/usr/bin/gnome-screenshot": "cc7366f3f2130f3045807faf13e5382f592e4912d1c98fb7b7a9cfee2456ce86",
+    "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/full-build-r1.log": "d8707a3426672ab8c97e7135819375f7724ba95e68ae769a628a43d12bf17152",
+    "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/gnome-screenshot_41.0.orig.tar.xz": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597",
+    "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/gnome-screenshot_41.0-3.dsc": "978f230fcd1d167a1368efedbf69ebfd963f12abf85ee84cddd29ee590815f2c",
+    "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/gnome-screenshot_41.0-3.debian.tar.xz": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d"
+  },
+  "version": "gnome-screenshot 41.0",
+  "private_bin_entries": [
+    "gnome-screenshot"
+  ],
+  "x11": "disabled",
+  "capture_performed": false,
+  "runtime_binding": false
+}

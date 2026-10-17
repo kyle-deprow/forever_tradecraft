@@ -1,0 +1,68 @@
+{
+  "proofs": [
+    {
+      "mode": "positive",
+      "status": "PASS",
+      "receipt": "/home/dev/.local/state/crowley/executor-evidence/owned-gesture-proof/owned-gesture-proof-1792184928-2262688.json",
+      "sha256": "d32fa2556984dfe4564dd0f9c317fee5e1df90eeab88388936f0927ef04b98c4",
+      "metrics": {
+        "pairedMotionCount": 39,
+        "endpoint": [
+          1404.0,
+          581.0
+        ],
+        "dwellSeconds": 0.2
+      },
+      "ownedPidsAbsent": [
+        2262688,
+        2262718,
+        2262738,
+        2262745,
+        2262769
+      ]
+    },
+    {
+      "mode": "cancel-midpath",
+      "status": "PASS",
+      "receipt": "/home/dev/.local/state/crowley/executor-evidence/owned-gesture-proof/owned-gesture-proof-1792184999-2267338.json",
+      "sha256": "0eb1cf88f8c6598a5f66af1d6017273cfdae2f963a9d48ce2a202017ae5a1f73",
+      "metrics": {
+        "pairedMotionCount": 1,
+        "endpoint": [
+          1523.0,
+          542.0
+        ],
+        "stoppedBeforeEndpoint": true
+      },
+      "ownedPidsAbsent": [
+        2267338,
+        2267369,
+        2267389,
+        2267396
+      ]
+    },
+    {
+      "mode": "cancel-midbuttonhold",
+      "status": "PASS",
+      "receipt": "/home/dev/.local/state/crowley/executor-evidence/owned-gesture-proof/owned-gesture-proof-1792185035-2269379.json",
+      "sha256": "7a64b0d041ff01e17e64d4e7e94d5539baa1ddd8bfde66703ec022c47699cd15",
+      "metrics": {
+        "pairedMotionCount": 39,
+        "endpoint": [
+          1404.0,
+          581.0
+        ],
+        "dwellSeconds": 0.012
+      },
+      "ownedPidsAbsent": [
+        2269379,
+        2269397,
+        2269435,
+        2269442,
+        2269545
+      ]
+    }
+  ],
+  "sourcePathsVerified": 43,
+  "globalLeaseReacquiredReleased": true
+}

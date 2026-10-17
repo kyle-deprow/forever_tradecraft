@@ -1,0 +1,101 @@
+{
+  "stage": "private-gnome-no-flash-stage2-r1",
+  "date": "2026-10-16",
+  "status": "built-private-not-benchmarked",
+  "plan": ".archive/PLAN-private-gnome-no-flash.md",
+  "host": {
+    "repo": "/home/dev/repos/pegasus",
+    "uid_gid": "1000:1000",
+    "host_installed_binary": "/usr/bin/gnome-screenshot",
+    "host_installed_binary_sha256": "cc7366f3f2130f3045807faf13e5382f592e4912d1c98fb7b7a9cfee2456ce86",
+    "host_dpkg_verify_log": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/host-installed-dpkg-v.log",
+    "host_dpkg_verify_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "host_readonly_checks": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/host-readonly-r1/host-checks.log",
+    "host_readonly_checks_sha256": "844813e35bda36e25f1de3d89d52ee67f39c9ad80155b9e6773c4ac4bdbf6c8a"
+  },
+  "container": {
+    "engine": "Docker 29.2.1",
+    "image": "debian:bookworm",
+    "image_digest": "sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+    "architecture": "amd64",
+    "mount": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1:/home/dev/.cache/crowley/gnome-no-flash-stage2-r1",
+    "privileged": false,
+    "docker_socket_mounted": false,
+    "host_root_mounted": false,
+    "host_repo_mounted": false,
+    "display_mounted": false,
+    "security_opt": "no-new-privileges",
+    "script": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/build-container-r1.sh",
+    "script_sha256": "3c53e77a1c263b59d64141aef22afb2936cf6888027054fbd3cb49c7070868d7",
+    "compiler": "cc (Debian 12.2.0-14+deb12u1) 12.2.0",
+    "meson": "1.0.1",
+    "ninja": "1.11.1",
+    "build_config": {
+      "buildtype": "release",
+      "x11": "disabled",
+      "prefix": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/prefix"
+    }
+  },
+  "source": {
+    "upstream_archive": {
+      "path": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/gnome-screenshot_41.0.orig.tar.xz",
+      "sha256": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597"
+    },
+    "debian_dsc": {
+      "path": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/gnome-screenshot_41.0-3.dsc",
+      "sha256": "978f230fcd1d167a1368efedbf69ebfd963f12abf85ee84cddd29ee590815f2c"
+    },
+    "debian_tarball": {
+      "path": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/gnome-screenshot_41.0-3.debian.tar.xz",
+      "sha256": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d"
+    },
+    "debian_patch_series_sha256": "82a06aa9c35416cae0a3fe87fc0a6319d5bb54b3be324103e81abd97a4bb21c2",
+    "pristine_shell_source_sha256": "2abbdede110a4e01a0a7846db67551463210ddcae1d581b6cdce2d72403f22f4",
+    "patched_shell_source_sha256": "0b3d37896682aa244a24d11ae0b5282374451df27a45a5648f8660421d226f56",
+    "tree_diff": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/source-tree-diff-r1.log",
+    "tree_diff_sha256": "e1fe601da3dcb6e09bc1bfdac890f63a02f097102bbcd63f389c9cdec3f1d627",
+    "change": {
+      "file": "src/screenshot-backend-shell.c",
+      "line": 80,
+      "method": "Screenshot",
+      "old": "TRUE /* flash */",
+      "new": "FALSE /* flash */",
+      "window_line_63_unchanged": true,
+      "area_line_72_unchanged": true
+    }
+  },
+  "binary": {
+    "path": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/prefix/bin/gnome-screenshot",
+    "sha256": "45750c8dca51a5f6ec5584be0e807a29a60284cca8a1cb5d13b8a2f45fde6af9",
+    "build_id": "7256f8c318927a4538995241f65a1a8c8608790d",
+    "version": "gnome-screenshot 41.0",
+    "sha256_log": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/private-binary.sha256",
+    "file_log": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/private-binary.file",
+    "ldd_log": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/private-binary.ldd",
+    "version_log": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/private-binary.version",
+    "help_log": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/private-binary.help"
+  },
+  "logs": {
+    "full_build": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/full-build-r1.log",
+    "full_build_sha256": "d8707a3426672ab8c97e7135819375f7724ba95e68ae769a628a43d12bf17152",
+    "apt_update": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/apt-update.log",
+    "apt_install": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/apt-install.log",
+    "package_versions": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/container-packages.log",
+    "package_policy": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/container-package-policy.log",
+    "meson_setup": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/meson-setup.log",
+    "meson_compile": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/meson-compile.log",
+    "meson_install": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/meson-install.log",
+    "source_diff": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/one-line-source.diff",
+    "host_checks": "/home/dev/.cache/crowley/gnome-no-flash-stage2-r1/logs/host-readonly-r1/host-checks.log"
+  },
+  "boundaries": {
+    "screenshot_performed": false,
+    "dbus_activation_performed": false,
+    "service_file_changed": false,
+    "host_package_changed": false,
+    "production_binding": false,
+    "live_timing_qualified": false
+  },
+  "report": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-stage2-build-report.md",
+  "report_sha256": "89702fbb315e2b65585215935adc71df34a751ac18bb0a71c9ad388436fc7b7d"
+}

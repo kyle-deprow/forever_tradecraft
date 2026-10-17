@@ -1,0 +1,15 @@
+{
+  "time": 1792210164.9064608,
+  "exists": true,
+  "io": {
+    "rchar": 43385373,
+    "wchar": 3260109,
+    "syscr": 15312,
+    "syscw": 8178,
+    "read_bytes": 1069056,
+    "write_bytes": 2916352,
+    "cancelled_write_bytes": 0
+  },
+  "utime": "692",
+  "stime": "89"
+}

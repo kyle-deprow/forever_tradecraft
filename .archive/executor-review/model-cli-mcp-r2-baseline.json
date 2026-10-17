@@ -1,0 +1,15 @@
+{
+  "purpose": "Exact R2 pre-edit baseline preserving the accepted R1 source",
+  "capturedUtc": "2026-10-16",
+  "source": "R1 current worktree",
+  "files": {
+    "src/crowley/session/model.py": {
+      "raw": "model-cli-mcp-r2-baseline/src__crowley__session__model.py.txt",
+      "sha256": "6620772de36416f499aeb655b7894c8018fbba1cee71b531e03fda1be6588498"
+    },
+    "tests/test_session.py": {
+      "raw": "model-cli-mcp-r2-baseline/tests__test_session.py.txt",
+      "sha256": "bef94078c64b8aa1ca22e435877ef334af4017c61fb77d8a9917023dbaeea8a2"
+    }
+  }
+}

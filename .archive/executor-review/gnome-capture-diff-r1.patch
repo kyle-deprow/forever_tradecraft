@@ -1,0 +1,509 @@
+--- a/src/crowley/session/driver.py (transition-r12 baseline)
++++ b/src/crowley/session/driver.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import errno
+ import hashlib
+ import json
+ import math
+@@ -9,6 +10,7 @@
+ import re
+ import shutil
+ import signal
++import stat
+ import subprocess
+ import sys
+ import tempfile
+@@ -16,6 +18,7 @@
+ import time
+ import uuid
+ from collections.abc import Callable
++from contextlib import contextmanager
+ from dataclasses import dataclass, field, replace
+ from pathlib import Path
+ from typing import Any, Protocol
+@@ -54,6 +57,126 @@
+ 
+ 
+ DRIVER_VERSION = "native-x11-3"
++GNOME_CAPTURE_LOCK_PATH = Path.home() / ".cache" / "crowley" / "gnome-screenshot.lock"
++
++
++def _capture_deadline(deadline_monotonic: float | None) -> float:
++    """Return the bounded deadline shared by lock, screenshot, and validation."""
++
++    now = time.monotonic()
++    if deadline_monotonic is None:
++        return now + 15.0
++    if (
++        isinstance(deadline_monotonic, bool)
++        or not isinstance(deadline_monotonic, (int, float))
++        or not math.isfinite(float(deadline_monotonic))
++    ):
++        raise DriverError("capture deadline is malformed")
++    deadline = float(deadline_monotonic)
++    if deadline <= now:
++        raise DriverError("capture deadline expired before screenshot")
++    return deadline
++
++
++@contextmanager
++def _capture_lock(deadline_monotonic: float):
++    """Hold the private cross-process GNOME screenshot serialization lock."""
++
++    import fcntl
++
++    lock_path = GNOME_CAPTURE_LOCK_PATH
++    parent = lock_path.parent
++    try:
++        parent.mkdir(mode=0o700, parents=True, exist_ok=True)
++        parent_lstat = parent.lstat()
++        parent_stat = parent.stat()
++    except OSError as exc:
++        raise DriverError(f"GNOME capture lock directory is unavailable: {exc}") from exc
++    if (
++        stat.S_ISLNK(parent_lstat.st_mode)
++        or not stat.S_ISDIR(parent_stat.st_mode)
++        or parent_stat.st_uid != os.getuid()
++        or stat.S_IMODE(parent_stat.st_mode) != 0o700
++    ):
++        raise DriverError("GNOME capture lock directory is not a private owned directory")
++
++    try:
++        existing = lock_path.lstat()
++    except FileNotFoundError:
++        existing = None
++    except OSError as exc:
++        raise DriverError(f"GNOME capture lock path cannot be inspected: {exc}") from exc
++    if existing is not None and (
++        not stat.S_ISREG(existing.st_mode)
++        or existing.st_uid != os.getuid()
++        or stat.S_IMODE(existing.st_mode) != 0o600
++    ):
++        raise DriverError("GNOME capture lock path is not a private owned regular file")
++
++    flags = os.O_RDWR | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
++    try:
++        fd = os.open(lock_path, flags, 0o600)
++    except OSError as exc:
++        raise DriverError(f"GNOME capture lock cannot be opened safely: {exc}") from exc
++    try:
++        metadata = os.fstat(fd)
++        if (
++            not stat.S_ISREG(metadata.st_mode)
++            or metadata.st_uid != os.getuid()
++            or stat.S_IMODE(metadata.st_mode) != 0o600
++        ):
++            raise DriverError("GNOME capture lock is not a private owned regular file")
++        while True:
++            remaining = deadline_monotonic - time.monotonic()
++            if remaining <= 0:
++                raise DriverError("GNOME capture lock deadline expired while waiting")
++            try:
++                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
++                break
++            except OSError as exc:
++                if exc.errno not in {errno.EACCES, errno.EAGAIN}:
++                    raise DriverError(f"GNOME capture lock failed: {exc}") from exc
++                time.sleep(min(0.01, remaining))
++        try:
++            yield
++        finally:
++            fcntl.flock(fd, fcntl.LOCK_UN)
++    finally:
++        os.close(fd)
++
++
++def _validate_complete_png(path: Path, expected_size: tuple[int, int]) -> None:
++    """Require a newly written PNG whose bytes can be fully decoded."""
++
++    try:
++        from PIL import Image
++
++        with Image.open(path) as image:
++            if image.format != "PNG" or image.size != expected_size:
++                raise DriverError("GNOME screenshot dimensions or format are invalid")
++            image.verify()
++        with Image.open(path) as image:
++            if image.format != "PNG" or image.size != expected_size:
++                raise DriverError("GNOME screenshot dimensions or format changed")
++            image.load()
++    except DriverError:
++        raise
++    except (FileNotFoundError, OSError, SyntaxError, ValueError) as exc:
++        raise DriverError(f"GNOME screenshot is not a complete PNG: {exc}") from exc
++
++
++def _wait_for_complete_png(path: Path, expected_size: tuple[int, int], deadline_monotonic: float) -> None:
++    last_error = "output is not present yet"
++    while True:
++        try:
++            _validate_complete_png(path, expected_size)
++            return
++        except DriverError as exc:
++            last_error = str(exc)
++        remaining = deadline_monotonic - time.monotonic()
++        if remaining <= 0:
++            raise DriverError(f"GNOME screenshot did not become a complete PNG before deadline: {last_error}")
++        time.sleep(min(0.01, remaining))
+ 
+ 
+ def _validate_x11_display_screen(display: str) -> None:
+@@ -2165,24 +2288,41 @@
+         identity: WindowIdentity | None = None,
+         deadline_monotonic: float | None = None,
+     ) -> WindowIdentity:
+-        before = self.resolve_identity(deadline_monotonic=deadline_monotonic)
++        deadline = _capture_deadline(deadline_monotonic)
++        before = self.resolve_identity(deadline_monotonic=deadline)
+         if identity is not None and before.fingerprint != identity.fingerprint:
+             raise DriverError("capture identity changed before screenshot")
+         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+-        timeout = 15.0
+-        if deadline_monotonic is not None:
+-            timeout = min(timeout, max(0.001, float(deadline_monotonic) - time.monotonic()))
+-        self._run(
+-            ["gnome-screenshot", "-f", str(path)],
+-            timeout=timeout,
+-            deadline_monotonic=deadline_monotonic,
+-        )
+-        after = self.resolve_identity(deadline_monotonic=deadline_monotonic)
+-        if after.fingerprint != before.fingerprint:
+-            raise DriverError("capture identity changed during screenshot")
+-        os.chmod(path, 0o600)
+-        self.last_identity = after
+-        return after
++        stage = path.parent / f".{path.name}.{uuid.uuid4().hex}.capture.png"
++        try:
++            with _capture_lock(deadline):
++                remaining = deadline - time.monotonic()
++                if remaining <= 0:
++                    raise DriverError("capture deadline expired before screenshot")
++                self._run(
++                    ["gnome-screenshot", "-f", str(stage)],
++                    timeout=min(15.0, remaining),
++                    deadline_monotonic=deadline,
++                )
++                _wait_for_complete_png(
++                    stage,
++                    (self.profile.client_width, self.profile.client_height),
++                    deadline,
++                )
++                after = self.resolve_identity(deadline_monotonic=deadline)
++                if after.fingerprint != before.fingerprint:
++                    raise DriverError("capture identity changed during screenshot")
++                if time.monotonic() >= deadline:
++                    raise DriverError("capture deadline expired before screenshot publication")
++                os.chmod(stage, 0o600)
++                os.replace(stage, path)
++                self.last_identity = after
++                return after
++        finally:
++            try:
++                stage.unlink()
++            except FileNotFoundError:
++                pass
+ 
+     def synthetic_calibration(
+         self, window_id: str, x: int, y: int, *, calibration_ticket: CalibrationTicket | None = None
+--- /dev/null
++++ b/tests/test_session_capture.py
+@@ -0,0 +1,296 @@
++from __future__ import annotations
++
++import base64
++import multiprocessing
++import os
++import stat
++import sys
++import time
++from pathlib import Path
++
++import pytest
++from PIL import Image
++
++from crowley.session import driver as driver_module
++from crowley.session.driver import DriverError, DriverProfile, WindowIdentity, X11Backend
++from tests.test_session_input_tool import fixture_input_tool
++
++IMAGE_SIZE = (16, 12)
++
++
++def _identity(fingerprint: str = "capture-identity") -> WindowIdentity:
++    return WindowIdentity(
++        0x100,
++        os.getpid(),
++        "wowb.exe",
++        "World of Warcraft",
++        "wowb.exe",
++        0x101,
++        (0, 0, IMAGE_SIZE[0], IMAGE_SIZE[1]),
++        (0, 0, IMAGE_SIZE[0], IMAGE_SIZE[1]),
++        0x100,
++        "capture-test",
++        ":capture-test",
++        fingerprint,
++        0x100,
++        0x100,
++        frozenset({0x100, 0x101}),
++    )
++
++
++def _png_bytes(color: tuple[int, int, int, int]) -> bytes:
++    from io import BytesIO
++
++    output = BytesIO()
++    Image.new("RGBA", IMAGE_SIZE, color).save(output, format="PNG")
++    return output.getvalue()
++
++
++def _writer(path: Path, payload: bytes, mode: str, delay: float = 0.08) -> Path:
++    """Create an owned writer executable that models GNOME's exit/write race."""
++
++    encoded = base64.b64encode(payload).decode("ascii")
++    source = f"""#!{sys.executable}
++import base64
++import pathlib
++import subprocess
++import sys
++import time
++
++target = pathlib.Path(sys.argv[2])
++data = base64.b64decode({encoded!r})
++mode = {mode!r}
++delay = {delay!r}
++if mode == "complete":
++    target.write_bytes(data)
++elif mode == "delayed":
++    subprocess.Popen(
++        [sys.executable, "-c", "import pathlib,sys,time; time.sleep(float(sys.argv[3])); pathlib.Path(sys.argv[1]).write_bytes(__import__('base64').b64decode(sys.argv[2]))", str(target), {encoded!r}, str(delay)],
++        stdin=subprocess.DEVNULL,
++        stdout=subprocess.DEVNULL,
++        stderr=subprocess.DEVNULL,
++        close_fds=True,
++    )
++elif mode == "partial":
++    target.write_bytes(data[:24])
++    subprocess.Popen(
++        [sys.executable, "-c", "import pathlib,sys,time; time.sleep(float(sys.argv[3])); path=pathlib.Path(sys.argv[1]); path.open('ab').write(__import__('base64').b64decode(sys.argv[2]))", str(target), {base64.b64encode(payload[24:]).decode("ascii")!r}, str(delay)],
++        stdin=subprocess.DEVNULL,
++        stdout=subprocess.DEVNULL,
++        stderr=subprocess.DEVNULL,
++        close_fds=True,
++    )
++elif mode == "truncated":
++    target.write_bytes(data[:24])
++elif mode == "never":
++    pass
++else:
++    raise SystemExit("unknown writer mode")
++"""
++    path.write_text(source, encoding="utf-8")
++    path.chmod(stat.S_IRUSR | stat.S_IWUSR | stat.S_IXUSR)
++    return path
++
++
++def _backend(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, writer: Path) -> X11Backend:
++    xauthority = tmp_path / "Xauthority"
++    xauthority.write_bytes(b"")
++    profile = DriverProfile(
++        xauthority=str(xauthority),
++        client_width=IMAGE_SIZE[0],
++        client_height=IMAGE_SIZE[1],
++        outer_width=IMAGE_SIZE[0],
++        outer_height=IMAGE_SIZE[1],
++        canvas_crop=(0, 0, 1, 1),
++        model_crop=(0, 0, 1, 1),
++    )
++    backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
++    current = _identity()
++    backend.resolve_identity = lambda **_kwargs: current  # type: ignore[method-assign]
++    monkeypatch.setattr(driver_module, "_resolve_wrapped_executable", lambda _command: str(writer))
++    monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", tmp_path / "capture.lock")
++    return backend
++
++
++def _hold_lock(
++    path: str, ready: multiprocessing.synchronize.Event, release: multiprocessing.synchronize.Event
++) -> None:
++    driver_module.GNOME_CAPTURE_LOCK_PATH = Path(path)
++    with driver_module._capture_lock(time.monotonic() + 3.0):
++        ready.set()
++        release.wait(3.0)
++
++
++def test_capture_accepts_owned_writer_that_finishes_after_exit(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((10, 20, 30, 255)), "delayed", delay=0.5)
++    backend = _backend(tmp_path, monkeypatch, writer)
++    target = tmp_path / "capture.png"
++    original_run = backend._run
++    output_at_process_exit: list[int | None] = []
++
++    def record_process_exit(args: list[str], **kwargs: object):
++        result = original_run(args, **kwargs)
++        output_at_process_exit.append(Path(args[2]).stat().st_size if Path(args[2]).exists() else None)
++        return result
++
++    backend._run = record_process_exit  # type: ignore[method-assign]
++
++    result = backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)
++
++    assert result.fingerprint == "capture-identity"
++    assert output_at_process_exit == [None]
++    with Image.open(target) as image:
++        image.load()
++        assert image.format == "PNG"
++        assert image.size == IMAGE_SIZE
++
++
++def test_capture_waits_for_partial_png_and_decodes_all_bytes(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((40, 50, 60, 255)), "partial", delay=0.5)
++    backend = _backend(tmp_path, monkeypatch, writer)
++    original_run = backend._run
++    output_at_process_exit: list[int | None] = []
++
++    def record_process_exit(args: list[str], **kwargs: object):
++        result = original_run(args, **kwargs)
++        output_at_process_exit.append(Path(args[2]).stat().st_size if Path(args[2]).exists() else None)
++        return result
++
++    backend._run = record_process_exit  # type: ignore[method-assign]
++
++    backend.capture(tmp_path / "capture.png", identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)
++
++    assert output_at_process_exit == [24]
++    assert not list(tmp_path.glob(".*.capture.png"))
++
++
++@pytest.mark.parametrize("mode", ["never", "truncated"])
++def test_capture_refuses_missing_or_truncated_output_by_deadline(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mode: str
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((70, 80, 90, 255)), mode)
++    backend = _backend(tmp_path, monkeypatch, writer)
++    target = tmp_path / "capture.png"
++    deadline = time.monotonic() + 0.25
++
++    with pytest.raises(DriverError, match="complete PNG before deadline"):
++        backend.capture(target, identity=_identity(), deadline_monotonic=deadline)
++    assert not target.exists()
++    assert not list(tmp_path.glob(".*.capture.png"))
++
++
++def test_old_destination_cannot_satisfy_a_failed_new_capture(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    old = _png_bytes((1, 2, 3, 255))
++    target = tmp_path / "capture.png"
++    target.write_bytes(old)
++    writer = _writer(tmp_path / "writer", _png_bytes((4, 5, 6, 255)), "never")
++    backend = _backend(tmp_path, monkeypatch, writer)
++
++    with pytest.raises(DriverError, match="complete PNG before deadline"):
++        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 0.25)
++
++    assert target.read_bytes() == old
++
++
++def test_capture_lock_serializes_independent_processes(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    lock_path = tmp_path / "capture.lock"
++    monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", lock_path)
++    context = multiprocessing.get_context("fork")
++    ready = context.Event()
++    release = context.Event()
++    holder = context.Process(target=_hold_lock, args=(str(lock_path), ready, release))
++    holder.start()
++    try:
++        assert ready.wait(2.0)
++        started = time.monotonic()
++        with pytest.raises(DriverError, match="lock deadline expired"):
++            with driver_module._capture_lock(time.monotonic() + 0.12):
++                raise AssertionError("a second process acquired the capture lock")
++        assert time.monotonic() - started >= 0.10
++    finally:
++        release.set()
++        holder.join(3.0)
++    assert holder.exitcode == 0
++
++
++def test_capture_lock_rejects_a_symlinked_lock_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
++    lock_path = tmp_path / "capture.lock"
++    target = tmp_path / "other.lock"
++    target.write_bytes(b"")
++    lock_path.symlink_to(target)
++    monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", lock_path)
++
++    with pytest.raises(DriverError, match="private owned regular file"):
++        with driver_module._capture_lock(time.monotonic() + 1.0):
++            raise AssertionError("symlinked capture lock was accepted")
++
++
++def test_lock_contention_consumes_deadline_without_invoking_screenshot(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((10, 10, 10, 255)), "complete")
++    backend = _backend(tmp_path, monkeypatch, writer)
++    lock_path = tmp_path / "capture.lock"
++    context = multiprocessing.get_context("fork")
++    ready = context.Event()
++    release = context.Event()
++    holder = context.Process(target=_hold_lock, args=(str(lock_path), ready, release))
++    holder.start()
++    calls = 0
++
++    def unexpected_run(*_args: object, **_kwargs: object) -> None:
++        nonlocal calls
++        calls += 1
++        raise AssertionError("screenshot subprocess ran while capture lock was held")
++
++    backend._run = unexpected_run  # type: ignore[method-assign]
++    try:
++        assert ready.wait(2.0)
++        with pytest.raises(DriverError, match="lock deadline expired"):
++            backend.capture(
++                tmp_path / "capture.png",
++                identity=_identity(),
++                deadline_monotonic=time.monotonic() + 0.12,
++            )
++    finally:
++        release.set()
++        holder.join(3.0)
++    assert calls == 0
++    assert holder.exitcode == 0
++
++
++def test_identity_change_after_complete_output_refuses_publication(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    writer = _writer(tmp_path / "writer", _png_bytes((11, 22, 33, 255)), "complete")
++    backend = _backend(tmp_path, monkeypatch, writer)
++    identities = iter((_identity(), _identity("changed")))
++    backend.resolve_identity = lambda **_kwargs: next(identities)  # type: ignore[method-assign]
++    target = tmp_path / "capture.png"
++
++    with pytest.raises(DriverError, match="identity changed during screenshot"):
++        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)
++    assert not target.exists()
++    assert not list(tmp_path.glob(".*.capture.png"))
++
++
++def test_failed_capture_releases_lock_for_successor(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
++    failing = _writer(tmp_path / "failing-writer", _png_bytes((1, 1, 1, 255)), "never")
++    succeeding = _writer(tmp_path / "succeeding-writer", _png_bytes((2, 2, 2, 255)), "complete")
++    backend = _backend(tmp_path, monkeypatch, failing)
++    target = tmp_path / "capture.png"
++
++    with pytest.raises(DriverError, match="complete PNG before deadline"):
++        backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 0.2)
++    monkeypatch.setattr(driver_module, "_resolve_wrapped_executable", lambda _command: str(succeeding))
++
++    backend.capture(target, identity=_identity(), deadline_monotonic=time.monotonic() + 2.0)
++    assert target.exists()

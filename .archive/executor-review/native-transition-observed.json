@@ -1,0 +1,114 @@
+{
+  "provenance": {
+    "kind": "selected exact fields from actual owned-GTK failed seed receipt",
+    "receiptFile": "owned-gesture-proof-1792164209-827533.json",
+    "receiptSha256": "7b328149a463526708e22d06e0e468404272a7b7ed96acbedffa342e8e1b7a0b",
+    "notAcceptance": true
+  },
+  "status": "FAIL",
+  "error": "ProofError: seed-only mode did not deliver the primary XTEST endpoint",
+  "seedOnly": {
+    "postPointer": {
+      "window": 54525955,
+      "x": 1113.0,
+      "y": 576.0
+    },
+    "process": {
+      "args": [
+        "xdotool",
+        "mousemove",
+        "1113",
+        "576"
+      ],
+      "chain": [
+        "xdotool",
+        "mousemove",
+        "1113",
+        "576"
+      ],
+      "finishedMonotonic": 303971.238537787,
+      "registeredProcessGroup": 827572,
+      "returncode": 0,
+      "startedMonotonic": 303971.22812495,
+      "stderr": "",
+      "stdout": ""
+    },
+    "requestedEndpoint": {
+      "x": 1113,
+      "y": 576
+    },
+    "startPointer": {
+      "x": 873.0,
+      "y": 576.0
+    }
+  },
+  "pointerSource": 4,
+  "pointerMaster": 2,
+  "observedEvents": [
+    {
+      "childXid": null,
+      "class": "RawMotion",
+      "detail": 0,
+      "eventXY": null,
+      "eventXid": null,
+      "master": 2,
+      "modifierEffective": null,
+      "modifiers": null,
+      "rawLines": [
+        "    device: 2 (4)\n",
+        "    time:   303971237\n",
+        "    detail: 0\n",
+        "    flags: \n",
+        "    valuators:\n",
+        "          0: 1113.00 (1113.00)\n",
+        "          1: 576.00 (576.00)\n"
+      ],
+      "rootXY": null,
+      "rootXid": null,
+      "source": 4,
+      "timestampMs": 303971237,
+      "type": 17
+    },
+    {
+      "childXid": 6291918,
+      "class": "Motion",
+      "detail": 0,
+      "eventXY": [
+        873.0,
+        576.0
+      ],
+      "eventXid": 884,
+      "master": 4,
+      "modifierEffective": 16,
+      "modifiers": [
+        16,
+        0,
+        0
+      ],
+      "rawLines": [
+        "    device: 4 (4)\n",
+        "    time: 303971237\n",
+        "    detail: 0\n",
+        "    flags: \n",
+        "    root: 873.00/576.00\n",
+        "    event: 873.00/576.00\n",
+        "    buttons:\n",
+        "    modifiers: locked 0x10 latched 0 base 0 effective: 0x10\n",
+        "    group: locked 0 latched 0 base 0 effective: 0\n",
+        "    valuators:\n",
+        "        0: 1113.00\n",
+        "        1: 576.00\n",
+        "    windows: root 0x374 event 0x374 child 0x6001ce\n"
+      ],
+      "rootXY": [
+        873.0,
+        576.0
+      ],
+      "rootXid": 884,
+      "source": 4,
+      "timestampMs": 303971237,
+      "type": 6
+    }
+  ],
+  "cleanupClean": true
+}

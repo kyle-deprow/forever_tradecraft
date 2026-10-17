@@ -1,0 +1,168 @@
+--- baseline/.archive/executor-review/test_owned_gesture_proof.py
++++ transition/.archive/executor-review/test_owned_gesture_proof.py
+@@ -238,10 +238,20 @@
+ ) -> None:
+     helper = _helper_module()
+     pointer_reads = iter(((10, 10, 0x600119), (19, 20, 0x700101)))
+-    button_dispatches: list[object] = []
++    chain_dispatches: list[object] = []
++    backend_dispatches: list[tuple[list[str], dict[str, object]]] = []
++
++    def backend_run(args: list[str], **kwargs: object) -> tuple[int, dict[str, object]]:
++        backend_dispatches.append((list(args), kwargs))
++        return 8124, {"returncode": 0}
++
+     context = SimpleNamespace(
+         target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
+-        backend=SimpleNamespace(pointer_position=lambda: next(pointer_reads), active_process_groups=set()),
++        backend=SimpleNamespace(
++            pointer_position=lambda: next(pointer_reads),
++            active_process_groups=set(),
++            _run=backend_run,
++        ),
+         ticket=SimpleNamespace(epoch=1),
+         events=[],
+         stage_marks=[],
+@@ -260,7 +270,7 @@
+     monkeypatch.setattr(helper, "_verify_controlled_motion_phase", lambda *_args, **_kwargs: {})
+ 
+     def run_chain(*_args: object, **kwargs: object) -> tuple[int, dict[str, object]]:
+-        button_dispatches.append(kwargs.get("input_schema"))
++        chain_dispatches.append(kwargs.get("input_schema"))
+         return 8123, {"returncode": 0}
+ 
+     monkeypatch.setattr(helper, "_run_chain", run_chain)
+@@ -269,7 +279,10 @@
+             helper._positive(context, modules)
+         else:
+             helper._cancel_midbuttonhold(context, modules)
+-    assert button_dispatches == ["pointer-motion"]
++    assert chain_dispatches == ["pointer-motion"]
++    assert backend_dispatches == []
++    assert context.phase_state.get("phase") not in {"synthetic-button", "synthetic-button-hold"}
++    assert not any(mark.get("name", "").startswith("phase-synthetic-button") for mark in context.stage_marks)
+ 
+ 
+ def test_seed_endpoint_is_distinct_and_bounded() -> None:
+--- baseline/tests/test_session_driver_actions.py
++++ transition/tests/test_session_driver_actions.py
+@@ -353,6 +353,7 @@
+         lambda args, **_kwargs: commands.append(list(args)) or subprocess.CompletedProcess(args, 0, "", ""),
+     )
+     binding = BindingMetadata("identity", "capture", 1, 1, 4, (4,), boot="boot")
++    # Bypass constructor validation deliberately to exercise the defensive driver guard.
+     plan = object.__new__(CameraDragPlan)
+     object.__setattr__(plan, "button", PointerButton.RIGHT)
+     object.__setattr__(
+--- baseline/tests/test_session_native.py
++++ transition/tests/test_session_native.py
+@@ -401,14 +401,16 @@
+         zero.verify_seal()
+ 
+     transition = evidence.synthetic_motion_transitions[0]
+-    modified = replace(
+-        evidence,
+-        synthetic_motion_transitions=((*transition[:13], (1, 0, 0), 1),),
+-        fingerprint="",
+-    )
+-    modified = replace(modified, fingerprint=modified.content_fingerprint()).with_hash()
+-    with pytest.raises(CalibrationError, match="modifiers"):
+-        modified.verify_seal()
++    for field, value in ((13, (1, 0, 0)), (14, 1)):
++        modified_transition = (*transition[:field], value, *transition[field + 1 :])
++        modified = replace(
++            evidence,
++            synthetic_motion_transitions=(modified_transition,),
++            fingerprint="",
++        )
++        modified = replace(modified, fingerprint=modified.content_fingerprint()).with_hash()
++        with pytest.raises(CalibrationError, match="modifiers"):
++            modified.verify_seal()
+ 
+ 
+ def test_owned_evidence_rejects_refingerprinted_transition_query_and_pairing_tampering() -> None:
+@@ -421,6 +423,8 @@
+     transition = evidence.synthetic_motion_transitions[0]
+     with pytest.raises(CalibrationError, match="transition|event proof"):
+         resign(synthetic_motion_transitions=((*transition[:6], 0x375, *transition[7:]),)).verify_seal()
++    with pytest.raises(CalibrationError, match="transition ancestry"):
++        resign(synthetic_motion_transitions=((*transition[:7], 0x375, *transition[8:]),)).verify_seal()
+     with pytest.raises(CalibrationError, match="malformed|post-query|requested"):
+         resign(synthetic_motion_query=(1, 1, 0x600119, 2, 2, 3, 3, 0x600119)).verify_seal()
+     with pytest.raises(CalibrationError, match="transition|ancestry"):
+@@ -433,6 +437,17 @@
+         resign(event_proof=(*evidence.event_proof, primary)).verify_seal()
+     with pytest.raises(CalibrationError, match="exactly one"):
+         resign(synthetic_motion_transitions=(transition, transition)).verify_seal()
++    primary_index = next(index for index, proof in enumerate(evidence.event_proof) if proof[0] == "Motion")
++    primary = evidence.event_proof[primary_index]
++    for field in (5, 6):
++        mutated_primary = (*primary[:field], 0x375, *primary[field + 1 :])
++        mutated_proof = (
++            evidence.event_proof[:primary_index]
++            + (mutated_primary,)
++            + evidence.event_proof[primary_index + 1 :]
++        )
++        with pytest.raises(CalibrationError, match="absent from the event proof"):
++            resign(event_proof=mutated_proof).verify_seal()
+ 
+ 
+ @pytest.mark.parametrize(
+@@ -1414,6 +1429,7 @@
+         def build(
+             supplied_transitions: tuple[tuple[object, ...], ...] = transitions,
+             query: tuple[int, ...] = (1, 1, 0x600119, 20, 30, 20, 30, 0x600119),
++            prefix_records: list[object] = records,
+         ) -> InputCalibrationEvidence:
+             return InputCalibrationWorkflow._build_evidence(
+                 records,
+@@ -1440,16 +1456,27 @@
+                 xtest_profile=profile,
+                 synthetic_motion_transitions=supplied_transitions,
+                 synthetic_motion_query=query,
+-                synthetic_prefix_records=records,
++                synthetic_prefix_records=prefix_records,
+             )
+ 
+-        with pytest.raises(CalibrationError, match="caller-supplied|query must prove"):
++        with pytest.raises(CalibrationError, match="caller-supplied"):
+             build(
+                 supplied_transitions=((*transitions[0][:10], (21, 31), (21, 31), *transitions[0][12:]),),
+                 query=(1, 1, 0x600119, 21, 31, 21, 31, 0x600119),
+             )
+         with pytest.raises(CalibrationError, match="nonzero displacement"):
+             build(query=(1, 1, 0x600119, 1, 1, 1, 1, 0x600119))
++        zero_prefix = [
++            replace(
++                event,
++                valuators=((0, 1.0, 1.0), (1, 1.0, 1.0)),
++            )
++            if event.source_device == 4 and event.event_class in {EventClass.RAW_MOTION, EventClass.MOTION}
++            else event
++            for event in records
++        ]
++        with pytest.raises(CalibrationError, match="nonzero displacement"):
++            build(prefix_records=zero_prefix)
+         evidence = build()
+         evidence.verify_seal()
+         generation = driver.arm(evidence)
+@@ -1756,6 +1783,19 @@
+         bad_forwarded = replace(bad_forwarded, fingerprint=bad_forwarded.content_fingerprint()).with_hash()
+         with pytest.raises(CalibrationError, match="forwarded echo root/event"):
+             bad_forwarded.verify_seal()
++        bad_forwarded_event = replace(
++            evidence,
++            event_proof=evidence.event_proof[:forwarded_index]
++            + ((*forwarded_proof[:6], 0x375, *forwarded_proof[7:]),)
++            + evidence.event_proof[forwarded_index + 1 :],
++            fingerprint="",
++        )
++        bad_forwarded_event = replace(
++            bad_forwarded_event,
++            fingerprint=bad_forwarded_event.content_fingerprint(),
++        ).with_hash()
++        with pytest.raises(CalibrationError, match="forwarded echo root/event"):
++            bad_forwarded_event.verify_seal()
+ 
+         drift_backend = X11Backend(
+             profile,

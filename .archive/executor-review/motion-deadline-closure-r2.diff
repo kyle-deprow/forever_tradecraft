@@ -1,0 +1,160 @@
+--- baseline/src/crowley/session/daemon.py
++++ candidate/src/crowley/session/daemon.py
+@@ -2015,7 +2015,6 @@
+         try:
+             remaining = float(deadline) - self._native_clock()
+         except Exception:
+-            self._invalidate_motion_admission()
+             raise
+         if not math.isfinite(remaining) or remaining <= 0:
+             raise DriverError("motion intent exceeded its bounded deadline")
+@@ -3044,7 +3043,6 @@
+         if operation_deadline is not None and (
+             self._native_clock() + duration + MOTION_POST_RELEASE_RESERVE_SECONDS >= operation_deadline
+         ):
+-            self._invalidate_motion_admission()
+             raise DriverError("motion pulse cannot fit the bounded intent deadline")
+         if route is None:
+             route = self._observe_route(
+@@ -3081,7 +3079,6 @@
+         if operation_deadline is not None and (
+             self._native_clock() + duration + MOTION_POST_RELEASE_RESERVE_SECONDS >= operation_deadline
+         ):
+-            self._invalidate_motion_admission()
+             raise DriverError("motion pulse cannot fit the bounded intent deadline")
+         # Recheck the controller and lease immediately before the physical
+         # commit.  Interaction stop may revoke while route/model confirmation
+--- baseline/tests/test_session_executor_movement.py
++++ candidate/tests/test_session_executor_movement.py
+@@ -1106,6 +1106,8 @@
+         facing_sign=1,
+         handedness=1,
+     )
++    camera_mapping = daemon.camera_mapping
++    movement_basis = daemon.movement_basis
+     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0), _Identity())
+     daemon._native_clock = lambda: 10.0
+     daemon._require_interaction = lambda _generation: 1
+@@ -1119,6 +1121,8 @@
+         daemon.execute_waypoint(0.0, 1.68, generation=1)
+     assert physical_calls == []
+     assert camera_calls == []
++    assert daemon.camera_mapping is camera_mapping
++    assert daemon.movement_basis is movement_basis
+ 
+ 
+ def test_travel_envelope_arithmetic_covers_alternating_response_error() -> None:
+--- baseline/tests/test_session_motion_integration.py
++++ candidate/tests/test_session_motion_integration.py
+@@ -1364,20 +1364,22 @@
+         assert daemon.camera_mapping is None
+         assert daemon.movement_basis is None
+         assert not any(argv[:2] == ("xdotool", "keydown") or "mousedown" in argv for argv in backend.argv)
+-        # A second intent reaches its own request validator, proving that the
+-        # lock acquired before deadline setup was released on the exception.
++        # A different thread must be able to acquire the actual RLock.  A
++        # same-thread reacquire would be permitted even if the lock leaked.
+         daemon._native_clock = time.monotonic
+-        follow_up = ipc.dispatch(
+-            {
+-                "command": "motion_key",
+-                "generation": generation,
+-                "role": KeyRole.MOVE_FORWARD.value,
+-                "duration": 0.01,
+-            }
+-        )
+-        assert follow_up["ok"] is False
+-        assert "executable minimum" in follow_up["error"]
+-        assert "already in flight" not in follow_up["error"]
++        acquired = threading.Event()
++
++        def reacquire_from_other_thread() -> None:
++            lock = daemon._motion_intent_lock
++            if lock.acquire(timeout=1.0):
++                acquired.set()
++                lock.release()
++
++        lock_thread = threading.Thread(target=reacquire_from_other_thread)
++        lock_thread.start()
++        lock_thread.join(timeout=2.0)
++        assert not lock_thread.is_alive()
++        assert acquired.is_set()
+     finally:
+         daemon._native_clock = time.monotonic
+         daemon.request_shutdown()
+@@ -1638,6 +1640,10 @@
+ 
+ def test_session_ipc_exhausted_feedback_reserve_rejects_before_input(tmp_path: Path) -> None:
+     daemon, _controller, driver, backend, ipc, generation = _ipc_motion_fixture(tmp_path)
++    camera_mapping = daemon.camera_mapping
++    movement_basis = daemon.movement_basis
++    assert camera_mapping is not None
++    assert movement_basis is not None
+     try:
+         # Reuse the production deadline local to model an operation that has
+         # only the post-release publication reserve left.  The route/model
+@@ -1652,10 +1658,61 @@
+             }
+         )
+         assert response["ok"] is False
+-        assert "reserve" in response["error"] or "deadline" in response["error"]
+-        assert daemon.camera_mapping is None
+-        assert daemon.movement_basis is None
++        assert response["error"] == "motion pulse cannot fit the bounded intent deadline"
++        assert daemon.camera_mapping is camera_mapping
++        assert daemon.movement_basis is movement_basis
+         assert not any(argv[:2] == ("xdotool", "keydown") for argv in backend.argv)
++    finally:
++        del daemon._motion_deadline_local.deadline
++        daemon.request_shutdown()
++        driver.close()
++
++
++def test_session_ipc_camera_reserve_refusal_retains_exact_proofs(tmp_path: Path) -> None:
++    daemon, _controller, driver, backend, ipc, generation = _ipc_motion_fixture(tmp_path, camera=True)
++    backend.pointer = (50, 50)
++    camera_mapping = daemon.camera_mapping
++    movement_basis = daemon.movement_basis
++    assert camera_mapping is not None
++    assert movement_basis is not None
++    try:
++        daemon._motion_deadline_local.deadline = time.monotonic() + MOTION_POST_RELEASE_RESERVE_SECONDS + 0.6
++        response = ipc.dispatch({"command": "motion_camera", "generation": generation, "deltaPixels": 4})
++        assert response["ok"] is False
++        assert response["error"] == "camera drag cannot fit the bounded intent deadline"
++        assert backend.capture_publications == 2
++        assert daemon.camera_mapping is camera_mapping
++        assert daemon.movement_basis is movement_basis
++        assert not any("mousedown" in argv for argv in backend.argv)
++    finally:
++        del daemon._motion_deadline_local.deadline
++        daemon.request_shutdown()
++        driver.close()
++
++
++def test_session_ipc_waypoint_reserve_refusal_retains_exact_proofs(tmp_path: Path) -> None:
++    daemon, _controller, driver, backend, ipc, generation = _ipc_motion_fixture(tmp_path)
++    camera_mapping = daemon.camera_mapping
++    movement_basis = daemon.movement_basis
++    assert camera_mapping is not None
++    assert movement_basis is not None
++    try:
++        daemon._motion_deadline_local.deadline = time.monotonic() + MOTION_POST_RELEASE_RESERVE_SECONDS + 0.6
++        start_x, start_y = backend.motion_position
++        response = ipc.dispatch(
++            {
++                "command": "motion_waypoint",
++                "generation": generation,
++                "x": start_x + 0.5,
++                "y": start_y,
++            }
++        )
++        assert response["ok"] is False
++        assert response["error"] == "motion pulse cannot fit the bounded intent deadline"
++        assert backend.capture_publications == 2
++        assert daemon.camera_mapping is camera_mapping
++        assert daemon.movement_basis is movement_basis
++        assert not any(argv[:2] == ("xdotool", "keydown") or "mousedown" in argv for argv in backend.argv)
+     finally:
+         del daemon._motion_deadline_local.deadline
+         daemon.request_shutdown()

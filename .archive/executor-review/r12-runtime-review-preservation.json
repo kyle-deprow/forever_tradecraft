@@ -1,0 +1,6 @@
+{
+  "checked_paths": 40,
+  "changed_outside_test_only_fence": [],
+  "full_regression": "754 passed, 1 dependency deprecation, 558.95s, exit0",
+  "owned_test_container_removed": true
+}

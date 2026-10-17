@@ -11,6 +11,17 @@ from crowley.core.watchlist import Catalog, load_catalog
 def test_shipped_plan_covers_professions_and_preserves_review_states():
     catalog = load_catalog()
     active = [item for item in catalog.items if item.status == "active"]
+    plan = catalog.scan_plan()
+    assert len(catalog.items) == 544
+    assert len(active) == 428
+    assert sum(item.status == "research" for item in catalog.items) == 74
+    assert sum(item.status == "excluded" for item in catalog.items) == 42
+    assert plan["revision"] == 2
+    assert plan["targetClientBuild"] == "1.60.1.70450"
+    assert plan["catalogHash"] == "90918db5cc912e889553b5ddd422b829f3c6cb3773ab6da56a2e79a5a8db04f3"
+    assert plan["planHash"] == "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4"
+    assert len(plan["pools"]["core"]) == 352
+    assert len(plan["pools"]["discovery"]) == 76
     professions = {profession for item in active for profession in item.professions}
     assert professions >= {
         "alchemy",

@@ -1,0 +1,1391 @@
+--- r9/src/crowley/session/input_events.py
++++ current/src/crowley/session/input_events.py
+@@ -16,16 +16,20 @@
+ from enum import StrEnum
+ 
+ 
+ class InputEventError(ValueError):
+     """An XI2 stream is malformed or contains an incomplete event record."""
+ 
+ 
+ RAW_MOTION_PENDING_LIMIT = 8
++# XTEST's MotionNotify path passes button detail 0 into the X server raw
++# event, and XI2 preserves that value.  This is the one accepted RawMotion
++# detail across parsing, runtime admission, calibration, and the proof helper.
++RAW_MOTION_DETAIL = 0
+ 
+ 
+ @dataclass
+ class RawMotionPairing:
+     """Forward-only, one-to-one correlation for raw and delivered motion."""
+ 
+     pending_timestamps: list[int] = field(default_factory=list)
+     last_delivered_timestamp: int | None = None
+@@ -51,20 +55,17 @@
+     def observe_delivered(self, timestamp: int) -> bool:
+         """Consume exactly one preceding raw record when timestamps match."""
+ 
+         if (
+             isinstance(timestamp, bool)
+             or not isinstance(timestamp, int)
+             or timestamp < 0
+             or (self.last_delivered_timestamp is not None and timestamp < self.last_delivered_timestamp)
+-            or (
+-                self.pending_timestamps
+-                and any(raw_timestamp != timestamp for raw_timestamp in self.pending_timestamps)
+-            )
++            or (self.pending_timestamps and self.pending_timestamps[0] != timestamp)
+         ):
+             return False
+         if self.pending_timestamps:
+             self.pending_timestamps.pop(0)
+         self.last_delivered_timestamp = timestamp
+         return True
+ 
+     @property
+@@ -291,16 +292,18 @@
+             raise InputEventError(f"{event_class}: missing pointer coordinates")
+         if modifier_effective is None:
+             raise InputEventError(f"{event_class}: missing effective modifier state")
+     if event_class is EventClass.MOTION and (root_xy is None or event_xy is None or modifiers is None):
+         raise InputEventError(f"{event_class}: missing motion coordinates or modifier state")
+     if event_class is EventClass.MOTION and modifier_effective is None:
+         raise InputEventError(f"{event_class}: missing effective modifier state")
+     if event_class is EventClass.RAW_MOTION:
++        if detail != RAW_MOTION_DETAIL:
++            raise InputEventError(f"{event_class}: detail must be {RAW_MOTION_DETAIL}")
+         try:
+             valuators_index = next(
+                 index for index, line in enumerate(lines) if line.strip().startswith("valuators:")
+             )
+         except StopIteration as exc:
+             raise InputEventError(f"{event_class}: missing valuators section") from exc
+         if not any(_VALUATOR.fullmatch(line) for line in lines[valuators_index + 1 :]):
+             raise InputEventError(f"{event_class}: missing complete valuator data")
+--- r9/src/crowley/session/guardian.py
++++ current/src/crowley/session/guardian.py
+@@ -19,17 +19,17 @@
+ import subprocess
+ import threading
+ import time
+ from collections.abc import Callable
+ from dataclasses import dataclass, field
+ from pathlib import Path
+ from typing import Any
+ 
+-from .input_events import RawMotionPairing
++from .input_events import RAW_MOTION_DETAIL, RawMotionPairing
+ from .input_tool import NativeReleaseSpec
+ 
+ 
+ class GuardianError(RuntimeError):
+     """Lease, generation, deadline, or parent-death failure."""
+ 
+ 
+ class InputLease:
+@@ -1385,34 +1385,47 @@
+             if event_class in action.optional_classes:
+                 sequence_ok = True
+             elif action.sequence_index < len(action.required_sequence):
+                 sequence_ok = event_class == action.required_sequence[action.sequence_index]
+             else:
+                 sequence_ok = False
+         now = self._clock()
+         timestamp = getattr(event, "timestamp_ms", None)
++        pending_raw_primary = bool(
++            action is not None
++            and event_class == "Motion"
++            and not echo_match
++            and action.raw_motion_pairing.pending_timestamps
++            and timestamp == action.raw_motion_pairing.pending_timestamps[0]
++        )
+         timestamp_ok = (
+             isinstance(timestamp, int)
+             and not isinstance(timestamp, bool)
+             and timestamp >= 0
+-            and (prior_timestamp is None or ((timestamp - prior_timestamp) & 0xFFFFFFFF) < 0x80000000)
++            and (
++                echo_match
++                or pending_raw_primary
++                or prior_timestamp is None
++                or ((timestamp - prior_timestamp) & 0xFFFFFFFF) < 0x80000000
++            )
+         )
+         allowed = bool(
+             self.armed
+             and action is not None
+             and event_class in action.event_classes
+             and (event.source_device == action.source_device or echo_match)
+             and (echo_match or event.master_device == action.expected_device(event_class))
+             and target_ok
+             and (
+                 action.detail is None
+                 or event.detail == action.detail
+-                or event_class in {"DeviceChanged", "Motion", "Enter", "Leave"}
++                or event_class in {"DeviceChanged", "Motion", "RawMotion", "Enter", "Leave"}
+             )
++            and (event_class != "RawMotion" or event.detail == RAW_MOTION_DETAIL)
+             and sequence_ok
+             and timestamp_ok
+             and action.started_monotonic <= now <= action.deadline_monotonic
+             and (
+                 event_class != "Motion"
+                 or echo_match
+                 or (
+                     action.sequence_index < 2
+@@ -1503,24 +1516,19 @@
+                     and detail_group < len(action.expected_modifier_sequence)
+                     and delivered_modifiers != action.expected_modifier_sequence[detail_group]
+                 ):
+                     allowed = False
+         if (
+             allowed
+             and action is not None
+             and event_class == "Motion"
++            and not echo_match
+             and action.raw_motion_pairing.pending_timestamps
+-            and (
+-                timestamp is None
+-                or any(
+-                    raw_timestamp != timestamp
+-                    for raw_timestamp in action.raw_motion_pairing.pending_timestamps
+-                )
+-            )
++            and (timestamp is None or action.raw_motion_pairing.pending_timestamps[0] != timestamp)
+         ):
+             # A raw trace is useful only as the same-timestamp ancestry of the
+             # delivered endpoint.  A different or missing timestamp is an
+             # unattributed physical stream and revokes the action.
+             allowed = False
+         if (
+             allowed
+             and action is not None
+@@ -1667,17 +1675,25 @@
+             )
+         ):
+             allowed = False
+         if allowed:
+             with self._lock:
+                 if self.generation != generation or self._action is not action:
+                     allowed = False
+                 else:
+-                    self._last_event_time_ms = timestamp
++                    if not echo_match or prior_timestamp is None:
++                        if (
++                            pending_raw_primary
++                            and prior_timestamp is not None
++                            and timestamp < prior_timestamp
++                        ):
++                            self._last_event_time_ms = prior_timestamp
++                        else:
++                            self._last_event_time_ms = timestamp
+                     if echo_match and echo_pending_index is not None:
+                         action.pending_echoes.pop(echo_pending_index)
+                         action.echo_index += 1
+                     if motion_match_index is not None:
+                         action.motion_index = motion_match_index + 1
+                     if positioning_match_index is not None:
+                         action.positioning_index = positioning_match_index + 1
+                     if action.required_sequence and event_class not in action.optional_classes:
+--- r9/src/crowley/session/daemon.py
++++ current/src/crowley/session/daemon.py
+@@ -2837,31 +2837,28 @@
+         profile: Any,
+         cumulative_travel: float,
+         arrival_tolerance: float,
+         heading: float = 0.0,
+     ) -> float:
+         """Return a pulse whose whole response envelope can settle the target.
+ 
+         This conservative planner admits a single pulse aimed at the target.
+-        A target beyond the scalar response limit has no guaranteed endpoint
+-        under the declared response bound, so it is refused before
+-        route/camera admission.  Inside the named translation heading
+-        allowance, admission also proves the complete two-dimensional miss at
+-        both response-envelope extremes.  The cumulative two-unit envelope is
+-        checked before the caller can request a route or dispatch input.
++        A target outside the calibrated response-uncertainty envelope has no
++        guaranteed endpoint, so it is refused before route/camera admission.
++        Inside the named translation heading allowance, admission also proves
++        the complete two-dimensional miss at both response-envelope extremes.
++        The cumulative two-unit envelope is checked before the caller can
++        request a route or dispatch input.
+         """
+ 
+         minimum_distance = measured_speed * minimum_pulse
+         guaranteed_distance = arrival_tolerance / TRAVEL_UNCERTAINTY_FRACTION
+         if distance > guaranteed_distance + 1e-9:
+-            raise DriverError(
+-                "waypoint has no guaranteed plan within the bounded "
+-                f"response envelope (admissible distance <= {guaranteed_distance:.3f})"
+-            )
++            raise DriverError("waypoint exceeds the calibrated response-uncertainty envelope")
+         if distance < minimum_distance:
+             minimum_error = self._waypoint_endpoint_error(
+                 distance,
+                 minimum_distance,
+                 heading,
+             )
+             if minimum_error > arrival_tolerance + 1e-9:
+                 raise DriverError("waypoint minimum pulse cannot guarantee the target endpoint")
+--- r9/tests/test_session_dispatch.py
++++ current/tests/test_session_dispatch.py
+@@ -18,17 +18,17 @@
+     DriverError,
+     DriverProfile,
+     MeasuredAnchor,
+     RecordingBackend,
+     X11Backend,
+     XI2Observer,
+ )
+ from crowley.session.guardian import GuardianError, InputGuardian
+-from crowley.session.input_events import RAW_MOTION_PENDING_LIMIT, EventClass
++from crowley.session.input_events import RAW_MOTION_DETAIL, RAW_MOTION_PENDING_LIMIT, EventClass
+ from tests.test_session_input_tool import fixture_input_tool
+ 
+ 
+ def test_keyboard_profile_exposes_owned_chord_without_new_public_action(tmp_path: Path) -> None:
+     class KeymapBackend(RecordingBackend):
+         def observe_keymap(self) -> dict[str, int]:
+             return {
+                 "Return": 36,
+@@ -784,17 +784,17 @@
+         is_live = True
+         fingerprint = "owned"
+ 
+     class Event:
+         event_class = "RawMotion"
+         source_device = 4
+         master_device = 2
+         target_xid = None
+-        detail = None
++        detail = RAW_MOTION_DETAIL
+         timestamp_ms = 11
+         modifiers = None
+         modifier_effective = None
+         is_raw = True
+         root_xy = None
+         event_xy = None
+ 
+     try:
+@@ -834,16 +834,17 @@
+         event_xy = (1.0, 2.0)
+         is_raw = False
+ 
+     class RawEvent(Event):
+         event_class = "RawMotion"
+         source_device = 4
+         master_device = 2
+         target_xid = None
++        detail = RAW_MOTION_DETAIL
+         modifiers = None
+         modifier_effective = None
+         root_xy = None
+         event_xy = None
+         is_raw = True
+         timestamp_ms = 11
+ 
+     class MotionEvent(Event):
+@@ -882,17 +883,17 @@
+         is_live = True
+         fingerprint = "owned"
+ 
+     class RawEvent:
+         event_class = "RawMotion"
+         source_device = 4
+         master_device = 2
+         target_xid = None
+-        detail = None
++        detail = RAW_MOTION_DETAIL
+         modifiers = None
+         modifier_effective = None
+         is_raw = True
+         root_xy = None
+         event_xy = None
+ 
+         def __init__(self, timestamp_ms: int) -> None:
+             self.timestamp_ms = timestamp_ms
+@@ -919,19 +920,40 @@
+             target_xid=0x600119,
+             source_device=4,
+             master_device=2,
+             event_classes={"RawMotion", "Motion"},
+             device_by_class={"RawMotion": 2, "Motion": 4},
+             optional_classes={"RawMotion", "Motion"},
+             require_motion_before_button=False,
+         )
++        assert guardian.observe(RawEvent(11))
++        assert guardian.observe(RawEvent(12))
++        assert guardian.observe(MotionEvent(11))
++        assert not action.complete
++        assert guardian.observe(MotionEvent(12))
++        assert action.complete
++        guardian.finish_action(generation, action)
++    finally:
++        guardian.close()
++
++    guardian = InputGuardian(tmp_path / "raw-motion-backward.lock", parent_pid=os.getppid())
++    try:
++        generation = guardian.arm(Evidence())
++        guardian.begin_action(
++            generation,
++            target_xid=0x600119,
++            source_device=4,
++            master_device=2,
++            event_classes={"RawMotion", "Motion"},
++            device_by_class={"RawMotion": 2, "Motion": 4},
++            optional_classes={"RawMotion", "Motion"},
++            require_motion_before_button=False,
++        )
+         assert guardian.observe(MotionEvent(10))
+-        # An equal-time raw record after a delivered motion starts a new
+-        # forward pair; an older timestamp remains an immediate revocation.
+         assert not guardian.observe(RawEvent(9))
+         assert not guardian.armed
+     finally:
+         guardian.close()
+ 
+     guardian = InputGuardian(tmp_path / "raw-motion-duplicate.lock", parent_pid=os.getppid())
+     try:
+         generation = guardian.arm(Evidence())
+@@ -1027,17 +1049,17 @@
+         is_live = True
+         fingerprint = "owned"
+ 
+     class Event:
+         event_class = "RawMotion"
+         source_device = 4
+         master_device = 2
+         target_xid = None
+-        detail = None
++        detail = RAW_MOTION_DETAIL
+         timestamp_ms = 11
+         modifiers = None
+         modifier_effective = None
+         is_raw = True
+         root_xy = None
+         event_xy = None
+ 
+     class Release:
+@@ -1246,8 +1268,230 @@
+             "open_ah",
+             generation,
+             precondition=lambda _identity: True,
+             postcondition=lambda _identity: True,
+         )
+         assert driver.guardian.armed
+     finally:
+         driver.close()
++
++
++@pytest.mark.parametrize("button", (1, 3))
++def test_guardian_pointer_actions_accept_raw_motion_zero_detail_and_controlled_echo(
++    tmp_path: Path, button: int
++) -> None:
++    guardian = InputGuardian(tmp_path / f"pointer-raw-detail-{button}.lock", parent_pid=os.getppid())
++
++    class Evidence:
++        is_live = True
++        fingerprint = "owned-pointer"
++
++    target = 0x600119
++    point = (10.0, 20.0)
++    event_point = (1.0, 2.0)
++    modifiers = (0x10, 0, 0)
++
++    def event(
++        event_class: str,
++        timestamp: int,
++        *,
++        source: int,
++        master: int,
++        raw: bool,
++        detail: int | None,
++        event_target: int | None,
++    ) -> SimpleNamespace:
++        return SimpleNamespace(
++            event_class=event_class,
++            source_device=source,
++            master_device=master,
++            target_xid=event_target,
++            child_xid=event_target,
++            detail=detail,
++            timestamp_ms=timestamp,
++            modifiers=None if raw else modifiers,
++            modifier_effective=None if raw else 0x10,
++            is_raw=raw,
++            root_xy=None if raw else point,
++            event_xy=None if raw else event_point,
++        )
++
++    echo = ("MotionEcho", 11, 7, 7, target, point, event_point, 10, 4, target)
++    try:
++        generation = guardian.arm(Evidence())
++        action = guardian.begin_action(
++            generation,
++            target_xid=target,
++            source_device=4,
++            master_device=2,
++            event_classes={
++                "RawButtonPress",
++                "ButtonPress",
++                "RawButtonRelease",
++                "ButtonRelease",
++                "RawMotion",
++                "Motion",
++            },
++            detail=button,
++            device_by_class={
++                "RawButtonPress": 2,
++                "ButtonPress": 4,
++                "RawButtonRelease": 2,
++                "ButtonRelease": 4,
++                "RawMotion": 2,
++                "Motion": 4,
++            },
++            target_ancestor=lambda xid: xid == target,
++            required_sequence=("RawButtonPress", "ButtonPress", "RawButtonRelease", "ButtonRelease"),
++            optional_classes={"RawMotion", "Motion"},
++            expected_modifiers=modifiers,
++            expected_details=(button,) * 4,
++            expected_motion_trace=((10, 20, 1, 2),),
++            echo_proof=(echo,),
++            require_motion_before_release=True,
++        )
++        records = (
++            event("RawMotion", 10, source=4, master=2, raw=True, detail=RAW_MOTION_DETAIL, event_target=None),
++            event("Motion", 10, source=4, master=4, raw=False, detail=0, event_target=target),
++            event("Motion", 11, source=7, master=7, raw=False, detail=0, event_target=target),
++            event("RawButtonPress", 12, source=4, master=2, raw=True, detail=button, event_target=None),
++            event("ButtonPress", 12, source=4, master=4, raw=False, detail=button, event_target=target),
++            event("RawButtonRelease", 13, source=4, master=2, raw=True, detail=button, event_target=None),
++            event("ButtonRelease", 13, source=4, master=4, raw=False, detail=button, event_target=target),
++        )
++        for record in records:
++            assert guardian.observe(record), (record.event_class, guardian.revoked_reason)
++        assert action.complete
++        guardian.finish_action(generation, action)
++    finally:
++        guardian.close()
++
++
++def test_guardian_rejects_raw_motion_after_release_for_pointer_detail(tmp_path: Path) -> None:
++    guardian = InputGuardian(tmp_path / "pointer-raw-post-release.lock", parent_pid=os.getppid())
++
++    class Evidence:
++        is_live = True
++        fingerprint = "owned-pointer-post-release"
++
++    try:
++        generation = guardian.arm(Evidence())
++        guardian.begin_action(
++            generation,
++            target_xid=0x600119,
++            source_device=4,
++            master_device=2,
++            event_classes={"RawButtonRelease", "RawMotion"},
++            detail=1,
++            device_by_class={"RawButtonRelease": 2, "RawMotion": 2},
++            required_sequence=("RawButtonRelease",),
++            optional_classes={"RawMotion"},
++        )
++        release = SimpleNamespace(
++            event_class="RawButtonRelease",
++            source_device=4,
++            master_device=2,
++            target_xid=None,
++            child_xid=None,
++            detail=1,
++            timestamp_ms=20,
++            modifiers=None,
++            modifier_effective=None,
++            is_raw=True,
++            root_xy=None,
++            event_xy=None,
++        )
++        raw_motion = SimpleNamespace(
++            event_class="RawMotion",
++            source_device=4,
++            master_device=2,
++            target_xid=None,
++            child_xid=None,
++            detail=RAW_MOTION_DETAIL,
++            timestamp_ms=21,
++            modifiers=None,
++            modifier_effective=None,
++            is_raw=True,
++            root_xy=None,
++            event_xy=None,
++        )
++        assert guardian.observe(release)
++        assert not guardian.observe(raw_motion)
++        assert not guardian.armed
++    finally:
++        guardian.close()
++
++
++def test_guardian_pairs_fifo_raw_motion_around_delayed_forwarded_echo(tmp_path: Path) -> None:
++    guardian = InputGuardian(tmp_path / "pointer-raw-delayed-echo.lock", parent_pid=os.getppid())
++
++    class Evidence:
++        is_live = True
++        fingerprint = "owned-pointer-delayed-echo"
++
++    target = 0x600119
++    point = (10.0, 20.0)
++    event_point = (1.0, 2.0)
++    modifiers = (0, 0, 0)
++
++    def motion(source: int, master: int, timestamp: int) -> SimpleNamespace:
++        return SimpleNamespace(
++            event_class="Motion",
++            source_device=source,
++            master_device=master,
++            target_xid=target,
++            child_xid=target,
++            detail=0,
++            timestamp_ms=timestamp,
++            modifiers=modifiers,
++            modifier_effective=0,
++            is_raw=False,
++            root_xy=point,
++            event_xy=event_point,
++        )
++
++    def raw(timestamp: int) -> SimpleNamespace:
++        return SimpleNamespace(
++            event_class="RawMotion",
++            source_device=4,
++            master_device=2,
++            target_xid=None,
++            child_xid=None,
++            detail=RAW_MOTION_DETAIL,
++            timestamp_ms=timestamp,
++            modifiers=None,
++            modifier_effective=None,
++            is_raw=True,
++            root_xy=None,
++            event_xy=None,
++        )
++
++    echo_proof = (
++        ("MotionEcho", 10, 7, 7, target, point, event_point, 10, 4, target),
++        ("MotionEcho", 11, 7, 7, target, point, event_point, 11, 4, target),
++    )
++    try:
++        generation = guardian.arm(Evidence())
++        action = guardian.begin_action(
++            generation,
++            target_xid=target,
++            source_device=4,
++            master_device=2,
++            event_classes={"RawMotion", "Motion"},
++            device_by_class={"RawMotion": 2, "Motion": 4},
++            optional_classes={"RawMotion", "Motion"},
++            expected_modifiers=modifiers,
++            expected_motion_trace=((10, 20, 1, 2), (10, 20, 1, 2)),
++            echo_proof=echo_proof,
++            require_motion_before_button=False,
++        )
++        assert guardian.observe(motion(4, 4, 10))
++        assert guardian.observe(raw(11))
++        # A forwarded echo for the earlier primary must not consume or reject
++        # the pending raw record for the later primary.
++        assert guardian.observe(motion(7, 7, 10))
++        assert guardian.observe(motion(4, 4, 11))
++        assert guardian.observe(motion(7, 7, 11))
++        assert action.complete
++        guardian.finish_action(generation, action)
++    finally:
++        guardian.close()
+--- r9/tests/test_session_native.py
++++ current/tests/test_session_native.py
+@@ -208,19 +208,22 @@
+     assert records[1].timestamp_ms == 232007447
+     with pytest.raises(InputEventError, match="synthetic sourceid"):
+         parse_xi2_records("sourceid: 4\nsourceid: 5\n", require_event=True)
+     with pytest.raises(DriverError, match="timestamp"):
+         XI2Observer.records("EVENT type 2 (KeyPress)\n    device: 5 (5)\n")
+ 
+ 
+ def test_captured_raw_motion_is_a_complete_raw_xi2_record() -> None:
++    # This is a source-derived formatter expectation, not a retained live
++    # capture; the next authorized seed must preserve the complete native block.
+     trace = """EVENT type 17 (RawMotion)
+     device: 2 (4)
+     time: 232007477
++    detail: 0
+     valuators:
+     0: 873.00
+     1: 576.00
+ """
+     records = parse_xi2_records(trace, require_event=True)
+     assert len(records) == 1
+     record = records[0]
+     assert record.event_class is EventClass.RAW_MOTION
+@@ -237,21 +240,38 @@
+     assert emitted[-1] is not None
+     assert emitted[-1].event_class is record.event_class
+     assert emitted[-1].master_device == record.master_device
+     assert emitted[-1].source_device == record.source_device
+     assert tuple(line.rstrip("\r\n") for line in emitted[-1].raw_lines) == record.raw_lines
+     assert parser.finish() is None
+ 
+ 
++@pytest.mark.parametrize("detail", (None, 1))
++def test_raw_motion_requires_source_established_zero_detail(detail: int | None) -> None:
++    trace = f"""EVENT type 17 (RawMotion)
++    device: 2 (4)
++    time: 232007477
++    detail: {detail if detail is not None else 1}
++    valuators:
++    0: 873.00 (873.00)
++
++"""
++    if detail is None:
++        trace = trace.replace("    detail: 1\n", "", 1)
++    with pytest.raises(InputEventError, match="detail must be 0"):
++        parse_xi2_records(trace, require_event=True)
++
++
+ def test_raw_motion_blank_delimiter_rejects_partial_valuator_payload() -> None:
+     parser = XI2StreamParser()
+     partial = """EVENT type 17 (RawMotion)
+     device: 2 (4)
+     time: 232007477
++    detail: 0
+     valuators:
+ 
+ """
+     emitted = [
+         event for line in partial.splitlines(keepends=True) if (event := parser.feed(line)) is not None
+     ]
+     assert emitted == []
+     with pytest.raises(InputEventError, match="complete valuator"):
+@@ -321,16 +341,17 @@
+     detail: 8
+     root: 987.00/595.00
+     event: 987.00/595.00
+     modifiers: locked 0x10 latched 0 base 0 effective: 0x10
+     windows: root 0x374 event 0x374 child 0x600119
+ EVENT type 17 (RawMotion)
+     device: 2 (4)
+     time: 3
++    detail: 0
+     valuators:
+     0: 987.00
+     1: 595.00
+ EVENT type 6 (Motion)
+     device: 4 (4)
+     time: 3
+     root: 987.00/595.00
+     event: 987.00/595.00
+@@ -390,16 +411,31 @@
+         4,
+         window,
+         hierarchy,
+         pointer=True,
+         require_motion=True,
+         expected_detail=1,
+         expected_modifiers=(0x10, 0, 0),
+     )
++    wrong_raw_detail = [
++        replace(record, detail=1) if record.event_class is EventClass.RAW_MOTION else record
++        for record in records
++    ]
++    with pytest.raises(CalibrationError, match="raw motion detail"):
++        InputCalibrationWorkflow._validate_sequence(
++            wrong_raw_detail,
++            4,
++            window,
++            hierarchy,
++            pointer=True,
++            require_motion=True,
++            expected_detail=1,
++            expected_modifiers=(0x10, 0, 0),
++        )
+     mismatched_raw = [
+         replace(record, timestamp_ms=9) if record.event_class is EventClass.RAW_MOTION else record
+         for record in records
+     ]
+     with pytest.raises(CalibrationError, match="timestamps|raw motion"):
+         InputCalibrationWorkflow._validate_sequence(
+             mismatched_raw,
+             4,
+@@ -441,16 +477,17 @@
+     detail: 1
+     root: 987.00/595.00
+     event: 987.00/595.00
+     modifiers: locked 0 latched 0 base 0 effective: 0
+     windows: root 0x374 event 0x374 child 0x600119
+ EVENT type 17 (RawMotion)
+     device: 2 (4)
+     time: 2
++    detail: 0
+     valuators:
+     0: 987.00
+     1: 595.00
+ EVENT type 6 (Motion)
+     device: 4 (4)
+     time: 2
+     root: 987.00/595.00
+     event: 987.00/595.00
+--- r9/tests/test_session_executor_movement.py
++++ current/tests/test_session_executor_movement.py
+@@ -63,16 +63,133 @@
+             },
+         },
+         "context": {"zone": "Elwynn", "subzone": "Goldshire"},
+     }
+     frame = SimpleNamespace(sequence=sequence, boot=boot, snapshot=SimpleNamespace(value=snapshot))
+     return Sample("FRESH", frame, capture, (0, 0, 256, 256), 1, "client-1")
+ 
+ 
++def _actual_waypoint_daemon(
++    *,
++    target_bearing: float,
++    response_factor: float,
++    corrected_facing: float = 0.0,
++) -> tuple[SessionDaemon, MotionFrame, MotionFrame, list[tuple[KeyRole, float]], list[int]]:
++    """Build the real waypoint loop around controlled feedback boundaries."""
++
++    daemon = SessionDaemon.__new__(SessionDaemon)
++    daemon._motion_profiles = {"move": MotionProfile(role=DemonstrationRole.MOVE, max_duration=0.35)}
++    daemon.camera_mapping = CameraMapping(
++        identity_fingerprint="client-1",
++        generation=1,
++        capture_id="camera:boot-1:1:2",
++        yaw_per_pixel=0.1,
++    )
++    daemon.movement_basis = MovementBasis(
++        identity_fingerprint="client-1",
++        boot="boot-1",
++        generation=1,
++        capture_id="movement:boot-1:1:2",
++        before_sequence=1,
++        after_sequence=2,
++        forward_heading_offset=0.0,
++        forward_displacement=0.7,
++        pulse_seconds=0.1,
++        strafe_heading_offset=-math.pi / 2,
++        strafe_displacement=0.7,
++        strafe_pulse_seconds=0.1,
++        facing_sign=1,
++        handedness=1,
++    )
++    target_x = 0.8 * math.cos(target_bearing)
++    target_y = 0.8 * math.sin(target_bearing)
++    corrected_facing = corrected_facing % (2.0 * math.pi)
++    before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0), _Identity())
++    confirmed = MotionFrame.from_sample(
++        _sample(sequence=2, capture=10.01, facing=corrected_facing), _Identity()
++    )
++    traveled = 0.8 * response_factor
++    after = MotionFrame.from_sample(
++        _sample(
++            sequence=3,
++            capture=10.2,
++            x=traveled * math.cos(corrected_facing),
++            y=traveled * math.sin(corrected_facing),
++            facing=corrected_facing,
++            speed=0.0,
++        ),
++        _Identity(),
++    )
++    daemon._native_clock = lambda: 10.5
++    daemon._require_interaction = lambda _generation: 1
++
++    def observe_motion(
++        _generation: int,
++        previous: MotionFrame | None = None,
++        *,
++        after_release: bool = False,
++        **_kwargs,
++    ) -> MotionFrame:
++        if after_release:
++            return after
++        return confirmed if previous is not None else before
++
++    daemon._observe_motion = observe_motion
++    physical_calls: list[tuple[KeyRole, float]] = []
++    daemon.driver = SimpleNamespace(
++        run_motion_key_hold=lambda role, duration, *_args, **_kwargs: physical_calls.append((role, duration))
++    )
++    camera_calls: list[int] = []
++
++    def camera_delta(
++        pixels: int,
++        *,
++        generation: int,
++        previous: MotionFrame | None = None,
++    ) -> MotionFrame:
++        del generation, previous
++        camera_calls.append(pixels)
++        return confirmed
++
++    daemon.execute_camera_delta = camera_delta
++
++    def observe_route(
++        generation: int,
++        target_x: float,
++        target_y: float,
++        *,
++        frame: MotionFrame,
++    ) -> RouteEvidence:
++        distance = math.hypot(target_x - frame.x, target_y - frame.y)
++        heading = math.atan2(target_y - frame.y, target_x - frame.x) - daemon._world_forward_heading(frame)
++        heading = (heading + math.pi) % (2.0 * math.pi) - math.pi
++        return RouteEvidence(
++            "client-1",
++            frame.capture_monotonic + 0.01,
++            "world",
++            "clear",
++            True,
++            True,
++            generation=generation,
++            boot=frame.boot,
++            sequence=frame.sequence,
++            instance=frame.instance,
++            zone=frame.zone,
++            screenshot_digest="route-digest",
++            corridor_heading=heading,
++            corridor_distance=distance,
++        )
++
++    daemon._observe_route = observe_route
++    daemon._waypoint_target = (target_x, target_y)
++    daemon._waypoint_after = after
++    return daemon, before, after, physical_calls, camera_calls
++
++
+ def test_native_motion_successor_accepts_sequence_gap_but_rejects_scene_identity_or_unsafe() -> None:
+     first = MotionFrame.from_sample(_sample(sequence=4), _Identity())
+     later = MotionFrame.from_sample(_sample(sequence=9, capture=10.2, x=0.1), _Identity())
+     later.require_safe_successor(first, now=10.3)
+ 
+     with pytest.raises(MotionError, match="identity"):
+         later.require_safe_successor(
+             MotionFrame.from_sample(_sample(sequence=4), SimpleNamespace(fingerprint="other")),
+@@ -366,17 +483,17 @@
+             instance=frame.instance,
+             zone=frame.zone,
+             screenshot_digest="route-digest",
+             corridor_heading=math.atan2(target_y - frame.y, target_x - frame.x),
+             corridor_distance=distance,
+         )
+ 
+     daemon._observe_route = observe_route
+-    with pytest.raises(DriverError, match="guaranteed|bounded"):
++    with pytest.raises(DriverError, match="calibrated|uncertainty|guaranteed|bounded"):
+         daemon.execute_waypoint(2.0, 0.0, generation=1)
+     assert pulses == []
+ 
+ 
+ def test_waypoint_refuses_second_target_beyond_supported_distance_before_input() -> None:
+     daemon = SessionDaemon.__new__(SessionDaemon)
+     daemon._motion_profiles = {"move": MotionProfile(role=DemonstrationRole.MOVE, max_duration=0.35)}
+     daemon.camera_mapping = CameraMapping(
+@@ -438,17 +555,17 @@
+             instance=frame.instance,
+             zone=frame.zone,
+             screenshot_digest="route-digest",
+             corridor_heading=math.atan2(target_y - frame.y, target_x - frame.x),
+             corridor_distance=distance,
+         )
+ 
+     daemon._observe_route = observe_route
+-    with pytest.raises(DriverError, match="guaranteed|bounded"):
++    with pytest.raises(DriverError, match="calibrated|uncertainty|guaranteed|bounded"):
+         daemon.execute_waypoint(2.0, 0.0, generation=1)
+     assert pulses == []
+ 
+ 
+ @pytest.mark.parametrize(
+     ("target_distance", "feedback_factor"),
+     ((0.5, 1.2), (0.9, 0.8), (1.0, 1.2), (1.1, 0.8)),
+ )
+@@ -542,16 +659,59 @@
+     daemon._execute_motion_key_with_frame = execute_pulse
+     result = daemon.execute_waypoint(target_distance, 0.0, generation=1)
+     assert result.x == pytest.approx(target_distance, abs=0.28)
+     assert len(pulses) == 1
+     assert len(route_calls) == len(pulses)
+     assert sum(7.0 * pulse * feedback_factor for pulse in pulses) <= MAX_WAYPOINT_DISTANCE
+ 
+ 
++@pytest.mark.parametrize("target_bearing", (-0.19, 0.19))
++@pytest.mark.parametrize("response_factor", (0.8, 1.2))
++def test_execute_waypoint_admits_bearing_at_response_extremes(
++    target_bearing: float,
++    response_factor: float,
++) -> None:
++    """The actual waypoint loop settles for both signed bearings at response extremes."""
++
++    daemon, _before, after, physical_calls, camera_calls = _actual_waypoint_daemon(
++        target_bearing=target_bearing,
++        response_factor=response_factor,
++    )
++    result = daemon.execute_waypoint(*daemon._waypoint_target, generation=1)
++
++    assert result is after
++    assert physical_calls == [(KeyRole.MOVE_FORWARD, pytest.approx(0.8 / 7.0))]
++    assert camera_calls == []
++
++
++@pytest.mark.parametrize("target_bearing", (-0.45, 0.45))
++@pytest.mark.parametrize("response_factor", (0.8, 1.2))
++def test_execute_waypoint_camera_residual_settles_at_response_extremes(
++    target_bearing: float,
++    response_factor: float,
++) -> None:
++    """A signed camera correction to a .19-radian residual still settles physically."""
++
++    residual = math.copysign(0.19, target_bearing)
++    corrected_facing = target_bearing - residual
++    daemon, _before, after, physical_calls, camera_calls = _actual_waypoint_daemon(
++        target_bearing=target_bearing,
++        response_factor=response_factor,
++        corrected_facing=corrected_facing,
++    )
++    result = daemon.execute_waypoint(*daemon._waypoint_target, generation=1)
++
++    assert result is after
++    assert physical_calls == [(KeyRole.MOVE_FORWARD, pytest.approx(0.8 / 7.0))]
++    assert len(camera_calls) == 1
++    assert camera_calls[0] * target_bearing > 0
++    assert abs(camera_calls[0]) in {4, 5}
++
++
+ def test_waypoint_refuses_nonzero_bearing_at_response_extreme_before_input() -> None:
+     """The translation gate proves the full two-dimensional endpoint error."""
+ 
+     daemon = SessionDaemon.__new__(SessionDaemon)
+     daemon._motion_profiles = {"move": MotionProfile(role=DemonstrationRole.MOVE, max_duration=0.35)}
+     daemon.camera_mapping = CameraMapping(
+         identity_fingerprint="client-1",
+         generation=1,
+@@ -839,23 +999,25 @@
+     daemon._native_clock = lambda: 10.0
+     daemon._require_interaction = lambda _generation: 1
+     daemon._observe_motion = lambda *_args, **_kwargs: before
+     physical_calls: list[float] = []
+     daemon._execute_motion_key_with_frame = lambda *args, **kwargs: physical_calls.append(float(args[1]))
+     camera_calls: list[int] = []
+     daemon.execute_camera_delta = lambda pixels, **kwargs: camera_calls.append(int(pixels))
+ 
+-    with pytest.raises(DriverError, match="guaranteed|bounded"):
++    with pytest.raises(DriverError, match="calibrated|uncertainty|guaranteed|bounded"):
+         daemon.execute_waypoint(0.0, 1.68, generation=1)
+     assert physical_calls == []
+     assert camera_calls == []
+ 
+ 
+-def test_waypoint_uncertainty_envelope_covers_alternating_response_error() -> None:
++def test_travel_envelope_arithmetic_covers_alternating_response_error() -> None:
++    """Check the scalar envelope helper; executor coverage is tested separately."""
++
+     daemon = SessionDaemon.__new__(SessionDaemon)
+     nominal_distances = (0.56, 0.56)
+     response_factors = (1.0 - TRAVEL_UNCERTAINTY_FRACTION, 1.0 + TRAVEL_UNCERTAINTY_FRACTION)
+     actual_distances = tuple(
+         distance * factor for distance, factor in zip(nominal_distances, response_factors, strict=True)
+     )
+     envelopes = tuple(daemon._travel_envelope(distance) for distance in nominal_distances)
+ 
+--- r9/.archive/executor-review/owned-gesture-proof.py
++++ current/.archive/executor-review/owned-gesture-proof.py
+@@ -666,17 +666,17 @@
+                     and event.detail == 1
+                     and event.child_xid is None
+                 )
+                 valid_raw_motion = (
+                     event_class == input_events.EventClass.RAW_MOTION.value
+                     and arrival_phase in {"synthetic-motion", "synthetic-button", "synthetic-button-hold"}
+                     and event.source_device == pointer_source
+                     and event.master_device == pointer_master
+-                    and event.detail is None
++                    and event.detail == input_events.RAW_MOTION_DETAIL
+                     and event.child_xid is None
+                     and arrival_motion_admitted
+                 )
+                 if valid_raw_motion:
+                     if not phase_state["rawMotionPairing"].queue_raw(event.timestamp_ms):
+                         reject("raw motion was not a forward one-to-one pair")
+                     return
+                 if not valid_raw_button:
+@@ -1040,29 +1040,29 @@
+ def _validate_primary_motion_records(
+     context: ProofContext,
+     events: list[Any],
+     expected_points: list[tuple[int, int]],
+     *,
+     require_endpoint: bool,
+     planned_duration: float = 0.0,
+ ) -> dict[str, Any]:
+-    from crowley.session.input_events import RawMotionPairing
++    from crowley.session.input_events import RAW_MOTION_DETAIL, RawMotionPairing
+ 
+     raw_motion = [event for event in events if event.event_class.value == "RawMotion" and event.is_raw]
+     if raw_motion:
+         raw_motion_pairing = RawMotionPairing()
+         for event in events:
+             event_class = event.event_class.value
+             if event_class == "RawMotion":
+                 if (
+                     event.source_device != context.pointer_source
+                     or event.master_device != context.pointer_master
+                     or event.child_xid not in (None, 0)
+-                    or event.detail is not None
++                    or event.detail != RAW_MOTION_DETAIL
+                 ):
+                     raise ProofError("raw motion record lacks the measured source/master contract")
+                 if not raw_motion_pairing.queue_raw(event.timestamp_ms):
+                     raise ProofError("raw motion record is not a forward one-to-one pair")
+                 continue
+             if event_class == "Motion" and event.source_device == context.pointer_source:
+                 if not raw_motion_pairing.observe_delivered(event.timestamp_ms):
+                     raise ProofError(
+@@ -1340,46 +1340,81 @@
+             planned_duration=0.0,
+         )
+     x, y, _window = context.backend.pointer_position()
+     if not (left <= x < left + width and top <= y < top + height):
+         raise ProofError("native pointer could not be placed inside the certified GTK target")
+     return x - left, y - top
+ 
+ 
++def _seed_endpoint(geometry: tuple[int, int, int, int], start: tuple[float, float]) -> tuple[int, int]:
++    """Choose a deterministic certified interior endpoint distinct from start."""
++
++    left, top, width, height = geometry
++    if width < 8 or height < 8:
++        raise ProofError("owned GTK target is too small for two distinct seed endpoints")
++    candidates = (
++        (left + width // 4, top + height // 2),
++        (left + (3 * width) // 4, top + height // 2),
++    )
++    for point in candidates:
++        if not _same_point(start, point):
++            return point
++    raise ProofError("seed-only pointer already occupies every certified endpoint")
++
++
+ def _seed_only(context: ProofContext, modules: dict[str, Any]) -> dict[str, Any]:
+     """Run one owned pointer seed for diagnostics without a click or hold."""
+ 
+-    left, top, width, height = context.target.geometry
+-    point = (left + width // 4, top + height // 2)
++    start_x, start_y, _window = context.backend.pointer_position()
++    start = (float(start_x), float(start_y))
++    point = _seed_endpoint(context.target.geometry, start)
+     baseline = len(context.events)
+     chain = ["xdotool", "mousemove", str(point[0]), str(point[1])]
+     _pid, result = _run_chain(
+         context,
+         chain,
+         input_schema="pointer-motion",
+         motion_phase=True,
+         timeout=3.0,
+     )
++    if result.get("error"):
++        raise ProofError(f"seed-only emitter failed: {result['error']}")
+     points = _chain_motion_points(chain)
+     _wait_until(
+         lambda: any(
+             event.event_class.value == "Motion"
+             and event.source_device == context.pointer_source
+             and _same_point(event.root_xy, points[-1])
+             for event in _events_since(context, baseline)
+         ),
+         timeout=2.0,
+         description="seed-only mode did not deliver the primary XTEST endpoint",
+     )
+     motion = _verify_controlled_motion_phase(context, baseline, points, planned_duration=0.0)
++    post_x, post_y, post_window = context.backend.pointer_position()
++    post = (float(post_x), float(post_y))
++    if _same_point(start, point):
++        raise ProofError("seed-only endpoint was not distinct from the measured pointer start")
++    if not _same_point(post, point):
++        raise ProofError("seed-only pointer did not finish at the requested certified endpoint")
++    if abs(post[0] - start[0]) <= 0.01 and abs(post[1] - start[1]) <= 0.01:
++        raise ProofError("seed-only pointer did not move from its measured start")
+     _set_input_phase(context, "seed-only-complete")
+     if context.driver.guardian.held or getattr(context.backend, "_held_buttons", set()):
+         raise ProofError("seed-only mode left a held input")
+-    return {"mode": "seed-only", "chain": chain, "process": result, "motion": motion}
++    return {
++        "mode": "seed-only",
++        "chain": chain,
++        "process": result,
++        "motion": motion,
++        "startPointer": {"x": start[0], "y": start[1]},
++        "requestedEndpoint": {"x": point[0], "y": point[1]},
++        "postPointer": {"x": post[0], "y": post[1], "window": post_window},
++    }
+ 
+ 
+ def _positive(context: ProofContext, modules: dict[str, Any]) -> dict[str, Any]:
+     executor = modules["executor"]
+     start = _ensure_pointer_seed(context)
+     trajectory = _trajectory(
+         context.target,
+         context.ticket,
+--- r9/.archive/executor-review/test_owned_gesture_proof.py
++++ current/.archive/executor-review/test_owned_gesture_proof.py
+@@ -5,17 +5,17 @@
+ import os
+ import sys
+ from argparse import Namespace
+ from pathlib import Path
+ from types import SimpleNamespace
+ 
+ import pytest
+ 
+-from crowley.session.input_events import RawMotionPairing
++from crowley.session.input_events import RAW_MOTION_DETAIL, RawMotionPairing
+ 
+ HELPER_PATH = Path(__file__).with_name("owned-gesture-proof.py")
+ 
+ 
+ def _helper_module():
+     spec = importlib.util.spec_from_file_location("owned_gesture_proof_under_test", HELPER_PATH)
+     assert spec is not None and spec.loader is not None
+     module = importlib.util.module_from_spec(spec)
+@@ -68,17 +68,17 @@
+ 
+     def raw(timestamp: int) -> SimpleNamespace:
+         return SimpleNamespace(
+             type_number=17,
+             event_class=SimpleNamespace(value="RawMotion"),
+             source_device=4,
+             master_device=2,
+             child_xid=None,
+-            detail=None,
++            detail=RAW_MOTION_DETAIL,
+             timestamp_ms=timestamp,
+             is_raw=True,
+             raw_lines=("    valuators:", "    0: 10.00"),
+             root_xid=None,
+             event_xid=None,
+             root_xy=None,
+             event_xy=None,
+             modifiers=None,
+@@ -101,16 +101,22 @@
+             modifier_effective=0,
+             root_xid=0x374,
+             event_xid=0x374,
+             raw_lines=(),
+         )
+ 
+     payload = helper._event_payload(raw(11))
+     assert payload["rawLines"] == ["    valuators:", "    0: 10.00"]
++    bad_detail = raw(11)
++    bad_detail.detail = 1
++    with pytest.raises(helper.ProofError, match="source/master contract"):
++        helper._validate_primary_motion_records(
++            context, [bad_detail, motion(11)], [(10, 20)], require_endpoint=False
++        )
+     assert (
+         helper._validate_primary_motion_records(
+             context, [raw(11), motion(11)], [(10, 20)], require_endpoint=False
+         )["rawMotionCount"]
+         == 1
+     )
+     with pytest.raises(helper.ProofError, match="following|one-to-one"):
+         helper._validate_primary_motion_records(
+@@ -136,16 +142,60 @@
+     with pytest.raises(helper.ProofError, match="one-to-one|following"):
+         helper._validate_primary_motion_records(
+             context, [motion(11), raw(11)], [(10, 20)], require_endpoint=False
+         )
+     with pytest.raises(helper.ProofError, match="one-to-one|following"):
+         helper._validate_primary_motion_records(
+             context, [raw(timestamp) for timestamp in range(9)], [(10, 20)], require_endpoint=False
+         )
++
++
++def test_seed_endpoint_is_distinct_and_bounded() -> None:
++    helper = _helper_module()
++    geometry = (700, 400, 480, 240)
++    assert helper._seed_endpoint(geometry, (700 + 120, 400 + 120)) == (700 + 360, 400 + 120)
++    assert helper._seed_endpoint(geometry, (701, 401)) == (700 + 120, 400 + 120)
++    with pytest.raises(helper.ProofError, match="two distinct"):
++        helper._seed_endpoint((0, 0, 4, 4), (0, 0))
++
++
++def test_seed_only_rejects_process_failure_even_if_no_input_is_observed(
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    helper = _helper_module()
++    context = SimpleNamespace(
++        target=SimpleNamespace(geometry=(0, 0, 480, 240)),
++        backend=SimpleNamespace(pointer_position=lambda: (120, 120, None), active_process_groups=set()),
++        events=[],
++        driver=SimpleNamespace(guardian=SimpleNamespace(held=False)),
++    )
++    monkeypatch.setattr(
++        helper,
++        "_run_chain",
++        lambda *args, **kwargs: (123, {"error": "DriverError: admission failed"}),
++    )
++    with pytest.raises(helper.ProofError, match="emitter failed"):
++        helper._seed_only(context, {})
++
++
++def test_seed_only_rejects_noop_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
++    helper = _helper_module()
++    context = SimpleNamespace(
++        target=SimpleNamespace(geometry=(0, 0, 480, 240)),
++        backend=SimpleNamespace(pointer_position=lambda: (120, 120, None), active_process_groups=set()),
++        events=[],
++        driver=SimpleNamespace(guardian=SimpleNamespace(held=False)),
++    )
++    monkeypatch.setattr(helper, "_seed_endpoint", lambda geometry, start: (120, 120))
++    monkeypatch.setattr(helper, "_run_chain", lambda *args, **kwargs: (123, {}))
++    monkeypatch.setattr(helper, "_wait_until", lambda *args, **kwargs: None)
++    monkeypatch.setattr(helper, "_verify_controlled_motion_phase", lambda *args, **kwargs: {})
++    with pytest.raises(helper.ProofError, match="distinct"):
++        helper._seed_only(context, {})
+ 
+ 
+ def test_prepare_context_cleans_driver_target_and_lease_on_observer_setup_failure(
+     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+ ) -> None:
+     helper = _helper_module()
+     registered: set[int] = set()
+ 
+--- r9/src/crowley/session/calibration.py
++++ current/src/crowley/session/calibration.py
+@@ -20,17 +20,24 @@
+ import sys
+ import threading
+ import time
+ from collections.abc import Callable
+ from dataclasses import dataclass, replace
+ from pathlib import Path
+ from typing import Any, Protocol
+ 
+-from .input_events import EventClass, InputEventError, RawMotionPairing, XI2Event, parse_xi2_records
++from .input_events import (
++    RAW_MOTION_DETAIL,
++    EventClass,
++    InputEventError,
++    RawMotionPairing,
++    XI2Event,
++    parse_xi2_records,
++)
+ from .process_admission import ADMISSION_WRAPPER, AdmissionGate
+ 
+ 
+ class CalibrationError(RuntimeError):
+     """Calibration evidence is missing, stale, or does not prove ownership."""
+ 
+ 
+ _SEAL = object()
+@@ -2963,18 +2970,18 @@
+         delivered_modifiers: tuple[int, int, int] | None = None
+         motion_seen = False
+         last_time = -1
+         raw_motion_pairing = RawMotionPairing()
+         for event in events:
+             if event.event_class is EventClass.RAW_MOTION:
+                 if event.master_device != parent or event.child_xid not in (None, 0):
+                     raise CalibrationError("event proof has an incorrect raw motion device relationship")
+-                if event.detail is not None:
+-                    raise CalibrationError("event proof raw motion unexpectedly has a detail")
++                if event.detail != RAW_MOTION_DETAIL:
++                    raise CalibrationError(f"event proof raw motion detail must be {RAW_MOTION_DETAIL}")
+                 if event.timestamp_ms < last_time:
+                     raise CalibrationError("event proof timestamps are out of order")
+                 if not raw_motion_pairing.queue_raw(event.timestamp_ms):
+                     raise CalibrationError("event proof raw motion is not a forward one-to-one pair")
+                 last_time = event.timestamp_ms
+                 continue
+             if event.event_class in optional:
+                 if event.timestamp_ms < last_time:
+--- r9/tests/test_session_native_regressions.py
++++ current/tests/test_session_native_regressions.py
+@@ -1897,20 +1897,23 @@
+         stdout.close()
+ 
+ 
+ def test_real_input_monitor_emits_idle_raw_motion_and_guardian_revokes_without_next_event(
+     tmp_path: Path,
+ ) -> None:
+     """A blank-delimited raw record reaches the real reader before pipe EOF."""
+ 
++    # Source-derived formatter expectation; this is not a retained live
++    # capture and includes the verified XTEST RawMotion detail contract.
+     raw_motion = (
+         "EVENT type 17 (RawMotion)\n"
+         "    device: 2 (4)\n"
+         "    time: 232008100\n"
++        "    detail: 0\n"
+         "    valuators:\n"
+         "    0: 873.00\n"
+         "    1: 576.00\n"
+         "\n"
+     )
+ 
+     class Evidence:
+         is_live = True
+--- r9/.archive/executor-review/owned-gesture-proof.md
++++ current/.archive/executor-review/owned-gesture-proof.md
+@@ -22,16 +22,32 @@
+ - `driver.issue_calibration_ticket(target)` then publishes the exact ticket and adopts the registered GTK bootstrap group before focus and gesture dispatch.
+ 
+ The helper follows that source-ready order. Every mutating backend command carries the production typed schema (`pointer-motion` or `single-click`), its exact planned argv tuple, and the exact held-button set where applicable. A `BLOCKED` result remains possible for verified graphical prerequisites or a live admission failure and includes the actual Guardian group sets. It never falls back to a fake observer, fake evidence, ambient recording, a legacy generic input grammar, or an unrestricted subprocess.
+ 
+ The helper wraps only the production GTK command callback with a read-only recorder. It forwards the original argument list and keyword arguments unchanged and returns the exact stdout from the production runner. The startup-admission callback records the actual GTK PID, invokes the real Guardian admission unchanged, and returns its unregister capability to the GTK owner. When production verification requests `xwininfo -root -tree`, the recorder runs the production parser on that complete output and captures `xwininfo -stats` plus full `xprop` output for the GTK client, its measured managed frame, and every measured immediate frame child while the target is still alive. It also records the current Mutter/GNOME Shell process identities. The resulting JSONL file is created mode `0600` in the owner-only evidence directory; it contains the untruncated root tree and raw command output. This diagnostic path does not change production verification or any command arguments.
+ 
+ The pinned emitter identity is read from the constructed driver's `backend.input_tool` object. The helper does not infer an artifact from a module constant or a path. Driver construction, GTK-owner construction, recorder setup, target creation, observer startup, and ticket/focus setup all execute inside one cleanup boundary. If any stage fails before a `ProofContext` is returned, the owned recorder, GTK target owner, Guardian registrations, backend groups, and production lease are closed before the exception escapes; cleanup failures are retained in the raised proof error. The offline helper regression exercises the real admission callback shape and an observer-start failure with external GTK/XI2 doubles, and verifies the lease, registration, owner, and driver are all released.
+ 
++RawMotion has one exact native contract. The installed `xinput 1.6.4`
++formatter (`xinput-1.6.4/src/test_xi2.c`,
++<https://gitlab.freedesktop.org/xorg/app/xinput/-/blob/xinput-1.6.4/src/test_xi2.c>)
++prints `detail`, `flags`, accelerated/raw valuator pairs, and a blank-line
++record terminator. The installed Xwayland package is `24.1.6-1ubuntu0.2`; its
++corresponding Xserver `21.1.16` source shows XTEST's MotionNotify path passing
++detail `0` through raw conversion in
++<https://gitlab.freedesktop.org/xorg/xserver/-/blob/xorg-server-21.1.16/Xext/xtest.c>
++and
++<https://gitlab.freedesktop.org/xorg/xserver/-/blob/xorg-server-21.1.16/dix/getevents.c>.
++The parser, Guardian, calibration, and this helper therefore accept only
++`RawMotion.detail == 0`.
++A retained live seed receipt must include the complete raw block and following
++delivered endpoint before any later input is allowed; seed-only remains
++diagnostic and does not claim live calibration.
++
+ Gesture receipts include monotonic and wall-clock marks for observer startup/readiness, ticket issue, focus begin/end, capture enable, each input phase, and actual chain process-group publication. Accepted callbacks retain their arrival phase, local monotonic arrival time, XI2 source/master, server timestamp, and target XIDs. Callback contents before the existing ticket/focus capture boundary are discarded. A forwarded-motion candidate is retained only during a measured admitted synthetic-motion phase and must pass the unchanged production matcher before the next action. No foreign input is ignored or source-whitelisted. The server timestamp and local arrival time are recorded separately; comparisons use the production matcher’s own event timestamps, not an assumed clock mapping. Gesture receipts also record post-cleanup target/observer/chain reaping, empty Guardian/backend registries and held sets, and production lease release; any failure makes the result fail.
+ 
+ Every certificate or gesture receipt records both the module-level source hashes and the live driver instance identity. `sourceIdentity.inputToolSha256` hashes `src/crowley/session/input_tool.py`; the existing helper, calibration, driver and Guardian hash fields remain intact. `runtimeIdentity.driverInstanceVersion` comes from the constructed `DesktopDriver`. Its `inputTool` object records the actual private artifact version, executable SHA256, pinned upstream commit and archive SHA256, artifact paths, and the live memfd seal bits/names plus whether all four required seals are present. These values describe the emitter image held by that exact driver instance, rather than only the module constant.
+ 
+ ## Execution after sole GUI authority transfers
+ 
+ Run from the repository root only after the parent explicitly transfers GUI authority to the operator. The `certificate-only` mode creates and certifies the real GTK target under the production global desktop lease, then closes the target and driver and records target/group reaping plus lease release. It does not start an observer or issue a ticket, focus call, capture, pointer/key/button action, or human prompt. It never substitutes an evidence-directory or test lease. If production owns the global lease, the attempt fails rather than using another path.
+ 
+@@ -39,16 +55,24 @@
+ 
+ ```sh
+ uv run python .archive/executor-review/owned-gesture-proof.py \
+   --mode certificate-only \
+   --display :0 \
+   --xauthority /verified/path/to/Xauthority \
+   --evidence-dir ~/.local/state/crowley/executor-evidence/owned-gesture-proof
+ ```
++
++For a separately authorized diagnostic seed, use `--mode seed-only` with the
++same explicit display, Xauthority, and evidence directory. It measures the
++pointer first, chooses a distinct certified interior endpoint, records the
++complete raw/delivered trace and post-pointer position, and stops before any
++click or hold. A process error, no-op, endpoint mismatch, unpaired raw record,
++or observer violation is a failed diagnostic; it cannot produce calibration
++acceptance.
+ 
+ The helper records the actual production lease path and source hashes in the private receipt. Its diagnostic log contains unmodified production command results and the untruncated tree plus measured GTK-client/Mutter-frame properties and immediate-child facts. The logger forwards each verification command's exact arguments and returns the original stdout unchanged.
+ 
+ Only a subsequent separately authorized run may use the synthetic motion/click proof modes. Those require their own complete production source freeze and are not implied by certificate-only success. For that later run, use the same verified display and Xauthority:
+ 
+ ```sh
+ mkdir -p ~/.local/state/crowley/executor-evidence/owned-gesture-proof
+ chmod 700 ~/.local/state/crowley/executor-evidence/owned-gesture-proof

@@ -1,0 +1,463 @@
+--- prezero/src/crowley/session/guardian.py
++++ finalzero/src/crowley/session/guardian.py
+@@ -1139,8 +1139,9 @@
+                     or echo[0] != "MotionEcho"
+                     or any(
+                         isinstance(echo[index], bool) or not isinstance(echo[index], int) or echo[index] <= 0
+-                        for index in (1, 2, 3, 4, 7, 8, 9)
++                        for index in (2, 3, 4, 8, 9)
+                     )
++                    or any(not xi2_timestamp_valid(echo[index]) for index in (1, 7))
+                     or any(
+                         not isinstance(point, (tuple, list))
+                         or len(point) != 2
+--- prezero/.archive/executor-review/test_owned_gesture_proof.py
++++ finalzero/.archive/executor-review/test_owned_gesture_proof.py
+@@ -470,7 +470,18 @@
+             )
+ 
+         def issue_calibration_ticket(self, _target: object) -> object:
+-            return SimpleNamespace(epoch=1)
++            return SimpleNamespace(
++                epoch=1,
++                target_pid=70201,
++                target_xid=0x600119,
++                target_xids=frozenset({0x600119}),
++                title="CROWLEY INPUT CALIBRATION ONLY",
++                geometry=(0, 0, 480, 240),
++                managed_frame_xid=0x600118,
++                managed_frame_geometry=(0, 0, 500, 260),
++                target_executable="/tmp/crowley-calibration-target",
++                target_process_start="fixture-start",
++            )
+ 
+         def focus_calibration_target(self, _target: object, *, calibration_ticket: object) -> None:
+             assert calibration_ticket.epoch == 1
+@@ -486,7 +497,14 @@
+     class FakeTarget:
+         pid = 70201
+         xid = 0x600119
++        title = "CROWLEY INPUT CALIBRATION ONLY"
++        geometry = (0, 0, 480, 240)
++        descendant_xids = frozenset({0x600119})
+         allowed_event_target_xids = frozenset({xid})
++        managed_frame_xid = 0x600118
++        managed_frame_geometry = (0, 0, 500, 260)
++        executable = "/tmp/crowley-calibration-target"
++        process_start = "fixture-start"
+         process = SimpleNamespace(poll=lambda: None)
+ 
+     class FakeTargetOwner:
+@@ -507,6 +525,7 @@
+     monkeypatch.setattr(helper, "_make_driver", lambda _args, _modules: (driver, driver.backend))
+     modules = {
+         "calibration": SimpleNamespace(
++            __file__=str(HELPER_PATH),
+             OwnedGtkCalibrationWindow=FakeTargetOwner,
+             xtest_sources=lambda _hierarchy: (5, 4),
+         ),
+@@ -540,48 +559,127 @@
+     xauthority.write_bytes(b"fixture")
+     raw_text = "EVENT type 17 (RawMotion)\n    detail: 1\n\n"
+     reason = "RawMotion: detail must be 0"
++    callback_box: dict[str, object] = {}
++    revoked: list[str] = []
+ 
+     class FakeDriver:
+         def __init__(self) -> None:
+             self.closed = False
+-            self.guardian = SimpleNamespace(
+-                active_process_groups=set(),
+-                observer_process_groups=set(),
+-                _calibration_bootstrap_process_groups=set(),
++            self.guardian = FakeGuardian()
++            self.backend = SimpleNamespace(active_process_groups=set())
++            self._calibration_bootstrap_process_groups: set[int] = set()
++
++        def begin_calibration_operation(self) -> int:
++            return 1
++
++        def input_hierarchy(self) -> tuple[tuple[int, int, str, str], ...]:
++            return ((4, 2, "slave", "XTEST pointer"), (5, 3, "slave", "XTEST keyboard"))
++
++        def admit_calibration_target_process(self, pid: int, release_gate: object):
++            del release_gate
++            self.guardian.active_process_groups.add(pid)
++
++            def cleanup() -> None:
++                self.guardian.active_process_groups.discard(pid)
++
++            return cleanup
++
++        def start_input_observer(self, *, callback: object, **_kwargs: object) -> object:
++            callback_box["callback"] = callback
++            return SimpleNamespace(
++                alive=True,
++                observer=SimpleNamespace(process=SimpleNamespace(pid=70202)),
++                failure_diagnostic={"text": raw_text, "reason": reason},
+             )
+-            self._calibration_bootstrap_process_groups = set()
+-            self.backend = SimpleNamespace(active_process_groups=set())
++
++        def issue_calibration_ticket(self, _target: object) -> object:
++            return SimpleNamespace(
++                epoch=1,
++                target_pid=70201,
++                target_xid=0x600119,
++                target_xids=frozenset({0x600119}),
++                title="CROWLEY INPUT CALIBRATION ONLY",
++                geometry=(0, 0, 480, 240),
++                managed_frame_xid=0x600118,
++                managed_frame_geometry=(0, 0, 500, 260),
++                target_executable="/tmp/crowley-calibration-target",
++                target_process_start="fixture-start",
++            )
++
++        def focus_calibration_target(self, _target: object, *, calibration_ticket: object) -> None:
++            assert calibration_ticket.epoch == 1
++
++        def revoke(self, message: str) -> None:
++            self.guardian.revoke(message)
+ 
+         def close(self) -> None:
+             self.closed = True
++            self.guardian.lease.held = False
++
++    class FakeGuardian:
++        calibration_epoch = 1
++
++        def __init__(self) -> None:
++            self.active_process_groups: set[int] = set()
++            self.observer_process_groups = {70202}
++            self._calibration_bootstrap_process_groups: set[int] = set()
++            self.lease = SimpleNamespace(held=True)
++
++        def revoke(self, message: str) -> None:
++            revoked.append(message)
++
++    class FakeTarget:
++        pid = 70201
++        xid = 0x600119
++        title = "CROWLEY INPUT CALIBRATION ONLY"
++        geometry = (0, 0, 480, 240)
++        descendant_xids = frozenset({0x600119})
++        allowed_event_target_xids = frozenset({xid})
++        managed_frame_xid = 0x600118
++        managed_frame_geometry = (0, 0, 500, 260)
++        executable = "/tmp/crowley-calibration-target"
++        process_start = "fixture-start"
++        process = SimpleNamespace(poll=lambda: None)
++
++    class FakeTargetOwner:
++        def __init__(self, **_kwargs: object) -> None:
++            self.target = FakeTarget()
++            self.command = lambda _argv, **_kwargs: ""
++            self.closed = False
++
++        def create(self, *, startup_admission: object) -> FakeTarget:
++            startup_admission(self.target.pid, lambda: None)
++            return self.target
++
++        def close(self) -> None:
++            self.closed = True
+ 
+     driver = FakeDriver()
+-    context = SimpleNamespace(
+-        driver=driver,
+-        target_owner=SimpleNamespace(close=lambda: None),
+-        backend=driver.backend,
+-        target=SimpleNamespace(pid=70201),
+-        observer=SimpleNamespace(observer=SimpleNamespace(process=SimpleNamespace(pid=70202))),
+-        events=[],
+-        stage_marks=[],
+-        accepted_callbacks=[],
+-        violations=[],
+-        observer_errors=[f"XI2 observer parse failure: {reason}"],
+-        phase_state={"observerDiagnostic": {"text": raw_text, "reason": reason}},
+-    )
++    monkeypatch.setattr(helper, "_make_driver", lambda _args, _modules: (driver, driver.backend))
+     modules = {
+-        name: SimpleNamespace(__file__=str(HELPER_PATH))
+-        for name in ("calibration", "driver", "guardian", "input_tool")
++        "calibration": SimpleNamespace(
++            __file__=str(HELPER_PATH),
++            OwnedGtkCalibrationWindow=FakeTargetOwner,
++            xtest_sources=lambda _hierarchy: (5, 4),
++        ),
++        "events": SimpleNamespace(EventClass=SimpleNamespace(), RawMotionPairing=RawMotionPairing),
+     }
++    modules.update(
++        {name: SimpleNamespace(__file__=str(HELPER_PATH)) for name in ("driver", "guardian", "input_tool")}
++    )
+     captured: dict[str, object] = {}
+     monkeypatch.setattr(helper, "_runtime", lambda: modules)
+-    monkeypatch.setattr(helper, "_prepare_context", lambda _args, _modules: context)
+     monkeypatch.setattr(helper, "_pinned_tool_identity", lambda _driver: {"fixture": True})
+     monkeypatch.setattr(helper, "_post_cleanup_state", lambda _context, _pids: {"clean": True})
+     monkeypatch.setattr(helper, "_write_private", lambda _path, payload: captured.update(payload))
+-    monkeypatch.setattr(
+-        helper, "_positive", lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("proof failed"))
+-    )
++
++    def proof(context: object, _modules: object) -> dict[str, str]:
++        callback = callback_box["callback"]
++        assert callable(callback)
++        callback(None)
++        return {"mode": "positive", "completed": "true"}
++
++    monkeypatch.setattr(helper, "_positive", proof)
+ 
+     status = helper.main(
+         [
+@@ -600,6 +698,7 @@
+     assert captured["status"] == "FAIL"
+     assert captured["observerDiagnostic"] == {"text": raw_text, "reason": reason}
+     assert captured["observerErrors"] == [f"XI2 observer parse failure: {reason}"]
++    assert revoked == [f"XI2 observer parse failure: {reason}"]
+ 
+ 
+ def test_main_identity_failure_cleans_context_before_proof_dispatch(
+--- prezero/tests/test_session_native.py
++++ finalzero/tests/test_session_native.py
+@@ -21,6 +21,7 @@
+ from crowley.session.calibration import (
+     CalibrationError,
+     InputCalibrationEvidence,
++    InputCalibrationWorkflow,
+     LinuxProcStatusVmHwmReset5,
+     NativeCalibrationEvidence,
+     NativeCalibrationRunner,
+@@ -30,6 +31,7 @@
+     NativeRestorationReceipt,
+     NativeResumeBoundary,
+     OwnedGtkCalibrationWindow,
++    OwnedWindow,
+     _parse_xwininfo_geometry,
+ )
+ from crowley.session.driver import (
+@@ -855,6 +857,75 @@
+                 InputCalibrationWorkflow._controlled_echo_proof(pair, window, 5, 4, hierarchy)
+ 
+ 
++def test_guardian_accepts_actual_calibration_card32_wrap_echo_proof(tmp_path: Path) -> None:
++    """The real calibration proof, including MAX→0, is admitted unchanged."""
++
++    window = OwnedWindow(
++        31415,
++        0x600119,
++        "CROWLEY INPUT CALIBRATION ONLY",
++        (0, 0, 480, 240),
++        object(),  # type: ignore[arg-type]
++        frozenset({0x600119}),
++        "/usr/bin/python3",
++        "target-start",
++        0x600118,
++        (0, 0, 500, 260),
++        frozenset({0x600118, 0x600119}),
++    )
++    hierarchy = ((4, 2, "slave", "XTEST pointer"), (7, 2, "slave", "human pointer"))
++
++    def motion(source: int, master: int, timestamp: int) -> object:
++        from crowley.session.input_events import XI2Event
++
++        return XI2Event(
++            6,
++            EventClass.MOTION,
++            source,
++            master,
++            timestamp,
++            None,
++            0x374,
++            0x374,
++            0x600119,
++            (10.0, 20.0),
++            (10.0, 20.0),
++            (0x10, 0, 0),
++            modifier_effective=0x10,
++        )
++
++    proof = InputCalibrationWorkflow._controlled_echo_proof(
++        [motion(4, 4, XI2_TIMESTAMP_MASK), motion(7, 7, 0)],
++        window,
++        5,
++        4,
++        hierarchy,
++    )
++    assert proof[0][1] == 0
++    assert proof[0][7] == XI2_TIMESTAMP_MASK
++
++    guardian = InputGuardian(tmp_path / "guardian-card32-wrap.lock", parent_pid=os.getppid())
++    try:
++        generation = guardian.arm(_evidence())
++        action = guardian.begin_action(
++            generation,
++            target_xid=0x600119,
++            source_device=4,
++            master_device=2,
++            event_classes={"Motion"},
++            device_by_class={"Motion": 4},
++            optional_classes={"Motion"},
++            expected_modifiers=(0x10, 0, 0),
++            echo_proof=proof,
++        )
++        assert guardian.observe(motion(4, 4, XI2_TIMESTAMP_MASK))
++        assert guardian.observe(motion(7, 7, 0))
++        assert action.complete
++        guardian.finish_action(generation, action)
++    finally:
++        guardian.close()
++
++
+ def test_guardian_revoke_increments_generation_releases_input_and_keeps_lease(tmp_path: Path) -> None:
+     released: list[str] = []
+     callbacks: list[tuple[str, int]] = []
+--- prezero/tests/test_session_dispatch.py
++++ finalzero/tests/test_session_dispatch.py
+@@ -839,7 +839,7 @@
+             echo_proof=(
+                 (
+                     "MotionEcho",
+-                    max(1, forwarded_timestamp),
++                    forwarded_timestamp,
+                     7,
+                     7,
+                     target,
+@@ -859,6 +859,59 @@
+         else:
+             assert not guardian.observe(event(7, 7, forwarded_timestamp))
+             assert not guardian.armed
++    finally:
++        guardian.close()
++
++
++@pytest.mark.parametrize(
++    ("timestamp_index", "invalid_timestamp"),
++    (
++        (1, True),
++        (1, -1),
++        (1, XI2_TIMESTAMP_MASK + 1),
++        (7, True),
++        (7, -1),
++        (7, XI2_TIMESTAMP_MASK + 1),
++    ),
++)
++def test_guardian_rejects_invalid_sealed_echo_timestamps(
++    tmp_path: Path, timestamp_index: int, invalid_timestamp: object
++) -> None:
++    guardian = InputGuardian(
++        tmp_path / f"echo-invalid-{timestamp_index}-{invalid_timestamp!s}.lock", parent_pid=os.getppid()
++    )
++
++    class Evidence:
++        is_live = True
++        fingerprint = "owned-invalid-echo"
++
++    echo = [
++        "MotionEcho",
++        5,
++        7,
++        7,
++        0x600119,
++        (10.0, 20.0),
++        (1.0, 2.0),
++        4,
++        4,
++        0x600119,
++    ]
++    echo[timestamp_index] = invalid_timestamp
++    try:
++        generation = guardian.arm(Evidence())
++        with pytest.raises(GuardianError, match="controlled echo proof"):
++            guardian.begin_action(
++                generation,
++                target_xid=0x600119,
++                source_device=4,
++                master_device=2,
++                event_classes={"Motion"},
++                device_by_class={"Motion": 4},
++                optional_classes={"Motion"},
++                expected_modifiers=(0x10, 0, 0),
++                echo_proof=(tuple(echo),),
++            )
+     finally:
+         guardian.close()
+ 
+@@ -1528,6 +1581,7 @@
+     )
+     plan = plan_camera_drag(Point(100, 100), Point(110, 120), Rect(0, 0, 1920, 1080), binding)
+     captured: dict[str, object] = {}
++    call_order: list[str] = []
+ 
+     backend.pointer_position = lambda **_kwargs: (100, 100, identity.child_xid)  # type: ignore[method-assign]
+ 
+@@ -1576,10 +1630,37 @@
+     real_begin_action = driver.guardian.begin_action
+ 
+     def begin_action(generation: int, **kwargs: object):
++        call_order.append("begin")
+         captured.update(kwargs)
+         return real_begin_action(generation, **kwargs)
+ 
+     driver.guardian.begin_action = begin_action  # type: ignore[method-assign]
++
++    real_dispatch_admission = driver.guardian.dispatch_admission
++
++    def dispatch_admission(generation: int, callback: object):
++        call_order.append("dispatch")
++        return real_dispatch_admission(generation, callback)
++
++    driver.guardian.dispatch_admission = dispatch_admission  # type: ignore[method-assign]
++
++    real_check = driver.guardian.check
++
++    def check(generation: int) -> None:
++        call_order.append("check")
++        real_check(generation)
++
++    driver.guardian.check = check  # type: ignore[method-assign]
++
++    real_finish_action = driver.guardian.finish_action
++
++    def finish_action(generation: int, action: object | None = None) -> None:
++        call_order.append("finish")
++        assert driver.guardian.action is not None
++        real_finish_action(generation, action)
++        assert driver.guardian.action is None
++
++    driver.guardian.finish_action = finish_action  # type: ignore[method-assign]
+ 
+     def run_chain(chain: list[str], **kwargs: object) -> SimpleNamespace:
+         captured["chain"] = list(chain)
+@@ -1694,6 +1775,15 @@
+ 
+     backend._run = run_chain  # type: ignore[attr-defined]
+ 
++    real_close = driver.close
++
++    def close() -> None:
++        assert driver.guardian.action is None
++        call_order.append("close")
++        real_close()
++
++    driver.close = close  # type: ignore[method-assign]
++
+     class Monitor:
+         def wait_for_event(self, predicate: object, *, timeout: float) -> None:
+             del timeout
+@@ -1713,7 +1803,7 @@
+     assert captured["expected_modifiers"] == (0x10, 0, 0)
+     assert captured["expected_press_coordinates"] == (100.0, 100.0)
+     assert captured["expected_release_coordinates"] == (110.0, 120.0)
+-    assert captured["expected_motion_trace"]
++    assert captured["expected_motion_trace"] == tuple(trace)
+     assert captured["echo_proof"] == echo_proof
+     assert "RawMotion" in captured["optional_classes"]
+     assert captured["required_sequence"] == (
+@@ -1727,6 +1817,7 @@
+     assert chain[-2:] == ["mouseup", "3"]
+     assert captured["runKwargs"]["input_schema"] == "camera-drag"
+     assert captured["runKwargs"]["expected_argv"] == tuple(chain)
++    assert call_order == ["begin", "dispatch", "check", "finish", "close"]
+ 
+ 
+ @pytest.mark.parametrize("button", (1, 3))

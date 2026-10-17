@@ -7,6 +7,10 @@ local HELP = {
   "/crowley lists - push Crowley shopping lists into Auctionator",
   "/crowley probe - record which AH APIs this client has",
 }
+-- Reserved for the local repeating-session controller.  It is intentionally
+-- absent from help and accepts no arguments; the controller must prove this
+-- exact preparation command before issuing the normal /logout.
+local SESSION_FENCE = "session"
 
 local function status()
   local house = ns.Context.House()
@@ -23,6 +27,12 @@ local function status()
     ns.db.lastSweepAttempted or 0, ns.db.lastSweepPlanned or 0, ns.db.lastSweepFailures or ns.db.failureCount or 0))
   if ns.db.storageBlocked then ns.Print("storage blocked: upload acknowledged sweeps, then /reload again to resume") end
   ns.Print("sweeps upload from SavedVariables on /reload; loaded acknowledgements resume collection after a second /reload")
+
+  if ns.Agent and ns.Scanner.Status then
+    local agent = ns.Scanner.Status()
+    ns.Print(("agent: %s, ordinal %d/%d, pending %d, loaded acks %d"):format(
+      agent.phase, agent.ordinal or 0, agent.planned or 0, #(agent.pending or {}), #(agent.loaded or {})))
+  end
 
   if CROWLEY_DATA.generatedAt > 0 then
     ns.Print(("strategy data: %d min old"):format(math.floor((time() - CROWLEY_DATA.generatedAt) / 60)))
@@ -61,6 +71,29 @@ SlashCmdList.CROWLEY = function(msg)
 
   if cmd == "scan" then
     ns.Scanner.Start(args[2] == "force")
+  elseif cmd == SESSION_FENCE and args[2] == "fence" and not args[3] then
+    local armed, reason = ns.Scanner.PreLogoutFence()
+    if armed then
+      ns.Print("session fence armed: automatic starts revoked")
+    else
+      ns.Print("session fence refused: " .. tostring(reason))
+    end
+  elseif cmd == "agent" and not args[3] and ns.Agent then
+    local ok, reason
+    if args[2] == "hold" then
+      ok, reason = ns.Agent.Hold()
+    elseif args[2] == "measure" then
+      ok, reason = ns.Agent.Measure()
+    elseif args[2] == "resume" then
+      ok, reason = ns.Agent.Resume()
+    end
+    if ok then
+      ns.Print("agent " .. args[2] .. " accepted")
+    elseif reason then
+      ns.Print("agent " .. tostring(args[2]) .. " refused: " .. tostring(reason))
+    else
+      for _, line in ipairs(HELP) do ns.Print(line) end
+    end
   elseif cmd == "status" then
     status()
   elseif cmd == "set" then

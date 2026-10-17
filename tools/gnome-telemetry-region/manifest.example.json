@@ -1,0 +1,28 @@
+{
+  "schema": 1,
+  "producer": "gnome-screenshot",
+  "version": "41.0",
+  "archive_sha256": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597",
+  "debian_archive": "gnome-screenshot_41.0-3.debian.tar.xz",
+  "debian_archive_sha256": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d",
+  "patch_sha256": "0a135ab39ca57e168602cc2ea0a1e403ae69268f6593c1ad41e8d0972c231b9e",
+  "configure": {
+    "x11": "disabled",
+    "buildtype": "release",
+    "mode": "private-prefix-only"
+  },
+  "telemetry_options": {
+    "mode": "--telemetry-region",
+    "rectangle": ["--telemetry-x", "--telemetry-y", "--telemetry-width", "--telemetry-height"],
+    "owner_fd": "--telemetry-owner-fd",
+    "exec_fd": "--telemetry-exec-fd",
+    "nonce": "--telemetry-nonce",
+    "branch": "ScreenshotArea",
+    "flash": false,
+    "exact_size": [256, 256]
+  },
+  "default_binding": "stock-full-desktop-unless-explicit-profile-capability",
+  "binary_sha256": null,
+  "container_image_digest": null,
+  "build_log": null
+}

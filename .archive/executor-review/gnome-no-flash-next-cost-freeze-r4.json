@@ -1,0 +1,152 @@
+{
+  "schema": 1,
+  "freeze_label": "gnome-no-flash-next-cost-r4",
+  "status": "FROZEN_PRIVATE_DIAGNOSTIC_PENDING_REVIEW",
+  "generated_utc": "2026-10-17T04:17:37.291578+00:00",
+  "scope": "private offline diagnostic harness integration only; no live capture, D-Bus activation, desktop input, profile/configuration, production source, host package, service, or runtime changes",
+  "review_required_before_live": true,
+  "boundaries": {
+    "live_capture_performed": false,
+    "screenshot_performed": false,
+    "dbus_activation_performed": false,
+    "desktop_input_performed": false,
+    "production_binding": false,
+    "live_timing_qualified": false,
+    "accepted_stage2_mutated": false,
+    "profile_or_settings_changed": false,
+    "host_packages_changed": false,
+    "source_or_binary_rebuilt_in_r4": false
+  },
+  "canonical": {
+    "harness": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+      "sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6"
+    },
+    "manifest": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-manifest.json",
+      "sha256": "22cec6016af5e34f1f1c2da0828b85fb552f5ee8a849e6b290ee6c8088c7461d"
+    },
+    "plan": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan.md",
+      "sha256": "bd2fb58bf4c3190f6d174fd0bc023a3816ec27d68063c55deba99ec7a0f1374d"
+    },
+    "report": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report.md",
+      "sha256": "35c950ce59edf88c1c4471684d38e4d34173a553c362277ea98c40bc6e3e239e"
+    },
+    "r2_to_r4_delta": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r2-to-r4.diff",
+      "sha256": "a746f0bd3f91e8e91c8be365a4ad6652d78bda16246d746b8e64ed6838869336"
+    },
+    "manifest_interval_fields": [
+      "sampled_empty_pair_total_s",
+      "sampled_empty_pair_max_s"
+    ]
+  },
+  "candidate_canonical_identity": {
+    "candidate": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r4-candidate.py",
+      "sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6"
+    },
+    "canonical": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+      "sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6"
+    },
+    "same_sha256": true
+  },
+  "predecessors": {
+    "r2": {
+      "freeze": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-freeze-r2.json",
+        "sha256": "4445d81e4148a6337cb05042538bc13e3ee95891401d2467e54a0db820eb5f15"
+      },
+      "harness_preserved": {
+        "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r2-preserved.py",
+        "sha256": "86f977d6112e51f6d540c94c26914b6ea9ece33c58d6e28b5cf330fee6c32e38"
+      },
+      "manifest_preserved": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-manifest-r2-preserved.json",
+        "sha256": "a99e3f3858b7797cbf9210f26c4b4a864c24d0dbcb7cd406dcb5976cf8aca7f8"
+      },
+      "plan_preserved": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan-r2-preserved.md",
+        "sha256": "ae8a297ec3e1afa3a3560a0aa0cc691a270d77d03cfc34784997979e6c5f8220"
+      },
+      "report_preserved": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report-r2-preserved.md",
+        "sha256": "12b103ded020087851f7bc231a54a7067133021558d554d77739b9eea71a266c"
+      }
+    },
+    "r3": {
+      "manifest": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r3-draft.json",
+        "sha256": "8c096d18045dd73fa1cfc71232f28770ca936eeb41dc61767bb4940422f433cb"
+      },
+      "candidate_diff": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r3-draft.diff",
+        "sha256": "9deb3683036d3d76c65046c7fbb15ebfbb7d60f1ad4b5e4132066f2fbc770047"
+      },
+      "candidate_report": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r3-draft.md",
+        "sha256": "1b3b1189a34998298b7ee968fce84eda57651a99dfc928476af13a03efc9fea4"
+      },
+      "candidate_harness_sha256": "70743fa2c6beddc4dd681d88d424a87905742130c9ecc1388351ec64f11e6c18"
+    },
+    "r4_draft": {
+      "candidate_preintegration": {
+        "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r4-candidate-preintegration.py",
+        "sha256": "913fa3960cc9275ff6920a6a898a8557a70e1b07a5a83780f89da7a0dd6ef463"
+      },
+      "draft_manifest": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r4-draft.json",
+        "sha256": "daa9e5b6250c5e0f26d696db7bf33d6469e0a6c8e2140ebc4af222415a65b902"
+      },
+      "draft_report": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r4-draft.md",
+        "sha256": "d2c75da85edf337fd96ca55a56ce8b80c63b1a407420b3e6c9f2c5d35e36142f"
+      },
+      "draft_diff": {
+        "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r4-draft.diff",
+        "sha256": "c7e05cad0095e5b1b4c15631d939b02bd29d0e1aba1568b0fd66aa2cbc3ba16e"
+      }
+    }
+  },
+  "private_build": {
+    "binary_path": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/prefix/bin/gnome-screenshot",
+    "binary_sha256": "b988bc4c49251c7951805b0af6ad942dd82d50052feffd338f5f6b72d43b025c",
+    "accepted_stage2_binary_sha256": "45750c8dca51a5f6ec5584be0e807a29a60284cca8a1cb5d13b8a2f45fde6af9",
+    "production_driver_sha256": "14ae6be4a901a17e396e68ac4501238db3d1cc0118c8c34ad6f7107fbcfacfa7",
+    "x11": "disabled",
+    "version": "gnome-screenshot 41.0"
+  },
+  "verification": {
+    "canonical_self_test": "32 passed",
+    "canonical_self_check": "PASS",
+    "canonical_py_compile": "PASS",
+    "self_test_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-canonical/self-test-final.log",
+      "sha256": "5cec19b7013d05ccc26d8f013f847e557f6a0c744ff59b53897e9aadcbed44ad"
+    },
+    "self_check_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-canonical/self-check-final.log",
+      "sha256": "fd78ff1ae719b1a6b0e47504f159922208fa8f3e6b570180c60ce451be8530db"
+    },
+    "py_compile_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-canonical/py-compile-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "consistency_assertions": "PASS: canonical and candidate hashes equal; manifest points to canonical; sampled empty-pair fields are truthful; R2 predecessor hashes retained"
+  },
+  "claims": {
+    "marker_clock": "CLOCK_MONOTONIC",
+    "receipt_schema": 3,
+    "receipt_kind": "gnome-no-flash-next-cost-diagnostic",
+    "max_predeclared_ordinals": 2,
+    "first_complete_stream_stops": true,
+    "second_attempt_only_for_first_missing_or_incomplete_stream": true,
+    "successful_stderr": "driver-decoded text from CompletedProcess, not raw bytes",
+    "backend_exception_stderr": "unavailable when unchanged backend exposes no CompletedProcess; no empty artifact or failure-stage attribution",
+    "sampled_empty_pair_scope": "three named empty adjacent marker pairs only, total/max fields are not a bound for all instrumentation",
+    "no_one_hz_or_native_100_qualification": true
+  }
+}

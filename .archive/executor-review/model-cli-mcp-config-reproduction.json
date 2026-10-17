@@ -1,0 +1,14 @@
+[
+  {
+    "case": "current-incomplete-MCP-override",
+    "exit": 1,
+    "elapsedSeconds": 0.014,
+    "stderr": "Error loading config.toml: invalid transport\nin `mcp_servers.openaiDeveloperDocs`\n\n"
+  },
+  {
+    "case": "no-incomplete-override",
+    "exit": 1,
+    "elapsedSeconds": 0.099,
+    "stderr": "Reading additional input from stdin...\nFailed to read output schema file /tmp/crowley-config-parse-agerjfif/guaranteed-absent.json: No such file or directory (os error 2)\n"
+  }
+]

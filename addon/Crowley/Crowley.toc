@@ -10,5 +10,6 @@ Core.lua
 Context.lua
 Probe.lua
 Scanner.lua
+Agent.lua
 Bridge.lua
 Commands.lua

@@ -1,0 +1,24 @@
+{
+  "method": "unchanged production X11Backend.resolve_identity with measured outer profile",
+  "pid": 641068,
+  "xid": 52428801,
+  "childXid": 33554449,
+  "outerGeometry": [
+    0,
+    0,
+    1928,
+    1092
+  ],
+  "childGeometry": [
+    0,
+    0,
+    1920,
+    1080
+  ],
+  "fingerprint": "697fa4e6bc67468f8f189c7864b4072d4527c95aef78ed67cade9e5899a4ff86",
+  "secondIdentityEqual": true,
+  "secondQueryElapsedSeconds": 0.1624041800005216,
+  "liveProfileChanged": false,
+  "inputSent": false,
+  "sourceChanged": false
+}

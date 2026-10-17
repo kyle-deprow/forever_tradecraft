@@ -1,0 +1,16 @@
+{
+  "fixture": ".archive/executor-review/native-transition-observed.json",
+  "header": "reconstructed from retained class/type; body rawLines unchanged",
+  "parsedEvents": 2,
+  "origin": [
+    873.0,
+    576.0
+  ],
+  "endpoint": [
+    1113,
+    576
+  ],
+  "timestamp": 303971237,
+  "rawPaired": true,
+  "claim": "offline shared parser/decoder smoke only; original native receipt remains FAIL"
+}

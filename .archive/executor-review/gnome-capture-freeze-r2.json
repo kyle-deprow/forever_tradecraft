@@ -1,0 +1,49 @@
+{
+  "baseline_r1": {
+    "actions_test_sha256_unchanged": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413",
+    "freeze": ".archive/executor-review/gnome-capture-freeze-r1.json",
+    "source_sha256": "be4a59cdb7a381143447dc41c35b4c891a46d11a93a9a5f1c039898e2e75f1db",
+    "test_sha256": "d7f4b888e07421e3b13f78e095e931f939841fdd8c1e9258c6f41731fabf4c90"
+  },
+  "changes": [
+    "Added a retained monotonic capture revocation epoch incremented under the backend process lock by release_held_input; capture snapshots and checks it during lock wait, subprocess completion, image polling, final identity, and the lock-protected prepublication os.replace.",
+    "Created each GNOME output in a fresh mode-0700 attempt directory on the destination filesystem; atomically renamed the directory to a retired name before removal so delayed writers cannot recreate the original pathname.",
+    "Kept the exact gnome-screenshot -f argv and admission path while validating PNG signatures, terminal format/dimension failures, Pillow verification, and full decode; accepted desktop dimensions at least as large as the verified client for the existing crop contract.",
+    "Expanded tests with delayed revocation/rearm, lock-wait revocation, attempt privacy and retirement, larger desktop acceptance, immediate wrong-format/undersized refusal, and one-second real-writer refusal budgets."
+  ],
+  "current": {
+    "actions_test_sha256_unchanged": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413",
+    "exact_r2_delta": ".archive/executor-review/gnome-capture-diff-r2.patch",
+    "source_sha256": "14ae6be4a901a17e396e68ac4501238db3d1cc0118c8c34ad6f7107fbcfacfa7",
+    "test_sha256": "9aa1555f22d3c781253092a0903aec1919c7435f32ea78cdbb7b27a81f66c9d7"
+  },
+  "label": "gnome-capture-r2",
+  "limitations": [
+    "No real GUI capture or native calibration was run; production boundary behavior is exercised with owned admission-wrapped writers.",
+    "Parent must independently reproduce and obtain Sol/Opus review before read-only live verification."
+  ],
+  "requirement_to_test": {
+    "existing_r1_lock_identity_and_stale_output_rows": "all retained capture tests in test_session_capture.py",
+    "larger_desktop_crop_contract": "test_larger_desktop_png_is_accepted_for_existing_crop_contract",
+    "late_writer_no_recreation_and_successor": "test_delayed_writer_cannot_recreate_retired_attempt_directory",
+    "lock_wait_revocation": "test_capture_revocation_epoch_blocks_lock_wait_after_rearm",
+    "private_attempt_directory": "test_capture_accepts_owned_writer_that_finishes_after_exit and test_capture_waits_for_partial_png_and_decodes_all_bytes",
+    "real_writer_refusal_budget": "test_capture_refuses_missing_or_truncated_output_by_deadline and test_old_destination_cannot_satisfy_a_failed_new_capture",
+    "retained_revocation_after_rearm": "test_capture_revocation_epoch_blocks_delayed_writer_after_rearm",
+    "terminal_wrong_format_or_size": "test_wrong_format_or_size_refuses_without_waiting_for_deadline"
+  },
+  "scope": [
+    "src/crowley/session/driver.py",
+    "tests/test_session_capture.py"
+  ],
+  "verification": {
+    "focused_command": "env -u CROWLEY_TEST_DATABASE_URL uv run pytest -q tests/test_session_capture.py tests/test_session_driver_actions.py",
+    "focused_exit": ".archive/executor-review/gnome-capture-focused-r2.exit",
+    "focused_log": ".archive/executor-review/gnome-capture-focused-r2.log",
+    "focused_result": "42 passed in 12.48s",
+    "static_command": "uv run ruff check src/crowley/session/driver.py tests/test_session_capture.py; uv run ruff format --check src/crowley/session/driver.py tests/test_session_capture.py; uv run python -m py_compile src/crowley/session/driver.py tests/test_session_capture.py",
+    "static_exit": ".archive/executor-review/gnome-capture-static-r2.exit",
+    "static_log": ".archive/executor-review/gnome-capture-static-r2.log",
+    "static_result": "ruff check passed; 2 files already formatted; py_compile passed"
+  }
+}

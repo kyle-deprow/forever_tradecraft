@@ -1,0 +1,71 @@
+{
+  "baseline_provenance": {
+    "original_source_hash": "not-captured-before-edit",
+    "original_source_hash_note": "The pre-edit source was not separately hashed; the timestamp pyc preserved before the edit is recorded for provenance.",
+    "pre_edit_pyc_path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/__pycache__/native-handshake-once.cpython-312.pyc",
+    "pre_edit_pyc_sha256": "5f78f1bc8a9af329c91582b1cab85236fc7c97e68975b5c1c71571207d605b6d",
+    "pre_edit_source_header": {
+      "mtime_epoch": 1792202012,
+      "size_bytes": 9300
+    }
+  },
+  "checks": {
+    "ast_parse": "passed",
+    "button_negative_mae": 37.85410435360585,
+    "button_positive_mae": 0.0,
+    "button_threshold": 5.0,
+    "full_operator_run": "not executed by this worker",
+    "line_count_under_250": true,
+    "mutation_attempts": {
+      "input": 0,
+      "kernel-reset": 0,
+      "native-bootstrap": 0,
+      "native-calibrate": 0,
+      "status": 1
+    },
+    "preflight_command": "uv run python /home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-once.py --preflight-only",
+    "py_compile": "passed",
+    "read_only_preflight": "passed",
+    "read_only_receipt": ".archive/executor-review/native-handshake-read-only-preflight-receipt.json",
+    "read_only_result": "preflight_pass",
+    "ruff_semantic_F_E9": "passed",
+    "static_contract": {
+      "bootstrap_calibrate_same_path": true,
+      "cleanup_finally": true,
+      "identity_bound_before_capture": true,
+      "line_count": 242,
+      "no_desktopdriver": true,
+      "no_extra_update_capture": true,
+      "no_kernel_reset": true,
+      "phase_command_literals_once": true,
+      "positive_negative_match": true,
+      "preflight_explicit_read_only_backend": true,
+      "preflight_no_input_dispatch": true,
+      "profile_geometry_bound": true,
+      "single_enter_click": true,
+      "thirty_second_readiness": true,
+      "under_250": true,
+      "unique_attempt_dir": true
+    }
+  },
+  "conceptual_diff": [
+    "derive DISPLAY and XAUTHORITY from the sole current Xwayland process before config/backend construction",
+    "use GNOME shell userbus/XDG values only when the Xwayland environment lacks them",
+    "create a unique 0700 timestamped attempt directory and atomic 0600 receipt updates",
+    "add --preflight-only with a read-only X11 backend shim, status/identity/GNOME capture only, and zero mutation/input/reset attempts",
+    "bind fresh 1920x1080 profile geometry and exact client/outer identity before captures or control matching",
+    "benchmark a fresh positive and synthetic negative Enter World match, then use the same identity-bound match before the single pinned XTEST click",
+    "chain native-bootstrap to native-calibrate without an intervening status/model turn and enforce 30-second readiness phases plus 130-second 100-update wait",
+    "dispatch hold, measure, and resume once at their published flags; assert no captures during the exact100 update phase"
+  ],
+  "helper_line_count": 242,
+  "helper_mode": "0o700",
+  "helper_path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-once.py",
+  "helper_sha256": "eaa14f0ab6766502f1cccca95fb5ca3a0875bf92b4b46aadc2f27136084c7ac9",
+  "preserved_failed_receipts": [
+    "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-20261017T015502Z-pid641068/receipt.json",
+    "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-20261017T015544Z-pid641068/receipt.json"
+  ],
+  "scope": "private helper and review artifacts only; no repository source/profile/service/game/config/git changes",
+  "task": "private-native-handshake-helper"
+}

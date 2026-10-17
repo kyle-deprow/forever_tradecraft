@@ -1,0 +1,51 @@
+{
+  "baseline": {
+    "source_sha256": "abbcd0a7e778f72288ce4e651be34b7c8328b167724fe6546307226641f3477b",
+    "source_snapshot": ".archive/executor-review/transition-r12-source-snapshot/src__crowley__session__driver.py.txt",
+    "test_session_driver_actions_sha256_unchanged": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413"
+  },
+  "current": {
+    "exact_patch": ".archive/executor-review/gnome-capture-diff-r1.patch",
+    "new_test_sha256": "d7f4b888e07421e3b13f78e095e931f939841fdd8c1e9258c6f41731fabf4c90",
+    "source_added_lines": 155,
+    "source_removed_lines": 15,
+    "source_sha256": "be4a59cdb7a381143447dc41c35b4c891a46d11a93a9a5f1c039898e2e75f1db"
+  },
+  "implementation": [
+    "Private 0700 user capture directory and 0600 regular lock path checks with O_NOFOLLOW.",
+    "Nonblocking cross-process flock acquisition bounded by the caller deadline; release in finally without unlinking the shared inode.",
+    "Unique .capture.png staging output preserves the existing gnome-screenshot -f argv and prevents stale destination reuse.",
+    "Strict Pillow PNG verify plus full decode and exact client dimensions before atomic os.replace publication.",
+    "Identity and publication deadline checks remain fail-closed; staging evidence is removed on all failures."
+  ],
+  "label": "gnome-capture-r1",
+  "limitations": [
+    "No real GUI capture or native calibration was run; this validates the production boundary with owned subprocess writers only.",
+    "Parent must independently reproduce and review before any read-only live verification."
+  ],
+  "requirement_to_test": {
+    "cross_process_serialization": "test_capture_lock_serializes_independent_processes",
+    "deadline_without_screenshot": "test_lock_contention_consumes_deadline_without_invoking_screenshot",
+    "exit_before_creation": "test_capture_accepts_owned_writer_that_finishes_after_exit asserts no stage at _run return",
+    "failure_cleanup_and_successor": "test_failed_capture_releases_lock_for_successor",
+    "final_identity_drift": "test_identity_change_after_complete_output_refuses_publication",
+    "lock_path_safety": "test_capture_lock_rejects_a_symlinked_lock_path",
+    "missing_or_truncated_refusal": "test_capture_refuses_missing_or_truncated_output_by_deadline",
+    "partial_png_completion": "test_capture_waits_for_partial_png_and_decodes_all_bytes asserts 24-byte stage at _run return and full decode after append",
+    "stale_destination": "test_old_destination_cannot_satisfy_a_failed_new_capture"
+  },
+  "scope": [
+    "src/crowley/session/driver.py",
+    "tests/test_session_capture.py"
+  ],
+  "verification": {
+    "focused_command": "env -u CROWLEY_TEST_DATABASE_URL uv run pytest -q tests/test_session_capture.py tests/test_session_driver_actions.py",
+    "focused_exit": ".archive/executor-review/gnome-capture-focused-r1.exit",
+    "focused_log": ".archive/executor-review/gnome-capture-focused-r1.log",
+    "focused_result": "36 passed in 7.98s",
+    "static_command": "uv run ruff check src/crowley/session/driver.py tests/test_session_capture.py; uv run ruff format --check src/crowley/session/driver.py tests/test_session_capture.py; uv run python -m py_compile src/crowley/session/driver.py tests/test_session_capture.py",
+    "static_exit": ".archive/executor-review/gnome-capture-static-r1.exit",
+    "static_log": ".archive/executor-review/gnome-capture-static-r1.log",
+    "static_result": "ruff check passed; 2 files already formatted; py_compile passed"
+  }
+}

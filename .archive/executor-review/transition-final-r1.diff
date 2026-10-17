@@ -1,0 +1,4097 @@
+--- baseline/.archive/executor-review/owned-gesture-proof.md
++++ transition/.archive/executor-review/owned-gesture-proof.md
+@@ -42,6 +42,26 @@
+ A retained live seed receipt must include the complete raw block and following
+ delivered endpoint before any later input is allowed; seed-only remains
+ diagnostic and does not claim live calibration.
++
++For every canonical source-4 Motion, the native root/event coordinates are the
++pre-transition origin. The exact integer-valued valuator axes 0 and 1 are the
++delivered endpoint used for trajectory, post-pointer, and echo checks. Raw and
++primary records are consumed by one forward FIFO pair at a time; a primary
++cannot be reused for a later raw record, and a forwarded echo must match the
++latest accepted primary endpoint. The first delivered origin must equal the
++fresh owned pointer query, and each following origin must equal the immediately
++preceding accepted endpoint; the helper never skips or coalesces planned
++samples. The helper preserves both coordinate forms
++and the complete native text in its receipt so a failed trace remains
++auditable.
++
++The synthetic producer records an owned pointer query immediately before the
++absolute move and an exact post-move query before the button phase. Both
++windows must remain in the certified GTK target, the requested endpoint must
++equal the measured post endpoint, and the query tuple is carried into the
++sealed evidence alongside the canonical transition. An origin outside the
++target fails before any motion command; the helper's seed mode follows the
++same rule and never warps to manufacture an origin.
+ 
+ XI2 server timestamps are CARD32 values. Runtime pairing, Guardian arrival
+ ordering, calibration sequence and echo correlation, and helper duration checks
+--- baseline/.archive/executor-review/owned-gesture-proof.py
++++ transition/.archive/executor-review/owned-gesture-proof.py
+@@ -258,9 +258,10 @@
+         "childXid": event.child_xid,
+         "rootXY": event.root_xy,
+         "eventXY": event.event_xy,
++        "valuators": getattr(event, "valuators", ()),
+         "modifiers": event.modifiers,
+         "modifierEffective": event.modifier_effective,
+-        "rawLines": [str(line)[:512] for line in raw_lines[:64]],
++        "rawLines": [str(line) for line in raw_lines],
+     }
+ 
+ 
+@@ -541,6 +542,7 @@
+         "motionBaseline": set(),
+         "motionAdmitted": False,
+         "rawMotionPairing": input_events.RawMotionPairing(),
++        "xtestProfile": None,
+     }
+ 
+     def mark_stage(name: str, **details: Any) -> None:
+@@ -571,6 +573,12 @@
+         target_owner.command = recorder
+         driver.begin_calibration_operation()
+         hierarchy = tuple(driver.input_hierarchy())
++        profile_reader = getattr(driver, "xtest_input_profile", None)
++        xtest_profile = profile_reader(hierarchy) if callable(profile_reader) else None
++        if xtest_profile is None:
++            raise ProofError("live XTEST pointer source has no sealed input profile")
++        xtest_profile.verify()
++        phase_state["xtestProfile"] = xtest_profile
+         key_source, pointer_source = calibration.xtest_sources(hierarchy)
+         pointer_master = next(
+             (parent for device, parent, _role, _name in hierarchy if device == pointer_source),
+@@ -685,7 +693,15 @@
+                     and arrival_motion_admitted
+                 )
+                 if valid_raw_motion:
+-                    if not phase_state["rawMotionPairing"].queue_raw(event.timestamp_ms):
++                    rows = {axis: value for axis, value, _raw in getattr(event, "valuators", ())}
++                    if set(rows) != {0, 1} or any(
++                        not math.isfinite(value) or not value.is_integer() for value in rows.values()
++                    ):
++                        reject("raw motion lacks exact finite XTEST valuators")
++                        return
++                    if not phase_state["rawMotionPairing"].queue_raw(
++                        event.timestamp_ms, (int(rows[0]), int(rows[1]))
++                    ):
+                         reject("raw motion was not a forward one-to-one pair")
+                     return
+                 if not valid_raw_button:
+@@ -710,11 +726,33 @@
+                     if event.master_device != pointer_source or arrival_phase != "synthetic-motion":
+                         reject(f"XTEST motion arrived outside its admitted motion phase: {arrival_phase}")
+                         return
++                    pending_endpoint = (
++                        phase_state["rawMotionPairing"].pending_endpoints[0]
++                        if phase_state["rawMotionPairing"].pending_endpoints
++                        else None
++                    )
++                    try:
++                        transition = input_events.decode_xtest_motion_transition(
++                            event,
++                            expected_source=pointer_source,
++                            expected_parent=pointer_master,
++                            expected_root_xid=phase_state["xtestProfile"].root_xid,
++                            expected_child_xids=target.allowed_event_target_xids,
++                            planned_endpoint=pending_endpoint,
++                        )
++                    except Exception as exc:
++                        reject(f"canonical XTEST motion transition was malformed: {exc}")
++                        return
++                    prior_endpoint = phase_state.get("lastAcceptedEndpoint")
++                    if prior_endpoint is not None and transition.origin_root != prior_endpoint:
++                        reject("canonical XTEST motion origin did not match the last accepted endpoint")
++                        return
+                     if not phase_state["rawMotionPairing"].observe_delivered(event.timestamp_ms):
+                         reject(
+                             "raw motion was not paired one-to-one with the following same-timestamp delivery"
+                         )
+                         return
++                    phase_state["lastAcceptedEndpoint"] = transition.endpoint_root
+                     return
+                 if event.source_device == key_source:
+                     reject("synthetic keyboard source emitted an unexpected motion")
+@@ -925,6 +963,21 @@
+     )
+ 
+ 
++def _motion_endpoint(context: ProofContext, event: Any) -> tuple[float, float] | None:
++    """Return the delivered endpoint, not the primary's pre-move origin."""
++
++    phase_state = getattr(context, "phase_state", {})
++    profile = phase_state.get("xtestProfile") if isinstance(phase_state, dict) else None
++    if profile is None or event.source_device != context.pointer_source:
++        return event.root_xy
++    rows = {axis: value for axis, value, _raw in getattr(event, "valuators", ())}
++    if set(rows) != {0, 1} or any(
++        not math.isfinite(value) or not value.is_integer() for value in rows.values()
++    ):
++        raise ProofError("canonical XTEST motion lacks exact finite endpoint valuators")
++    return float(int(rows[0])), float(int(rows[1]))
++
++
+ def _wait_until(predicate: Any, *, timeout: float, description: str) -> None:
+     deadline = time.monotonic() + timeout
+     while not predicate():
+@@ -1018,6 +1071,7 @@
+         context.phase_state["motionAdmitted"] = False
+         context.phase_state["motionBaseline"] = set(context.backend.active_process_groups)
+         context.phase_state["rawMotionPairing"] = type(context.phase_state["rawMotionPairing"])()
++        context.phase_state["lastAcceptedEndpoint"] = context.phase_state.get("motionOrigin")
+         context.stage_marks.append({"name": f"phase-{phase}", "monotonicNs": time.monotonic_ns()})
+ 
+ 
+@@ -1028,6 +1082,7 @@
+         context.phase_state["motionAdmitted"] = False
+         context.phase_state["motionEventBaseline"] = baseline
+         context.phase_state["rawMotionPairing"] = type(context.phase_state["rawMotionPairing"])()
++        context.phase_state["lastAcceptedEndpoint"] = context.phase_state.get("motionOrigin")
+         context.stage_marks.append(
+             {"name": "phase-synthetic-motion-begin", "monotonicNs": time.monotonic_ns()}
+         )
+@@ -1057,7 +1112,10 @@
+     from crowley.session.input_events import (
+         RAW_MOTION_DETAIL,
+         RawMotionPairing,
+-    )
++        decode_xtest_motion_transition,
++    )
++
++    profile = getattr(context, "phase_state", {}).get("xtestProfile")
+ 
+     raw_motion = [event for event in events if event.event_class.value == "RawMotion" and event.is_raw]
+     if raw_motion:
+@@ -1072,10 +1130,37 @@
+                     or event.detail != RAW_MOTION_DETAIL
+                 ):
+                     raise ProofError("raw motion record lacks the measured source/master contract")
+-                if not raw_motion_pairing.queue_raw(event.timestamp_ms):
++                rows = {axis: value for axis, value, _raw in getattr(event, "valuators", ())}
++                endpoint = None
++                if profile is not None:
++                    if set(rows) != {0, 1} or any(
++                        not math.isfinite(value) or not value.is_integer() for value in rows.values()
++                    ):
++                        raise ProofError("raw motion lacks exact finite XTEST valuators")
++                    endpoint = (int(rows[0]), int(rows[1]))
++                if not raw_motion_pairing.queue_raw(event.timestamp_ms, endpoint):
+                     raise ProofError("raw motion record is not a forward one-to-one pair")
+                 continue
+             if event_class == "Motion" and event.source_device == context.pointer_source:
++                if profile is not None:
++                    pending_endpoint = (
++                        raw_motion_pairing.pending_endpoints[0]
++                        if raw_motion_pairing.pending_endpoints
++                        else None
++                    )
++                    if pending_endpoint is None:
++                        raise ProofError("primary XTEST motion has no preceding raw endpoint")
++                    try:
++                        decode_xtest_motion_transition(
++                            event,
++                            expected_source=context.pointer_source,
++                            expected_parent=context.pointer_master,
++                            expected_root_xid=profile.root_xid,
++                            expected_child_xids=context.target.allowed_event_target_xids,
++                            planned_endpoint=pending_endpoint,
++                        )
++                    except Exception as exc:
++                        raise ProofError(f"primary XTEST motion transition is malformed: {exc}") from exc
+                 if not raw_motion_pairing.observe_delivered(event.timestamp_ms):
+                     raise ProofError(
+                         "raw motion record is not paired one-to-one with the following "
+@@ -1092,6 +1177,8 @@
+     ]
+     if not motions:
+         raise ProofError("no primary XTEST motion records were available for controlled echo validation")
++    if profile is not None and not raw_motion:
++        raise ProofError("canonical XTEST motion proof has no raw ancestry records")
+     for event in motions:
+         if (
+             event.master_device != context.pointer_source
+@@ -1105,18 +1192,24 @@
+         ):
+             raise ProofError("primary XTEST motion record lacks the exact target/device/coordinate contract")
+     cursor = 0
++    phase_state = getattr(context, "phase_state", {})
++    prior_endpoint = phase_state.get("lastAcceptedEndpoint") if isinstance(phase_state, dict) else None
+     for event in motions:
+-        while cursor < len(expected_points) and not _same_point(event.root_xy, expected_points[cursor]):
+-            cursor += 1
+-        if cursor >= len(expected_points):
++        endpoint = _motion_endpoint(context, event)
++        if cursor >= len(expected_points) or not _same_point(endpoint, expected_points[cursor]):
+             raise ProofError("primary XTEST motion escaped the ordered production trace")
++        if prior_endpoint is not None and event.root_xy != prior_endpoint:
++            raise ProofError("primary XTEST motion origin did not match the last accepted endpoint")
++        if profile is not None and prior_endpoint is not None and event.event_xy != prior_endpoint:
++            raise ProofError("primary XTEST motion event origin did not match the last accepted endpoint")
+         cursor += 1
++        prior_endpoint = endpoint
+     if require_endpoint:
+         metrics = _validate_motion(context, events, expected_points, planned_duration)
+         metrics["rawMotionCount"] = len(raw_motion)
+         return metrics
+-    if not _same_point(motions[-1].root_xy, expected_points[-1]):
+-        if any(_same_point(event.root_xy, expected_points[-1]) for event in motions):
++    if not _same_point(_motion_endpoint(context, motions[-1]), expected_points[-1]):
++        if any(_same_point(_motion_endpoint(context, event), expected_points[-1]) for event in motions):
+             raise ProofError("cancelled motion later revisited the planned endpoint")
+     return {
+         "partial": True,
+@@ -1147,6 +1240,17 @@
+             {"name": "phase-motion-validation-begin", "monotonicNs": time.monotonic_ns()}
+         )
+     try:
++        profile = context.phase_state.get("xtestProfile")
++        transitions = ()
++        if profile is not None:
++            transitions = context.calibration.InputCalibrationWorkflow._canonical_motion_transitions(
++                events,
++                context.target,
++                profile,
++            )
++            endpoints = [tuple(row[10]) for row in transitions]
++            if any(endpoint not in expected_points for endpoint in endpoints):
++                raise ProofError("profile-bound XTEST endpoint escaped the ordered production trace")
+         primary = _validate_primary_motion_records(
+             context,
+             events,
+@@ -1160,6 +1264,7 @@
+             context.key_source,
+             context.pointer_source,
+             context.hierarchy,
++            profile,
+         )
+     except Exception as exc:
+         reason = f"production controlled motion proof failed: {type(exc).__name__}: {exc}"
+@@ -1290,13 +1395,11 @@
+         raise ProofError("observed XI2 motion timestamps are not forward in the CARD32 domain")
+     cursor = 0
+     for event in motions:
+-        root = event.root_xy
+-        while cursor < len(expected_points) and not _same_point(root, expected_points[cursor]):
+-            cursor += 1
+-        if cursor >= len(expected_points):
++        root = _motion_endpoint(context, event)
++        if cursor >= len(expected_points) or not _same_point(root, expected_points[cursor]):
+             raise ProofError("observed delivered motion escaped the ordered production trace")
+         cursor += 1
+-    if not _same_point(motions[-1].root_xy, expected_points[-1]):
++    if not _same_point(_motion_endpoint(context, motions[-1]), expected_points[-1]):
+         raise ProofError("observed delivered motion did not reach the planned endpoint")
+     elapsed = xi2_timestamp_elapsed(motions[0].timestamp_ms, motions[-1].timestamp_ms)
+     if elapsed is None:
+@@ -1312,8 +1415,8 @@
+         "observedDurationSeconds": observed_duration,
+         "plannedPoints": expected_points,
+         "observedMotion": [_event_payload(event) for event in motions],
+-        "observedEndpointRootXY": motions[-1].root_xy,
+-        "observedEndpointEventXY": motions[-1].event_xy,
++        "observedEndpointRootXY": _motion_endpoint(context, motions[-1]),
++        "observedEndpointEventXY": _motion_endpoint(context, motions[-1]),
+     }
+ 
+ 
+@@ -1354,34 +1457,15 @@
+ 
+ 
+ def _ensure_pointer_seed(context: ProofContext) -> tuple[int, int]:
+-    """Place the pointer at one fixed owned target interior point if needed."""
++    """Require the measured pointer start to already belong to the target."""
+ 
+     left, top, width, height = context.target.geometry
+-    x, y, _window = context.backend.pointer_position()
++    x, y, window = context.backend.pointer_position()
++    if window not in context.target.allowed_event_target_xids:
++        raise ProofError("native pointer start is outside the certified GTK target")
+     if not (left <= x < left + width and top <= y < top + height):
+-        seed_chain = ["xdotool", "mousemove", str(left + width // 4), str(top + height // 2)]
+-        seed_baseline = len(context.events)
+-        _run_seed_chain(context, seed_chain, seed_baseline)
+-        seed_points = _chain_motion_points(seed_chain)
+-        _wait_until(
+-            lambda: any(
+-                event.source_device == context.pointer_source
+-                and event.event_class.value == "Motion"
+-                and _same_point(event.root_xy, seed_points[-1])
+-                for event in _events_since(context, seed_baseline)
+-            ),
+-            timeout=2.0,
+-            description="pointer seed did not deliver its primary XTEST endpoint",
+-        )
+-        _verify_controlled_motion_phase(
+-            context,
+-            seed_baseline,
+-            seed_points,
+-            planned_duration=0.0,
+-        )
+-    x, y, _window = context.backend.pointer_position()
+-    if not (left <= x < left + width and top <= y < top + height):
+-        raise ProofError("native pointer could not be placed inside the certified GTK target")
++        raise ProofError("native pointer start is outside the certified GTK target geometry")
++    context.phase_state["motionOrigin"] = (int(x), int(y))
+     return x - left, y - top
+ 
+ 
+@@ -1405,7 +1489,17 @@
+     """Run one owned pointer seed for diagnostics without a click or hold."""
+ 
+     start_x, start_y, _window = context.backend.pointer_position()
++    if _window not in context.target.allowed_event_target_xids:
++        raise ProofError("seed-only pointer start is outside the certified GTK target")
++    left, top, width, height = context.target.geometry
++    if not (left <= start_x < left + width and top <= start_y < top + height):
++        raise ProofError("seed-only pointer start is outside the certified GTK target geometry")
+     start = (float(start_x), float(start_y))
++    phase_state = getattr(context, "phase_state", None)
++    if not isinstance(phase_state, dict):
++        phase_state = {}
++        context.phase_state = phase_state
++    phase_state["motionOrigin"] = (int(start_x), int(start_y))
+     point = _seed_endpoint(context.target.geometry, start)
+     if _same_point(start, point):
+         raise ProofError("seed-only endpoint was not distinct from the measured pointer start")
+@@ -1417,10 +1511,6 @@
+         "postPointer": None,
+         "process": None,
+     }
+-    phase_state = getattr(context, "phase_state", None)
+-    if not isinstance(phase_state, dict):
+-        phase_state = {}
+-        context.phase_state = phase_state
+     phase_state["seedOnly"] = seed_evidence
+     try:
+         _pid, result = _run_seed_chain(context, chain, baseline)
+@@ -1450,7 +1540,7 @@
+         lambda: any(
+             event.event_class.value == "Motion"
+             and event.source_device == context.pointer_source
+-            and _same_point(event.root_xy, points[-1])
++            and _same_point(_motion_endpoint(context, event), points[-1])
+             for event in _events_since(context, baseline)
+         ),
+         timeout=2.0,
+@@ -1458,6 +1548,8 @@
+     )
+     motion = _verify_controlled_motion_phase(context, baseline, points, planned_duration=0.0)
+     post_x, post_y, post_window = context.backend.pointer_position()
++    if post_window not in context.target.allowed_event_target_xids:
++        raise ProofError("seed-only pointer postcondition left the certified GTK target")
+     post = (float(post_x), float(post_y))
+     if not _same_point(post, point):
+         raise ProofError("seed-only pointer did not finish at the requested certified endpoint")
+@@ -1502,7 +1594,8 @@
+             [
+                 event
+                 for event in _pointer_events(context, _events_since(context, baseline))
+-                if event.event_class.value == "Motion" and _same_point(event.root_xy, points[-1])
++                if event.event_class.value == "Motion"
++                and _same_point(_motion_endpoint(context, event), points[-1])
+             ]
+         ),
+         timeout=2.0,
+@@ -1576,6 +1669,7 @@
+             pointer=True,
+             require_motion=True,
+             expected_detail=1,
++            xtest_profile=context.phase_state.get("xtestProfile"),
+         )
+     except Exception as exc:
+         reason = f"production pointer sequence validation failed: {type(exc).__name__}: {exc}"
+@@ -1677,7 +1771,7 @@
+         require_endpoint=False,
+     )
+     observed = _pointer_events(context, _events_since(context, baseline))
+-    if observed and _same_point(observed[-1].root_xy, expected_points[-1]):
++    if observed and _same_point(_motion_endpoint(context, observed[-1]), expected_points[-1]):
+         raise ProofError("mid-path cancellation unexpectedly delivered the planned endpoint")
+     if context.driver.guardian.held or getattr(context.backend, "_held_buttons", set()):
+         raise ProofError("mid-path cancellation left a held input set")
+@@ -1718,7 +1812,7 @@
+     points = _chain_motion_points(motion_chain)
+     _wait_until(
+         lambda: any(
+-            event.event_class.value == "Motion" and _same_point(event.root_xy, points[-1])
++            event.event_class.value == "Motion" and _same_point(_motion_endpoint(context, event), points[-1])
+             for event in _pointer_events(context, _events_since(context, motion_baseline))
+         ),
+         timeout=2.0,
+--- baseline/.archive/executor-review/test_owned_gesture_proof.py
++++ transition/.archive/executor-review/test_owned_gesture_proof.py
+@@ -1,8 +1,7 @@
+ from __future__ import annotations
+ 
+-import fcntl
++import hashlib
+ import importlib.util
+-import os
+ import sys
+ import threading
+ import time
+@@ -12,7 +11,7 @@
+ 
+ import pytest
+ 
+-from crowley.session.input_events import RAW_MOTION_DETAIL, RawMotionPairing
++from crowley.session.input_events import RAW_MOTION_DETAIL, EventClass, RawMotionPairing, XI2Event
+ 
+ HELPER_PATH = Path(__file__).with_name("owned-gesture-proof.py")
+ 
+@@ -26,38 +25,26 @@
+     return module
+ 
+ 
+-def test_pinned_identity_uses_constructed_driver_backend_tool(tmp_path: Path) -> None:
+-    from crowley.session.input_tool import _memfd_create
+-
+-    helper = _helper_module()
+-    fd = _memfd_create()
++def test_pinned_identity_uses_constructed_driver_tool(tmp_path: Path) -> None:
++    from crowley.session.driver import DesktopDriver, DriverProfile, X11Backend
++    from crowley.session.input_tool import ArtifactIdentity, PinnedInputTool
++
++    helper = _helper_module()
++    executable = tmp_path / "crowley-xdotool"
++    executable.write_bytes(b"fixture-image")
++    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
++    artifact = ArtifactIdentity(tmp_path, executable, digest, "fixture-archive", "fixture-commit")
++    tool = PinnedInputTool(artifact)
++    profile = DriverProfile(display=":0", xauthority=str(tmp_path / "Xauthority"))
++    backend = X11Backend(profile, input_tool=tool)
++    driver = DesktopDriver(profile=profile, backend=backend, lease_path=tmp_path / "lease.lock")
+     try:
+-        os.write(fd, b"fixture-image")
+-        seals = (
+-            getattr(fcntl, "F_SEAL_WRITE", 0x0008)
+-            | getattr(fcntl, "F_SEAL_GROW", 0x0004)
+-            | getattr(fcntl, "F_SEAL_SHRINK", 0x0002)
+-            | getattr(fcntl, "F_SEAL_SEAL", 0x0001)
+-        )
+-        fcntl.fcntl(fd, getattr(fcntl, "F_ADD_SEALS", 1033), seals)
+-        tool = SimpleNamespace(
+-            image=SimpleNamespace(fd=fd),
+-            version="fixture-version",
+-            digest="fixture-digest",
+-            identity=SimpleNamespace(
+-                commit="fixture-commit",
+-                archive_sha256="fixture-archive",
+-                root=tmp_path,
+-                executable=tmp_path / "crowley-xdotool",
+-            ),
+-        )
+-        driver = SimpleNamespace(backend=SimpleNamespace(input_tool=tool), driver_version="fixture-driver")
+         identity = helper._pinned_tool_identity(driver)
+-        assert identity["driverInstanceVersion"] == "fixture-driver"
+-        assert identity["inputTool"]["version"] == "fixture-version"
++        assert identity["driverInstanceVersion"] == driver.driver_version
++        assert identity["inputTool"]["version"] == tool.version
+         assert identity["inputTool"]["memfd"]["requiredSealsPresent"]
+     finally:
+-        os.close(fd)
++        driver.close()
+ 
+ 
+ def test_raw_motion_pairing_requires_primary_endpoint_and_preserves_valuator_lines() -> None:
+@@ -149,6 +136,74 @@
+         helper._validate_primary_motion_records(
+             context, [raw(timestamp) for timestamp in range(9)], [(10, 20)], require_endpoint=False
+         )
++
++
++def test_primary_motion_helper_requires_strict_next_point_and_owned_origin() -> None:
++    helper = _helper_module()
++
++    def context(origin: tuple[int, int]) -> SimpleNamespace:
++        return SimpleNamespace(
++            pointer_source=4,
++            pointer_master=2,
++            target=SimpleNamespace(allowed_event_target_xids={0x600119}),
++            phase_state={"xtestProfile": SimpleNamespace(root_xid=0x374), "lastAcceptedEndpoint": origin},
++        )
++
++    def records(point: tuple[int, int], origin: tuple[float, float] = (1.0, 2.0)) -> list[XI2Event]:
++        return [
++            XI2Event(
++                type_number=17,
++                event_class=EventClass.RAW_MOTION,
++                master_device=2,
++                source_device=4,
++                timestamp_ms=11,
++                detail=RAW_MOTION_DETAIL,
++                root_xid=None,
++                event_xid=None,
++                child_xid=None,
++                valuators=((0, float(point[0]), float(point[0])), (1, float(point[1]), float(point[1]))),
++            ),
++            XI2Event(
++                type_number=6,
++                event_class=EventClass.MOTION,
++                master_device=4,
++                source_device=4,
++                timestamp_ms=11,
++                detail=RAW_MOTION_DETAIL,
++                root_xid=0x374,
++                event_xid=0x374,
++                child_xid=0x600119,
++                root_xy=origin,
++                event_xy=origin,
++                modifiers=(0, 0, 0),
++                modifier_effective=0,
++                valuators=((0, float(point[0]), float(point[0])), (1, float(point[1]), float(point[1]))),
++            ),
++        ]
++
++    accepted = helper._validate_primary_motion_records(
++        context((1, 2)), records((10, 20)), [(10, 20)], require_endpoint=False
++    )
++    assert accepted["rawMotionCount"] == 1
++    with pytest.raises(helper.ProofError, match="ordered production trace"):
++        helper._validate_primary_motion_records(
++            context((1, 2)), records((11, 21)), [(10, 20), (11, 21)], require_endpoint=False
++        )
++    with pytest.raises(helper.ProofError, match="origin"):
++        helper._validate_primary_motion_records(
++            context((9, 9)), records((10, 20)), [(10, 20)], require_endpoint=False
++        )
++
++
++def test_pointer_seed_rejects_an_unowned_start_window() -> None:
++    helper = _helper_module()
++    context = SimpleNamespace(
++        target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
++        backend=SimpleNamespace(pointer_position=lambda: (120, 120, 0x600118)),
++        phase_state={},
++    )
++    with pytest.raises(helper.ProofError, match="outside the certified GTK target"):
++        helper._ensure_pointer_seed(context)
+ 
+ 
+ def test_seed_endpoint_is_distinct_and_bounded() -> None:
+@@ -278,8 +333,8 @@
+ ) -> None:
+     helper = _helper_module()
+     context = SimpleNamespace(
+-        target=SimpleNamespace(geometry=(0, 0, 480, 240)),
+-        backend=SimpleNamespace(pointer_position=lambda: (120, 120, None), active_process_groups=set()),
++        target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
++        backend=SimpleNamespace(pointer_position=lambda: (120, 120, 0x600119), active_process_groups=set()),
+         events=[],
+         driver=SimpleNamespace(guardian=SimpleNamespace(held=False)),
+         phase_state={},
+@@ -295,15 +350,15 @@
+     evidence = context.phase_state["seedOnly"]
+     assert evidence["startPointer"] == {"x": 120.0, "y": 120.0}
+     assert evidence["requestedEndpoint"] == {"x": 360, "y": 120}
+-    assert evidence["postPointer"] == {"x": 120.0, "y": 120.0, "window": None}
++    assert evidence["postPointer"] == {"x": 120.0, "y": 120.0, "window": 0x600119}
+     assert evidence["process"]["error"] == "DriverError: admission failed"
+ 
+ 
+ def test_seed_only_rejects_noop_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+     helper = _helper_module()
+     context = SimpleNamespace(
+-        target=SimpleNamespace(geometry=(0, 0, 480, 240)),
+-        backend=SimpleNamespace(pointer_position=lambda: (120, 120, None), active_process_groups=set()),
++        target=SimpleNamespace(geometry=(0, 0, 480, 240), allowed_event_target_xids={0x600119}),
++        backend=SimpleNamespace(pointer_position=lambda: (120, 120, 0x600119), active_process_groups=set()),
+         events=[],
+         driver=SimpleNamespace(guardian=SimpleNamespace(held=False)),
+         phase_state={},
+@@ -347,6 +402,9 @@
+ 
+         def input_hierarchy(self):
+             return ((2, 5, "pointer", "fixture"),)
++
++        def xtest_input_profile(self, _hierarchy):
++            return SimpleNamespace(root_xid=1, verify=lambda: None)
+ 
+         def admit_calibration_target_process(self, pid: int, release_gate):
+             release_gate()
+@@ -451,6 +509,9 @@
+ 
+         def input_hierarchy(self) -> tuple[tuple[int, int, str, str], ...]:
+             return ((4, 2, "slave", "XTEST pointer"), (5, 3, "slave", "XTEST keyboard"))
++
++        def xtest_input_profile(self, _hierarchy):
++            return SimpleNamespace(root_xid=1, verify=lambda: None)
+ 
+         def admit_calibration_target_process(self, pid: int, release_gate: object):
+             del release_gate
+@@ -575,6 +636,9 @@
+         def input_hierarchy(self) -> tuple[tuple[int, int, str, str], ...]:
+             return ((4, 2, "slave", "XTEST pointer"), (5, 3, "slave", "XTEST keyboard"))
+ 
++        def xtest_input_profile(self, _hierarchy):
++            return SimpleNamespace(root_xid=1, verify=lambda: None)
++
+         def admit_calibration_target_process(self, pid: int, release_gate: object):
+             del release_gate
+             self.guardian.active_process_groups.add(pid)
+@@ -812,6 +876,9 @@
+         def input_hierarchy(self):
+             return ((2, 5, "pointer", "fixture"),)
+ 
++        def xtest_input_profile(self, _hierarchy):
++            return SimpleNamespace(root_xid=1, verify=lambda: None)
++
+         def admit_calibration_target_process(self, pid: int, release_gate):
+             release_gate()
+             registered.add(pid)
+--- baseline/src/crowley/session/calibration.py
++++ transition/src/crowley/session/calibration.py
+@@ -31,6 +31,7 @@
+     InputEventError,
+     RawMotionPairing,
+     XI2Event,
++    decode_xtest_motion_transition,
+     parse_xi2_records,
+     xi2_timestamp_elapsed,
+     xi2_timestamp_forward,
+@@ -44,6 +45,148 @@
+ 
+ 
+ _SEAL = object()
++XTEST_ABSOLUTE_COMMAND_SCHEMA = "private-xdotool-absolute-pointer-v1"
++
++
++@dataclass(frozen=True)
++class XTestInputProfile:
++    """Sealed read-only profile for the attached XTEST pointer source."""
++
++    source_device: int
++    parent_device: int
++    name: str
++    classes: int
++    axes: tuple[tuple[int, str, str, float, float, int], ...]
++    enabled: int
++    xtest_device: int
++    ctm: tuple[float, ...]
++    root_xid: int
++    root_geometry: tuple[int, int, int, int]
++    hierarchy: tuple[tuple[int, int, str, str], ...]
++    command_schema: str = XTEST_ABSOLUTE_COMMAND_SCHEMA
++
++    def canonical_payload(self) -> tuple[Any, ...]:
++        return (
++            self.source_device,
++            self.parent_device,
++            self.name,
++            self.classes,
++            self.axes,
++            self.enabled,
++            self.xtest_device,
++            self.ctm,
++            self.root_xid,
++            self.root_geometry,
++            self.hierarchy,
++            self.command_schema,
++        )
++
++    def verify(self) -> None:
++        if (
++            isinstance(self.source_device, bool)
++            or not isinstance(self.source_device, int)
++            or self.source_device <= 0
++            or isinstance(self.parent_device, bool)
++            or not isinstance(self.parent_device, int)
++            or self.parent_device <= 0
++            or not self.name
++            or self.classes != 3
++            or self.enabled != 1
++            or self.xtest_device != 1
++            or self.command_schema != XTEST_ABSOLUTE_COMMAND_SCHEMA
++            or len(self.ctm) != 9
++            or tuple(self.ctm) != (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0)
++            or isinstance(self.root_xid, bool)
++            or not isinstance(self.root_xid, int)
++            or self.root_xid <= 0
++            or len(self.root_geometry) != 4
++            or self.root_geometry[2] <= 0
++            or self.root_geometry[3] <= 0
++        ):
++            raise CalibrationError("XTEST input profile identity is malformed")
++        expected_axes = (
++            (0, "Rel X", "relative", -1.0, -1.0, 0),
++            (1, "Rel Y", "relative", -1.0, -1.0, 0),
++        )
++        if tuple(self.axes) != expected_axes:
++            raise CalibrationError("XTEST input profile axes changed")
++        rows = {row[0]: row for row in self.hierarchy if row[0] == self.source_device}
++        selected = rows.get(self.source_device)
++        if selected is None or selected[1] != self.parent_device or selected[3] != self.name:
++            raise CalibrationError("XTEST input profile hierarchy changed")
++
++
++def _parse_xinput_profile(
++    long_text: str,
++    properties_text: str,
++    hierarchy: tuple[tuple[int, int, str, str], ...],
++    *,
++    source_device: int,
++    parent_device: int,
++    root_xid: int,
++    root_geometry: tuple[int, int, int, int],
++) -> XTestInputProfile:
++    """Parse only the measured XTEST device/profile fields."""
++
++    header = re.search(r"^(.+?)\s+id=(\d+)\s+\[(?:slave)\s+pointer\s+\((\d+)\)\]$", long_text, re.MULTILINE)
++    classes_match = re.search(r"Reporting\s+(\d+)\s+classes:", long_text)
++    origins = re.findall(r"Class originated from:\s*(\d+)\.\s*Type:\s*(\w+)", long_text)
++    buttons = re.search(r"Buttons supported:\s*(\d+)", long_text)
++    axes: list[tuple[int, str, str, float, float, int]] = []
++    for match in re.finditer(
++        r"Detail for Valuator\s+(\d+):\s*\n\s*Label:\s*(.+?)\s*\n\s*Range:\s*"
++        r"(-?\d+(?:\.\d+)?)\s+-\s+(-?\d+(?:\.\d+)?)\s*\n\s*Resolution:\s*(\d+)\s+units/m\s*\n\s*Mode:\s*(\w+)",
++        long_text,
++        re.MULTILINE,
++    ):
++        axes.append(
++            (
++                int(match.group(1)),
++                match.group(2),
++                match.group(6),
++                float(match.group(3)),
++                float(match.group(4)),
++                int(match.group(5)),
++            )
++        )
++    enabled = re.search(r"Device Enabled \(\d+\):\s*(\d+)", properties_text)
++    xtest = re.search(r"XTEST Device \(\d+\):\s*(\d+)", properties_text)
++    ctm_match = re.search(r"Coordinate Transformation Matrix \(\d+\):\s*([^\n]+)", properties_text)
++    if not header or not classes_match or not buttons or not enabled or not xtest or not ctm_match:
++        raise CalibrationError("XTEST input profile output is incomplete")
++    ctm = tuple(float(value.strip()) for value in ctm_match.group(1).split(","))
++    if len(ctm) != 9 or any(not math.isfinite(value) for value in ctm):
++        raise CalibrationError("XTEST coordinate transformation matrix is malformed")
++    hierarchy_row = next((row for row in hierarchy if row[0] == source_device), None)
++    if hierarchy_row is None:
++        raise CalibrationError("XTEST input profile source is absent from hierarchy")
++    hierarchy_name = hierarchy_row[3]
++    if header.group(1).strip() != hierarchy_name.split(":", 1)[-1]:
++        raise CalibrationError("XTEST input profile name disagrees with hierarchy")
++    profile = XTestInputProfile(
++        source_device=source_device,
++        parent_device=parent_device,
++        name=hierarchy_name,
++        classes=int(classes_match.group(1)),
++        axes=tuple(sorted(axes)),
++        enabled=int(enabled.group(1)),
++        xtest_device=int(xtest.group(1)),
++        ctm=ctm,
++        root_xid=root_xid,
++        root_geometry=tuple(root_geometry),
++        hierarchy=tuple(hierarchy),
++    )
++    if int(header.group(2)) != source_device or int(header.group(3)) != parent_device:
++        raise CalibrationError("XTEST input profile source/parent output disagrees with hierarchy")
++    expected_origins = [
++        (str(source_device), "XIButtonClass"),
++        (str(source_device), "XIValuatorClass"),
++        (str(source_device), "XIValuatorClass"),
++    ]
++    if origins != expected_origins or int(buttons.group(1)) != 10:
++        raise CalibrationError("XTEST input profile classes are not the measured contract")
++    profile.verify()
++    return profile
+ 
+ 
+ @dataclass(frozen=True)
+@@ -181,6 +324,12 @@
+     target_event_xids: tuple[int, ...] = ()
+     synthetic_modifiers: tuple[int, int, int] = ()
+     synthetic_echo_proof: tuple[tuple[Any, ...], ...] = ()
++    xtest_profile: XTestInputProfile | None = None
++    synthetic_motion_transitions: tuple[tuple[Any, ...], ...] = ()
++    # (origin_x, origin_y, origin_window, requested_x, requested_y,
++    #  post_x, post_y, post_window), captured by the native producer around
++    # the absolute XTEST move and included in the evidence seal.
++    synthetic_motion_query: tuple[Any, ...] = ()
+     keyboard_keymap: tuple[tuple[str, int], ...] = ()
+     keyboard_profile: tuple[KeyboardProfileRow, ...] = ()
+     provenance: str = "owned-live"
+@@ -221,6 +370,11 @@
+             "target_event_xids": self.target_event_xids,
+             "synthetic_modifiers": self.synthetic_modifiers,
+             "synthetic_echo_proof": self.synthetic_echo_proof,
++            "xtest_profile": (
++                self.xtest_profile.canonical_payload() if self.xtest_profile is not None else None
++            ),
++            "synthetic_motion_transitions": self.synthetic_motion_transitions,
++            "synthetic_motion_query": self.synthetic_motion_query,
+             "keyboard_keymap": self.keyboard_keymap,
+             "keyboard_profile": self.keyboard_profile,
+             "provenance": self.provenance,
+@@ -309,6 +463,131 @@
+     def verify_seal(self) -> None:
+         if self._seal is not _SEAL or self.provenance != "owned-live" or not self.is_live:
+             raise CalibrationError("input evidence was not issued by the owned live workflow")
++        if self.xtest_profile is None:
++            raise CalibrationError("input evidence has no sealed XTEST input profile")
++        self.xtest_profile.verify()
++        if not self.synthetic_motion_transitions:
++            raise CalibrationError("input evidence has no sealed XTEST motion transition proof")
++        if (
++            not isinstance(self.synthetic_motion_query, tuple)
++            or len(self.synthetic_motion_query) != 8
++            or any(
++                isinstance(value, bool) or not isinstance(value, int) for value in self.synthetic_motion_query
++            )
++            or self.synthetic_motion_query[2] <= 0
++            or self.synthetic_motion_query[7] <= 0
++            or self.synthetic_motion_query[2] not in self.target_event_xids
++            or self.synthetic_motion_query[7] not in self.target_event_xids
++            or self.synthetic_motion_query[5:7] != self.synthetic_motion_query[3:5]
++        ):
++            raise CalibrationError("input evidence XTEST motion query is malformed")
++        motion_facts = {
++            (
++                proof[4],
++                proof[1],
++                proof[2],
++                proof[7],
++                tuple(proof[8]) if proof[8] is not None else None,
++                tuple(proof[9]) if proof[9] is not None else None,
++            )
++            for proof in self.event_proof
++            if isinstance(proof, tuple) and len(proof) >= 10 and proof[0] == "Motion"
++        }
++        # A slave XTEST Motion reports the pointer origin in its native root
++        # coordinates while its valuators carry the delivered endpoint.  A
++        # controlled echo is compared with that normalized endpoint, so use
++        # the sealed transition facts for the synthetic source pair below.
++        transition_facts = {
++            (
++                transition[1],
++                transition[3],
++                transition[5],
++                tuple(transition[10]),
++                tuple(transition[11]),
++            )
++            for transition in self.synthetic_motion_transitions
++            if isinstance(transition, tuple)
++            and len(transition) == 15
++            and isinstance(transition[10], tuple)
++            and isinstance(transition[11], tuple)
++        }
++        raw_motion_facts = {
++            (proof[4], proof[2])
++            for proof in self.event_proof
++            if isinstance(proof, tuple) and len(proof) >= 5 and proof[0] == "RawMotion"
++        }
++        previous_endpoint: tuple[int, int] | None = None
++        for transition in self.synthetic_motion_transitions:
++            if not isinstance(transition, tuple) or len(transition) != 15:
++                raise CalibrationError("input evidence XTEST transition proof is malformed")
++            if transition[0] != "XTestMotionTransition":
++                raise CalibrationError("input evidence XTEST transition class is malformed")
++            if (
++                transition[2] != self.xtest_profile.source_device
++                or transition[3] != self.xtest_profile.source_device
++                or transition[4] != self.xtest_profile.parent_device
++                or transition[6] != self.xtest_profile.root_xid
++                or transition[7] != self.xtest_profile.root_xid
++                or not isinstance(transition[9], tuple)
++                or not isinstance(transition[8], tuple)
++                or transition[8] != transition[9]
++                or not isinstance(transition[10], tuple)
++                or len(transition[10]) != 2
++                or transition[10] != transition[11]
++                or (previous_endpoint is not None and transition[8] != previous_endpoint)
++            ):
++                raise CalibrationError("input evidence XTEST transition ancestry changed")
++            if any(
++                isinstance(value, bool) or not isinstance(value, int) or value <= 0
++                for value in (
++                    transition[2],
++                    transition[3],
++                    transition[4],
++                    transition[5],
++                    transition[6],
++                    transition[7],
++                )
++            ):
++                raise CalibrationError("input evidence XTEST transition identity is malformed")
++            if transition is self.synthetic_motion_transitions[0]:
++                if (
++                    tuple(transition[8]) != self.synthetic_motion_query[:2]
++                    or tuple(transition[10]) != self.synthetic_motion_query[3:5]
++                ):
++                    raise CalibrationError(
++                        "input evidence XTEST producer query is not sealed to its transition"
++                    )
++            if not xi2_timestamp_valid(transition[1]):
++                raise CalibrationError("input evidence XTEST transition timestamp is malformed")
++            if (
++                transition[1],
++                transition[2],
++                transition[3],
++                transition[5],
++                transition[8],
++                transition[9],
++            ) not in motion_facts or (transition[1], transition[3]) not in raw_motion_facts:
++                raise CalibrationError("input evidence XTEST transition is absent from the event proof")
++            endpoint = transition[10]
++            if any(isinstance(value, bool) or not isinstance(value, int) for value in endpoint):
++                raise CalibrationError("input evidence XTEST transition endpoint is malformed")
++            valuators = transition[12]
++            if (
++                not isinstance(valuators, tuple)
++                or len(valuators) != 2
++                or {row[0] for row in valuators if isinstance(row, tuple) and row} != {0, 1}
++                or any(
++                    not isinstance(row, tuple)
++                    or len(row) != 3
++                    or not isinstance(row[1], float)
++                    or not math.isfinite(row[1])
++                    or not row[1].is_integer()
++                    for row in valuators
++                )
++                or tuple(int(row[1]) for row in valuators) != endpoint
++            ):
++                raise CalibrationError("input evidence XTEST transition valuators are malformed")
++            previous_endpoint = endpoint
+         if (
+             not isinstance(self.fingerprint, str)
+             or not re.fullmatch(r"[0-9a-f]{64}", self.fingerprint)
+@@ -381,7 +660,7 @@
+                 or echo[0] != "MotionEcho"
+                 or any(
+                     isinstance(echo[index], bool) or not isinstance(echo[index], int) or echo[index] <= 0
+-                    for index in (1, 2, 3, 4, 7, 8, 9)
++                    for index in (2, 3, 4, 8, 9)
+                 )
+                 or echo[5] is None
+                 or echo[6] is None
+@@ -396,8 +675,8 @@
+                     )
+                     for point in coordinate_facts
+                 )
+-                or echo[7] > echo[1]
+-                or echo[1] - echo[7] > 250
++                or xi2_timestamp_elapsed(echo[7], echo[1]) is None
++                or xi2_timestamp_elapsed(echo[7], echo[1]) > 250
+             ):
+                 raise CalibrationError("input evidence forwarded echo proof is malformed")
+         for name, events in (("synthetic", self.synthetic_events), ("human", self.human_events)):
+@@ -632,23 +911,21 @@
+         # positions 2/3.  The synthetic delivered record is a separate
+         # (source, source) pair; never reconstruct it with the forwarded
+         # device (the host trace's 7(7) echo must not become 7(4)).
+-        synthetic_echo_facts: set[tuple[Any, ...]] = set()
+         for echo in self.synthetic_echo_proof:
+             candidates = {
+                 fact
+-                for fact in motion_facts
++                for fact in transition_facts
+                 if fact[0] == echo[7]
+-                and fact[2] == echo[8]
+-                and fact[3] == echo[9]
+-                and fact[4] == tuple(echo[5])
+-                and fact[5] == tuple(echo[6])
++                and fact[1] == echo[8]
++                and fact[2] == echo[9]
++                and fact[3] == tuple(echo[5])
++                and fact[4] == tuple(echo[6])
+             }
+             if len(candidates) != 1:
+                 raise CalibrationError("input evidence synthetic motion echo lacks its delivered source pair")
+             candidate = next(iter(candidates))
+-            if candidate[1] != candidate[2]:
++            if candidate[1] != self.xtest_profile.source_device:
+                 raise CalibrationError("input evidence synthetic delivered motion has an invalid source pair")
+-            synthetic_echo_facts.add(candidate)
+         for motion in motion_facts:
+             if (
+                 motion[2]
+@@ -660,7 +937,7 @@
+                 and motion not in echo_facts
+             ):
+                 raise CalibrationError("input evidence has an unproven forwarded motion")
+-        if not echo_facts.issubset(motion_facts) or not synthetic_echo_facts.issubset(motion_facts):
++        if not echo_facts.issubset(motion_facts):
+             raise CalibrationError("input evidence controlled echo is absent from the complete event proof")
+         if not re.fullmatch(r"[0-9a-f]{64}", self.evidence_hash):
+             raise CalibrationError("input evidence has no canonical seal")
+@@ -1771,6 +2048,13 @@
+     )
+ 
+ 
++def _parse_xwininfo_root_stats(text: str) -> tuple[int, tuple[int, int, int, int]]:
++    match = re.search(r"Window id:\s*(0x[0-9a-fA-F]+)\s+\(the root window\)", text)
++    if match is None:
++        raise CalibrationError("X11 root stats do not identify the root window")
++    return int(match.group(1), 16), _parse_xwininfo_geometry(text)
++
++
+ def _rect_contains(outer: tuple[int, int, int, int], inner: tuple[int, int, int, int]) -> bool:
+     ox, oy, ow, oh = outer
+     ix, iy, iw, ih = inner
+@@ -2471,6 +2755,12 @@
+             hierarchy = self.driver.input_hierarchy()
+             if not hierarchy:
+                 raise CalibrationError("owned input calibration has no XInput hierarchy")
++            profile_reader = getattr(self.driver, "xtest_input_profile", None)
++            xtest_profile = profile_reader(hierarchy) if callable(profile_reader) else None
++            if isinstance(getattr(self.driver, "backend", None), X11Backend) and xtest_profile is None:
++                raise CalibrationError("owned XTEST input profile could not be measured")
++            if xtest_profile is not None:
++                xtest_profile.verify()
+             keyboard_operations, keyboard_keymap = self._keyboard_probe_spec()
+             resolve_identity = getattr(self.driver, "resolve_identity", None)
+             if not callable(resolve_identity):
+@@ -2546,6 +2836,12 @@
+                 operations=keyboard_operations,
+                 calibration_ticket=calibration_ticket,
+             )
++            synthetic_motion_query: tuple[Any, ...] = ()
++            if isinstance(getattr(self.driver, "backend", None), X11Backend):
++                raw_query = getattr(self.driver.backend, "_last_synthetic_motion_query", None)
++                if not isinstance(raw_query, tuple) or len(raw_query) != 8:
++                    raise CalibrationError("owned XTEST producer did not retain its pointer query")
++                synthetic_motion_query = raw_query
+             trace = observer.collect_until(
+                 lambda events: self._has_synthetic(
+                     events,
+@@ -2561,12 +2857,22 @@
+             )
+             synthetic_records = self._records(trace)
+             synthetic_phase = False
++            synthetic_motion_transitions: tuple[tuple[Any, ...], ...] = ()
++            if isinstance(getattr(self.driver, "backend", None), X11Backend):
++                if xtest_profile is None:
++                    raise CalibrationError("owned XTEST proof has no sealed input profile")
++                synthetic_motion_transitions = self._canonical_motion_transitions(
++                    synthetic_records,
++                    window,
++                    xtest_profile,
++                )
+             synthetic_echo_proof = self._controlled_echo_proof(
+                 synthetic_records,
+                 window,
+                 synthetic_key_source,
+                 synthetic_pointer_source,
+                 hierarchy,
++                xtest_profile if isinstance(getattr(self.driver, "backend", None), X11Backend) else None,
+             )
+             if revoked or callback_error:
+                 raise CalibrationError(
+@@ -2605,6 +2911,7 @@
+                 pointer=True,
+                 require_motion=isinstance(getattr(self.driver, "backend", None), X11Backend),
+                 expected_modifiers=synthetic_modifiers,
++                xtest_profile=xtest_profile,
+             )
+             self.readiness = CalibrationReadiness(
+                 target_pid=window.pid,
+@@ -2703,6 +3010,9 @@
+                 target_geometry=window.geometry,
+                 keyboard_operations=keyboard_operations,
+                 keyboard_keymap=keyboard_keymap,
++                xtest_profile=xtest_profile,
++                synthetic_motion_transitions=synthetic_motion_transitions,
++                synthetic_motion_query=synthetic_motion_query,
+                 synthetic_prefix_records=synthetic_records,
+             )
+             # A deliberate sample revokes the generation and must discard the
+@@ -2937,6 +3247,7 @@
+         require_motion: bool = False,
+         expected_detail: int | None = None,
+         expected_modifiers: tuple[int, int, int] | None = None,
++        xtest_profile: XTestInputProfile | None = None,
+     ) -> None:
+         parent = next((row[1] for row in hierarchy if row[0] == source), 0)
+         if parent <= 0:
+@@ -2974,6 +3285,10 @@
+         motion_seen = False
+         last_time: int | None = None
+         raw_motion_pairing = RawMotionPairing()
++        canonical = (
++            pointer and require_motion and xtest_profile is not None and source == xtest_profile.source_device
++        )
++        last_accepted_endpoint: tuple[int, int] | None = None
+         for event in events:
+             if not xi2_timestamp_valid(event.timestamp_ms):
+                 raise CalibrationError("event proof timestamp is outside the XI2 CARD32 domain")
+@@ -2984,7 +3299,16 @@
+                     raise CalibrationError(f"event proof raw motion detail must be {RAW_MOTION_DETAIL}")
+                 if not xi2_timestamp_forward(last_time, event.timestamp_ms):
+                     raise CalibrationError("event proof timestamps are out of order")
+-                if not raw_motion_pairing.queue_raw(event.timestamp_ms):
++                if canonical:
++                    rows = {axis: value for axis, value, _raw in event.valuators}
++                    if set(rows) != {0, 1} or any(
++                        not math.isfinite(value) or not value.is_integer() for value in rows.values()
++                    ):
++                        raise CalibrationError("event proof raw motion valuators are not exact XTEST axes")
++                    endpoint = (int(rows[0]), int(rows[1]))
++                else:
++                    endpoint = None
++                if not raw_motion_pairing.queue_raw(event.timestamp_ms, endpoint):
+                     raise CalibrationError("event proof raw motion is not a forward one-to-one pair")
+                 last_time = event.timestamp_ms
+                 continue
+@@ -3018,11 +3342,44 @@
+                         raise CalibrationError(
+                             "event proof motion modifier state changed from the sealed expectation"
+                         )
++                    if canonical:
++                        assert xtest_profile is not None
++                        pending_endpoint = (
++                            raw_motion_pairing.pending_endpoints[0]
++                            if raw_motion_pairing.pending_endpoints
++                            else None
++                        )
++                        if pending_endpoint is None:
++                            raise CalibrationError("event proof XTEST Motion has no preceding raw endpoint")
++                        try:
++                            transition = decode_xtest_motion_transition(
++                                event,
++                                expected_source=source,
++                                expected_parent=parent,
++                                expected_root_xid=xtest_profile.root_xid,
++                                expected_child_xids=window.allowed_event_target_xids,
++                                planned_endpoint=pending_endpoint,
++                            )
++                        except InputEventError as exc:
++                            raise CalibrationError(str(exc)) from exc
++                        if last_accepted_endpoint is not None:
++                            # The source transition's origin is the endpoint
++                            # delivered by the preceding owned XTEST motion;
++                            # a changed origin is an outside/human transition.
++                            if (
++                                transition.origin_root != last_accepted_endpoint
++                                or transition.origin_event != last_accepted_endpoint
++                            ):
++                                raise CalibrationError(
++                                    "event proof XTEST Motion origin is not the prior endpoint"
++                                )
+                     if not raw_motion_pairing.observe_delivered(event.timestamp_ms):
+                         raise CalibrationError(
+                             "event proof raw motion is not paired one-to-one with the following "
+                             "same-timestamp delivery"
+                         )
++                    if canonical:
++                        last_accepted_endpoint = transition.endpoint_root
+                     motion_seen = True
+                 elif event.event_class in {EventClass.ENTER, EventClass.LEAVE}:
+                     if (
+@@ -3103,6 +3460,7 @@
+         synthetic_key_source: int,
+         synthetic_pointer_source: int,
+         hierarchy: tuple[tuple[int, int, str, str], ...],
++        xtest_profile: XTestInputProfile | None = None,
+     ) -> tuple[tuple[Any, ...], ...]:
+         """Correlate only exact forwarded echoes of the owned pointer motion."""
+ 
+@@ -3112,11 +3470,6 @@
+         )
+         if pointer_parent <= 0:
+             raise CalibrationError("input calibration has no synthetic pointer master")
+-        synthetic = [
+-            event
+-            for event in records
+-            if event.source_device == synthetic_pointer_source and event.event_class is EventClass.MOTION
+-        ]
+         forwarded = [
+             event
+             for event in records
+@@ -3126,9 +3479,16 @@
+         ]
+         if not forwarded:
+             return ()
+-        used: set[int] = set()
+         proof: list[tuple[Any, ...]] = []
+-        for event in forwarded:
++        latest_primary: XI2Event | None = None
++        latest_primary_used = False
++        for event in records:
++            if event.event_class is EventClass.MOTION and event.source_device == synthetic_pointer_source:
++                latest_primary = event
++                latest_primary_used = False
++                continue
++            if event not in forwarded:
++                continue
+             if event.child_xid not in window.allowed_event_target_xids:
+                 raise CalibrationError("unproven forwarded motion targeted outside the owned GTK target")
+             # Delivered XI2 Motion prints the source device in both positions
+@@ -3137,28 +3497,46 @@
+             # delivered record must carry its own exact source pair.
+             if event.master_device != event.source_device:
+                 raise CalibrationError("unproven forwarded motion has an unexpected device pair")
++            if xtest_profile is not None and (
++                event.root_xid != xtest_profile.root_xid
++                or event.event_xid != xtest_profile.root_xid
++                or event.root_xy is None
++                or event.event_xy != event.root_xy
++            ):
++                raise CalibrationError("forwarded motion is not rooted at the sealed XTEST root")
+             if event.modifiers is None or event.modifier_effective is None:
+                 raise CalibrationError("unproven forwarded motion lacks modifier effects")
+-            candidates: list[tuple[int, XI2Event]] = []
+-            for index, candidate in enumerate(synthetic):
+-                elapsed = xi2_timestamp_elapsed(candidate.timestamp_ms, event.timestamp_ms)
+-                if (
+-                    index not in used
+-                    and candidate.master_device == synthetic_pointer_source
+-                    and candidate.source_device == synthetic_pointer_source
+-                    and candidate.child_xid in window.allowed_event_target_xids
+-                    and candidate.root_xy == event.root_xy
+-                    and candidate.event_xy == event.event_xy
+-                    and elapsed is not None
+-                    and elapsed <= 250
+-                    and candidate.modifiers == event.modifiers
+-                    and candidate.modifier_effective == event.modifier_effective
+-                ):
+-                    candidates.append((index, candidate))
+-            if len(candidates) != 1:
++            candidate = latest_primary
++            if candidate is None or latest_primary_used:
+                 raise CalibrationError("forwarded motion is not an exact controlled synthetic echo")
+-            index, candidate = candidates[0]
+-            used.add(index)
++            if candidate.child_xid not in window.allowed_event_target_xids:
++                raise CalibrationError("controlled synthetic primary left the owned GTK target")
++            try:
++                if xtest_profile is not None:
++                    transition = decode_xtest_motion_transition(
++                        candidate,
++                        expected_source=synthetic_pointer_source,
++                        expected_parent=pointer_parent,
++                        expected_root_xid=xtest_profile.root_xid,
++                        expected_child_xids=window.allowed_event_target_xids,
++                    )
++                else:
++                    transition = None
++            except InputEventError as exc:
++                raise CalibrationError("forwarded motion is not an exact controlled synthetic echo") from exc
++            endpoint = transition.endpoint_root if transition is not None else candidate.root_xy
++            if (
++                endpoint is None
++                or event.root_xy != endpoint
++                or event.event_xy != endpoint
++                or event.child_xid != candidate.child_xid
++                or candidate.modifiers != event.modifiers
++                or candidate.modifier_effective != event.modifier_effective
++                or xi2_timestamp_elapsed(candidate.timestamp_ms, event.timestamp_ms) is None
++                or xi2_timestamp_elapsed(candidate.timestamp_ms, event.timestamp_ms) > 250
++            ):
++                raise CalibrationError("forwarded motion is not an exact controlled synthetic echo")
++            latest_primary_used = True
+             proof.append(
+                 (
+                     "MotionEcho",
+@@ -3174,6 +3552,79 @@
+                 )
+             )
+         return tuple(proof)
++
++    @staticmethod
++    def _canonical_motion_transitions(
++        records: list[XI2Event],
++        window: OwnedWindow,
++        profile: XTestInputProfile,
++    ) -> tuple[tuple[Any, ...], ...]:
++        """Seal the measured raw-to-primary XTEST pointer transitions."""
++
++        profile.verify()
++        parent = profile.parent_device
++        pairing = RawMotionPairing()
++        transitions: list[tuple[Any, ...]] = []
++        previous_endpoint: tuple[int, int] | None = None
++        for event in records:
++            if event.source_device != profile.source_device:
++                continue
++            if event.event_class is EventClass.RAW_MOTION:
++                rows = {axis: value for axis, value, _raw in event.valuators}
++                if set(rows) != {0, 1} or any(
++                    not math.isfinite(value) or not value.is_integer() for value in rows.values()
++                ):
++                    raise CalibrationError("synthetic raw motion lacks exact finite XTEST axes")
++                if not pairing.queue_raw(event.timestamp_ms, (int(rows[0]), int(rows[1]))):
++                    raise CalibrationError("synthetic raw motion is not a forward FIFO")
++                continue
++            if event.event_class is not EventClass.MOTION:
++                continue
++            pending_endpoint = pairing.pending_endpoints[0] if pairing.pending_endpoints else None
++            if pending_endpoint is None:
++                raise CalibrationError("synthetic Motion lacks its following raw XTEST record")
++            try:
++                transition = decode_xtest_motion_transition(
++                    event,
++                    expected_source=profile.source_device,
++                    expected_parent=parent,
++                    expected_root_xid=profile.root_xid,
++                    expected_child_xids=window.allowed_event_target_xids,
++                    planned_endpoint=pending_endpoint,
++                )
++            except InputEventError as exc:
++                raise CalibrationError(str(exc)) from exc
++            if previous_endpoint is not None and (
++                transition.origin_root != previous_endpoint or transition.origin_event != previous_endpoint
++            ):
++                raise CalibrationError("synthetic XTEST origin is not the previous delivered endpoint")
++            if not pairing.observe_delivered(event.timestamp_ms):
++                raise CalibrationError("synthetic raw/primary XTEST transition is not one-to-one")
++            previous_endpoint = transition.endpoint_root
++            transitions.append(
++                (
++                    "XTestMotionTransition",
++                    transition.timestamp_ms,
++                    transition.device_id,
++                    transition.source_device,
++                    transition.parent_device,
++                    transition.target_xid,
++                    transition.root_xid,
++                    transition.event_xid,
++                    transition.origin_root,
++                    transition.origin_event,
++                    transition.endpoint_root,
++                    transition.endpoint_event,
++                    transition.valuators,
++                    transition.modifiers,
++                    transition.modifier_effective,
++                )
++            )
++        if pairing.pending:
++            raise CalibrationError("synthetic raw motion has no following primary XTEST delivery")
++        if not transitions:
++            raise CalibrationError("synthetic XTEST proof has no canonical motion transition")
++        return tuple(transitions)
+ 
+     @staticmethod
+     def _event_proof(records: list[XI2Event]) -> tuple[tuple[Any, ...], ...]:
+@@ -3214,6 +3665,9 @@
+         target_geometry: tuple[int, int, int, int] = (),
+         keyboard_operations: tuple[KeyboardProbeOperation, ...] = (),
+         keyboard_keymap: tuple[tuple[str, int], ...] = (),
++        xtest_profile: XTestInputProfile | None = None,
++        synthetic_motion_transitions: tuple[tuple[Any, ...], ...] = (),
++        synthetic_motion_query: tuple[Any, ...] = (),
+         synthetic_prefix_records: list[XI2Event] | tuple[XI2Event, ...] | None = None,
+     ) -> InputCalibrationEvidence:
+         if (
+@@ -3226,6 +3680,8 @@
+             or not xauthority
+         ):
+             raise CalibrationError("input evidence identity, geometry, and game binding are incomplete")
++        if xtest_profile is not None and not synthetic_motion_query:
++            raise CalibrationError("input evidence has no query-bound synthetic XTEST producer result")
+         if (
+             window.managed_frame_xid is None
+             or window.managed_frame_xid <= 0
+@@ -3248,6 +3704,9 @@
+             )
+         if synthetic_key_source <= 0 or synthetic_pointer_source <= 0:
+             raise CalibrationError("synthetic XTEST source evidence is incomplete")
++        if xtest_profile is None:
++            raise CalibrationError("input evidence has no measured XTEST profile")
++        xtest_profile.verify()
+         synthetic_key = [
+             event
+             for event in records
+@@ -3282,6 +3741,7 @@
+             synthetic_key_source,
+             synthetic_pointer_source,
+             hierarchy,
++            xtest_profile,
+         )
+         if not keyboard_operations or not keyboard_keymap:
+             raise CalibrationError("input evidence keyboard profile facts are incomplete")
+@@ -3412,6 +3872,9 @@
+             target_event_xids=tuple(sorted(window.allowed_event_target_xids)),
+             synthetic_modifiers=synthetic_modifiers,
+             synthetic_echo_proof=synthetic_echo_proof,
++            xtest_profile=xtest_profile,
++            synthetic_motion_transitions=tuple(synthetic_motion_transitions),
++            synthetic_motion_query=tuple(synthetic_motion_query),
+             keyboard_keymap=tuple(keyboard_keymap),
+             keyboard_profile=keyboard_profile,
+         )
+--- baseline/src/crowley/session/driver.py
++++ transition/src/crowley/session/driver.py
+@@ -53,7 +53,7 @@
+     """A precondition, identity, lease, or postcondition failed."""
+ 
+ 
+-DRIVER_VERSION = "native-x11-2"
++DRIVER_VERSION = "native-x11-3"
+ 
+ 
+ def _validate_x11_display_screen(display: str) -> None:
+@@ -639,6 +639,11 @@
+         self._publish_holds: Callable[[Any, set[str], set[int]], None] | None = None
+         self._admission_health: Callable[[], None] | None = None
+         self._calibration_focus_ticket: CalibrationTicket | None = None
++        # The native calibration producer records the query-confirmed origin,
++        # requested endpoint, and exact post-move result.  This is evidence
++        # carried into the calibration seal; it is deliberately absent until
++        # a complete, successful producer action has finished.
++        self._last_synthetic_motion_query: tuple[Any, ...] | None = None
+ 
+     def set_admission(self, admission: Callable[[int, Callable[[], Any]], Any] | None) -> None:
+         """Install the guardian's shared generation admission fence."""
+@@ -930,13 +935,25 @@
+         elif command_name == "gnome-screenshot":
+             valid = len(args) == 3 and args[1] == "-f" and os.path.isabs(args[2])
+         elif command_name == "xinput":
+-            valid = args == ["xinput", "--list", "--short"]
++            valid = (
++                args == ["xinput", "--list", "--short"]
++                or (
++                    len(args) == 4
++                    and args[1] == "list"
++                    and args[2] == "--long"
++                    and bool(re.fullmatch(r"[1-9][0-9]*", args[3]))
++                )
++                or (
++                    len(args) == 3 and args[1] == "list-props" and bool(re.fullmatch(r"[1-9][0-9]*", args[2]))
++                )
++            )
+         elif command_name == "xmodmap":
+             valid = args == ["xmodmap", "-pke"]
+         elif command_name == "xwininfo":
+-            valid = args == ["xwininfo", "-root", "-tree"] or (
+-                len(args) == 4 and args[1] == "-id" and xid(args[2]) and args[3] in {"-tree", "-geometry"}
+-            )
++            valid = tuple(args) in {
++                ("xwininfo", "-root", "-tree"),
++                ("xwininfo", "-root", "-stats"),
++            } or (len(args) == 4 and args[1] == "-id" and xid(args[2]) and args[3] in {"-tree", "-geometry"})
+         elif command_name == "xprop":
+             valid = args == ["xprop", "-root", "_NET_ACTIVE_WINDOW"] or (
+                 len(args) >= 4
+@@ -1916,7 +1933,11 @@
+             if not separator or key not in allowed or key in values or not valid_value:
+                 raise DriverError("native pointer position output is malformed")
+             values[key] = int(value, 0) if key == "WINDOW" else int(value)
+-        if not {"X", "Y", "WINDOW"}.issubset(values) or values["WINDOW"] <= 0:
++        if (
++            not {"X", "Y", "SCREEN", "WINDOW"}.issubset(values)
++            or values["SCREEN"] != 0
++            or values["WINDOW"] <= 0
++        ):
+             raise DriverError("native pointer position output is incomplete")
+         return values["X"], values["Y"], values["WINDOW"]
+ 
+@@ -2026,17 +2047,10 @@
+                     raise DriverError("native pointer is outside the verified client")
+                 if (actual_x, actual_y) != (left + int(expected_start.x), top + int(expected_start.y)):
+                     raise DriverError("native pointer start changed before the admitted gesture")
+-                if pointer_plan is not None:
+-                    chain = build_pointer_motion_chain(pointer_plan, identity.child_geometry)
+-                    self._run(
+-                        chain,
+-                        generation=generation,
+-                        input_schema="pointer-motion",
+-                        expected_argv=tuple(chain),
+-                    )
+-                # A focus or motion transition may change the active client;
+-                # the click commitment has its own foreground and anchor
+-                # check while remaining under this same Guardian action.
++                # Resolve the foreground and refresh the one-use anchor before
++                # the native motion command.  Once the command starts there is
++                # no subprocess query between its endpoint and the click
++                # commitment; Guardian owns that transition boundary.
+                 current = self.resolve_identity(require_foreground=True)
+                 if (
+                     current.fingerprint != binding.identity_fingerprint
+@@ -2067,21 +2081,29 @@
+                         )
+                     ):
+                         raise DriverError("fresh pointer anchor changed control, bounds, or identity")
+-                    actual_x, actual_y, actual_window = self.pointer_position(generation=generation)
+-                    if not self._is_owned_client_target(actual_window, current):
+-                        raise DriverError("native pointer left the verified client before click")
+-                    left, top, _width, _height = current.child_geometry
+-                    if (actual_x, actual_y) != (
+-                        left + int(click_plan.point.x),
+-                        top + int(click_plan.point.y),
+-                    ):
+-                        raise DriverError("native pointer endpoint changed before click commitment")
++                if pointer_plan is not None:
++                    chain = build_pointer_motion_chain(pointer_plan, identity.child_geometry)
++                    self._run(
++                        chain,
++                        generation=generation,
++                        input_schema="pointer-motion",
++                        expected_argv=tuple(chain),
++                    )
+                 current_anchor = self._measured_anchors.get(name)
+                 if (
+                     current_anchor is not anchor_record
+                     or current_anchor.evidence_hash not in self._consumed_anchor_seals
+                 ):
+                     raise DriverError("pointer anchor changed before click commitment")
++                pre_click_x, pre_click_y, pre_click_window = self.pointer_position(generation=generation)
++                if not self._is_owned_client_target(pre_click_window, current):
++                    raise DriverError("native pointer left the verified client before click")
++                expected_point = (
++                    current.child_geometry[0] + int(click_plan.point.x),
++                    current.child_geometry[1] + int(click_plan.point.y),
++                )
++                if (pre_click_x, pre_click_y) != expected_point:
++                    raise DriverError("native pointer endpoint changed before click commitment")
+                 click_button = click_plan.button
+                 native_button = {PointerButton.LEFT: 1, PointerButton.RIGHT: 3}[click_button]
+                 click_argv = [
+@@ -2100,6 +2122,17 @@
+                     input_schema="single-click",
+                     expected_argv=tuple(click_argv),
+                 )
++                if click_plan is not None:
++                    final_x, final_y, final_window = self.pointer_position(generation=generation)
++                    if not self._is_owned_client_target(final_window, current):
++                        raise DriverError("native pointer postcondition left the verified client")
++                    left, top, _width, _height = current.child_geometry
++                    expected_point = (
++                        left + int(click_plan.point.x),
++                        top + int(click_plan.point.y),
++                    )
++                    if (final_x, final_y) != expected_point:
++                        raise DriverError("native pointer postcondition endpoint changed")
+             else:
+                 self._pointer(identity, *anchor, generation=generation)
+                 button = DesktopDriver.POINTER_BUTTONS.get(name)
+@@ -2157,18 +2190,34 @@
+     ) -> None:
+         if calibration_ticket is None:
+             raise DriverError("synthetic calibration requires an exact calibration ticket")
++        try:
++            target_xid = int(window_id, 0)
++        except (TypeError, ValueError) as exc:
++            raise DriverError("calibration target XID is malformed") from exc
++        if target_xid <= 0:
++            raise DriverError("calibration target XID is malformed")
+         geometry = _parse_shell_geometry(
+             self._run(["xdotool", "getwindowgeometry", "--shell", window_id]).stdout
+         )
+         left, top, width, height = geometry
+         if not (left <= x < left + width and top <= y < top + height):
+             raise DriverError("calibration point is outside the measured owned target geometry")
++        self._last_synthetic_motion_query = None
+         self._run(
+             ["xdotool", "windowactivate", "--sync", window_id],
+             calibration_ticket=calibration_ticket,
+         )
+         if int(self._run(["xdotool", "getwindowfocus"]).stdout.strip(), 0) != int(window_id, 0):
+             raise DriverError("calibration target did not receive focus")
++        # The absolute XTEST command is allowed to start only from a pointer
++        # that is already inside the certified target.  In particular, do not
++        # use a bootstrap warp to manufacture an origin for the proof.
++        origin_x, origin_y, origin_window = self.pointer_position()
++        if origin_window != target_xid or not (
++            left <= origin_x < left + width and top <= origin_y < top + height
++        ):
++            raise DriverError("calibration pointer origin is outside the owned target")
++        requested = (int(x), int(y))
+         self._calibration_focus_ticket = calibration_ticket
+         self._run(
+             ["xdotool", "key", "F13"],
+@@ -2178,6 +2227,19 @@
+         self._run(
+             ["xdotool", "mousemove", str(x), str(y)],
+             calibration_ticket=calibration_ticket,
++        )
++        post_x, post_y, post_window = self.pointer_position()
++        if (post_x, post_y) != requested or post_window != target_xid:
++            raise DriverError("calibration pointer postcondition changed")
++        self._last_synthetic_motion_query = (
++            origin_x,
++            origin_y,
++            origin_window,
++            requested[0],
++            requested[1],
++            post_x,
++            post_y,
++            post_window,
+         )
+         try:
+             self._run(
+@@ -2215,6 +2277,32 @@
+         if focused != int(window_id, 0):
+             raise DriverError("owned calibration target did not retain focus")
+         self._calibration_focus_ticket = calibration_ticket
++
++    def xtest_input_profile(self, hierarchy: tuple[tuple[int, int, str, str], ...]) -> Any:
++        """Read and seal the exact attached XTEST pointer profile."""
++
++        from .calibration import _parse_xinput_profile, _parse_xwininfo_root_stats, xtest_sources
++
++        _keyboard_source, source = xtest_sources(hierarchy)
++        parent = next((row[1] for row in hierarchy if row[0] == source), 0)
++        if parent <= 0:
++            raise DriverError("XTEST pointer source has no measured parent")
++        long_text = self._run(["xinput", "list", "--long", str(source)]).stdout
++        properties_text = self._run(["xinput", "list-props", str(source)]).stdout
++        root_text = self._run(["xwininfo", "-root", "-stats"]).stdout
++        try:
++            root_xid, root_geometry = _parse_xwininfo_root_stats(root_text)
++            return _parse_xinput_profile(
++                long_text,
++                properties_text,
++                hierarchy,
++                source_device=source,
++                parent_device=parent,
++                root_xid=root_xid,
++                root_geometry=root_geometry,
++            )
++        except Exception as exc:
++            raise DriverError(f"XTEST input profile is not admissible: {exc}") from exc
+ 
+ 
+ class XI2Observer:
+@@ -3366,8 +3454,16 @@
+         if evidence_xauthority and evidence_xauthority != self.xauthority:
+             raise DriverError("input calibration Xauthority changed")
+         if isinstance(self.backend, X11Backend):
+-            if self.input_hierarchy() != tuple(getattr(evidence, "xinput_hierarchy", ())):
++            current_hierarchy = self.input_hierarchy()
++            if current_hierarchy != tuple(getattr(evidence, "xinput_hierarchy", ())):
+                 raise DriverError("input calibration XInput hierarchy changed")
++            current_profile = self.xtest_input_profile(current_hierarchy)
++            sealed_profile = getattr(evidence, "xtest_profile", None)
++            if (
++                sealed_profile is None
++                or current_profile.canonical_payload() != sealed_profile.canonical_payload()
++            ):
++                raise DriverError("input calibration XTEST profile changed")
+             evidence_identity = getattr(evidence, "game_identity_fingerprint", "")
+             if not evidence_identity:
+                 raise DriverError("input calibration has no verified game identity")
+@@ -3490,6 +3586,33 @@
+             return xinput_hierarchy(output)
+         except Exception as exc:
+             raise DriverError(str(exc)) from exc
++
++    def xtest_input_profile(self, hierarchy: tuple[tuple[int, int, str, str], ...]) -> Any | None:
++        if isinstance(self.backend, X11Backend):
++            return self.backend.xtest_input_profile(hierarchy)
++        return getattr(self, "_fixture_xtest_profile", None)
++
++    def _verify_current_xtest_profile(
++        self, evidence: Any, hierarchy: tuple[tuple[int, int, str, str], ...]
++    ) -> None:
++        if not isinstance(self.backend, X11Backend):
++            return
++        sealed = getattr(evidence, "xtest_profile", None)
++        if sealed is None:
++            raise DriverError("native XTEST action has no sealed input profile")
++        try:
++            sealed.verify()
++        except Exception as exc:
++            raise DriverError("native XTEST action has an invalid sealed input profile") from exc
++        current = self.xtest_input_profile(hierarchy)
++        if current is None:
++            raise DriverError("native XTEST action has no freshly observed input profile")
++        try:
++            current.verify()
++        except Exception as exc:
++            raise DriverError("fresh XTEST input profile is invalid") from exc
++        if current.canonical_payload() != sealed.canonical_payload():
++            raise DriverError("XTEST input profile changed before native pointer dispatch")
+ 
+     def _external_input(self, event: XI2Event | None) -> None:
+         if event is None:
+@@ -4559,6 +4682,8 @@
+         identity, evidence, source, master, modifiers, _keymap = self._motion_input_context(
+             generation, pointer=True, deadline_monotonic=deadline_monotonic
+         )
++        if isinstance(self.backend, X11Backend):
++            self._verify_current_xtest_profile(evidence, self.input_hierarchy())
+         if plan.binding.identity_fingerprint != identity.fingerprint or plan.binding.generation != generation:
+             raise DriverError("camera drag binding is stale")
+         if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+@@ -4591,17 +4716,18 @@
+             except ExecutorError as exc:
+                 raise DriverError(f"camera positioning plan is invalid: {exc}") from exc
+         positioning_trace: list[tuple[int, int, int, int]] = []
++        canonical_motion = (
++            isinstance(self.backend, X11Backend) and getattr(evidence, "xtest_profile", None) is not None
++        )
+         if positioning is not None:
+             prior = positioning.samples[0].point
+             for sample in positioning.samples[1:]:
+                 if sample.point != prior:
++                    root_point = (left + int(sample.point.x), top + int(sample.point.y))
+                     positioning_trace.append(
+-                        (
+-                            left + int(sample.point.x),
+-                            top + int(sample.point.y),
+-                            int(sample.point.x),
+-                            int(sample.point.y),
+-                        )
++                        (*root_point, *root_point)
++                        if canonical_motion
++                        else (*root_point, int(sample.point.x), int(sample.point.y))
+                     )
+                     prior = sample.point
+         trace: list[tuple[int, int, int, int]] = []
+@@ -4609,17 +4735,13 @@
+         for sample in plan.samples[1:]:
+             if sample.point == prior:
+                 continue
++            root_point = (left + int(sample.point.x), top + int(sample.point.y))
+             trace.append(
+-                (
+-                    left + int(sample.point.x),
+-                    top + int(sample.point.y),
+-                    int(sample.point.x),
+-                    int(sample.point.y),
+-                )
++                (*root_point, *root_point)
++                if canonical_motion
++                else (*root_point, int(sample.point.x), int(sample.point.y))
+             )
+             prior = sample.point
+-        if not trace:
+-            raise DriverError("camera drag has no native motion trace")
+         echo = getattr(evidence, "synthetic_echo_proof", ())
+         action = None
+         try:
+@@ -4637,6 +4759,9 @@
+                 EventClass.ENTER.value,
+                 EventClass.LEAVE.value,
+             }
++            certified_event_targets = frozenset(identity.target_event_xids)
++            if canonical_motion and not certified_event_targets:
++                raise DriverError("native camera action has no certified event-target set")
+             action = self.guardian.begin_action(
+                 generation,
+                 target_xid=identity.child_xid,
+@@ -4669,17 +4794,37 @@
+                 expected_motion_trace=tuple(trace),
+                 expected_positioning_trace=tuple(positioning_trace),
+                 expected_press_coordinates=(float(left + int(start.x)), float(top + int(start.y))),
+-                expected_press_event_coordinates=(float(start.x), float(start.y)),
++                expected_press_event_coordinates=(
++                    (float(left + int(start.x)), float(top + int(start.y)))
++                    if canonical_motion
++                    else (float(start.x), float(start.y))
++                ),
+                 expected_release_coordinates=(
+                     float(left + int(plan.samples[-1].point.x)),
+                     float(top + int(plan.samples[-1].point.y)),
+                 ),
+                 expected_release_event_coordinates=(
+-                    float(plan.samples[-1].point.x),
+-                    float(plan.samples[-1].point.y),
++                    (
++                        float(left + int(plan.samples[-1].point.x)),
++                        float(top + int(plan.samples[-1].point.y)),
++                    )
++                    if canonical_motion
++                    else (
++                        float(plan.samples[-1].point.x),
++                        float(plan.samples[-1].point.y),
++                    )
+                 ),
++                initial_origin=(root_x, root_y, root_x, root_y) if canonical_motion else None,
++                expected_root_xid=(
++                    getattr(evidence.xtest_profile, "root_xid", None) if canonical_motion else None
++                ),
++                expected_event_xid=(
++                    getattr(evidence.xtest_profile, "root_xid", None) if canonical_motion else None
++                ),
++                expected_child_xids=(certified_event_targets if canonical_motion else frozenset()),
++                canonical_motion=canonical_motion,
+                 require_motion_before_button=positioning is not None,
+-                require_motion_before_release=True,
++                require_motion_before_release=bool(trace),
+                 echo_proof=tuple(tuple(row) for row in echo),
+                 held_buttons={3},
+                 timeout=action_timeout,
+@@ -4704,6 +4849,17 @@
+             self._monitor.wait_for_event(lambda _events: action.complete, timeout=wait_timeout)
+             if not action.complete:
+                 raise DriverError("camera drag event trace did not complete")
++            if canonical_motion:
++                final_x, final_y, final_window = self.backend.pointer_position(
++                    generation=generation,
++                    deadline_monotonic=deadline_monotonic,
++                )
++                if not self._is_owned_client_target(final_window, identity):
++                    raise DriverError("camera drag postcondition left the verified client")
++                left, top, _width, _height = identity.child_geometry
++                endpoint = plan.samples[-1].point
++                if (final_x, final_y) != (left + int(endpoint.x), top + int(endpoint.y)):
++                    raise DriverError("camera drag postcondition endpoint changed")
+             self.guardian.finish_action(generation, action)
+         except GuardianError as exc:
+             raise DriverError(str(exc)) from exc
+@@ -4825,6 +4981,7 @@
+             # Controls are mutually exclusive across scenes.  Measure exactly
+             # the named control immediately before dispatch, then bind that
+             # capture to this generation; there is no all-scenes anchor batch.
++            self._verify_current_xtest_profile(evidence, self.input_hierarchy())
+             self.measure_pointer_anchor(name, generation=generation)
+         source = (
+             getattr(evidence, "synthetic_pointer_source", 0)
+@@ -4931,6 +5088,12 @@
+         expected_motion_trace: tuple[tuple[int, int, int, int], ...] = ()
+         expected_coordinates = None
+         expected_event_coordinates = None
++        initial_origin: tuple[int, int, int, int] | None = None
++        canonical_motion = bool(
++            pointer_action
++            and native_pointer_dispatch
++            and getattr(evidence, "xtest_profile", None) is not None
++        )
+         if pointer_action and native_pointer_dispatch and isinstance(anchor, MeasuredAnchor):
+             if anchor is None:
+                 raise DriverError(f"action anchor for {name} is missing at plan construction")
+@@ -4962,6 +5125,7 @@
+                 ).to_pixel()
+                 if not client_bounds.contains(start):
+                     raise DriverError("native pointer start is outside verified client pixels")
++                initial_origin = (root_x, root_y, root_x, root_y)
+                 padding = 1 if min(target_bounds.width, target_bounds.height) >= 3 else 0
+                 target = PointerTarget(self.ANCHOR_CONTROLS[name], target_bounds, binding, padding=padding)
+                 click_plan = plan_single_click(
+@@ -4986,7 +5150,11 @@
+                             current.child_geometry[0] + int(sample.point.x),
+                             current.child_geometry[1] + int(sample.point.y),
+                         )
+-                        trace.append((*root, int(sample.point.x), int(sample.point.y)))
++                        trace.append(
++                            (*root, *root)
++                            if canonical_motion
++                            else (*root, int(sample.point.x), int(sample.point.y))
++                        )
+                         prior = sample.point
+                     expected_motion_trace = tuple(trace)
+                 expected_coordinates = (
+@@ -4994,8 +5162,12 @@
+                     float(current.child_geometry[1] + click_plan.point.y),
+                 )
+                 expected_event_coordinates = (
+-                    float(click_plan.point.x),
+-                    float(click_plan.point.y),
++                    (
++                        float(current.child_geometry[0] + click_plan.point.x),
++                        float(current.child_geometry[1] + click_plan.point.y),
++                    )
++                    if canonical_motion
++                    else (float(click_plan.point.x), float(click_plan.point.y))
+                 )
+             except ExecutorError as exc:
+                 raise DriverError(f"native pointer plan is invalid: {exc}") from exc
+@@ -5021,6 +5193,9 @@
+                 if isinstance(self.backend, X11Backend)
+                 else None
+             )
++            certified_event_targets = frozenset(identity.target_event_xids)
++            if canonical_motion and not certified_event_targets:
++                raise DriverError("native pointer action has no certified event-target set")
+             action = self.guardian.begin_action(
+                 generation,
+                 target_xid=identity.child_xid,
+@@ -5041,6 +5216,23 @@
+                 expected_coordinates=expected_coordinates,
+                 expected_event_coordinates=expected_event_coordinates,
+                 expected_motion_trace=expected_motion_trace,
++                initial_origin=initial_origin,
++                expected_root_xid=(
++                    getattr(getattr(evidence, "xtest_profile", None), "root_xid", None)
++                    if canonical_motion
++                    else None
++                ),
++                expected_event_xid=(
++                    getattr(getattr(evidence, "xtest_profile", None), "root_xid", None)
++                    if canonical_motion
++                    else None
++                ),
++                expected_child_xids=(certified_event_targets if canonical_motion else frozenset()),
++                canonical_motion=canonical_motion,
++                expected_press_coordinates=expected_coordinates if canonical_motion else None,
++                expected_press_event_coordinates=expected_event_coordinates if canonical_motion else None,
++                expected_release_coordinates=expected_coordinates if canonical_motion else None,
++                expected_release_event_coordinates=expected_event_coordinates if canonical_motion else None,
+                 modifier_group_size=modifier_group_size,
+                 require_delivered_modifiers=True,
+             )
+--- baseline/src/crowley/session/guardian.py
++++ transition/src/crowley/session/guardian.py
+@@ -27,6 +27,7 @@
+ from .input_events import (
+     RAW_MOTION_DETAIL,
+     RawMotionPairing,
++    decode_xtest_motion_transition,
+     xi2_timestamp_elapsed,
+     xi2_timestamp_forward,
+     xi2_timestamp_valid,
+@@ -104,6 +105,11 @@
+     expected_release_event_coordinates: tuple[float, float] | None = None
+     expected_motion_trace: tuple[tuple[int, int, int, int], ...] = ()
+     expected_positioning_trace: tuple[tuple[int, int, int, int], ...] = ()
++    initial_origin: tuple[int, int, int, int] | None = None
++    expected_root_xid: int | None = None
++    expected_event_xid: int | None = None
++    expected_child_xids: frozenset[int] = frozenset()
++    canonical_motion: bool = False
+     positioning_index: int = 0
+     motion_index: int = 0
+     # Planned holds are an allowlist for the exact native command that will
+@@ -145,6 +151,7 @@
+     current_motion_root_xy: tuple[float, float] | None = None
+     current_motion_event_xy: tuple[float, float] | None = None
+     current_motion_modifiers: tuple[int, int, int] | None = None
++    last_accepted_endpoint: tuple[int, int, int, int] | None = None
+ 
+     def expected_device(self, event_class: str) -> int:
+         for name, device in self.device_by_class:
+@@ -1044,6 +1051,11 @@
+         expected_event_coordinates: tuple[float, float] | None = None,
+         expected_motion_trace: tuple[tuple[int, int, int, int], ...] = (),
+         expected_positioning_trace: tuple[tuple[int, int, int, int], ...] = (),
++        initial_origin: tuple[int, int, int, int] | None = None,
++        expected_root_xid: int | None = None,
++        expected_event_xid: int | None = None,
++        expected_child_xids: frozenset[int] | set[int] = frozenset(),
++        canonical_motion: bool = False,
+         expected_press_coordinates: tuple[float, float] | None = None,
+         expected_press_event_coordinates: tuple[float, float] | None = None,
+         expected_release_coordinates: tuple[float, float] | None = None,
+@@ -1204,6 +1216,11 @@
+                 ),
+                 expected_motion_trace=tuple(expected_motion_trace),
+                 expected_positioning_trace=tuple(expected_positioning_trace),
++                initial_origin=tuple(initial_origin) if initial_origin is not None else None,
++                expected_root_xid=expected_root_xid,
++                expected_event_xid=expected_event_xid,
++                expected_child_xids=frozenset(expected_child_xids),
++                canonical_motion=canonical_motion,
+                 planned_held_keys=frozenset(held_keys),
+                 planned_held_buttons=frozenset(held_buttons),
+                 require_motion_before_release=require_motion_before_release,
+@@ -1217,6 +1234,29 @@
+                     if isinstance(echo[3], int) and not isinstance(echo[3], bool) and echo[3] > 0
+                 ),
+             )
++            if canonical_motion:
++                if (
++                    initial_origin is None
++                    or len(initial_origin) != 4
++                    or any(isinstance(value, bool) or not isinstance(value, int) for value in initial_origin)
++                    or expected_root_xid is None
++                    or expected_event_xid is None
++                ):
++                    raise GuardianError("canonical XTEST motion origin/trace contract is malformed")
++                if (
++                    expected_root_xid != expected_event_xid
++                    or isinstance(expected_root_xid, bool)
++                    or not isinstance(expected_root_xid, int)
++                    or expected_root_xid <= 0
++                    or not expected_child_xids
++                    or any(
++                        isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0
++                        for xid in expected_child_xids
++                    )
++                    or tuple(initial_origin[:2]) != tuple(initial_origin[2:])
++                ):
++                    raise GuardianError("canonical XTEST root/child identity is malformed")
++                action.last_accepted_endpoint = tuple(initial_origin)
+             self._action = action
+             self._last_event_time_ms = None
+             # ``held_keys``/``held_buttons`` describe the plan, not physical
+@@ -1290,6 +1330,9 @@
+         motion_match_index: int | None = None
+         positioning_match_index: int | None = None
+         echo_pending_index: int | None = None
++        canonical_motion_checked = False
++        canonical_raw_queued = False
++        canonical_endpoint: tuple[int, int] | None = None
+         if action is not None:
+             # Raw and device-change records describe device transitions and
+             # deliberately have no delivered target.  A forged/raw block that
+@@ -1331,6 +1374,98 @@
+                 and (getattr(event, "is_raw", False) or event_class == "DeviceChanged")
+             ):
+                 target_ok = True
++            if action.canonical_motion and (
++                event_class == "RawMotion"
++                or (event_class == "Motion" and event.source_device == action.source_device)
++            ):
++                if action.positioning_index < len(action.expected_positioning_trace):
++                    expected_transition = action.expected_positioning_trace[action.positioning_index]
++                    positioning_phase = True
++                elif action.motion_index < len(action.expected_motion_trace):
++                    expected_transition = action.expected_motion_trace[action.motion_index]
++                    positioning_phase = False
++                else:
++                    expected_transition = None
++                    positioning_phase = False
++                if expected_transition is None:
++                    target_ok = False
++                elif event_class == "RawMotion":
++                    raw_endpoint_rows = {axis: value for axis, value, _raw in getattr(event, "valuators", ())}
++                    if (
++                        event.source_device != action.source_device
++                        or event.master_device != action.master_device
++                        or event.detail != RAW_MOTION_DETAIL
++                        or set(raw_endpoint_rows) != {0, 1}
++                        or any(
++                            isinstance(value, bool)
++                            or not isinstance(value, float)
++                            or not math.isfinite(value)
++                            or not value.is_integer()
++                            for value in raw_endpoint_rows.values()
++                        )
++                        or (int(raw_endpoint_rows[0]), int(raw_endpoint_rows[1])) != expected_transition[:2]
++                        or not action.raw_motion_pairing.queue_raw(
++                            event.timestamp_ms,
++                            expected_transition[:2],
++                        )
++                    ):
++                        target_ok = False
++                    else:
++                        canonical_raw_queued = True
++                elif event.source_device == action.source_device:
++                    canonical_motion_checked = True
++                    if action.echo_sources and action.pending_echoes:
++                        # A canonical primary cannot advance while its latest
++                        # forwarded echo is still outstanding.  Keeping one
++                        # bounded pair prevents a later primary from lending
++                        # its endpoint to an older echo.
++                        target_ok = False
++                    try:
++                        transition = decode_xtest_motion_transition(
++                            event,
++                            expected_source=action.source_device,
++                            expected_parent=action.master_device,
++                            expected_root_xid=action.expected_root_xid or 0,
++                            expected_child_xids=action.expected_child_xids or frozenset({action.target_xid}),
++                            planned_endpoint=expected_transition[:2],
++                        )
++                    except Exception:
++                        target_ok = False
++                    else:
++                        origin = action.last_accepted_endpoint
++                        if (
++                            not target_ok
++                            or origin is None
++                            or transition.origin_root != origin[:2]
++                            or transition.origin_event != origin[2:]
++                        ):
++                            target_ok = False
++                        elif (
++                            not action.raw_motion_pairing.pending_endpoints
++                            or action.raw_motion_pairing.pending_endpoints[0] != transition.endpoint_root
++                        ):
++                            target_ok = False
++                        else:
++                            canonical_endpoint = transition.endpoint_root
++                            if positioning_phase:
++                                positioning_match_index = action.positioning_index
++                            else:
++                                motion_match_index = action.motion_index
++                            action.emitted_motion_count += 1
++                            if action.echo_sources:
++                                # Canonical transitions retain only the latest
++                                # accepted primary. A forwarded source-7 record
++                                # must prove that exact pair before another
++                                # primary can advance the FIFO.
++                                action.pending_echoes = [
++                                    (
++                                        event.timestamp_ms,
++                                        target,
++                                        transition.endpoint_root,
++                                        transition.endpoint_event,
++                                        event.modifiers,
++                                    )
++                                ]
+             if action.release_started and event_class in {"Motion", "RawMotion"}:
+                 target_ok = False
+             if (
+@@ -1343,7 +1478,17 @@
+                 # relationship.  Runtime admission must pair this exact
+                 # forwarded source with the current source-4 operation; old
+                 # calibration coordinates/timestamps are never replayed.
+-                for index, pending in enumerate(action.pending_echoes):
++                if action.canonical_motion and len(action.pending_echoes) != 1:
++                    target_ok = False
++                if action.canonical_motion:
++                    pending_items = (
++                        ((len(action.pending_echoes) - 1, action.pending_echoes[-1]),)
++                        if action.pending_echoes
++                        else ()
++                    )
++                else:
++                    pending_items = tuple(enumerate(action.pending_echoes))
++                for index, pending in pending_items:
+                     (
+                         current_motion_timestamp,
+                         current_motion_target,
+@@ -1357,6 +1502,13 @@
+                         and elapsed is not None
+                         and elapsed <= 250
+                         and target == current_motion_target
++                        and (
++                            not action.canonical_motion
++                            or (
++                                getattr(event, "root_xid", None) == action.expected_root_xid
++                                and getattr(event, "event_xid", None) == action.expected_event_xid
++                            )
++                        )
+                         and current_root is not None
+                         and current_event is not None
+                         and getattr(event, "root_xy", None) == current_root
+@@ -1366,7 +1518,20 @@
+                         echo_match = True
+                         echo_pending_index = index
+                         break
+-            if target_ok and event_class == "Motion" and not echo_match:
++            if (
++                target_ok
++                and action is not None
++                and event_class == "Motion"
++                and event.source_device in action.echo_sources
++                and not echo_match
++            ):
++                # A forwarded source is meaningful only as the exact echo of
++                # the latest accepted primary.  Letting a mismatched source-7
++                # Motion continue through the ordinary optional-Motion path
++                # would silently accept wrong root/event identities or an
++                # unpaired human record.
++                target_ok = False
++            if target_ok and event_class == "Motion" and not echo_match and not canonical_motion_checked:
+                 root_xy = getattr(event, "root_xy", None)
+                 event_xy = getattr(event, "event_xy", None)
+                 if action.sequence_index < 2:
+@@ -1589,6 +1754,7 @@
+             and event_class == "Motion"
+             and not echo_match
+             and event.source_device == action.source_device
++            and not action.canonical_motion
+         ):
+             if action.sequence_index < 2:
+                 pre_trace = action.expected_positioning_trace or action.expected_motion_trace
+@@ -1622,6 +1788,7 @@
+             and event_class == "Motion"
+             and not echo_match
+             and event.source_device == action.source_device
++            and not action.canonical_motion
+         ):
+             # Save only the current operation's complete source-4 facts.  A
+             # later source-7 record must match this bounded pair exactly.
+@@ -1644,7 +1811,7 @@
+                 )
+             if not action.raw_motion_pairing.observe_delivered(timestamp):
+                 allowed = False
+-        if allowed and action is not None and event_class == "RawMotion":
++        if allowed and action is not None and event_class == "RawMotion" and not canonical_raw_queued:
+             if not action.raw_motion_pairing.queue_raw(timestamp):
+                 allowed = False
+         if (
+@@ -1700,6 +1867,16 @@
+                         action.motion_index = motion_match_index + 1
+                     if positioning_match_index is not None:
+                         action.positioning_index = positioning_match_index + 1
++                    if action.canonical_motion and canonical_endpoint is not None and event_class == "Motion":
++                        if not action.raw_motion_pairing.observe_delivered(timestamp):
++                            allowed = False
++                        else:
++                            action.last_accepted_endpoint = (
++                                canonical_endpoint[0],
++                                canonical_endpoint[1],
++                                canonical_endpoint[0],
++                                canonical_endpoint[1],
++                            )
+                     if action.required_sequence and event_class not in action.optional_classes:
+                         action.sequence_index += 1
+                     if event_class == "RawButtonRelease":
+--- baseline/src/crowley/session/input_events.py
++++ transition/src/crowley/session/input_events.py
+@@ -10,6 +10,7 @@
+ 
+ from __future__ import annotations
+ 
++import math
+ import re
+ from collections.abc import Iterable
+ from dataclasses import dataclass, field
+@@ -57,9 +58,10 @@
+     """Forward-only, one-to-one correlation for raw and delivered motion."""
+ 
+     pending_timestamps: list[int] = field(default_factory=list)
++    pending_endpoints: list[tuple[int, int] | None] = field(default_factory=list)
+     last_delivered_timestamp: int | None = None
+ 
+-    def queue_raw(self, timestamp: int) -> bool:
++    def queue_raw(self, timestamp: int, endpoint: tuple[int, int] | None = None) -> bool:
+         """Queue one raw record until its following primary delivery."""
+ 
+         if (
+@@ -73,6 +75,7 @@
+         ):
+             return False
+         self.pending_timestamps.append(timestamp)
++        self.pending_endpoints.append(endpoint)
+         return True
+ 
+     def observe_delivered(self, timestamp: int) -> bool:
+@@ -88,6 +91,8 @@
+             return False
+         if self.pending_timestamps:
+             self.pending_timestamps.pop(0)
++            if self.pending_endpoints:
++                self.pending_endpoints.pop(0)
+         if self.last_delivered_timestamp is None or xi2_timestamp_forward(
+             self.last_delivered_timestamp, timestamp
+         ):
+@@ -156,9 +161,11 @@
+     r"(?:\s+effective:\s*(0x[0-9a-fA-F]+|\d+))?"
+ )
+ _VALUATOR = re.compile(
+-    r"^\s*-?\d+\s*:\s*-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?"
+-    r"(?:\s+\(-?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?\))?\s*$"
++    r"^\s*([+-]?\d+)\s*:\s*"
++    r"([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)"
++    r"(?:\s+\(([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\))?\s*$"
+ )
++_VALUATOR_PREFIX = re.compile(r"^\s*[+-]?\d+\s*:")
+ 
+ 
+ def _hex(value: str) -> int:
+@@ -193,10 +200,11 @@
+     modifiers: tuple[int, int, int] | None = None
+     raw_lines: tuple[str, ...] = field(default_factory=tuple, repr=False)
+     modifier_effective: int | None = None
++    valuators: tuple[tuple[int, float, float | None], ...] = field(default_factory=tuple)
+ 
+     @property
+     def device_id(self) -> int:
+-        """The XI2 ``device:`` field (master for raw, source for delivered)."""
++        """The first XI2 ``device:`` field, exactly as printed by xinput."""
+ 
+         return self.master_device
+ 
+@@ -247,7 +255,9 @@
+     event_xy: tuple[float, float] | None = None
+     modifiers: tuple[int, int, int] | None = None
+     modifier_effective: int | None = None
+-    for line in lines:
++    valuators: tuple[tuple[int, float, float | None], ...] = ()
++    valuators_index: int | None = None
++    for line_index, line in enumerate(lines):
+         if match := _DEVICE.match(line):
+             master, source = int(match.group(1)), int(match.group(2))
+         elif match := _TIME.match(line):
+@@ -266,6 +276,10 @@
+             modifiers = tuple(_hex(match.group(i)) for i in range(1, 4))  # type: ignore[assignment]
+             if match.group(4) is not None:
+                 modifier_effective = _hex(match.group(4))
++        elif line.strip().startswith("valuators:"):
++            if valuators_index is not None:
++                raise InputEventError(f"{event_class}: duplicate valuators section")
++            valuators_index = line_index
+     if master is None or source is None:
+         raise InputEventError(f"{event_class}: missing master/source device")
+     if timestamp is None:
+@@ -327,13 +341,32 @@
+     if event_class is EventClass.RAW_MOTION:
+         if detail != RAW_MOTION_DETAIL:
+             raise InputEventError(f"{event_class}: detail must be {RAW_MOTION_DETAIL}")
+-        try:
+-            valuators_index = next(
+-                index for index, line in enumerate(lines) if line.strip().startswith("valuators:")
+-            )
+-        except StopIteration as exc:
+-            raise InputEventError(f"{event_class}: missing valuators section") from exc
+-        if not any(_VALUATOR.fullmatch(line) for line in lines[valuators_index + 1 :]):
++        if valuators_index is None:
++            raise InputEventError(f"{event_class}: missing valuators section")
++    if valuators_index is not None:
++        parsed_valuators: list[tuple[int, float, float | None]] = []
++        seen_axes: set[int] = set()
++        for line in lines[valuators_index + 1 :]:
++            match = _VALUATOR.fullmatch(line)
++            if match is None:
++                if _VALUATOR_PREFIX.match(line):
++                    raise InputEventError(f"{event_class}: malformed valuator row")
++                continue
++            axis = int(match.group(1))
++            value = float(match.group(2))
++            raw_value = float(match.group(3)) if match.group(3) is not None else None
++            if (
++                axis < 0
++                or not math.isfinite(value)
++                or (raw_value is not None and not math.isfinite(raw_value))
++            ):
++                raise InputEventError(f"{event_class}: non-finite or malformed valuator")
++            if axis in seen_axes:
++                raise InputEventError(f"{event_class}: duplicate valuator axis {axis}")
++            seen_axes.add(axis)
++            parsed_valuators.append((axis, value, raw_value))
++        valuators = tuple(parsed_valuators)
++        if event_class is EventClass.RAW_MOTION and not valuators:
+             raise InputEventError(f"{event_class}: missing complete valuator data")
+     # Crossing notifications are optional in a bounded pointer sequence, but
+     # when present they still need the complete XI2 target/coordinate/state
+@@ -363,6 +396,112 @@
+         modifiers,
+         tuple(lines),
+         modifier_effective,
++        valuators,
++    )
++
++
++@dataclass(frozen=True)
++class XTestMotionTransition:
++    """One canonical attached-XTEST slave transition.
++
++    ``origin_*`` are the native root-window coordinates printed by the slave
++    Motion record.  ``endpoint_*`` are the integer-equivalent delivered
++    valuators.  The two are intentionally retained separately: a slave event
++    reports the pointer before the absolute XTEST transition while its
++    valuators carry the requested endpoint.
++    """
++
++    timestamp_ms: int
++    device_id: int
++    source_device: int
++    parent_device: int
++    target_xid: int
++    root_xid: int
++    event_xid: int
++    origin_root: tuple[float, float]
++    origin_event: tuple[float, float]
++    endpoint_root: tuple[int, int]
++    endpoint_event: tuple[int, int]
++    valuators: tuple[tuple[int, float, float | None], ...]
++    modifiers: tuple[int, int, int]
++    modifier_effective: int
++
++
++def decode_xtest_motion_transition(
++    event: XI2Event,
++    *,
++    expected_source: int,
++    expected_parent: int,
++    expected_root_xid: int,
++    expected_child_xids: frozenset[int] | set[int] | tuple[int, ...],
++    planned_endpoint: tuple[int, int] | None = None,
++) -> XTestMotionTransition:
++    """Decode one profile-bound absolute-XTEST primary Motion.
++
++    This helper only interprets a delivered slave Motion.  Raw ancestry is
++    correlated by the caller's FIFO state; human relative motion never enters
++    this decoder.  Integer-equivalent finite valuators are required exactly,
++    with no rounding or root/event coordinate translation.
++    """
++
++    if not isinstance(event, XI2Event) or event.event_class is not EventClass.MOTION:
++        raise InputEventError("canonical XTEST transition requires a delivered Motion")
++    if (
++        isinstance(expected_source, bool)
++        or not isinstance(expected_source, int)
++        or expected_source <= 0
++        or isinstance(expected_parent, bool)
++        or not isinstance(expected_parent, int)
++        or expected_parent <= 0
++        or isinstance(expected_root_xid, bool)
++        or not isinstance(expected_root_xid, int)
++        or expected_root_xid <= 0
++    ):
++        raise InputEventError("canonical XTEST transition profile is malformed")
++    if event.device_id != expected_source or event.source_device != expected_source:
++        raise InputEventError("canonical XTEST Motion has the wrong device/source identity")
++    if event.detail != RAW_MOTION_DETAIL:
++        raise InputEventError("canonical XTEST Motion detail is not zero")
++    if event.root_xid != expected_root_xid or event.event_xid != expected_root_xid:
++        raise InputEventError("canonical XTEST Motion is not rooted at the observed root window")
++    if event.child_xid not in expected_child_xids:
++        raise InputEventError("canonical XTEST Motion origin is outside the owned target")
++    if (
++        event.root_xy is None
++        or event.event_xy is None
++        or event.root_xy != event.event_xy
++        or event.modifiers is None
++        or event.modifier_effective is None
++    ):
++        raise InputEventError("canonical XTEST Motion origin or modifier facts are malformed")
++    if event.modifier_effective != event.modifiers[0] | event.modifiers[1] | event.modifiers[2]:
++        raise InputEventError("canonical XTEST Motion modifier effects are malformed")
++    if {axis for axis, _value, _raw in event.valuators} != {0, 1} or len(event.valuators) != 2:
++        raise InputEventError("canonical XTEST Motion must contain exactly valuator axes 0 and 1")
++    endpoints: list[int] = []
++    for axis in (0, 1):
++        rows = [value for row_axis, value, _raw in event.valuators if row_axis == axis]
++        if len(rows) != 1 or not math.isfinite(rows[0]) or not rows[0].is_integer():
++            raise InputEventError("canonical XTEST Motion valuators must be finite integer-equivalent values")
++        endpoints.append(int(rows[0]))
++    endpoint = (endpoints[0], endpoints[1])
++    if planned_endpoint is not None and endpoint != planned_endpoint:
++        raise InputEventError("canonical XTEST Motion endpoint differs from the planned endpoint")
++    return XTestMotionTransition(
++        event.timestamp_ms,
++        event.device_id,
++        event.source_device,
++        expected_parent,
++        int(event.child_xid),
++        int(event.root_xid),
++        int(event.event_xid),
++        event.root_xy,
++        event.event_xy,
++        endpoint,
++        endpoint,
++        event.valuators,
++        event.modifiers,
++        event.modifier_effective,
+     )
+ 
+ 
+@@ -458,6 +597,12 @@
+             raise InputEventError("synthetic sourceid fixture is not an XI2 record")
+         match = _BLOCK.match(line.rstrip("\r"))
+         if match:
++            if self._header is not None and _event_class(*self._header) is EventClass.RAW_MOTION:
++                # A raw block is complete only after its native blank-line
++                # delimiter.  A following header cannot silently terminate a
++                # partial valuator payload.
++                self._remember_failure(InputEventError("RawMotion: missing blank-line delimiter"))
++                raise InputEventError("RawMotion: missing blank-line delimiter")
+             completed = _finish(self._lines, self._header) if self._header is not None else None
+             self._header = (int(match.group(1)), match.group(2))
+             self._header_text = line.rstrip("\r\n")
+@@ -515,7 +660,9 @@
+     "XI2_TIMESTAMP_MASK",
+     "RawMotionPairing",
+     "XI2Event",
++    "XTestMotionTransition",
+     "XI2StreamParser",
++    "decode_xtest_motion_transition",
+     "event_name",
+     "parse_xi2_records",
+     "source_ids",
+--- baseline/tests/test_session.py
++++ transition/tests/test_session.py
+@@ -20,6 +20,7 @@
+     NativeCalibrationEvidence,
+     NativeCalibrationRunner,
+     NativeMemoryMeasurement,
++    XTestInputProfile,
+ )
+ from crowley.session.cli import SessionIPC, _socket_request, serve
+ from crowley.session.decoder import PixelDecoder
+@@ -343,11 +344,24 @@
+     # measured keyboard profile transition, followed by the human controls.
+     add_events(5, 3, 8, ("RawKeyPress", "KeyPress", "RawKeyRelease", "KeyRelease"))
+     add_events(5, 3, 38, ("RawKeyPress", "KeyPress"))
++    # Keep one complete source-4 raw/primary pair in this sealed fixture.  It
++    # records the owned pointer query used by the native producer; the later
++    # source-7 motion is the controlled forwarded echo.
++    motion_timestamp = timestamp
++    event_proof.append(("RawMotion", 2, 4, 0, motion_timestamp, None, None, None, None, None, None, None))
++    event_proof.append(("Motion", 4, 4, 0, motion_timestamp, 100, 100, 1, point, point, (0, 0, 0), 0))
++    timestamp += 1
+     add_events(4, 2, 1, ("RawButtonPress", "ButtonPress", "RawButtonRelease", "ButtonRelease"))
+     add_events(9, 3, 8, ("RawKeyPress", "KeyPress", "RawKeyRelease", "KeyRelease"))
+     add_events(7, 2, 1, ("RawButtonPress", "ButtonPress", "RawButtonRelease", "ButtonRelease"))
+     event_proof.append(("Motion", 7, 7, 1, timestamp, 100, 200, 1, point, point, (0, 0, 0), 0))
+-    synthetic_echo_proof = (("MotionEcho", timestamp, 7, 7, 1, point, point, timestamp, 7, 1),)
++    synthetic_echo_proof = (("MotionEcho", timestamp, 7, 7, 1, point, point, motion_timestamp, 4, 1),)
++    hierarchy = (
++        (4, 2, "slave", "xtest pointer"),
++        (5, 3, "slave", "xtest keyboard"),
++        (7, 2, "slave", "human pointer"),
++        (9, 3, "slave", "human keyboard"),
++    )
+     return InputCalibrationEvidence._issue(
+         fingerprint="input-test",
+         display=":0",
+@@ -358,16 +372,29 @@
+         synthetic_pointer_source=4,
+         human_key_source=9,
+         human_pointer_source=7,
+-        xinput_hierarchy=(
+-            (4, 2, "slave", "xtest pointer"),
+-            (5, 3, "slave", "xtest keyboard"),
+-            (7, 2, "slave", "human pointer"),
+-            (9, 3, "slave", "human keyboard"),
++        xinput_hierarchy=hierarchy,
++        xtest_profile=XTestInputProfile(
++            4,
++            2,
++            "xtest pointer",
++            3,
++            ((0, "Rel X", "relative", -1.0, -1.0, 0), (1, "Rel Y", "relative", -1.0, -1.0, 0)),
++            1,
++            1,
++            (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
++            100,
++            (0, 0, 1920, 1080),
++            hierarchy,
+         ),
+-        synthetic_events=(("KeyPress", 5, 8), ("ButtonPress", 4, 1)),
++        synthetic_events=(
++            ("KeyPress", 5, 8),
++            ("RawMotion", 4, 0),
++            ("Motion", 4, 0),
++            ("ButtonPress", 4, 1),
++        ),
+         human_events=(("KeyPress", 9, 8), ("ButtonPress", 7, 1)),
+         forwarded_events=(("Motion", 7, 1),),
+-        driver_version="native-x11-2",
++        driver_version="native-x11-3",
+         xauthority="/tmp/test-Xauthority",
+         event_proof=tuple(event_proof),
+         game_identity_fingerprint=game_identity,
+@@ -380,6 +407,26 @@
+         target_event_xids=(1, 2, 3),
+         synthetic_modifiers=(0, 0, 0),
+         synthetic_echo_proof=synthetic_echo_proof,
++        synthetic_motion_transitions=(
++            (
++                "XTestMotionTransition",
++                motion_timestamp,
++                4,
++                4,
++                2,
++                1,
++                100,
++                100,
++                point,
++                point,
++                point,
++                point,
++                ((0, 10.0, 10.0), (1, 20.0, 20.0)),
++                (0, 0, 0),
++                0,
++            ),
++        ),
++        synthetic_motion_query=(point[0], point[1], 1, point[0], point[1], point[0], point[1], 1),
+         keyboard_keymap=(("A", 38),),
+         keyboard_profile=(("type", "A", (("press", "A", 38, (0, 0, 0), 0),)),),
+     )
+--- baseline/tests/test_session_dispatch.py
++++ transition/tests/test_session_dispatch.py
+@@ -12,7 +12,7 @@
+ 
+ import pytest
+ 
+-from crowley.session.calibration import OwnedGtkCalibrationWindow, OwnedWindow
++from crowley.session.calibration import OwnedGtkCalibrationWindow, OwnedWindow, XTestInputProfile
+ from crowley.session.driver import (
+     DesktopDriver,
+     DriverError,
+@@ -29,6 +29,7 @@
+     RAW_MOTION_PENDING_LIMIT,
+     XI2_TIMESTAMP_MASK,
+     EventClass,
++    XI2Event,
+ )
+ from tests.test_session_input_tool import fixture_input_tool
+ 
+@@ -1450,6 +1451,25 @@
+         event_proof=proof,
+         synthetic_echo_proof=(("MotionEcho", 11, 7, 7, 0x700101, (10.0, 20.0), (1.0, 2.0), 9, 4, 0x700101),),
+     )
++    evidence.xtest_profile = XTestInputProfile(
++        4,
++        2,
++        "pointer:test",
++        3,
++        ((0, "Rel X", "relative", -1.0, -1.0, 0), (1, "Rel Y", "relative", -1.0, -1.0, 0)),
++        1,
++        1,
++        (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
++        0x374,
++        (0, 0, 1920, 1080),
++        evidence.xinput_hierarchy,
++    )
++    backend.xtest_input_profile = lambda _hierarchy: evidence.xtest_profile  # type: ignore[method-assign]
++
++    def driver_input_hierarchy():
++        return evidence.xinput_hierarchy
++
++    driver.input_hierarchy = driver_input_hierarchy  # type: ignore[method-assign]
+     driver._input_evidence = evidence
+ 
+     anchor = SimpleNamespace(
+@@ -1911,6 +1931,167 @@
+         guardian.close()
+ 
+ 
++def test_guardian_canonical_echo_requires_sealed_root_and_event_ids(tmp_path: Path) -> None:
++    guardian = InputGuardian(tmp_path / "canonical-echo-root-event.lock", parent_pid=os.getppid())
++    target = 0x600119
++    try:
++        generation = guardian.arm(SimpleNamespace(is_live=True, fingerprint="canonical-echo"))
++        action = guardian.begin_action(
++            generation,
++            target_xid=target,
++            source_device=4,
++            master_device=2,
++            event_classes={"RawMotion", "Motion"},
++            device_by_class={"RawMotion": 2, "Motion": 4},
++            optional_classes={"RawMotion", "Motion"},
++            expected_modifiers=(0, 0, 0),
++            expected_motion_trace=((30, 40, 30, 40),),
++            initial_origin=(10, 20, 10, 20),
++            expected_root_xid=0x374,
++            expected_event_xid=0x374,
++            expected_child_xids={target},
++            canonical_motion=True,
++            echo_proof=(("MotionEcho", 11, 7, 7, target, (30.0, 40.0), (30.0, 40.0), 10, 4, target),),
++            require_motion_before_button=False,
++        )
++        raw = XI2Event(
++            17,
++            EventClass.RAW_MOTION,
++            2,
++            4,
++            10,
++            0,
++            None,
++            None,
++            None,
++            valuators=((0, 30.0, 30.0), (1, 40.0, 40.0)),
++        )
++        primary = XI2Event(
++            6,
++            EventClass.MOTION,
++            4,
++            4,
++            10,
++            0,
++            0x374,
++            0x374,
++            target,
++            (10.0, 20.0),
++            (10.0, 20.0),
++            (0, 0, 0),
++            modifier_effective=0,
++            valuators=((0, 30.0, 30.0), (1, 40.0, 40.0)),
++        )
++        wrong_ids = XI2Event(
++            6,
++            EventClass.MOTION,
++            7,
++            7,
++            11,
++            0,
++            0x375,
++            0x375,
++            target,
++            (30.0, 40.0),
++            (30.0, 40.0),
++            (0, 0, 0),
++            modifier_effective=0,
++        )
++        assert guardian.observe(raw)
++        assert guardian.observe(primary)
++        assert not guardian.observe(wrong_ids)
++        assert not guardian.armed
++        assert action is not guardian.action
++    finally:
++        guardian.close()
++
++
++def test_guardian_canonical_motion_uses_certified_frame_targets_only(tmp_path: Path) -> None:
++    """A certified managed-frame child is accepted; an unrelated child revokes."""
++
++    target = 0x600119
++    frame = 0x600118
++    unrelated = 0x700101
++
++    def motion_pair(timestamp: int, origin: tuple[int, int], endpoint: tuple[int, int], child: int):
++        valuators = ((0, float(endpoint[0]), float(endpoint[0])), (1, float(endpoint[1]), float(endpoint[1])))
++        return (
++            XI2Event(
++                17,
++                EventClass.RAW_MOTION,
++                2,
++                4,
++                timestamp,
++                0,
++                None,
++                None,
++                None,
++                valuators=valuators,
++            ),
++            XI2Event(
++                6,
++                EventClass.MOTION,
++                4,
++                4,
++                timestamp,
++                0,
++                0x374,
++                0x374,
++                child,
++                (float(origin[0]), float(origin[1])),
++                (float(origin[0]), float(origin[1])),
++                (0, 0, 0),
++                modifier_effective=0,
++                valuators=valuators,
++            ),
++        )
++
++    def begin(guardian: InputGuardian):
++        generation = guardian.arm(SimpleNamespace(is_live=True, fingerprint="certified-targets"))
++        action = guardian.begin_action(
++            generation,
++            target_xid=target,
++            source_device=4,
++            master_device=2,
++            event_classes={"RawMotion", "Motion"},
++            device_by_class={"RawMotion": 2, "Motion": 4},
++            optional_classes={"RawMotion", "Motion"},
++            target_ancestor=lambda xid: xid in {target, frame},
++            expected_modifiers=(0, 0, 0),
++            expected_motion_trace=((30, 40, 30, 40), (50, 60, 50, 60)),
++            initial_origin=(10, 20, 10, 20),
++            expected_root_xid=0x374,
++            expected_event_xid=0x374,
++            expected_child_xids={target, frame},
++            canonical_motion=True,
++            require_motion_before_button=False,
++        )
++        return generation, action
++
++    guardian = InputGuardian(tmp_path / "certified-frame.lock", parent_pid=os.getppid())
++    try:
++        generation, action = begin(guardian)
++        first_raw, first_primary = motion_pair(10, (10, 20), (30, 40), frame)
++        assert guardian.observe(first_raw)
++        assert guardian.observe(first_primary)
++        assert action.last_accepted_endpoint == (30, 40, 30, 40)
++    finally:
++        guardian.close()
++
++    guardian = InputGuardian(tmp_path / "unrelated-frame.lock", parent_pid=os.getppid())
++    try:
++        _generation, _action = begin(guardian)
++        first_raw, first_primary = motion_pair(10, (10, 20), (30, 40), target)
++        second_raw, second_primary = motion_pair(11, (30, 40), (50, 60), unrelated)
++        assert guardian.observe(first_raw)
++        assert guardian.observe(first_primary)
++        assert guardian.observe(second_raw)
++        assert not guardian.observe(second_primary)
++        assert not guardian.armed
++    finally:
++        guardian.close()
++
++
+ def test_guardian_rejects_raw_motion_after_release_for_pointer_detail(tmp_path: Path) -> None:
+     guardian = InputGuardian(tmp_path / "pointer-raw-post-release.lock", parent_pid=os.getppid())
+ 
+--- baseline/tests/test_session_driver_actions.py
++++ transition/tests/test_session_driver_actions.py
+@@ -10,6 +10,7 @@
+ 
+ import pytest
+ 
++from crowley.session.calibration import XTestInputProfile
+ from crowley.session.driver import (
+     DesktopDriver,
+     DriverError,
+@@ -30,7 +31,7 @@
+     Rect,
+     plan_pointer_curve,
+ )
+-from crowley.session.input_events import EventClass
++from crowley.session.input_events import EventClass, XI2Event
+ from tests.test_session_input_tool import fixture_input_tool
+ 
+ 
+@@ -55,12 +56,26 @@
+ 
+ 
+ def _evidence() -> SimpleNamespace:
++    hierarchy = ((4, 2, "slave", "pointer:xtest"),)
+     return SimpleNamespace(
+         is_live=True,
+         fingerprint="input-evidence",
+         synthetic_key_source=4,
+         synthetic_pointer_source=4,
+-        xinput_hierarchy=((4, 2, "slave", "xtest"),),
++        xinput_hierarchy=hierarchy,
++        xtest_profile=XTestInputProfile(
++            4,
++            2,
++            "pointer:xtest",
++            3,
++            ((0, "Rel X", "relative", -1.0, -1.0, 0), (1, "Rel Y", "relative", -1.0, -1.0, 0)),
++            1,
++            1,
++            (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
++            0x1,
++            (0, 0, 1920, 1080),
++            hierarchy,
++        ),
+         synthetic_modifiers=(0, 0, 0),
+         synthetic_echo_proof=(),
+         keyboard_keymap=(
+@@ -107,23 +122,62 @@
+     detail: int = 25,
+     root: tuple[int, int] | None = None,
+     event_xy: tuple[int, int] | None = None,
++    valuators: tuple[tuple[int, float, float | None], ...] = (),
+ ) -> SimpleNamespace:
+     raw = event_class.value.startswith("Raw")
+     if raw:
+         master = 2
+         target = None
+-    return SimpleNamespace(
+-        event_class=event_class,
+-        source_device=source,
+-        master_device=master,
+-        target_xid=target,
+-        detail=detail,
+-        timestamp_ms=timestamp,
+-        modifiers=None if raw else (0, 0, 0),
++    type_number = {
++        EventClass.RAW_KEY_PRESS: 13,
++        EventClass.KEY_PRESS: 2,
++        EventClass.RAW_KEY_RELEASE: 14,
++        EventClass.KEY_RELEASE: 3,
++        EventClass.RAW_BUTTON_PRESS: 15,
++        EventClass.BUTTON_PRESS: 4,
++        EventClass.RAW_BUTTON_RELEASE: 16,
++        EventClass.BUTTON_RELEASE: 5,
++        EventClass.MOTION: 6,
++        EventClass.RAW_MOTION: 17,
++    }[event_class]
++    return XI2Event(
++        type_number,
++        event_class,
++        master,
++        source,
++        timestamp,
++        0 if event_class in {EventClass.MOTION, EventClass.RAW_MOTION} else detail,
++        0x1 if event_class in {EventClass.MOTION, EventClass.RAW_MOTION} else None,
++        0x1 if event_class in {EventClass.MOTION, EventClass.RAW_MOTION} else None,
++        target,
++        root,
++        event_xy if event_xy is not None else root,
++        None if raw else (0, 0, 0),
+         modifier_effective=None if raw else 0,
+-        is_raw=raw,
+-        root_xy=root,
+-        event_xy=event_xy if event_xy is not None else root,
++        valuators=valuators,
++    )
++
++
++def _motion_pair(
++    timestamp: int,
++    origin: tuple[int, int],
++    endpoint: tuple[int, int],
++) -> tuple[SimpleNamespace, SimpleNamespace]:
++    valuators = ((0, float(endpoint[0]), float(endpoint[0])), (1, float(endpoint[1]), float(endpoint[1])))
++    return (
++        _event(
++            EventClass.RAW_MOTION,
++            timestamp,
++            root=None,
++            valuators=valuators,
++        ),
++        _event(
++            EventClass.MOTION,
++            timestamp,
++            root=origin,
++            event_xy=origin,
++            valuators=valuators,
++        ),
+     )
+ 
+ 
+@@ -139,6 +193,8 @@
+     monkeypatch.setattr("crowley.session.driver._resolve_wrapped_executable", lambda _command: "/bin/true")
+     driver = DesktopDriver(profile=backend.profile, backend=backend, lease_path=tmp_path / "actions.lock")
+     driver._input_evidence = _evidence()
++    driver.input_hierarchy = lambda: driver._input_evidence.xinput_hierarchy  # type: ignore[method-assign]
++    backend.xtest_input_profile = lambda _hierarchy: driver._input_evidence.xtest_profile  # type: ignore[method-assign]
+     return driver
+ 
+ 
+@@ -185,7 +241,8 @@
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+     driver = _driver(tmp_path, monkeypatch)
+-    driver.backend.pointer_position = lambda **_kwargs: (20, 20, 0x101)  # type: ignore[method-assign]
++    pointer_positions = [(20, 20, 0x101), (130, 100, 0x101)]
++    driver.backend.pointer_position = lambda **_kwargs: pointer_positions.pop(0)  # type: ignore[method-assign]
+     binding = BindingMetadata("identity", "capture", 1, 1, 4, (4,), boot="boot")
+     plan = CameraDragPlan(
+         PointerButton.RIGHT,
+@@ -205,14 +262,20 @@
+     prior = positioning.samples[0].point
+     for sample in positioning.samples[1:]:
+         if sample.point != prior:
+-            events.append(_event(EventClass.MOTION, timestamp, root=(sample.point.x, sample.point.y)))
++            events.extend(
++                _motion_pair(
++                    timestamp,
++                    (int(prior.x), int(prior.y)),
++                    (int(sample.point.x), int(sample.point.y)),
++                )
++            )
+             timestamp += 1
+             prior = sample.point
+     events.extend(
+         [
+             _event(EventClass.RAW_BUTTON_PRESS, timestamp, detail=3),
+             _event(EventClass.BUTTON_PRESS, timestamp + 1, detail=3, root=(100, 100), event_xy=(100, 100)),
+-            _event(EventClass.MOTION, timestamp + 2, root=(130, 100)),
++            *_motion_pair(timestamp + 2, (100, 100), (130, 100)),
+             _event(EventClass.RAW_BUTTON_RELEASE, timestamp + 3, detail=3),
+             _event(EventClass.BUTTON_RELEASE, timestamp + 4, detail=3, root=(130, 100), event_xy=(130, 100)),
+         ]
+@@ -240,7 +303,8 @@
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+     driver = _driver(tmp_path, monkeypatch)
+-    driver.backend.pointer_position = lambda **_kwargs: (100, 100, 0x101)  # type: ignore[method-assign]
++    pointer_positions = [(100, 100, 0x101), (130, 100, 0x101)]
++    driver.backend.pointer_position = lambda **_kwargs: pointer_positions.pop(0)  # type: ignore[method-assign]
+     binding = BindingMetadata("identity", "capture", 1, 1, 4, (4,), boot="boot")
+     plan = CameraDragPlan(
+         PointerButton.RIGHT,
+@@ -252,7 +316,7 @@
+     events = [
+         _event(EventClass.RAW_BUTTON_PRESS, 1, detail=3),
+         _event(EventClass.BUTTON_PRESS, 2, detail=3, root=(100, 100), event_xy=(100, 100)),
+-        _event(EventClass.MOTION, 3, root=(130, 100), event_xy=(130, 100)),
++        *_motion_pair(3, (100, 100), (130, 100)),
+         _event(EventClass.RAW_BUTTON_RELEASE, 4, detail=3),
+         _event(EventClass.BUTTON_RELEASE, 5, detail=3, root=(130, 100), event_xy=(130, 100)),
+     ]
+@@ -265,6 +329,71 @@
+     try:
+         driver.run_camera_drag(plan, generation=generation)
+         assert driver.guardian.armed
++    finally:
++        driver.close()
++
++
++def test_guardian_allows_zero_motion_canonical_click_with_button_trace(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    driver = _driver(tmp_path, monkeypatch)
++    monitor = _EventMonitor(
++        [
++            _event(EventClass.RAW_BUTTON_PRESS, 1, detail=3),
++            _event(EventClass.BUTTON_PRESS, 2, detail=3, root=(100, 100), event_xy=(100, 100)),
++            _event(EventClass.RAW_BUTTON_RELEASE, 3, detail=3),
++            _event(EventClass.BUTTON_RELEASE, 4, detail=3, root=(100, 100), event_xy=(100, 100)),
++        ]
++    )
++    monitor.set_callback(driver.guardian.observe)
++    driver._monitor = monitor  # type: ignore[assignment]
++    generation = driver.guardian.arm(driver._input_evidence)
++    driver.backend.activate_generation(generation)
++    try:
++        action = driver.guardian.begin_action(
++            generation,
++            target_xid=0x101,
++            source_device=4,
++            master_device=2,
++            event_classes={
++                EventClass.RAW_BUTTON_PRESS.value,
++                EventClass.BUTTON_PRESS.value,
++                EventClass.RAW_BUTTON_RELEASE.value,
++                EventClass.BUTTON_RELEASE.value,
++            },
++            device_by_class={
++                EventClass.RAW_BUTTON_PRESS.value: 2,
++                EventClass.BUTTON_PRESS.value: 4,
++                EventClass.RAW_BUTTON_RELEASE.value: 2,
++                EventClass.BUTTON_RELEASE.value: 4,
++            },
++            required_sequence=(
++                EventClass.RAW_BUTTON_PRESS.value,
++                EventClass.BUTTON_PRESS.value,
++                EventClass.RAW_BUTTON_RELEASE.value,
++                EventClass.BUTTON_RELEASE.value,
++            ),
++            expected_modifiers=(0, 0, 0),
++            expected_details=(3, 3, 3, 3),
++            expected_press_coordinates=(100.0, 100.0),
++            expected_press_event_coordinates=(100.0, 100.0),
++            expected_release_coordinates=(100.0, 100.0),
++            expected_release_event_coordinates=(100.0, 100.0),
++            initial_origin=(100, 100, 100, 100),
++            expected_root_xid=1,
++            expected_event_xid=1,
++            expected_child_xids=frozenset({0x101}),
++            canonical_motion=True,
++            require_motion_before_button=False,
++            require_motion_before_release=False,
++            held_buttons={3},
++        )
++        driver.guardian.dispatch_admission(generation, lambda: None)
++        assert action is driver.guardian.action
++        for event in monitor.events:
++            assert driver.guardian.observe(event)
++        assert action.complete
++        driver.guardian.finish_action(generation, action)
+     finally:
+         driver.close()
+ 
+@@ -308,11 +437,17 @@
+     prior = positioning.samples[0].point
+     for sample in positioning.samples[1:]:
+         if sample.point != prior:
+-            events.append(_event(EventClass.MOTION, timestamp, root=(sample.point.x, sample.point.y)))
++            events.extend(
++                _motion_pair(
++                    timestamp,
++                    (int(prior.x), int(prior.y)),
++                    (int(sample.point.x), int(sample.point.y)),
++                )
++            )
+             timestamp += 1
+             prior = sample.point
+     if variant == "motion-before-press":
+-        events.append(_event(EventClass.MOTION, timestamp, root=(60, 60)))
++        events.extend(_motion_pair(timestamp, (int(prior.x), int(prior.y)), (60, 60)))
+         timestamp += 1
+     press_root = (101, 100) if variant == "wrong-coordinate" else (100, 100)
+     press_target = 0x999 if variant == "wrong-target" else 0x101
+@@ -336,12 +471,12 @@
+         "missing-motion",
+     }:
+         motion_timestamp = timestamp - 1 if variant == "late-motion" else timestamp + 2
+-        events.append(_event(EventClass.MOTION, motion_timestamp, root=(130, 100)))
++        events.extend(_motion_pair(motion_timestamp, (100, 100), (130, 100)))
+     if variant == "motion-after-release":
+         events.extend(
+             [
+                 _event(EventClass.RAW_BUTTON_RELEASE, timestamp + 3, detail=3),
+-                _event(EventClass.MOTION, timestamp + 4, root=(130, 100)),
++                *_motion_pair(timestamp + 4, (100, 100), (130, 100)),
+                 _event(
+                     EventClass.BUTTON_RELEASE,
+                     timestamp + 5,
+--- baseline/tests/test_session_motion_integration.py
++++ transition/tests/test_session_motion_integration.py
+@@ -27,6 +27,7 @@
+     X11Backend,
+ )
+ from crowley.session.executor import KeyRole
++from crowley.session.input_events import EventClass, XI2Event
+ from crowley.session.journal import DEFAULT_STATE, Journal
+ from crowley.session.model import LunaAdapter, ModelRouteObservation
+ from crowley.session.motion import (
+@@ -208,8 +209,31 @@
+         raw: bool,
+         root_xy: tuple[float, float] | None = None,
+         event_xy: tuple[float, float] | None = None,
+-    ) -> SimpleNamespace:
+-        self._timestamp += 1
++        valuators: tuple[tuple[int, float, float | None], ...] = (),
++        timestamp_ms: int | None = None,
++    ) -> SimpleNamespace | XI2Event:
++        if timestamp_ms is None:
++            self._timestamp += 1
++        else:
++            self._timestamp = timestamp_ms
++        if event_class == "Motion":
++            return XI2Event(
++                6,
++                EventClass.MOTION,
++                master,
++                source,
++                self._timestamp,
++                detail,
++                None if raw else 0x374,
++                None if raw else 0x374,
++                None if raw else self.identity.child_xid,
++                root_xy,
++                event_xy,
++                None if raw else (0, 0, 0),
++                (),
++                None if raw else 0,
++                valuators,
++            )
+         return SimpleNamespace(
+             event_class=event_class,
+             source_device=source,
+@@ -223,6 +247,9 @@
+             is_raw=raw,
+             root_xy=root_xy,
+             event_xy=event_xy,
++            root_xid=None if raw else 0x374,
++            event_xid=None if raw else 0x374,
++            valuators=valuators,
+         )
+ 
+     def _observe(self, event: SimpleNamespace) -> None:
+@@ -416,6 +443,55 @@
+                     )
+                 )
+                 + "\n",
++                "",
++            )
++        if args == ["xinput", "list", "--long", "4"]:
++            return subprocess.CompletedProcess(
++                args,
++                0,
++                """Virtual core XTEST pointer               id=4 [slave  pointer  (2)]
++\tReporting 3 classes:
++\t\tClass originated from: 4. Type: XIButtonClass
++\t\tButtons supported: 10
++\t\tButton labels: \"Button Left\" \"Button Middle\" \"Button Right\"
++\t\tButton state:
++\t\tClass originated from: 4. Type: XIValuatorClass
++\t\tDetail for Valuator 0:
++\t\t  Label: Rel X
++\t\t  Range: -1.000000 - -1.000000
++\t\t  Resolution: 0 units/m
++\t\t  Mode: relative
++\t\tClass originated from: 4. Type: XIValuatorClass
++\t\tDetail for Valuator 1:
++\t\t  Label: Rel Y
++\t\t  Range: -1.000000 - -1.000000
++\t\t  Resolution: 0 units/m
++\t\t  Mode: relative
++""",
++                "",
++            )
++        if args == ["xinput", "list-props", "4"]:
++            return subprocess.CompletedProcess(
++                args,
++                0,
++                """Device 'Virtual core XTEST pointer':
++\tDevice Enabled (122):\t1
++\tCoordinate Transformation Matrix (124):\t1.000000, 0.000000, 0.000000, 0.000000, 1.000000, 0.000000, 0.000000, 0.000000, 1.000000
++\tXTEST Device (233):\t1
++""",
++                "",
++            )
++        if args == ["xwininfo", "-root", "-stats"]:
++            return subprocess.CompletedProcess(
++                args,
++                0,
++                """xwininfo: Window id: 0x374 (the root window) (has no name)
++
++  Absolute upper-left X:  0
++  Absolute upper-left Y:  0
++  Width: 1920
++  Height: 1080
++""",
+                 "",
+             )
+         if generation is None:
+@@ -485,10 +561,25 @@
+             release = len(tokens) - 2
+ 
+             def moves(start: int, end: int) -> None:
++                try:
++                    prior = self._last_move(tokens, start)
++                except AssertionError:
++                    prior = (float(self.pointer[0]), float(self.pointer[1]))
+                 index = start
+                 while index < end:
+                     if tokens[index] == "mousemove":
+                         x, y = float(tokens[index + 1]), float(tokens[index + 2])
++                        origin = prior
++                        self._observe(
++                            self._event(
++                                "RawMotion",
++                                source=4,
++                                master=2,
++                                detail=0,
++                                raw=True,
++                                valuators=((0, x, x), (1, y, y)),
++                            )
++                        )
+                         self._observe(
+                             self._event(
+                                 "Motion",
+@@ -496,8 +587,10 @@
+                                 master=4,
+                                 detail=0,
+                                 raw=False,
+-                                root_xy=(x, y),
+-                                event_xy=(x, y),
++                                root_xy=origin,
++                                event_xy=origin,
++                                valuators=((0, x, x), (1, y, y)),
++                                timestamp_ms=self._timestamp,
+                             )
+                         )
+                         # The calibrated proof requires the forwarded XI2
+@@ -513,6 +606,7 @@
+                                 event_xy=(x, y),
+                             )
+                         )
++                        prior = (x, y)
+                         index += 3
+                     else:
+                         index += 1
+@@ -524,6 +618,7 @@
+                 raise AssertionError("camera chain has no right-button admission")
+             start_xy = self._last_move(tokens, press)
+             end_xy = self._last_move(tokens, release)
++            self.pointer = (int(end_xy[0]), int(end_xy[1]))
+             for event_class, raw in (("RawButtonPress", True), ("ButtonPress", False)):
+                 self._observe(
+                     self._event(
+--- baseline/tests/test_session_native.py
++++ transition/tests/test_session_native.py
+@@ -32,6 +32,8 @@
+     NativeResumeBoundary,
+     OwnedGtkCalibrationWindow,
+     OwnedWindow,
++    XTestInputProfile,
++    _parse_xinput_profile,
+     _parse_xwininfo_geometry,
+ )
+ from crowley.session.driver import (
+@@ -53,7 +55,9 @@
+     EventClass,
+     InputEventError,
+     RawMotionPairing,
++    XI2Event,
+     XI2StreamParser,
++    decode_xtest_motion_transition,
+     parse_xi2_records,
+     xi2_timestamp_elapsed,
+     xi2_timestamp_forward,
+@@ -93,6 +97,28 @@
+ """
+ 
+ 
++def _xtest_profile(
++    hierarchy: tuple[tuple[int, int, str, str], ...],
++    *,
++    source: int = 4,
++    parent: int = 2,
++    root: int = 0x374,
++) -> XTestInputProfile:
++    return XTestInputProfile(
++        source,
++        parent,
++        next((row[3] for row in hierarchy if row[0] == source), "XTEST pointer"),
++        3,
++        ((0, "Rel X", "relative", -1.0, -1.0, 0), (1, "Rel Y", "relative", -1.0, -1.0, 0)),
++        1,
++        1,
++        (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
++        root,
++        (0, 0, 1920, 1080),
++        hierarchy,
++    )
++
++
+ def _evidence() -> InputCalibrationEvidence:
+     # Complete owned evidence fixture: all identity, geometry, game binding and
+     # raw/delivered event facts are present so production verification stays
+@@ -102,6 +128,8 @@
+         ("KeyPress", 5, 5, 8, 1, 0x374, 0x374, 0x600119, (1.0, 1.0), (1.0, 1.0), (0, 0, 0)),
+         ("RawKeyRelease", 3, 5, 8, 2, None, None, None, None, None, None),
+         ("KeyRelease", 5, 5, 8, 2, 0x374, 0x374, 0x600119, (1.0, 1.0), (1.0, 1.0), (0, 0, 0)),
++        ("RawMotion", 2, 4, 0, 3, None, None, None, None, None, None),
++        ("Motion", 4, 4, 0, 3, 0x374, 0x374, 0x600119, (1.0, 1.0), (1.0, 1.0), (0, 0, 0)),
+         ("RawButtonPress", 2, 4, 1, 3, None, None, None, None, None, None),
+         ("ButtonPress", 4, 4, 1, 3, 0x374, 0x374, 0x600119, (1.0, 1.0), (1.0, 1.0), (0, 0, 0)),
+         ("RawButtonRelease", 2, 4, 1, 4, None, None, None, None, None, None),
+@@ -154,6 +182,14 @@
+             (5, 3, "slave", "keyboard:test"),
+             (7, 2, "slave", "pointer:human"),
+             (9, 3, "slave", "keyboard:human"),
++        ),
++        xtest_profile=_xtest_profile(
++            (
++                (4, 2, "slave", "pointer:test"),
++                (5, 3, "slave", "keyboard:test"),
++                (7, 2, "slave", "pointer:human"),
++                (9, 3, "slave", "keyboard:human"),
++            )
+         ),
+         synthetic_events=(
+             ("RawKeyPress", 5, 8),
+@@ -196,6 +232,26 @@
+         managed_frame_geometry=(0, 0, 500, 260),
+         target_event_xids=(0x600118, 0x600119),
+         synthetic_modifiers=(0, 0, 0),
++        synthetic_motion_transitions=(
++            (
++                "XTestMotionTransition",
++                3,
++                4,
++                4,
++                2,
++                0x600119,
++                0x374,
++                0x374,
++                (1.0, 1.0),
++                (1.0, 1.0),
++                (1, 1),
++                (1, 1),
++                ((0, 1.0, 1.0), (1, 1.0, 1.0)),
++                (0, 0, 0),
++                0,
++            ),
++        ),
++        synthetic_motion_query=(1, 1, 0x600119, 1, 1, 1, 1, 0x600119),
+         keyboard_keymap=(("Return", 9),),
+         keyboard_profile=keyboard_profile,
+         event_proof=proof,
+@@ -216,6 +272,146 @@
+         parse_xi2_records("sourceid: 4\nsourceid: 5\n", require_event=True)
+     with pytest.raises(DriverError, match="timestamp"):
+         XI2Observer.records("EVENT type 2 (KeyPress)\n    device: 5 (5)\n")
++
++
++def test_measured_native_profile_capture_parses_through_production_parser() -> None:
++    capture = json.loads(
++        Path(".archive/executor-review/native-input-profile-observed.json").read_text(encoding="utf-8")
++    )
++    commands = {entry["name"]: entry for entry in capture["commands"]}
++    profile = _parse_xinput_profile(
++        commands["xinput_list_long_source"]["stdout"],
++        commands["xinput_list_props_source"]["stdout"],
++        ((4, 2, "slave", "Virtual core XTEST pointer"),),
++        source_device=4,
++        parent_device=2,
++        root_xid=0x374,
++        root_geometry=(0, 0, 1920, 1080),
++    )
++    assert profile.classes == 3
++    assert profile.axes == (
++        (0, "Rel X", "relative", -1.0, -1.0, 0),
++        (1, "Rel Y", "relative", -1.0, -1.0, 0),
++    )
++
++
++@pytest.mark.parametrize(
++    ("drift", "message"),
++    (("invalid-ctm", "fresh XTEST input profile is invalid"), ("root-geometry", "profile changed")),
++)
++def test_native_action_rejects_measured_profile_drift_before_dispatch(
++    drift: str, message: str, tmp_path: Path
++) -> None:
++    profile = DriverProfile(display=":profile-drift", xauthority=str(tmp_path / "Xauthority"))
++    hierarchy = ((4, 2, "slave", "XTEST pointer"),)
++    sealed = _xtest_profile(hierarchy)
++    backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
++    driver = DesktopDriver(profile=profile, backend=backend, lease_path=tmp_path / "profile-drift.lock")
++    evidence = SimpleNamespace(xtest_profile=sealed)
++    drifted = (
++        replace(sealed, ctm=(2.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
++        if drift == "invalid-ctm"
++        else replace(sealed, root_geometry=(0, 0, 1920, 1081))
++    )
++    backend.xtest_input_profile = lambda _hierarchy: drifted  # type: ignore[method-assign]
++    try:
++        with pytest.raises(DriverError, match=message):
++            driver._verify_current_xtest_profile(evidence, hierarchy)
++    finally:
++        driver.close()
++
++
++@pytest.mark.parametrize(
++    ("change", "message"),
++    (
++        (lambda event: replace(event, source_device=5), "device/source"),
++        (lambda event: replace(event, detail=1), "detail"),
++        (lambda event: replace(event, root_xid=0x375), "root window"),
++        (lambda event: replace(event, event_xid=0x375), "root window"),
++        (lambda event: replace(event, child_xid=0x700101), "outside"),
++        (lambda event: replace(event, event_xy=(2.0, 1.0)), "origin"),
++        (lambda event: replace(event, valuators=((0, 20.0, 20.0),)), "exactly valuator"),
++        (
++            lambda event: replace(event, valuators=((0, 20.0, 20.0), (0, 30.0, 30.0))),
++            "exactly valuator",
++        ),
++        (lambda event: replace(event, valuators=((0, float("nan"), None), (1, 30.0, 30.0))), "finite"),
++    ),
++)
++def test_xtest_transition_decoder_rejects_unproven_native_variants(change: object, message: str) -> None:
++    valid = XI2Event(
++        6,
++        EventClass.MOTION,
++        4,
++        4,
++        10,
++        0,
++        0x374,
++        0x374,
++        0x600119,
++        (1.0, 2.0),
++        (1.0, 2.0),
++        (0, 0, 0),
++        modifier_effective=0,
++        valuators=((0, 20.0, 20.0), (1, 30.0, 30.0)),
++    )
++    candidate = change(valid)  # type: ignore[operator]
++    with pytest.raises(InputEventError, match=message):
++        decode_xtest_motion_transition(
++            candidate,
++            expected_source=4,
++            expected_parent=2,
++            expected_root_xid=0x374,
++            expected_child_xids={0x600119},
++            planned_endpoint=(20, 30),
++        )
++
++
++def test_xtest_transition_decoder_rejects_raw_and_nonzero_root_event_delta() -> None:
++    raw = XI2Event(
++        17,
++        EventClass.RAW_MOTION,
++        2,
++        4,
++        10,
++        0,
++        None,
++        None,
++        None,
++        valuators=((0, 20.0, 20.0), (1, 30.0, 30.0)),
++    )
++    with pytest.raises(InputEventError, match="delivered Motion"):
++        decode_xtest_motion_transition(
++            raw,
++            expected_source=4,
++            expected_parent=2,
++            expected_root_xid=0x374,
++            expected_child_xids={0x600119},
++        )
++    delivered = XI2Event(
++        6,
++        EventClass.MOTION,
++        4,
++        4,
++        10,
++        0,
++        0x374,
++        0x374,
++        0x600119,
++        (1.0, 2.0),
++        (1.0, 3.0),
++        (0, 0, 0),
++        modifier_effective=0,
++        valuators=((0, 20.0, 20.0), (1, 30.0, 30.0)),
++    )
++    with pytest.raises(InputEventError, match="origin"):
++        decode_xtest_motion_transition(
++            delivered,
++            expected_source=4,
++            expected_parent=2,
++            expected_root_xid=0x374,
++            expected_child_xids={0x600119},
++        )
+ 
+ 
+ def test_captured_raw_motion_is_a_complete_raw_xi2_record() -> None:
+@@ -926,6 +1122,185 @@
+         guardian.close()
+ 
+ 
++def test_workflow_built_native_evidence_arms_and_accepts_endpoint_echo(tmp_path: Path) -> None:
++    """Exercise the production evidence builder through arm and Guardian admission."""
++
++    from crowley.session.calibration import KeyboardProbeOperation, KeyboardProbeStep
++    from crowley.session.input_events import XI2Event
++
++    base = _evidence()
++    window = OwnedWindow(
++        os.getpid(),
++        0x600119,
++        "CROWLEY INPUT CALIBRATION ONLY",
++        (0, 0, 480, 240),
++        object(),  # type: ignore[arg-type]
++        frozenset({0x600119}),
++        "/usr/bin/python3",
++        "target-start",
++        0x600118,
++        (0, 0, 500, 260),
++        frozenset({0x600118, 0x600119}),
++    )
++    hierarchy = base.xinput_hierarchy
++
++    def from_proof(record: tuple[object, ...]) -> XI2Event:
++        event_class = EventClass(record[0])
++        type_number = {
++            EventClass.RAW_KEY_PRESS: 13,
++            EventClass.KEY_PRESS: 2,
++            EventClass.RAW_KEY_RELEASE: 14,
++            EventClass.KEY_RELEASE: 3,
++            EventClass.RAW_BUTTON_PRESS: 15,
++            EventClass.BUTTON_PRESS: 4,
++            EventClass.RAW_BUTTON_RELEASE: 16,
++            EventClass.BUTTON_RELEASE: 5,
++            EventClass.RAW_MOTION: 17,
++            EventClass.MOTION: 6,
++        }[event_class]
++        timestamp = int(record[4])
++        if int(record[2]) == 4 and timestamp in {3, 4}:
++            # Retain a real CARD32 wrap in the complete builder→seal test:
++            # the fixture's source-4 button facts are moved just before MAX,
++            # while the source-7 human facts remain in their own domain.
++            timestamp = XI2_TIMESTAMP_MASK - (10 - timestamp)
++        return XI2Event(
++            type_number,
++            event_class,
++            int(record[1]),
++            int(record[2]),
++            timestamp,
++            record[3],  # type: ignore[arg-type]
++            record[5],  # type: ignore[arg-type]
++            record[6],  # type: ignore[arg-type]
++            record[7],  # type: ignore[arg-type]
++            record[8],  # type: ignore[arg-type]
++            record[9],  # type: ignore[arg-type]
++            record[10],  # type: ignore[arg-type]
++            modifier_effective=record[11],  # type: ignore[arg-type]
++            valuators=(
++                ((0, 1.0, 1.0), (1, 1.0, 1.0))
++                if event_class in {EventClass.RAW_MOTION, EventClass.MOTION} and int(record[2]) == 4
++                else ()
++            ),
++        )
++
++    records = [from_proof(record) for record in base.event_proof]
++    first_human_pointer = next(
++        index for index, event in enumerate(records) if event.source_device == base.human_pointer_source
++    )
++    primary_index = first_human_pointer
++    raw_max = XI2Event(
++        17,
++        EventClass.RAW_MOTION,
++        2,
++        4,
++        XI2_TIMESTAMP_MASK,
++        0,
++        None,
++        None,
++        None,
++        modifiers=None,
++        valuators=((0, 20.0, 20.0), (1, 30.0, 30.0)),
++    )
++    primary_max = XI2Event(
++        6,
++        EventClass.MOTION,
++        4,
++        4,
++        XI2_TIMESTAMP_MASK,
++        0,
++        0x374,
++        0x374,
++        0x600119,
++        (1.0, 1.0),
++        (1.0, 1.0),
++        (0, 0, 0),
++        modifier_effective=0,
++        valuators=((0, 20.0, 20.0), (1, 30.0, 30.0)),
++    )
++    forwarded_zero = XI2Event(
++        6,
++        EventClass.MOTION,
++        7,
++        7,
++        0,
++        0,
++        0x374,
++        0x374,
++        0x600119,
++        (20.0, 30.0),
++        (20.0, 30.0),
++        (0, 0, 0),
++        modifier_effective=0,
++    )
++    records[primary_index:primary_index] = [raw_max, primary_max, forwarded_zero]
++    profile = base.xtest_profile
++    assert profile is not None
++    transitions = InputCalibrationWorkflow._canonical_motion_transitions(records, window, profile)
++    driver = DesktopDriver(
++        profile=DriverProfile(display=":test", xauthority="/tmp/Xauthority"),
++        backend=RecordingBackend(),
++        lease_path=tmp_path / "workflow-built-evidence.lock",
++    )
++    try:
++        evidence = InputCalibrationWorkflow._build_evidence(
++            records,
++            window,
++            driver.driver_version,
++            hierarchy=hierarchy,
++            display=":test",
++            xauthority="/tmp/Xauthority",
++            synthetic_key_source=5,
++            synthetic_pointer_source=4,
++            game_identity_fingerprint="game-test-identity",
++            game_geometry=(0, 0, 1920, 1080),
++            target_executable="/usr/bin/python3",
++            target_process_start="target-start",
++            target_geometry=(0, 0, 480, 240),
++            keyboard_operations=(
++                KeyboardProbeOperation(
++                    "open_chat",
++                    "",
++                    (KeyboardProbeStep("press", "Return"), KeyboardProbeStep("release", "Return")),
++                ),
++            ),
++            keyboard_keymap=(("Return", 9),),
++            xtest_profile=profile,
++            synthetic_motion_transitions=transitions,
++            synthetic_motion_query=(1, 1, 0x600119, 1, 1, 1, 1, 0x600119),
++            synthetic_prefix_records=records,
++        )
++        evidence.verify_seal()
++        generation = driver.arm(evidence)
++        action = driver.guardian.begin_action(
++            generation,
++            target_xid=0x600119,
++            source_device=4,
++            master_device=2,
++            event_classes={EventClass.RAW_MOTION.value, EventClass.MOTION.value},
++            device_by_class={EventClass.RAW_MOTION.value: 2, EventClass.MOTION.value: 4},
++            optional_classes={EventClass.RAW_MOTION.value, EventClass.MOTION.value},
++            expected_modifiers=(0, 0, 0),
++            expected_motion_trace=((20, 30, 20, 30),),
++            initial_origin=(1, 1, 1, 1),
++            expected_root_xid=0x374,
++            expected_event_xid=0x374,
++            expected_child_xids=frozenset({0x600119}),
++            canonical_motion=True,
++            echo_proof=evidence.synthetic_echo_proof,
++            require_motion_before_button=False,
++            required_sequence=(),
++        )
++        assert driver.guardian.observe(raw_max)
++        assert driver.guardian.observe(primary_max)
++        assert driver.guardian.observe(forwarded_zero)
++        assert action.complete
++        driver.guardian.finish_action(generation, action)
++    finally:
++        driver.close()
++
++
+ def test_guardian_revoke_increments_generation_releases_input_and_keeps_lease(tmp_path: Path) -> None:
+     released: list[str] = []
+     callbacks: list[tuple[str, int]] = []
+@@ -2804,6 +3179,8 @@
+             window,
+             "test",
+             hierarchy=((4, 2, "slave", "pointer:test"),),
++            xtest_profile=_xtest_profile(((4, 2, "slave", "pointer:test"),)),
++            synthetic_motion_query=(1, 1, 0x600119, 1, 1, 1, 1, 0x600119),
+             display=":test",
+             xauthority="/tmp/Xauthority",
+             game_identity_fingerprint="game-test-identity",
+@@ -2853,6 +3230,7 @@
+         timestamp: int,
+         detail: int | None,
+         child: int | None,
++        valuators: tuple[tuple[int, float, float | None], ...] = (),
+     ) -> object:
+         return base.__class__(
+             number,
+@@ -2878,6 +3256,7 @@
+             }
+             else None,
+             modifier_effective=0 if child is not None else None,
++            valuators=valuators,
+         )
+ 
+     synthetic = [
+@@ -2889,7 +3268,27 @@
+         event(2, EventClass.KEY_PRESS, 5, 5, 232007461, 9, 0x600119),
+         event(14, EventClass.RAW_KEY_RELEASE, 3, 5, 232007462, 9, None),
+         event(3, EventClass.KEY_RELEASE, 5, 5, 232007462, 9, 0x600119),
++        event(
++            17,
++            EventClass.RAW_MOTION,
++            2,
++            4,
++            232007475,
++            0,
++            None,
++            ((0, 1.0, 1.0), (1, 1.0, 1.0)),
++        ),
+         event(1, EventClass.DEVICE_CHANGED, 2, 4, 232007476, None, None),
++        event(
++            6,
++            EventClass.MOTION,
++            4,
++            4,
++            232007475,
++            0,
++            0x600119,
++            ((0, 1.0, 1.0), (1, 1.0, 1.0)),
++        ),
+         event(15, EventClass.RAW_BUTTON_PRESS, 2, 4, 232007476, 1, None),
+         event(4, EventClass.BUTTON_PRESS, 4, 4, 232007476, 1, 0x600119),
+         event(7, EventClass.ENTER, 4, 4, 232007476, None, 0),
+@@ -2926,6 +3325,15 @@
+                 if parsed.child_xid is not None
+                 else ""
+             )
++            + (
++                "    valuators:\n"
++                + "".join(
++                    f"         {axis}: {value:.2f} ({(raw if raw is not None else value):.2f})\n"
++                    for axis, value, raw in parsed.valuators
++                )
++                if parsed.valuators
++                else ""
++            )
+         )
+ 
+     synthetic_trace = "\n".join(as_trace(event) for event in synthetic)
+@@ -2997,6 +3405,19 @@
+             self.observer: FakeObserver | None = None
+             self.ticket = SimpleNamespace(epoch=1)
+             self.retained: object | None = None
++            # Keep the fake process/observer boundary while exercising the
++            # canonical native transition proof and seal path.
++            self.backend = object.__new__(X11Backend)
++            self.backend._last_synthetic_motion_query = (
++                1,
++                1,
++                0x600119,
++                1,
++                1,
++                1,
++                1,
++                0x600119,
++            )
+ 
+         def begin_calibration_operation(self) -> int:
+             return 1
+@@ -3040,6 +3461,9 @@
+                 (7, 2, "slave", "human pointer"),
+                 (9, 3, "slave", "human keyboard"),
+             )
++
++        def xtest_input_profile(self, hierarchy):
++            return _xtest_profile(hierarchy)
+ 
+         def start_input_observer(self, *, calibration: bool, callback: object) -> FakeObserver:
+             assert calibration
+@@ -3164,6 +3588,7 @@
+         evidence = replace(evidence, driver_version=resumed.driver_version, fingerprint="")
+         evidence = replace(evidence, fingerprint=evidence.content_fingerprint()).with_hash()
+         resumed.input_hierarchy = hierarchy  # type: ignore[method-assign]
++        resumed.xtest_input_profile = lambda _hierarchy: evidence.xtest_profile  # type: ignore[method-assign]
+         resumed.retain_input_evidence(evidence)
+         generation = resumed.arm(resumed.retained_input_evidence)
+         assert generation == 1
+@@ -3185,7 +3610,7 @@
+ 
+ def test_owned_evidence_rejects_blank_or_tampered_canonical_seals() -> None:
+     evidence = _evidence()
+-    with pytest.raises(CalibrationError, match="canonical seal"):
++    with pytest.raises(CalibrationError, match="canonical seal|motion transition"):
+         replace(evidence, evidence_hash="").verify_seal()
+     with pytest.raises(CalibrationError, match="fingerprint|seal"):
+         replace(evidence, game_geometry=(1, 2, 3, 4)).verify_seal()
+--- baseline/tests/test_session_native_regressions.py
++++ transition/tests/test_session_native_regressions.py
+@@ -40,6 +40,7 @@
+     NativeResumeBoundary,
+     OwnedGtkCalibrationWindow,
+     OwnedWindow,
++    XTestInputProfile,
+ )
+ from crowley.session.decoder import PixelDecoder
+ from crowley.session.driver import (
+@@ -60,6 +61,28 @@
+ 
+ TARGET = 0x600119
+ FOREIGN = 0x1A00011
++
++
++def _xtest_profile(
++    hierarchy: tuple[tuple[int, int, str, str], ...],
++    *,
++    source: int = 4,
++    parent: int = 2,
++    root: int = 0x374,
++) -> XTestInputProfile:
++    return XTestInputProfile(
++        source,
++        parent,
++        next((row[3] for row in hierarchy if row[0] == source), "XTEST pointer"),
++        3,
++        ((0, "Rel X", "relative", -1.0, -1.0, 0), (1, "Rel Y", "relative", -1.0, -1.0, 0)),
++        1,
++        1,
++        (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
++        root,
++        (0, 0, 1920, 1080),
++        hierarchy,
++    )
+ 
+ 
+ def _mutter_gtk_fixture_command(
+@@ -230,7 +253,7 @@
+     *,
+     hierarchy: tuple[tuple[int, int, str, str], ...] | None = None,
+     xauthority: str | None = None,
+-    driver_version: str = "native-x11-2",
++    driver_version: str = "native-x11-3",
+     game_identity_fingerprint: str = "owned-game-identity",
+     game_geometry: tuple[int, int, int, int] = (0, 0, 1920, 1080),
+ ):
+@@ -240,7 +263,17 @@
+     records[-1] = replace(records[-1], child_xid=TARGET, event_xid=TARGET)
+     records.insert(
+         -1,
+-        _event(EventClass.MOTION, master=4, source=4, timestamp=232007500, detail=0),
++        replace(
++            _event(EventClass.RAW_MOTION, master=2, source=4, timestamp=232007500, detail=0, child=None),
++            valuators=((0, 987.0, 987.0), (1, 595.0, 595.0)),
++        ),
++    )
++    records.insert(
++        -1,
++        replace(
++            _event(EventClass.MOTION, master=4, source=4, timestamp=232007500, detail=0),
++            valuators=((0, 987.0, 987.0), (1, 595.0, 595.0)),
++        ),
+     )
+     key_details = {
+         "Return": 36,
+@@ -324,6 +357,33 @@
+             _event(EventClass.BUTTON_RELEASE, master=7, source=7, timestamp=232007532, detail=1),
+         ]
+     )
++    measured_hierarchy = hierarchy or (
++        (2, 0, "master", "pointer:Virtual core pointer"),
++        (3, 0, "master", "keyboard:Virtual core keyboard"),
++        (4, 2, "slave", "pointer:Virtual core XTEST pointer"),
++        (5, 3, "slave", "keyboard:Virtual core XTEST keyboard"),
++        (7, 2, "slave", "pointer:xwayland-relative-pointer"),
++        (9, 3, "slave", "keyboard:xwayland-keyboard"),
++    )
++    measured_profile = _xtest_profile(measured_hierarchy)
++    measured_window = OwnedWindow(
++        os.getpid(),
++        TARGET,
++        "CROWLEY INPUT CALIBRATION ONLY",
++        (0, 0, 480, 240),
++        object(),  # type: ignore[arg-type]
++        frozenset({TARGET}),
++        "/usr/bin/python3",
++        "owned-target-start",
++        TARGET + 1,
++        (0, 0, 500, 260),
++        frozenset({TARGET, TARGET + 1}),
++    )
++    measured_transitions = InputCalibrationWorkflow._canonical_motion_transitions(
++        records,
++        measured_window,
++        measured_profile,
++    )
+     return InputCalibrationEvidence._issue(
+         fingerprint="owned-native-test-fingerprint",
+         display=":test",
+@@ -334,15 +394,10 @@
+         synthetic_pointer_source=4,
+         human_key_source=9,
+         human_pointer_source=7,
+-        xinput_hierarchy=hierarchy
+-        or (
+-            (2, 0, "master", "pointer:Virtual core pointer"),
+-            (3, 0, "master", "keyboard:Virtual core keyboard"),
+-            (4, 2, "slave", "pointer:Virtual core XTEST pointer"),
+-            (5, 3, "slave", "keyboard:Virtual core XTEST keyboard"),
+-            (7, 2, "slave", "pointer:xwayland-relative-pointer"),
+-            (9, 3, "slave", "keyboard:xwayland-keyboard"),
+-        ),
++        xinput_hierarchy=measured_hierarchy,
++        xtest_profile=measured_profile,
++        synthetic_motion_transitions=measured_transitions,
++        synthetic_motion_query=(987, 595, TARGET, 987, 595, 987, 595, TARGET),
+         synthetic_events=tuple(
+             (record.event_class.value, record.source_device, record.detail)
+             for record in records
+@@ -485,8 +540,16 @@
+                     f"    windows: root 0x374 event 0x374 child {hex(event.child_xid)}",
+                 )
+             )
++            if event.event_class is EventClass.MOTION and event.valuators:
++                lines.append("    valuators:")
++                for axis, value, raw_value in event.valuators:
++                    suffix = f" ({raw_value:.2f})" if raw_value is not None else ""
++                    lines.append(f"         {axis}: {value:.2f}{suffix}")
+         else:
+             lines.append("    valuators:")
++            for axis, value, raw_value in event.valuators:
++                suffix = f" ({raw_value:.2f})" if raw_value is not None else ""
++                lines.append(f"         {axis}: {value:.2f}{suffix}")
+         if event.modifiers is not None:
+             locked, latched, base = event.modifiers
+             effective = event.modifier_effective
+@@ -664,6 +727,78 @@
+         assert calls == [(hex(TARGET), 281, 179)]
+     finally:
+         driver.close()
++
++
++def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: Path) -> None:
++    """The native producer must query ownership before and after its move."""
++
++    profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
++    backend = object.__new__(X11Backend)
++    backend.profile = profile
++    backend.xauthority = profile.xauthority
++    backend._last_synthetic_motion_query = None
++    backend._calibration_focus_ticket = None
++    calls: list[list[str]] = []
++    pointer_reads = iter(((100, 100, TARGET), (120, 120, TARGET)))
++
++    def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
++        calls.append(list(args))
++        if args[:2] == ["xdotool", "getwindowgeometry"]:
++            return subprocess.CompletedProcess(
++                args, 0, "WINDOW=0x600119\nX=40\nY=60\nWIDTH=240\nHEIGHT=160\nSCREEN=0\n", ""
++            )
++        if args == ["xdotool", "getwindowfocus"]:
++            return subprocess.CompletedProcess(args, 0, "6291737\n", "")
++        return subprocess.CompletedProcess(args, 0, "", "")
++
++    backend._run = run  # type: ignore[method-assign]
++    backend.pointer_position = lambda **_kwargs: next(pointer_reads)  # type: ignore[method-assign]
++    backend.synthetic_calibration(
++        hex(TARGET),
++        120,
++        120,
++        calibration_ticket=SimpleNamespace(epoch=1),
++    )
++    assert backend._last_synthetic_motion_query == (100, 100, TARGET, 120, 120, 120, 120, TARGET)
++    assert [args[1] for args in calls if len(args) > 1] == [
++        "getwindowgeometry",
++        "windowactivate",
++        "getwindowfocus",
++        "key",
++        "mousemove",
++        "click",
++    ]
++
++
++def test_synthetic_calibration_refuses_outside_origin_before_motion(tmp_path: Path) -> None:
++    profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
++    backend = object.__new__(X11Backend)
++    backend.profile = profile
++    backend.xauthority = profile.xauthority
++    backend._last_synthetic_motion_query = None
++    backend._calibration_focus_ticket = None
++    calls: list[list[str]] = []
++
++    def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
++        calls.append(list(args))
++        if args[:2] == ["xdotool", "getwindowgeometry"]:
++            return subprocess.CompletedProcess(
++                args, 0, "WINDOW=0x600119\nX=40\nY=60\nWIDTH=240\nHEIGHT=160\nSCREEN=0\n", ""
++            )
++        if args == ["xdotool", "getwindowfocus"]:
++            return subprocess.CompletedProcess(args, 0, "6291737\n", "")
++        return subprocess.CompletedProcess(args, 0, "", "")
++
++    backend._run = run  # type: ignore[method-assign]
++    backend.pointer_position = lambda **_kwargs: (100, 100, 0x700101)  # type: ignore[method-assign]
++    with pytest.raises(DriverError, match="origin is outside"):
++        backend.synthetic_calibration(
++            hex(TARGET),
++            120,
++            120,
++            calibration_ticket=SimpleNamespace(epoch=1),
++        )
++    assert all(args[1] not in {"key", "mousemove", "click"} for args in calls if len(args) > 1)
+ 
+ 
+ def test_calibration_gate_health_is_rechecked_after_registration_ack(tmp_path: Path) -> None:
+@@ -1350,11 +1485,24 @@
+ 
+ class _WorkflowDriver:
+     profile = SimpleNamespace(display=":test", xauthority="Xauthority")
+-    driver_version = "native-x11-2"
++    driver_version = "native-x11-3"
+     xauthority = "Xauthority"
+ 
+     def __init__(self, *, outside: bool):
+         records = parse_xi2_records(FULL_XI2_TRACE, require_event=True)
++        # Mark this deterministic observer fixture as the native X11 path so
++        # the workflow seals and replays its canonical raw/primary transition.
++        self.backend = object.__new__(X11Backend)
++        self.backend._last_synthetic_motion_query = (
++            987,
++            595,
++            TARGET,
++            987,
++            595,
++            987,
++            595,
++            TARGET,
++        )
+         self.observer: _WorkflowObserver | None = None
+         self.revocations: list[str] = []
+         self.queued_calibration_count = 0
+@@ -1366,7 +1514,24 @@
+         # only the former may participate in an echo proof.
+         self._records.insert(
+             7,
+-            _event(EventClass.MOTION, master=4, source=4, timestamp=232007474, detail=0),
++            replace(
++                _event(
++                    EventClass.RAW_MOTION,
++                    master=2,
++                    source=4,
++                    timestamp=232007474,
++                    detail=0,
++                    child=None,
++                ),
++                valuators=((0, 987.0, 987.0), (1, 595.0, 595.0)),
++            ),
++        )
++        self._records.insert(
++            8,
++            replace(
++                _event(EventClass.MOTION, master=4, source=4, timestamp=232007474, detail=0),
++                valuators=((0, 987.0, 987.0), (1, 595.0, 595.0)),
++            ),
+         )
+         self._keyboard_keymap = {"Return": 36}
+         self._keyboard_operations = (
+@@ -1504,6 +1669,9 @@
+             (9, 3, "slave", "keyboard:xwayland-keyboard"),
+         )
+ 
++    def xtest_input_profile(self, hierarchy):
++        return _xtest_profile(hierarchy)
++
+     def begin_calibration_operation(self) -> int:
+         self.calibration_epoch += 1
+         self.queued_calibration_count = 0
+@@ -1657,6 +1825,15 @@
+     driver._monitor_calibration = True
+     started: list[bool] = []
+ 
++    arm_evidence = _evidence(
++        tmp_path,
++        hierarchy=hierarchy,
++        driver_version=driver.driver_version,
++        game_identity_fingerprint="game-id",
++        game_geometry=identity.child_geometry,
++    )
++    backend.xtest_input_profile = lambda _hierarchy: arm_evidence.xtest_profile  # type: ignore[method-assign]
++
+     def start(*, calibration: bool = False, callback=None):
+         started.append(calibration)
+         driver._monitor = runtime
+@@ -1665,15 +1842,7 @@
+ 
+     driver.start_input_observer = start  # type: ignore[method-assign]
+     try:
+-        driver.arm(
+-            _evidence(
+-                tmp_path,
+-                hierarchy=hierarchy,
+-                driver_version=driver.driver_version,
+-                game_identity_fingerprint="game-id",
+-                game_geometry=identity.child_geometry,
+-            )
+-        )
++        driver.arm(arm_evidence)
+         assert stopped == [True]
+         assert started == [False]
+         assert driver._monitor is runtime

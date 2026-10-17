@@ -1,0 +1,84 @@
+{
+  "schema": 1,
+  "kind": "gnome-telemetry-region-r2-freeze",
+  "root": "/home/dev/repos/pegasus",
+  "scope": [
+    "deploy/crowley-session.example.toml",
+    "src/crowley/session/config.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/driver.py",
+    "src/crowley/session/process_admission.py",
+    "tests/test_session_capture.py",
+    "tests/test_session_driver_actions.py",
+    "tests/test_session_motion_integration.py",
+    "tests/test_session_native.py",
+    "tests/test_session_preferences.py",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch",
+    "tools/gnome-telemetry-region/README.md",
+    "tools/gnome-telemetry-region/build-private.sh",
+    "tools/gnome-telemetry-region/manifest.example.json",
+    "tools/gnome-telemetry-region/offline_harness.py"
+  ],
+  "source_hashes": {
+    "deploy/crowley-session.example.toml": "17fcb07d702cbd36cbceb3501405354073be9f0f8b364de9b9c624ea3e98d7fc",
+    "src/crowley/session/config.py": "976717d23d18d6c37d7a3a280d532ba0cdc15e6d086896fc4781b6efdf6b94cb",
+    "src/crowley/session/daemon.py": "23aef76fecbc82178bd25e51e2a39901b091eed26705361da35d7ad27cc0cf13",
+    "src/crowley/session/driver.py": "04a8d866d09d602cae9806931b0832ad2a0206c085a8e137f8ffb7514bff8c54",
+    "src/crowley/session/process_admission.py": "bb54811e63da57165fcb2409053a61a024f4fb3218788042691aaa4d4dd33192",
+    "tests/test_session_capture.py": "f4bc3315e25ac295ce0abe97ac2354644b9be3cee581d1d1da3e9c49629089a2",
+    "tests/test_session_driver_actions.py": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413",
+    "tests/test_session_motion_integration.py": "ad540b14fa48dc2a4ee5fe982cf75f119e499e526b979cc02056d6716f11387a",
+    "tests/test_session_native.py": "82fe3c62740b705a7aa3081eb302ea67fc8a68ac10d6048835eb2a6aba4adde3",
+    "tests/test_session_preferences.py": "71a37e07a89de5cf8899ea930c7f9785f1523558b65aede443f2166926dec572",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "0a135ab39ca57e168602cc2ea0a1e403ae69268f6593c1ad41e8d0972c231b9e",
+    "tools/gnome-telemetry-region/README.md": "3e4d9a56ad1594b1fed957e8ebc2ffe51ce26c767b96be720ad82f089a46f5bf",
+    "tools/gnome-telemetry-region/build-private.sh": "630426e3545ce929d667d7e0140fb9bc24f2cea12bf5820740245e7943cd21b2",
+    "tools/gnome-telemetry-region/manifest.example.json": "fa2d3ec8b525abf345a0ee937e17c667acfe63dbe76bf1b01ac0b412324e903f",
+    "tools/gnome-telemetry-region/offline_harness.py": "4503fbf67951394b5fb1bd655139acfde76230052730175f8563f03c7582ab61"
+  },
+  "private_cache": {
+    "stage": "/home/dev/.cache/crowley/gnome-telemetry-region-r2",
+    "binary": "/home/dev/.cache/crowley/gnome-telemetry-region-r2/prefix/bin/gnome-screenshot",
+    "binary_sha256": "b69e949197d64551ec1ade481db541137310d5dda0eeb9ceb5431db1ace1c3cb",
+    "harness_sha256": "4503fbf67951394b5fb1bd655139acfde76230052730175f8563f03c7582ab61"
+  },
+  "predecessor": {
+    "r1_source_root": ".archive/executor-review/gnome-telemetry-region-r1-source",
+    "r1_manifest": ".archive/executor-review/gnome-telemetry-region-r1-source-manifest.sha256"
+  },
+  "verification": {
+    "compiled_private_harness": "self_check=true self_test=true; includes happy ScreenshotArea, exact decoded pixels, wrong ACK nonce refusal, owner EOF refusal",
+    "targeted_post_fix": "13 passed in 2.04s",
+    "complete_affected_batch": {
+      "log": ".archive/executor-review/gnome-telemetry-region-r2-fix.log",
+      "passed": 301,
+      "failed": 13,
+      "exit": 1,
+      "known_failure": "host global Codex 0.163.0 versus pinned 0.162.1 startup mismatch, followed by lease cascade"
+    },
+    "initial_complete_batch": {
+      "log": ".archive/executor-review/gnome-telemetry-region-r2.log",
+      "passed": 300,
+      "failed": 14,
+      "exit": 1
+    },
+    "ruff_check": "passed explicit 10-file list",
+    "ruff_format_check": "passed explicit 10-file list",
+    "py_compile": "passed explicit 10-file list",
+    "git_diff_check": "passed owned paths"
+  },
+  "baseline_check": {
+    "manifest": ".archive/executor-review/gnome-telemetry-region-parent-before.json",
+    "protected_records": 89,
+    "missing": 0,
+    "changed_outside_scope": 0
+  },
+  "artifact_hashes": {
+    ".archive/executor-review/gnome-telemetry-region-r2-build-receipt.json": "f66dd52fcd293038174c1e9a56ad626a89b2f3d844ac0d8ca4c3c484468e35f7",
+    ".archive/executor-review/gnome-telemetry-region-r2-delta.md": "6429efc9cbcc83a91fee9edd4a5add1f44fc1aab491844a74cbb2db0ed94ab40",
+    ".archive/executor-review/gnome-telemetry-region-r2-fix.log": "561cf34fe0583d838d0bb350b9ada084fe14b53d51057387f62c2a836ff80c87",
+    ".archive/executor-review/gnome-telemetry-region-r2.log": "c5095c6da801e2d8ecf292a5a63b42a9ed715dc8356cbafe8074fa3db44c5559",
+    ".archive/executor-review/gnome-telemetry-region-r2-docker-build-rerun.log": "9260beca230e4b487fb794e837c09e3e5de3cae86c858228bdf8442c5141b93c",
+    ".archive/executor-review/gnome-telemetry-region-r2-docker-build.log": "569a923fcdc065f1b7dd188183eeedacdf0178995c0f84349557703dc4277a01"
+  }
+}

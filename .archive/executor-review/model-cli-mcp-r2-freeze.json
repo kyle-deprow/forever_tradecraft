@@ -1,0 +1,24 @@
+{
+  "label": "model-cli-mcp-r2",
+  "baseline": "model-cli-mcp-r2-baseline.json",
+  "changed": [
+    "src/crowley/session/model.py",
+    "tests/test_session.py"
+  ],
+  "out_of_fence": [],
+  "diff": "model-cli-mcp-r2.diff",
+  "diff_sha256": "aabbb230ec34a4b5a450e5178a6cf1bf80bf4b87b8f8253332699508801c551b",
+  "files": {
+    "src/crowley/session/model.py": "59a7a4f409ab6e9a47e066dc6495a89e621fc6ebc5e98c6021d5bf2d25be6efa",
+    "tests/test_session.py": "44868c447b0cdb36b8db53df1e9370a0d8b1efe0c56634d176322d6e75520e32"
+  },
+  "stderr_policy": {
+    "accepted_exit0_stderr": "Reading additional input from stdin...\n",
+    "unknown_mixed_near_miss_and_repeated_rejected": true
+  },
+  "focused_runner": {
+    "command": "python3 .archive/executor-review/run_recorded_tests.py model-cli-mcp-r2-focused tests/test_session.py::test_model_boundary_contains_exact_disables_and_rejects_tool_events tests/test_session.py::test_model_command_appends_prompt_without_orphan_mcp_override tests/test_session.py::test_model_cli_accepts_only_the_exact_stdin_notice_from_real_child tests/test_session.py::test_model_cli_rejects_unclassified_stderr_from_real_child tests/test_session.py::test_model_cli_still_rejects_malformed_or_tool_output_after_notice",
+    "exit": 0,
+    "tests": 9
+  }
+}

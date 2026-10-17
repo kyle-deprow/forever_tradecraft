@@ -1,0 +1,197 @@
+{
+  "artifacts": {
+    "r4_diff": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r2-to-r4.diff",
+      "sha256": "a746f0bd3f91e8e91c8be365a4ad6652d78bda16246d746b8e64ed6838869336"
+    },
+    "r4_report": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report-r4-preserved.md",
+      "sha256": "35c950ce59edf88c1c4471684d38e4d34173a553c362277ea98c40bc6e3e239e"
+    },
+    "r4_plan": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan-r4-preserved.md",
+      "sha256": "bd2fb58bf4c3190f6d174fd0bc023a3816ec27d68063c55deba99ec7a0f1374d"
+    },
+    "r2_plan_preserved": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan-r2-preserved.md",
+      "sha256": "ae8a297ec3e1afa3a3560a0aa0cc691a270d77d03cfc34784997979e6c5f8220"
+    },
+    "r2_report_preserved": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report-r2-preserved.md",
+      "sha256": "12b103ded020087851f7bc231a54a7067133021558d554d77739b9eea71a266c"
+    },
+    "r2_manifest_preserved": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-manifest-r2-preserved.json",
+      "sha256": "a99e3f3858b7797cbf9210f26c4b4a864c24d0dbcb7cd406dcb5976cf8aca7f8"
+    },
+    "r4_draft_diff": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-r4-draft.diff",
+      "sha256": "c7e05cad0095e5b1b4c15631d939b02bd29d0e1aba1568b0fd66aa2cbc3ba16e"
+    },
+    "r2_harness_preserved": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r2-preserved.py",
+      "sha256": "86f977d6112e51f6d540c94c26914b6ea9ece33c58d6e28b5cf330fee6c32e38"
+    },
+    "r4_candidate_preintegration": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r4-candidate-preintegration.py",
+      "sha256": "913fa3960cc9275ff6920a6a898a8557a70e1b07a5a83780f89da7a0dd6ef463"
+    },
+    "r5_documented_plan": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-plan.md",
+      "sha256": "52ccbb186736e872a502c78a9ee5dfe068ac56f213a9aef1362ef8e207cc6920"
+    },
+    "r5_documented_report": {
+      "path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-build-report.md",
+      "sha256": "273d8616ba8da06b2c10628e027d52b4b4dc87dcf89662c2be6c0e90f4763c59"
+    }
+  },
+  "binary": {
+    "build_id": "9c7c8653a6f204fc281e74810b162ce12bf649e4",
+    "kind": "private-instrumented-diagnostic-executable",
+    "marker_header_sha256": "8eaa6ef0b62722e868c1f528a9ccba550fa13220c83904626377e08027a8a69e",
+    "path": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/prefix/bin/gnome-screenshot",
+    "sha256": "b988bc4c49251c7951805b0af6ad942dd82d50052feffd338f5f6b72d43b025c",
+    "version": "gnome-screenshot 41.0"
+  },
+  "boundaries": {
+    "accepted_stage2_mutated": false,
+    "dbus_activation_performed": false,
+    "desktop_input_performed": false,
+    "live_capture": false,
+    "live_capture_performed": false,
+    "live_timing_qualified": false,
+    "production_binding": false,
+    "profile_or_settings_changed": false,
+    "r2_mutated": false,
+    "screenshot_performed": false
+  },
+  "container": {
+    "build_config": {
+      "buildtype": "release",
+      "prefix": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/prefix",
+      "x11": "disabled"
+    },
+    "build_script": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/build-container-r1.sh",
+    "build_script_sha256": "0670fd2494ad52d7dccfcfb3c178639b38121b003fd939d7077fcc15bc6008c5",
+    "docker_command_note": "The invocation was not retained; the build script, image digest, mount root, and logs are retained.",
+    "docker_command_retained": false,
+    "host_mounts": [
+      "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1"
+    ],
+    "host_packages_changed": false,
+    "image": "debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+    "network": "bridge attached through apt update/install, Meson configure, compile, and install; no host source/display/repo mounts beyond the private cache root"
+  },
+  "created_utc": null,
+  "harness": {
+    "marker_prefix": "CROWLEY_GNOME_NEXT_COST_V1",
+    "marker_protocol_version": 1,
+    "max_predeclared_ordinals": 2,
+    "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+    "production_model_or_stderr_changed": false,
+    "receipt_kind": "gnome-no-flash-next-cost-diagnostic",
+    "receipt_schema": 3,
+    "sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6",
+    "candidate_path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark-r4-candidate.py",
+    "candidate_sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6",
+    "manifest_path": "/home/dev/repos/pegasus/.archive/executor-review/gnome-no-flash-next-cost-manifest.json",
+    "candidate_canonical_sha_equal": true,
+    "interval_timing_fields": [
+      "sampled_empty_pair_total_s",
+      "sampled_empty_pair_max_s"
+    ],
+    "interval_timing_scope": "three explicitly identified empty adjacent marker pairs only; not a bound for all marker instrumentation",
+    "stderr_retention": {
+      "meaning": "driver-decoded text, not raw bytes",
+      "successful_completed_process": true,
+      "backend_exception": false,
+      "every_attempt": "not guaranteed; unavailable on backend exception; no empty stream is fabricated"
+    }
+  },
+  "production": {
+    "benchmark_binding": false,
+    "binary_kind": "host-stock-gnome-screenshot",
+    "capture_driver_sha256": "14ae6be4a901a17e396e68ac4501238db3d1cc0118c8c34ad6f7107fbcfacfa7"
+  },
+  "receipt": {
+    "kind": "gnome-no-flash-next-cost-diagnostic",
+    "schema": 3
+  },
+  "review_required_before_live": true,
+  "schema": 1,
+  "scope": "private benchmark diagnostic only; no live capture or D-Bus activation performed; R4 canonical harness integrated pending independent review",
+  "source": {
+    "debian_dsc_sha256": "978f230fcd1d167a1368efedbf69ebfd963f12abf85ee84cddd29ee590815f2c",
+    "debian_tar_sha256": "3d185c0d1e8aab8381b9d530f12b4ae4c1049bd5054768197169a95fe2df5b9d",
+    "flash_change_diff_sha256": "92b01f70603585f6fd9dfece2f1270d9c2c6c2a99e0c7727886c0d5559bbfd2f",
+    "instrumented_files": {
+      "src/crowley-next-cost-marker.h": "8eaa6ef0b62722e868c1f528a9ccba550fa13220c83904626377e08027a8a69e",
+      "src/gnome-screenshot.c": "f083f2267f936dee5c0b731556139f6c54c2aa3bfab39ffa95f99a98524d95f9",
+      "src/screenshot-application.c": "cafde8bdb1bdf5ba2047c15bf52ed05aad588d5c5eb065762f6343e6da76dbfc",
+      "src/screenshot-backend-shell.c": "ebfa5b737cfb949f952a0927e770fb4dd373db7d7bbca81084ed60a078f378be",
+      "src/screenshot-config.c": "1ec6cb08b1843f08aae670ca93021bb1cbf7afce91de4747a1fd3aa736b34059"
+    },
+    "instrumented_tree_hash_file": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/instrumented-source-tree.sha256",
+    "instrumented_tree_hash_file_sha256": "733e0b723708b76e87b8f73ba7bbdbf9afec34ff1acf02dcac69df8568efa959",
+    "no_flash_shell_sha256": "0b3d37896682aa244a24d11ae0b5282374451df27a45a5648f8660421d226f56",
+    "source_diff_sha256": "4d7bb2d8d8d21002fb939ca8fdfa8b358ebadaed764e2993c2590d571e5b6e4d",
+    "stock_shell_sha256": "2abbdede110a4e01a0a7846db67551463210ddcae1d581b6cdce2d72403f22f4",
+    "upstream_archive_sha256": "4adb7dec926428f74263d5796673cf142e4720b6e768f5468a8d0933f98c9597"
+  },
+  "stage2_attestation": {
+    "candidate_self_check_does_not_replace_parent_check": true,
+    "parent_release_hash_comparison_required": true,
+    "source": "gnome-no-flash-next-cost-freeze-r2.json"
+  },
+  "status": "built-private-not-benchmarked",
+  "verification": {
+    "binary_file_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.file",
+    "binary_help_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.help",
+    "binary_ldd_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.ldd",
+    "binary_version_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/private-binary.version",
+    "build_log": "/home/dev/.cache/crowley/gnome-no-flash-next-cost-r1/logs/container-build.log",
+    "candidate_harness_sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6",
+    "candidate_self_check": "PASS",
+    "candidate_self_check_final_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-candidate/self-check-final.log",
+      "sha256": "fd78ff1ae719b1a6b0e47504f159922208fa8f3e6b570180c60ce451be8530db"
+    },
+    "candidate_self_check_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-candidate/self-check.log",
+      "sha256": "fd78ff1ae719b1a6b0e47504f159922208fa8f3e6b570180c60ce451be8530db"
+    },
+    "candidate_self_test": "32 passed",
+    "candidate_self_test_final_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-candidate/self-test-final.log",
+      "sha256": "33cf8b9ee15739d6924666cae7311ba8560653bc4482329fe9f68a1bc720b011"
+    },
+    "candidate_self_test_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-candidate/self-test.log",
+      "sha256": "c2982255e0eacd6fcba7dbc604e483acc0eba266ad14d9144d775539cc2ddaa8"
+    },
+    "offline_harness": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-benchmark.py",
+    "canonical_harness_sha256": "29b9ebf15705b68cbb43756b266e076700d2f845ab7ef405959264387d4ef0c6",
+    "candidate_canonical_sha_equal": true,
+    "canonical_self_test": "32 passed",
+    "canonical_self_check": "PASS",
+    "canonical_py_compile": "PASS",
+    "canonical_self_test_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-canonical/self-test-final.log",
+      "sha256": "5cec19b7013d05ccc26d8f013f847e557f6a0c744ff59b53897e9aadcbed44ad"
+    },
+    "canonical_self_check_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-canonical/self-check-final.log",
+      "sha256": "fd78ff1ae719b1a6b0e47504f159922208fa8f3e6b570180c60ce451be8530db"
+    },
+    "canonical_py_compile_log": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/gnome-no-flash-next-cost-r4-canonical/py-compile-final.log",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  },
+  "integration_status": "R4_CANONICAL_INTEGRATED_PENDING_REVIEW",
+  "timing_interpretation": {
+    "shutdown": "The interval `app_release` to `run_return` (receipt label `shutdown`) is a mixed bucket: GTK shutdown, deferred recent-file flush, D-Bus name release and `g_settings_sync`. It is not assumed removable by keeping a process alive. `recent_entry_begin` to `recent_entry_end` covers default-app lookup, recent-file parse and in-memory addition only; the deferred write occurs in the mixed shutdown bucket.",
+    "png_completion": "Post-child PIL verify()+load() validation/decode, not a child-file-write wait.",
+    "marker_empty_pair_samples": "Only three named adjacent pairs; no bound for all instrumentation and no performance acceptance from subtracting them."
+  }
+}

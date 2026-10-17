@@ -1,0 +1,157 @@
+--- baseline-r2/src/crowley/session/model.py
++++ current-r2/src/crowley/session/model.py
+@@ -46,6 +46,7 @@
+     "Code Mode is unavailable because code-mode host is disabled. Code mode will fail closed; "
+     "enable `features.code_mode_host` and install `codex-code-mode-host`."
+ )
++KNOWN_STDERR_NOTICE = "Reading additional input from stdin...\n"
+ 
+ 
+ @dataclass(frozen=True)
+@@ -685,11 +686,12 @@
+             raise ModelError("model decision cancelled")
+         if process.returncode != 0:
+             raise ModelError(f"model CLI failed: {stderr[-500:]}")
+-        if stderr.strip():
++        if stderr not in {"", KNOWN_STDERR_NOTICE}:
+             # The structured JSON stream is the only accepted model boundary.
+             # A credential prompt, billing/auth conflict, or an unclassified
+             # startup diagnostic on stderr must stop the recovery attempt even
+-            # when the process exits zero with a plausible JSON answer.
++            # when the process exits zero with a plausible JSON answer.  The
++            # pinned CLI's exact standalone stdin notice is informational.
+             raise ModelError(f"model CLI emitted unexpected stderr: {stderr[-500:]}")
+         return stdout
+ 
+--- baseline-r2/tests/test_session.py
++++ current-r2/tests/test_session.py
+@@ -1128,6 +1128,129 @@
+     assert "mcp_servers.openaiDeveloperDocs.enabled=false" not in command
+ 
+ 
++def _write_fake_model_cli(path: Path, *, stdout: str, stderr: str) -> Path:
++    path.write_text(
++        "#!/usr/bin/env python3\n"
++        "import sys\n"
++        "if sys.argv[1:] == ['--version']:\n"
++        "    print('codex-cli 0.162.1')\n"
++        "else:\n"
++        f"    sys.stdout.write({stdout!r})\n"
++        f"    sys.stderr.write({stderr!r})\n",
++        encoding="utf-8",
++    )
++    path.chmod(0o755)
++    return path
++
++
++def _valid_fake_model_output(answer: object) -> str:
++    events = [
++        {"type": "thread.started", "thread_id": "thread-test"},
++        {"type": "turn.started"},
++        {
++            "type": "item.completed",
++            "item": {
++                "id": "answer-1",
++                "type": "agent_message",
++                "text": json.dumps(answer, separators=(",", ":")),
++            },
++        },
++        {
++            "type": "turn.completed",
++            "usage": {
++                "input_tokens": 1,
++                "cached_input_tokens": 0,
++                "cache_write_input_tokens": 0,
++                "output_tokens": 1,
++                "reasoning_output_tokens": 0,
++            },
++        },
++    ]
++    return "\n".join(json.dumps(event, separators=(",", ":")) for event in events)
++
++
++def _run_fake_model_cli(tmp_path: Path, *, stdout: str, stderr: str) -> str:
++    neutral_dir = tmp_path / "neutral"
++    neutral_dir.mkdir()
++    adapter = LunaAdapter(
++        neutral_dir=neutral_dir,
++        codex_path=_write_fake_model_cli(tmp_path / "codex", stdout=stdout, stderr=stderr),
++    )
++    return adapter._run_cli(
++        tmp_path / "schema.json",
++        tmp_path / "screen.png",
++        prompt="fake child boundary test",
++    )
++
++
++def test_model_cli_accepts_only_the_exact_stdin_notice_from_real_child(tmp_path: Path) -> None:
++    output = _run_fake_model_cli(
++        tmp_path,
++        stdout=_valid_fake_model_output({"action": "reconnect_game", "target": "game-client"}),
++        stderr="Reading additional input from stdin...\n",
++    )
++
++    assert LunaAdapter._parse(output).action == "reconnect_game"
++
++
++@pytest.mark.parametrize(
++    "stderr",
++    (
++        "unknown startup diagnostic\n",
++        "Reading additional input from stdin...\nauth failure\n",
++        "Reading additional input from stdin....\n",
++        "Reading additional input from stdin...\nReading additional input from stdin...\n",
++    ),
++    ids=("unknown", "mixed-auth", "near-miss", "repeated"),
++)
++def test_model_cli_rejects_unclassified_stderr_from_real_child(tmp_path: Path, stderr: str) -> None:
++    with pytest.raises(ModelError, match="unexpected stderr"):
++        _run_fake_model_cli(
++            tmp_path,
++            stdout=_valid_fake_model_output({"action": "reconnect_game", "target": "game-client"}),
++            stderr=stderr,
++        )
++
++
++@pytest.mark.parametrize(
++    "answer_text",
++    (
++        "not-json",
++        json.dumps({"type": "tool_call"}, separators=(",", ":")),
++    ),
++    ids=("malformed", "tool"),
++)
++def test_model_cli_still_rejects_malformed_or_tool_output_after_notice(
++    tmp_path: Path, answer_text: str
++) -> None:
++    events = [
++        {"type": "thread.started", "thread_id": "thread-test"},
++        {"type": "turn.started"},
++        {
++            "type": "item.completed",
++            "item": {"id": "answer-1", "type": "agent_message", "text": answer_text},
++        },
++        {
++            "type": "turn.completed",
++            "usage": {
++                "input_tokens": 1,
++                "cached_input_tokens": 0,
++                "cache_write_input_tokens": 0,
++                "output_tokens": 1,
++                "reasoning_output_tokens": 0,
++            },
++        },
++    ]
++    output = _run_fake_model_cli(
++        tmp_path,
++        stdout="\n".join(json.dumps(event, separators=(",", ":")) for event in events),
++        stderr="Reading additional input from stdin...\n",
++    )
++
++    with pytest.raises(ModelError):
++        LunaAdapter._parse(output)
++
++
+ def test_model_observation_boundary_requires_named_visual_facts() -> None:
+     output = (
+         '{"type":"thread.started","thread_id":"thread-test"}\n'

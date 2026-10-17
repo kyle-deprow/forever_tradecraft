@@ -1,0 +1,7 @@
+# Sol test closure review
+Requested Sol; independent servingmetadataunavailable. No Must-Fix. NEEDS WORK.
+Should1: dispatch test substitutesmax(1,echoTimestamp), masking actual _controlled_echo_proof output0 rejected byGuardianproofvalidatorpositive-only. Must passactualtuplehandoffMAX→0. Rootconfirmedsourcepredicate bug; narrowguardianvalidatorrepairaccepted.
+Should2: helper mainreceipt test pre-seeds observerdiagnostic/errors andforcesproofthrow while_prepare_contextreplaced. Must triggeractualcapturedproductioncallbackduringmain proof and letproofreturn, requiringobservererrortoproduceFAILprivateReceipt.
+Should3: camerarealbeginactionnowused but noorderedrealdispatch/check/finishcalls/assertactionclearedbeforeclose; expectedtracegeneratedfromactionandindependenttraceonlytruthy. Addorderedwrappersinvokingrealmethods andcompareexactindependenttrace.
+Seedactualresult/error/no-op, callbackstorage/revoke, lag/wrap/arrivalclockretention, openAhorder closed. Nativebehaviorunproved. Exacttest3filefencekept.
+STATUS: NEEDS WORK

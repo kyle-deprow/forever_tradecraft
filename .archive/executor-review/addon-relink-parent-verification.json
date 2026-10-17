@@ -1,0 +1,8 @@
+{
+  "addonLink": "/home/dev/Games/world-of-warcraft/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_/Interface/AddOns/Crowley",
+  "oldTarget": "/home/dev/repos/pegasus/addon/Crowley",
+  "newTarget": "/home/dev/repos/crowley/addon/Crowley",
+  "agentSha256": "bd3ce59cf9be98c91f794ebccef67931326caf47e04b86bd4e6bdabe2597f002",
+  "atlasSha256": "08903abdbab985f944af5ca0bca828d297803d71615648b7c181b37b58587642",
+  "dataAddonUntouched": true
+}

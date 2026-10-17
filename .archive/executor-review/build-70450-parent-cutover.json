@@ -1,0 +1,32 @@
+{
+  "cutoverUtc": "2026-10-17T01:15:14.218869+00:00",
+  "healthStatus": 200,
+  "authenticatedPlanStatus": 200,
+  "serverPlanExactExportMatch": true,
+  "revision": 2,
+  "targetClientBuild": "1.60.1.70450",
+  "planHash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "catalogHash": "90918db5cc912e889553b5ddd422b829f3c6cb3773ab6da56a2e79a5a8db04f3",
+  "profileSHA256": "89cd780ea7b0a7499f25ea263a7e5e6ab3fd15b6b131529704802dc9b0803771",
+  "profileOnlyChanged": [
+    "client_build",
+    "plan_hash",
+    "plan_json"
+  ],
+  "parentTests": "264passed117.24s with authentic0.162.1 in isolated namespace",
+  "solReview": "source-r2 READY",
+  "addonReloaded": false,
+  "liveScanQualified": false,
+  "generatedDataPlanExactIdentity": true,
+  "generatedDataSHA256": "51cb32391299e649546b6e58bbe85aa0f7db227cc4f626eeaf06b594f30284c6",
+  "generatedDataPath": "/home/dev/Games/world-of-warcraft/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_/Interface/AddOns/Crowley_Data/Data.lua",
+  "historyCountsAfter": {
+    "plans": 1,
+    "sweeps": 8,
+    "observations": 3424,
+    "capturedRows": 11139
+  },
+  "historyCountsUnchanged": true,
+  "configuredProductionAdapterStartup": "PASS; authentic private0.162.1; no modelrequest",
+  "sessionService": "inactive/disabled; controllerPAUSEDgeneration6"
+}

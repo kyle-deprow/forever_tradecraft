@@ -3,6 +3,7 @@
 Private auction house trading platform and addon for WoW Forever (launch 2026-11-04).
 **Read `docs/HANDOFF.md` first.** It has the requirements, decisions, research, current
 state and roadmap. `docs/ARCHITECTURE.md` is the technical reference.
+Shared agent workflows live in `.agents/skills/`; see `AGENTS.md` for when to use them.
 
 ## Rules
 - **No fallbacks.** Assume one way things work, encode only that, fail loudly, and fix the

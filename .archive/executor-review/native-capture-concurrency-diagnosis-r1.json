@@ -1,0 +1,119 @@
+{
+  "causal_interpretation": [
+    "A single real X11Backend.capture call returned with a complete 1920x1080 PNG (2,506,957 bytes) already present; this rules out a general compositor delay or a permanently invalid path.",
+    "Two concurrent real X11Backend.capture calls used the same exact gnome-screenshot -f argv. In r1 one target was absent at X11Backend.capture's immediate chmod and materialized later; the other remained absent. In r2 both calls returned with only 86-byte PNG headers, then both files asynchronously grew to complete 1920x1080 PNGs.",
+    "The D-Bus service file declares org.gnome.Screenshot as the single-instance --gapplication-service. The live service status captured during the first probe identified /usr/bin/gnome-screenshot --gapplication-service. Concurrent clients therefore share one screenshot service and can observe queued/partial output after the short-lived CLI process exits.",
+    "The retained strace shows each CLI process execve and exits 0 before the r2 target files reached final size; no stderr was emitted. This distinguishes asynchronous output completion under concurrent single-instance dispatch from a subprocess failure.",
+    "No helper/source change is justified by this diagnosis yet. The narrow production repair surface is to wait for the exact expected output file to exist and pass complete-image validation after gnome-screenshot returns, within the existing capture deadline, while retaining the same identity and argv. A future fix should also serialize calls if the service contract requires one request at a time; do not add an alternate capture backend or widen freshness bounds."
+  ],
+  "diagnosis": "gnome-screenshot is a D-Bus GApplication single-instance service and returns before its output file is durably complete",
+  "evidence": {
+    "production_backend": "src/crowley/session/driver.py X11Backend.capture -> _run([gnome-screenshot, -f, path])",
+    "r1_receipt": ".archive/executor-review/native-capture-concurrency-r1/receipt.json",
+    "r2_receipt": ".archive/executor-review/native-capture-concurrency-r2/receipt.json",
+    "service_declares": "[D-BUS Service]\nName=org.gnome.Screenshot\nExec=/usr/bin/gnome-screenshot --gapplication-service",
+    "service_file": ".archive/executor-review/native-capture-gnome-service.txt",
+    "service_introspection": ".archive/executor-review/native-capture-gnome-introspection.xml",
+    "service_process_observed": "/usr/bin/gnome-screenshot --gapplication-service",
+    "service_status": ".archive/executor-review/native-capture-gnome-service-status.txt",
+    "service_status_live": ".archive/executor-review/native-capture-gnome-service-status-live.txt",
+    "single_receipt": ".archive/executor-review/native-capture-single-r1/receipt.json",
+    "single_strace_glob": ".archive/executor-review/native-capture-single-r1-strace.*",
+    "stdout_stderr": [
+      ".archive/executor-review/native-capture-concurrency-r1.stdout",
+      ".archive/executor-review/native-capture-concurrency-r1.stderr",
+      ".archive/executor-review/native-capture-concurrency-r2.stdout",
+      ".archive/executor-review/native-capture-concurrency-r2.stderr",
+      ".archive/executor-review/native-capture-single-r1.stdout",
+      ".archive/executor-review/native-capture-single-r1.stderr"
+    ],
+    "strace_r1_glob": ".archive/executor-review/native-capture-concurrency-r1-strace.*",
+    "strace_r2_glob": ".archive/executor-review/native-capture-concurrency-r2-strace.*"
+  },
+  "kernel_reset_calls": 0,
+  "native_bootstrap_calls": 0,
+  "native_calibrate_calls": 0,
+  "observations": [
+    {
+      "backend_return_elapsed_ms": 1911.150912,
+      "backend_return_utc": "2026-10-17T02:19:49.021177+00:00",
+      "capture": "capture-a",
+      "final_bytes": 2514840,
+      "final_exists": true,
+      "final_mtime_utc": "2026-10-17T02:19:50.287470+00:00",
+      "final_sha256": "db56b1b98c5bca44824a3f4c2d69b7ec993b7bf1dfda264185f2e3a97b04ba7a",
+      "probe": "r1",
+      "receipt_bytes": null,
+      "receipt_error": "FileNotFoundError: [Errno 2] No such file or directory: '/home/dev/repos/pegasus/.archive/executor-review/native-capture-concurrency-r1/capture-a.png'",
+      "receipt_exists": false
+    },
+    {
+      "backend_return_elapsed_ms": 3801.7408,
+      "backend_return_utc": "2026-10-17T02:19:50.911677+00:00",
+      "capture": "capture-b",
+      "final_bytes": null,
+      "final_exists": false,
+      "final_mtime_utc": null,
+      "final_sha256": null,
+      "probe": "r1",
+      "receipt_bytes": null,
+      "receipt_error": "FileNotFoundError: [Errno 2] No such file or directory: '/home/dev/repos/pegasus/.archive/executor-review/native-capture-concurrency-r1/capture-b.png'",
+      "receipt_exists": false
+    },
+    {
+      "backend_return_elapsed_ms": 2348.98684,
+      "backend_return_utc": "2026-10-17T02:20:28.552437+00:00",
+      "capture": "capture-a",
+      "final_bytes": 2514163,
+      "final_exists": true,
+      "final_mtime_utc": "2026-10-17T02:20:29.133209+00:00",
+      "final_sha256": "5fdc81d0c3c57b5c380aa7cea7c7ee0ac4e2e3c913161fb317d4458d5c515d14",
+      "probe": "r2",
+      "receipt_bytes": 86,
+      "receipt_error": null,
+      "receipt_exists": true
+    },
+    {
+      "backend_return_elapsed_ms": 1700.964393,
+      "backend_return_utc": "2026-10-17T02:20:27.904522+00:00",
+      "capture": "capture-b",
+      "final_bytes": 2512755,
+      "final_exists": true,
+      "final_mtime_utc": "2026-10-17T02:20:28.487245+00:00",
+      "final_sha256": "8898f34c9c5df5f339b6cfee4763fb466c798011bca74c8cd9a81ccf6db70418",
+      "probe": "r2",
+      "receipt_bytes": 86,
+      "receipt_error": null,
+      "receipt_exists": true
+    },
+    {
+      "backend_return_elapsed_ms": 2705.990831,
+      "backend_return_utc": "2026-10-17T02:21:12.560490+00:00",
+      "capture": "capture-single",
+      "final_bytes": 2506957,
+      "final_exists": true,
+      "final_mtime_utc": "2026-10-17T02:21:11.898890+00:00",
+      "final_sha256": "28b769c627ecf13d70a1ffc752d042c98e77318583d444631d28efd5f6b4401d",
+      "probe": "single",
+      "receipt_bytes": 2506957,
+      "receipt_error": null,
+      "receipt_exists": true
+    }
+  ],
+  "physical_input_calls": 0,
+  "status_before_probe": {
+    "artifact": ".archive/executor-review/native-capture-status-before-capture-probe.json",
+    "calibration_operation": {
+      "error": "native constructor measurement failed: native construct/0 did not produce the requested fresh frame",
+      "finishedAt": 1792203533,
+      "generation": 10,
+      "kind": "native",
+      "readiness": null,
+      "result": null,
+      "startedAt": 1792203502,
+      "state": "error"
+    },
+    "generation": 10,
+    "state": "NATIVE_CALIBRATION"
+  }
+}

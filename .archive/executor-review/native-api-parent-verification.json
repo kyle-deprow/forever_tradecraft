@@ -1,0 +1,90 @@
+{
+  "clientBuild": 70425,
+  "nativeCtm": {
+    "pcallOk": true,
+    "type": "boolean",
+    "value": false
+  },
+  "nativeSpeedReturns": [
+    0,
+    7,
+    7,
+    4.7222218513489
+  ],
+  "framerate": 71.153266906738,
+  "predicateTypes": [
+    "function",
+    "function",
+    "function",
+    "function",
+    "function",
+    "function"
+  ],
+  "predicateResults": [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false
+  ],
+  "screenshotsVerified": 4,
+  "parentVisuallyInspected": [
+    1,
+    2,
+    4
+  ],
+  "unitsNotEstablished": true,
+  "motionNotPerformed": true,
+  "groundCalls": [
+    {
+      "field": "flying",
+      "function": "IsFlying",
+      "arguments": [],
+      "printedResult": "false"
+    },
+    {
+      "field": "falling",
+      "function": "IsFalling",
+      "arguments": [],
+      "printedResult": "false"
+    },
+    {
+      "field": "swimming",
+      "function": "IsSwimming",
+      "arguments": [],
+      "printedResult": "false"
+    },
+    {
+      "field": "submerged",
+      "function": "IsSubmerged",
+      "arguments": [],
+      "printedResult": "false"
+    },
+    {
+      "field": "mounted",
+      "function": "IsMounted",
+      "arguments": [],
+      "printedResult": "false"
+    },
+    {
+      "field": "taxi",
+      "function": "UnitOnTaxi",
+      "arguments": [
+        "player"
+      ],
+      "printedResult": "false"
+    }
+  ],
+  "executedGroundExpression": "print(\"CR_GROUND\",IsFlying(),IsFalling(),IsSwimming(),IsSubmerged(),IsMounted(),UnitOnTaxi(\"player\"))",
+  "parentInspectedGroundStaging": [
+    {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/native-api-command-4-staged-start.png",
+      "sha256": "902bd4c24e1608d7c4192e127b078581e793722d0da5378c4a6f4ef9d8edbb80"
+    },
+    {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/native-api-command-4-staged.png",
+      "sha256": "524ab4dca070d738d0c967a67d1b900b54d9e3662667427228de63b068504e43"
+    }
+  ]
+}

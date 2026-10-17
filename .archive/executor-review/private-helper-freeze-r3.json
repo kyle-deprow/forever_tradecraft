@@ -1,0 +1,73 @@
+{
+  "task": "private-native-handshake-helper-r3",
+  "scope": "private helper, private dry tests, and review artifacts only",
+  "helper_path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-handshake-once.py",
+  "helper_mode": "0o700",
+  "helper_lines": 447,
+  "r2_baseline_sha256": "dd4778b38802d2e68dacfd3b9f6453f03280cdaed3d6e79fef8084ca2d4349e4",
+  "r3_helper_sha256": "bf79d703cc9b98fc7e0842d119e69cbbfa5539f02456f8d5083d4629bdeee2d0",
+  "review_spec": {
+    "path": ".archive/executor-review/private-helper-spec-r3.md",
+    "sha256": "650705f55797050be20d5771c693ae4b601ad30dd1e11dc7fdc900863895da54"
+  },
+  "dry_tests": {
+    "script": ".archive/executor-review/test_private_helper_guards.py",
+    "sha256": "743c0c075977b801890ff47acc8e573bf43b269fa51e0e7b6926067baa0ef230",
+    "command": "PYTHONPATH=/home/dev/repos/pegasus/src uv run --no-sync python /home/dev/repos/pegasus/.archive/executor-review/test_private_helper_guards.py",
+    "result": "passed",
+    "cases": [
+      "stale generation",
+      "sticky old phase flag",
+      "completed operation",
+      "wrong operation kind",
+      "wrong phase/flag",
+      "documented final transition",
+      "production handshake entry before first bootstrap",
+      "guarded Enter World pulse dispatch order",
+      "wrong post-move root coordinates refuses before press",
+      "injected hold failure always dispatches owned release"
+    ],
+    "log": ".archive/executor-review/private-helper-guards-r3.log",
+    "log_sha256": "b6bc93b81129970fcec14175e380b76d5350ffbcbc800677e1766ed8df04ae26",
+    "exit": ".archive/executor-review/private-helper-guards-r3.exit",
+    "exit_code": 0
+  },
+  "static_checks": {
+    "ast_parse_compile": "passed",
+    "ruff": "passed: --select E9,F on helper and dry test",
+    "live_gui_or_native_run": "not run by this worker",
+    "preflight": "not run by this worker",
+    "kernel_reset": 0,
+    "physical_input": 0,
+    "native_bootstrap": 0,
+    "native_calibrate": 0
+  },
+  "r3_change": {
+    "method": "pinned XTEST mousedown/hold/mouseup",
+    "pulse_seconds": 0.15,
+    "pre_press_guards": [
+      "fresh identity before move",
+      "running native generation and bootstrap_ready/nativeBootstrapReady",
+      "fresh identity and phase after move",
+      "actual root pointer coordinates",
+      "verified target_event_xids membership",
+      "fresh identity and phase immediately before mousedown"
+    ],
+    "release": "finally-owned mouseup is attempted without a phase/generation guard",
+    "receipt_fields": [
+      "method",
+      "root_xy",
+      "pointer_after_move",
+      "outcome",
+      "monotonic timings",
+      "release_error"
+    ]
+  },
+  "preserved": [
+    ".archive/executor-review/private-helper-freeze-r2.json",
+    ".archive/executor-review/private-helper-spec-r2.md",
+    ".archive/executor-review/native-handshake-read-only-preflight-receipt-r2.json",
+    "all prior private helper failure receipts"
+  ],
+  "live_qualification": "not claimed; parent reproduction and Sol review required"
+}

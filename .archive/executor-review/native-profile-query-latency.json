@@ -1,0 +1,51 @@
+{
+  "kind": "actual read-only monotonic subprocess measurement",
+  "repetitionsPerCommand": 5,
+  "utcDate": "2026-10-16",
+  "all25ReturnCodes": 0,
+  "columns": [
+    "minMilliseconds",
+    "medianMilliseconds",
+    "maxMilliseconds"
+  ],
+  "measurements": {
+    "xinput list --long 4": [
+      1.821,
+      1.908,
+      2.037
+    ],
+    "xinput list-props 4": [
+      1.691,
+      1.782,
+      1.889
+    ],
+    "xinput --list --short": [
+      1.527,
+      1.572,
+      1.676
+    ],
+    "xwininfo -root -stats": [
+      1.018,
+      1.051,
+      1.117
+    ],
+    "private xdotool getmouselocation --shell": [
+      1.837,
+      1.881,
+      1.921
+    ]
+  },
+  "sumMediansMilliseconds": 8.194,
+  "sumIndividualMaximaMilliseconds": 8.64,
+  "limits": "not joint percentile; excludes capture, model, admission and full executor pipeline; no input or arming proof",
+  "source": 4,
+  "parent": 2,
+  "root": "0x374",
+  "geometry": [
+    0,
+    0,
+    1920,
+    1080
+  ],
+  "toolSha256": "2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155"
+}
