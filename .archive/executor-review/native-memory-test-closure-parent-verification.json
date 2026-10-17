@@ -1,0 +1,22 @@
+{
+  "kind": "parent-native-memory-test-closure-verification",
+  "base": "cb27109",
+  "file": "tests/test_session_native_regressions.py",
+  "sha256": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+  "parent_focused_tests": {
+    "passed": 9,
+    "deselected": 215,
+    "seconds": 1.9
+  },
+  "sol_review": {
+    "status": "READY",
+    "sha256": "46becb0358e81430a01acd21ca16a154f512fe09667b2b313243def23fd19895"
+  },
+  "runtime_change": false,
+  "closed_findings": [
+    "production-wired exact/below-limit return without callback",
+    "close replaced fixture meter",
+    "prove one append-fault call"
+  ],
+  "prior_runtime_acceptance": "222 parent full-suite tests; Sol and actual Opus READY"
+}

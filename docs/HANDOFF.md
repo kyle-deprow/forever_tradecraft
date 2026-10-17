@@ -29,7 +29,21 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Live checkpoint at18:18UTC:** sweep29,
+**Live checkpoint at18:29UTC:** accepted Stage A is committed/pushedcb27109.
+Sole live operator restarted the enabled user service after sweep30 ACK; parent
+independently verified MainPID1620243, active/enabled and exact unit cgroup.
+Public state is PAUSED/repeat/gen20, explicit-resume-required after process
+restart, native/input false and calibration operation idle. No new native retry
+is authorized merely by this restart. Sweep30,
+`beta-normal-alliance-1792261186-Arthur-3167`, is parent-verified:428observations/
+2553rows (398full/30bounded/allok),900s start interval,22.449055s upload, exact
+fresh loadedACK/pending0/AHclosed. AH reopened ahead of18:34:46UTC due start.
+See `build-70450-thirty-scan-parent-verification.json`. Continue operator-assisted
+collection while offline profiler closures and Stage B plan revisions proceed;
+do not call this autonomous service qualification. Main driver/addon/producer/
+private profile remain unchanged by Stage A. Native-memory R1 worktree is frozen.
+
+**Checkpoint at18:18UTC:** sweep29,
 `beta-normal-alliance-1792260286-Arthur-5105`, is parent-verified end to end:
 428observations/2592rows (397full/31bounded/allok), exact900s start interval,
 20.044457s upload, fresh exact loadedACK/pending0/AHclosed. AH reopened and the
@@ -48,8 +62,9 @@ unchangedmain and candidate and the complete parent run passed. Exact frozen
 four files integrated after sole live operator's quiet-window acknowledgement;
 service restart is pending. The diagnostic token on archive failure is private
 in-memory state only, retains the last failure across runs and is not durably
-logged. Opus requested explicit callback-wired under/equal-limit regression and
-test-fixture cleanup followups; runtime correctness review had no Must-Fix.
+logged. Opus's explicit callback-wired under/equal-limit regression and
+test-fixture cleanup followups are now closed by a test-only change: parent9
+focused checks and SolREADY. Production source remains the exact accepted R1.
 Stage B remains plan-only. The user
 has no physical calibration action until native qualification actually passes.
 

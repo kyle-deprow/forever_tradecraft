@@ -26,6 +26,7 @@ import pytest
 from PIL import Image
 
 from crowley.session.calibration import (
+    NATIVE_CONSTRUCTION_LIMIT_BYTES,
     CalibrationError,
     InputCalibrationEvidence,
     InputCalibrationWorkflow,
@@ -4074,6 +4075,8 @@ def test_reset5_archives_historical_hwm_before_each_owned_window(tmp_path: Path)
 
 def _native_failure_daemon(tmp_path: Path):
     driver, _identity, child = _native_driver(tmp_path)
+    assert driver.native_memory_meter is not None
+    driver.native_memory_meter.close()
     driver.native_memory_meter = None
     controller = Controller(
         Journal(tmp_path / "failure-journal.json"),
@@ -4211,12 +4214,15 @@ def test_daemon_archive_diagnostic_stays_private_and_preserves_limit_error(
     daemon, driver, controller, child = _native_failure_daemon(tmp_path)
     meter: LinuxProcStatusVmHwmReset5 | None = None
     secret = "PRIVATE_ARCHIVE_FAILURE_SENTINEL"
+    append_calls = 0
     try:
         meter = daemon._ensure_native_memory_meter()
         assert meter is not None
         if archive_fault == "append":
 
             def fail_append(_kind: str, _record: dict[str, object]) -> dict[str, object]:
+                nonlocal append_calls
+                append_calls += 1
                 raise RuntimeError(secret)
 
             controller.journal.append_archive = fail_append  # type: ignore[method-assign]
@@ -4233,12 +4239,107 @@ def test_daemon_archive_diagnostic_stays_private_and_preserves_limit_error(
         assert failure.value.__cause__ is None
         assert failure.value.__context__ is None
         assert daemon._native_memory_archive_diagnostic == "native_memory_failure_archive_failed"
+        if archive_fault == "append":
+            assert append_calls == 1
         assert secret not in repr(daemon._native_handshake)
         assert secret not in repr(controller.status())
         assert secret not in repr(controller.journal.read())
         assert controller.journal.archives("native_memory_failures") == []
         assert controller._native_calibrated is False
         assert controller.status().state == ControllerState.NATIVE_CALIBRATION
+    finally:
+        if meter is not None:
+            meter.close()
+        driver.native_memory_meter = None
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize(
+    "growth_bytes",
+    [NATIVE_CONSTRUCTION_LIMIT_BYTES, NATIVE_CONSTRUCTION_LIMIT_BYTES - 1],
+    ids=["at-limit", "below-limit"],
+)
+def test_daemon_under_limit_growth_returns_exact_measurement_without_archive(
+    tmp_path: Path, growth_bytes: int
+) -> None:
+    daemon, driver, controller, child = _native_failure_daemon(tmp_path)
+    meter: LinuxProcStatusVmHwmReset5 | None = None
+    try:
+        meter = daemon._ensure_native_memory_meter()
+        assert meter is not None
+        assert driver.native_memory_meter is meter
+        assert meter._over_limit_archive is not None
+        wired_callback = meter._over_limit_archive
+        callback_calls: list[tuple[NativeMemoryMeasurement, str]] = []
+
+        def count_callback(
+            measurement: NativeMemoryMeasurement, failure: str
+        ) -> NativeMemoryMeasurementArchiveReceipt:
+            callback_calls.append((measurement, failure))
+            return wired_callback(measurement, failure)
+
+        meter._over_limit_archive = count_callback
+        uid = os.getuid()
+        final_hwm = 1_000 + growth_bytes
+        status = (1_000, 900, uid)
+        statuses = iter([status, status, status, status, status, (final_hwm, 900, uid)])
+        meter._status = lambda: next(statuses)  # type: ignore[method-assign]
+        pending = meter.begin_window(
+            "construction",
+            0,
+            limit_bytes=NATIVE_CONSTRUCTION_LIMIT_BYTES,
+            before_reset=lambda record: NativeMemoryArchiveReceipt.for_record(
+                record, archive_id=f"under-limit-{growth_bytes}"
+            ),
+        )
+
+        result = meter.finish_window(
+            pending,
+            workload_start_monotonic=pending.reset_completed_monotonic,
+            workload_end_monotonic=pending.reset_completed_monotonic,
+            workload_start_ordinal=0,
+            workload_end_ordinal=0,
+        )
+        expected = NativeMemoryMeasurement(
+            method=pending.method,
+            phase=pending.phase,
+            ordinal=pending.ordinal,
+            pid=pending.pid,
+            process_start=pending.process_start,
+            process_executable=pending.process_executable,
+            identity_fingerprint=pending.identity_fingerprint,
+            uid=pending.uid,
+            kernel_release=pending.kernel_release,
+            historical_hwm_bytes=pending.historical_hwm_bytes,
+            rss_before_reset_bytes=pending.rss_before_reset_bytes,
+            reset_completed_monotonic=pending.reset_completed_monotonic,
+            post_reset_hwm_bytes=pending.post_reset_hwm_bytes,
+            rss_after_reset_bytes=pending.rss_after_reset_bytes,
+            workload_start_monotonic=pending.reset_completed_monotonic,
+            workload_end_monotonic=pending.reset_completed_monotonic,
+            workload_start_ordinal=0,
+            workload_end_ordinal=0,
+            final_hwm_bytes=final_hwm,
+            final_rss_bytes=900,
+            growth_bytes=growth_bytes,
+            limit_bytes=NATIVE_CONSTRUCTION_LIMIT_BYTES,
+        )
+
+        result.verify()
+        expected.verify()
+        assert result == expected
+        assert callback_calls == []
+        assert controller.journal.archives("native_memory_failures") == []
+        assert daemon._native_memory_archive_diagnostic is None
+        assert daemon._native_handshake == {"state": "running", "failure": ""}
+        durable = controller.journal.read()
+        assert durable["nativeCalibration"] is False
+        assert durable["calibrationEvidence"] == {}
+        assert durable["qualification"]["totalAccepted"] == 0
+        assert controller.status().state == ControllerState.NATIVE_CALIBRATION
+        assert driver.native_memory_meter is meter
     finally:
         if meter is not None:
             meter.close()
