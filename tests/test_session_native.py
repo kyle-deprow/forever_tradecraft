@@ -6,20 +6,26 @@ live desktop or human input calibration has passed.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import importlib.util
 import json
 import os
+import socket
 import subprocess
 import sys
+import threading
 import time
 import types
 from dataclasses import replace
+from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from PIL import Image
 
+from crowley.session import driver as driver_module
 from crowley.session.calibration import (
     _GTK_SCRIPT,
     CalibrationError,
@@ -43,7 +49,7 @@ from crowley.session.calibration import (
     _xwininfo_single_map_state,
 )
 from crowley.session.config import SessionConfig, load_config
-from crowley.session.daemon import SessionDaemon
+from crowley.session.daemon import SessionDaemon, session_config_semantic_sha256
 from crowley.session.decoder import PixelDecoder
 from crowley.session.driver import (
     _EXEC_ADMISSION_WRAPPER,
@@ -162,6 +168,8 @@ def test_daemon_native_region_route_is_opt_in_and_identity_bound() -> None:
     calls: list[tuple[str, object, dict[str, object]]] = []
 
     class Driver:
+        backend = object()
+
         def capture_client_crop_for_identity(self, value: object, **kwargs: object) -> str:
             calls.append(("stock", value, kwargs))
             return "stock.png"
@@ -178,22 +186,15 @@ def test_daemon_native_region_route_is_opt_in_and_identity_bound() -> None:
     daemon.config.profile.telemetry_region_executable = Path("/private/gnome-screenshot")
     daemon.config.profile.telemetry_region_executable_sha256 = "a" * 64
     assert daemon._native_region_enabled() is True
-    assert daemon._capture_native_region_for_identity(identity, deadline=12.0) == "region.png"
-    assert [call[0] for call in calls] == ["stock", "region"]
-    assert calls[-1][2] == {"destination": None, "deadline_monotonic": 12.0}
+    with pytest.raises(DriverError, match="configured X11 backend"):
+        daemon._capture_native_region_for_identity(identity, deadline=12.0)
+    assert [call[0] for call in calls] == ["stock"]
 
 
 def test_real_session_daemon_native_provider_route_and_stock_model_capture(
     tmp_path: Path,
 ) -> None:
-    """Exercise SessionDaemon -> DesktopDriver -> backend -> PixelDecoder.
-
-    The backend is an external desktop/compositor fixture: it supplies a full
-    desktop raster for the stock path and the exact region for the opt-in
-    producer path.  The daemon/provider, identity checks, and decoder remain
-    the production implementations.  No model turn or input operation is
-    started by this test.
-    """
+    """Keep the fake backend on the stock route and reject native capture."""
 
     client = WowClient()
     client.set_canonical_plan()
@@ -223,6 +224,7 @@ def test_real_session_daemon_native_provider_route_and_stock_model_capture(
             self.region = region.copy()
             self.stock_captures = 0
             self.region_captures = 0
+            self.region_rectangles: list[tuple[int, int, int, int]] = []
 
         def capture(self, path: Path, *, identity=None, deadline_monotonic=None):  # type: ignore[no-untyped-def]
             del deadline_monotonic
@@ -234,8 +236,9 @@ def test_real_session_daemon_native_provider_route_and_stock_model_capture(
             return identity or self.identity
 
         def capture_native_region(self, path: Path, *, identity, rectangle, **kwargs):  # type: ignore[no-untyped-def]
-            del rectangle, kwargs
+            del kwargs
             self.region_captures += 1
+            self.region_rectangles.append(rectangle)
             self.region.save(path, format="PNG")
             return identity
 
@@ -294,6 +297,7 @@ def test_real_session_daemon_native_provider_route_and_stock_model_capture(
     executable.chmod(0o700)
     region_profile = replace(
         stock_profile,
+        canvas_crop=(123, 77, 256, 256),
         telemetry_region_executable=executable,
         telemetry_region_executable_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
     )
@@ -305,15 +309,1995 @@ def test_real_session_daemon_native_provider_route_and_stock_model_capture(
     )
     region_daemon = SessionDaemon(config(region_profile, "region"), driver=region_driver)
     try:
-        frame = region_daemon.motion_provider.observe(1, deadline=time.monotonic() + 5.0)
-        assert frame.native.ctm_state == "disabled"
-        assert frame.native.ground_state == "grounded"
-        assert frame.native.speed_tuple.run == 7.0
-        assert region_backend.region_captures == 1
-        assert region_backend.stock_captures == 0
+        with pytest.raises(DriverError, match="configured X11 backend"):
+            region_daemon._capture_native_region_for_identity(identity, deadline=time.monotonic() + 5.0)
+        assert region_backend.region_captures == 0
+        model_bytes = region_daemon._capture_model(deadline=time.monotonic() + 5.0)
+        assert model_bytes
+        assert region_backend.stock_captures == 1
+        assert region_backend.region_captures == 0
         assert region_daemon._native_region_enabled() is True
     finally:
         region_driver.close()
+
+
+def test_compiled_region_composes_through_default_daemon_and_stock_model(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Run the frozen GNOME producer through the complete private X11 path."""
+
+    harness_path = Path(__file__).resolve().parents[1] / "tools/gnome-telemetry-region/offline_harness.py"
+    spec = importlib.util.spec_from_file_location("region_offline_harness", harness_path)
+    assert spec is not None and spec.loader is not None
+    harness = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(harness)
+
+    freeze_path = (
+        Path(__file__).resolve().parents[1]
+        / ".archive/executor-review/gnome-telemetry-region-r6-final-freeze.json"
+    )
+    freeze = json.loads(freeze_path.read_text(encoding="utf-8"))
+    frozen_producer = Path(freeze["private_cache"]) / "prefix/bin/gnome-screenshot"
+    assert frozen_producer.is_file()
+    producer_sha256 = hashlib.sha256(frozen_producer.read_bytes()).hexdigest()
+    assert producer_sha256 == freeze["build"]["private_binary_sha256"]
+
+    client = WowClient()
+    client.set_canonical_plan()
+    client.login()
+    client.publish_agent()
+
+    def png_bytes(image: Image.Image) -> bytes:
+        target = BytesIO()
+        image.save(target, format="PNG")
+        return target.getvalue()
+
+    # Bootstrap observes an unconstructed surface. Later shell calls serve
+    # independently rendered CRS1 frames whose sequence advances in the real
+    # Lua harness between captures.
+    absent_surface = Image.new("RGB", (256, 256), (127, 127, 127))
+    client.update_agent(1.0)
+    first_status = client.render_agent_capture()
+    client.update_agent(1.0)
+    native_frame = client.render_agent_capture()
+    decoder_probe = PixelDecoder()
+    first_decoded = decoder_probe.decode(first_status, monotonic=1.0, window_identity="fixture").frame
+    second_decoded = decoder_probe.decode(native_frame, monotonic=2.0, window_identity="fixture").frame
+    assert first_decoded is not None and second_decoded is not None
+    assert second_decoded.sequence > first_decoded.sequence
+
+    rectangle = (123, 77, 256, 256)
+    full_desktop = Image.new("RGB", (1920, 1080), (31, 37, 41))
+    full_bytes = png_bytes(full_desktop)
+    session_dir = tmp_path / "compiled-region-session"
+    session_dir.mkdir(mode=0o700)
+    producer = session_dir / "gnome-screenshot-r6"
+    producer.write_bytes(frozen_producer.read_bytes())
+    producer.chmod(0o700)
+    xauthority = session_dir / "Xauthority"
+    xauthority.touch(mode=0o600)
+    plan_json = "{}"
+    plan_hash = hashlib.sha256(plan_json.encode()).hexdigest()
+    codex_path = Path(
+        "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/"
+        "vendor/x86_64-unknown-linux-musl/bin/codex"
+    )
+    assert codex_path.is_file(), "the authentic private Codex CLI is required for fixture startup"
+
+    with harness.private_shell_compositor(
+        payloads=[
+            png_bytes(absent_surface),
+            png_bytes(first_status),
+            png_bytes(native_frame),
+            png_bytes(native_frame),
+            png_bytes(native_frame),
+            png_bytes(native_frame),
+        ],
+        full_desktop=full_bytes,
+        rectangle=rectangle,
+        allow_area_gate=True,
+    ) as compositor:
+        monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", tmp_path / "private-capture.lock")
+        runtime_env = os.environ.copy()
+        missing_runtime_env = runtime_env.copy()
+        missing_runtime_env.pop("XDG_RUNTIME_DIR", None)
+        missing_runtime = subprocess.run(
+            [str(producer), "--version"],
+            env=missing_runtime_env,
+            text=True,
+            capture_output=True,
+            timeout=2.0,
+            check=False,
+        )
+        assert missing_runtime.returncode != 0
+        assert "XDG_RUNTIME_DIR" in missing_runtime.stderr
+
+        untrusted_runtime = session_dir / "untrusted-runtime"
+        untrusted_runtime.mkdir(mode=0o755)
+        untrusted_runtime.chmod(0o755)
+        untrusted_env = runtime_env.copy()
+        untrusted_env["XDG_RUNTIME_DIR"] = str(untrusted_runtime)
+        untrusted = subprocess.run(
+            [str(producer), "--version"],
+            env=untrusted_env,
+            text=True,
+            capture_output=True,
+            timeout=2.0,
+            check=False,
+        )
+        assert untrusted.returncode != 0
+        assert "mode 0700" in untrusted.stderr
+
+        symlink_runtime = session_dir / "symlink-runtime"
+        symlink_runtime.symlink_to(compositor["root"], target_is_directory=True)
+        symlink_env = runtime_env.copy()
+        symlink_env["XDG_RUNTIME_DIR"] = str(symlink_runtime)
+        symlink_result = subprocess.run(
+            [str(producer), "--version"],
+            env=symlink_env,
+            text=True,
+            capture_output=True,
+            timeout=2.0,
+            check=False,
+        )
+        assert symlink_result.returncode != 0
+        assert "symlinked component" in symlink_result.stderr
+        assert not compositor["area_log"].exists()
+        identity = WindowIdentity(
+            0x100,
+            os.getpid(),
+            "WowB.exe",
+            "World of Warcraft",
+            "wowb.exe",
+            0x101,
+            (0, 0, 1928, 1092),
+            (0, 0, 1920, 1080),
+            0x100,
+            str(os.getpid()),
+            compositor["display"],
+            "compiled-region-private-window-identity",
+            0x100,
+            0x100,
+            frozenset({0x100, 0x101}),
+        )
+        profile = DriverProfile(
+            display=compositor["display"],
+            xauthority=str(xauthority),
+            wine_prefix="/private-fixture-only",
+            client_width=1920,
+            client_height=1080,
+            outer_width=1928,
+            outer_height=1092,
+            canvas_crop=rectangle,
+            model_crop=(80, 48, 640, 480),
+            telemetry_region_executable=producer,
+            telemetry_region_executable_sha256=producer_sha256,
+        )
+        backend = X11Backend(profile)
+        # Window discovery is the only substituted boundary: it represents a
+        # stable external game window on this owned Xvfb. The X11Backend,
+        # retained executable, process admission, compiled producer, decoder,
+        # daemon provider binding, and all screenshot calls remain real.
+        backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+        driver = DesktopDriver(
+            profile=profile,
+            backend=backend,
+            lease_path=session_dir / "desktop.lock",
+        )
+        real_gate_factory = driver_module.AdmissionGate
+        rejected_gates = []
+
+        def track_gate(descriptor: int):
+            gate = real_gate_factory(descriptor)
+            rejected_gates.append(gate)
+            return gate
+
+        monkeypatch.setattr(driver_module, "AdmissionGate", track_gate)
+        watchdog_state = driver.guardian._watchdog_state
+        driver.guardian._watchdog_state = lambda: False  # type: ignore[method-assign]
+        rejected_output = session_dir / "rejected-after-spawn" / "capture.png"
+        try:
+            with pytest.raises(GuardianError, match="watchdog state was not acknowledged"):
+                driver.capture_native_region_for_identity(
+                    identity,
+                    destination=rejected_output,
+                    deadline_monotonic=time.monotonic() + 2.0,
+                    observer_admission=driver.guardian.observer_dispatch_admission,
+                    observer_reaped=driver.guardian.unregister_observer_process,
+                )
+        finally:
+            driver.guardian._watchdog_state = watchdog_state  # type: ignore[method-assign]
+            monkeypatch.setattr(driver_module, "AdmissionGate", real_gate_factory)
+        assert len(rejected_gates) == 1 and rejected_gates[0]._closed
+        with pytest.raises(OSError):
+            os.fstat(rejected_gates[0].write_fd)
+        assert not rejected_output.exists()
+        assert not backend._active_processes and not backend.active_process_groups
+        assert not driver.guardian.observer_process_groups
+        config = SessionConfig(
+            profile=profile,
+            journal=session_dir / "journal.json",
+            socket=session_dir / "session.sock",
+            capture_dir=session_dir / "captures",
+            plan_hash=plan_hash,
+            plan_json=plan_json,
+            codex_path=str(codex_path),
+        )
+        daemon = SessionDaemon(config, driver=driver)
+        admission_events: list[tuple[str, float, int | None]] = []
+        original_observer_admission = driver.guardian.observer_dispatch_admission
+
+        def record_observer_admission(start, *, calibration: bool = False):  # type: ignore[no-untyped-def]
+            admission_events.append(("admission_enter", time.monotonic(), None))
+            admitted = original_observer_admission(start, calibration=calibration)
+            process = getattr(admitted, "process", None) or getattr(
+                getattr(admitted, "observer", None), "process", None
+            )
+            assert process is not None
+            admission_events.append(("gate_released", time.monotonic(), process.pid))
+            return admitted
+
+        driver.guardian.observer_dispatch_admission = record_observer_admission  # type: ignore[method-assign]
+        retained_capture: Path | None = None
+        try:
+            status = daemon.controller.start()
+            assert status.state.value == "NATIVE_CALIBRATION"
+            bootstrapped = daemon.native_bootstrap(expected_generation=status.generation)
+            assert bootstrapped["nativeBootstrapPending"] is True
+            bootstrap = daemon._native_bootstrap_observation
+            assert bootstrap is not None and bootstrap["surface"] == "absent"
+            assert bootstrap["geometry"] == identity.child_geometry
+            assert daemon._native_region_enabled() is True
+
+            motion = daemon.motion_provider.observe(1, deadline=time.monotonic() + 10.0)
+            assert isinstance(motion, MotionFrame)
+            assert motion.identity_fingerprint == identity.fingerprint
+            assert motion.native.ctm_state == "disabled"
+            assert motion.native.ground_state == "grounded"
+            assert motion.native.speed_tuple.run == 7.0
+            assert backend.last_region_receipt is not None
+            motion_receipt = backend.last_region_receipt
+            assert motion_receipt.owner_branch == "ScreenshotArea"
+            assert motion_receipt.rectangle == rectangle
+            assert motion_receipt.executable_sha256 == producer_sha256
+            assert motion_receipt.attempt_retired is True
+
+            client.update_agent(1.0)
+            fresh_identity = driver.resolve_identity()
+            sample, capture_sha256, retained_capture = daemon._capture_native_frame_with_capture(
+                fresh_identity,
+                driver.new_native_decoder(),
+                deadline=time.monotonic() + 10.0,
+            )
+            assert sample.kind == "FRESH" and sample.frame is not None
+            assert sample.frame.sequence > motion.sequence
+            assert len(capture_sha256) == 64
+            assert retained_capture.is_file()
+            native_receipt = backend.last_region_receipt
+            assert native_receipt is not None
+            assert native_receipt.rectangle == rectangle
+            assert native_receipt.output_sha256 == capture_sha256
+            assert native_receipt.attempt_retired is True
+
+            before_model_nonce = native_receipt.nonce
+            model_bytes = daemon._capture_model(deadline=time.monotonic() + 10.0)
+            assert model_bytes
+            assert compositor["stock_log"].is_file()
+            stock_calls = json.loads(compositor["stock_log"].read_text(encoding="utf-8"))
+            assert len(stock_calls) == 1
+            assert backend.last_region_receipt is not None
+            assert backend.last_region_receipt.nonce == before_model_nonce
+            area_calls = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
+            assert len(area_calls) == 3
+            assert [call["index"] for call in area_calls] == [1, 2, 3]
+            assert all(
+                (call["x"], call["y"], call["width"], call["height"], call["flash"]) == (*rectangle, False)
+                for call in area_calls
+            )
+            assert not backend._active_processes
+            assert not backend.active_process_groups
+            assert [event[0] for event in admission_events[:6]] == [
+                name for _ in range(3) for name in ("admission_enter", "gate_released")
+            ]
+            assert all(
+                admission_events[index * 2 + 1][1] * 1_000_000 <= area_calls[index]["monotonic_us"]
+                for index in range(3)
+            )
+
+            # A regular stock invocation is forwarded to the active primary
+            # while its asynchronous typed capture is waiting on the real
+            # Shell boundary. The C guard rejects it before shared options or
+            # a second Shell screenshot can be dispatched.
+            blocked_target = session_dir / "guarded-capture.png"
+            compositor["area_block_path"].touch(mode=0o600)
+            capture_errors: list[BaseException] = []
+
+            def blocked_capture() -> None:
+                try:
+                    daemon._capture_native_region_for_identity(
+                        driver.resolve_identity(),
+                        destination=blocked_target,
+                        deadline=time.monotonic() + 8.0,
+                    )
+                except BaseException as exc:
+                    capture_errors.append(exc)
+
+            capture_thread = threading.Thread(target=blocked_capture, daemon=True)
+            primary_process: subprocess.Popen[str] | None = None
+            ordinary_invocation: subprocess.Popen[str] | None = None
+            ordinary_returncode: int | None = None
+            ordinary_stdout = ""
+            ordinary_stderr = ""
+            rpc_children: list[tuple[str, subprocess.Popen[str]]] = []
+            rpc_results: dict[str, tuple[int, str, str]] = {}
+            foreign_output = session_dir / "foreign-stock.png"
+            ordinary_output = session_dir / "foreign-primary.png"
+            before_foreign = 0
+            try:
+                capture_thread.start()
+                gate_deadline = time.monotonic() + 4.0
+                while not compositor["area_started_path"].exists() and time.monotonic() < gate_deadline:
+                    time.sleep(0.01)
+                assert compositor["area_started_path"].exists(), (
+                    "compiled capture did not enter blocked Shell call"
+                )
+                with backend._process_lock:
+                    blocked_processes = tuple(backend._active_processes)
+                assert len(blocked_processes) == 1
+                primary_process = blocked_processes[0]
+                admitted_groups = driver.guardian.observer_process_groups
+                assert len(admitted_groups) == 1
+                before_foreign = len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                foreign = subprocess.run(
+                    [str(producer), "--file", str(foreign_output)],
+                    env=os.environ.copy(),
+                    text=True,
+                    capture_output=True,
+                    timeout=2.0,
+                    check=False,
+                )
+                assert foreign.returncode != 0
+                assert "another screenshot invocation owns" in foreign.stderr.lower()
+                assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == before_foreign
+                assert not foreign_output.exists()
+
+                concurrent_telemetry = subprocess.run(
+                    [
+                        str(producer),
+                        "--telemetry-region",
+                        "--telemetry-x",
+                        "not-an-integer",
+                    ],
+                    env=os.environ.copy(),
+                    text=True,
+                    capture_output=True,
+                    timeout=2.0,
+                    check=False,
+                )
+                assert concurrent_telemetry.returncode != 0
+                assert "another screenshot invocation owns" in concurrent_telemetry.stderr.lower()
+                assert "valid 256x256 rectangle" not in concurrent_telemetry.stderr.lower()
+                assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == before_foreign
+
+                # A separate owned runtime directory bypasses the producer's
+                # flock, while the explicit private bus/display still address
+                # the active GApplication. Popen is deliberately asynchronous:
+                # waiting for a synchronous primary reply while Shell is
+                # blocked would deadlock.
+                ordinary_runtime = session_dir / "ordinary-runtime"
+                ordinary_runtime.mkdir(mode=0o700)
+                ordinary_runtime.chmod(0o700)
+                ordinary_runtime_info = ordinary_runtime.stat()
+                assert ordinary_runtime_info.st_uid == os.geteuid()
+                assert ordinary_runtime_info.st_mode & 0o777 == 0o700
+                ordinary_env = runtime_env.copy()
+                ordinary_env.update(
+                    {
+                        "XDG_RUNTIME_DIR": str(ordinary_runtime),
+                        "DBUS_SESSION_BUS_ADDRESS": compositor["bus_address"],
+                        "DISPLAY": compositor["display"],
+                        "GDK_BACKEND": "x11",
+                    }
+                )
+                ordinary_invocation = subprocess.Popen(
+                    [str(producer), "--file", str(ordinary_output)],
+                    env=ordinary_env,
+                    text=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                )
+                rpc_children.append(("ordinary", ordinary_invocation))
+                # Give the D-Bus client a bounded opportunity to forward while
+                # the first Shell request remains blocked. The primary may
+                # synchronously reject and exit here, which is also valid.
+                forward_deadline = time.monotonic() + 1.0
+                while ordinary_invocation.poll() is None and time.monotonic() < forward_deadline:
+                    time.sleep(0.01)
+
+                rpc_env = runtime_env.copy()
+                rpc_env.update(
+                    {
+                        "XDG_RUNTIME_DIR": str(compositor["root"]),
+                        "DBUS_SESSION_BUS_ADDRESS": compositor["bus_address"],
+                        "DISPLAY": compositor["display"],
+                        "GDK_BACKEND": "x11",
+                    }
+                )
+                rpc_specs = (
+                    ("activate", "org.freedesktop.Application", "Activate", "a{sv}", ("0",)),
+                    (
+                        "freedesktop-screen-shot",
+                        "org.freedesktop.Application",
+                        "ActivateAction",
+                        "sava{sv}",
+                        ("screen-shot", "0", "0"),
+                    ),
+                    (
+                        "freedesktop-window-shot",
+                        "org.freedesktop.Application",
+                        "ActivateAction",
+                        "sava{sv}",
+                        ("window-shot", "0", "0"),
+                    ),
+                    (
+                        "gtk-screen-shot",
+                        "org.gtk.Actions",
+                        "Activate",
+                        "sava{sv}",
+                        ("screen-shot", "0", "0"),
+                    ),
+                    (
+                        "gtk-window-shot",
+                        "org.gtk.Actions",
+                        "Activate",
+                        "sava{sv}",
+                        ("window-shot", "0", "0"),
+                    ),
+                )
+                for label, interface, method, signature, arguments in rpc_specs:
+                    rpc = subprocess.Popen(
+                        [
+                            "busctl",
+                            f"--address={compositor['bus_address']}",
+                            "--auto-start=no",
+                            "call",
+                            "org.gnome.Screenshot",
+                            "/org/gnome/Screenshot",
+                            interface,
+                            method,
+                            signature,
+                            *arguments,
+                        ],
+                        env=rpc_env,
+                        text=True,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                    )
+                    rpc_children.append((label, rpc))
+                    # Let each real client put its method call on the private
+                    # bus. Never wait for its reply until after gate release.
+                    time.sleep(0.05)
+                live_name_owner = subprocess.run(
+                    [
+                        "busctl",
+                        f"--address={compositor['bus_address']}",
+                        "--auto-start=no",
+                        "call",
+                        "org.freedesktop.DBus",
+                        "/org/freedesktop/DBus",
+                        "org.freedesktop.DBus",
+                        "GetNameOwner",
+                        "s",
+                        "org.gnome.Screenshot",
+                    ],
+                    env=rpc_env,
+                    text=True,
+                    capture_output=True,
+                    timeout=2.0,
+                    check=False,
+                )
+                assert live_name_owner.returncode == 0
+                assert not live_name_owner.stderr
+                assert live_name_owner.stdout.strip().startswith('s ":')
+            finally:
+                compositor["area_block_path"].unlink(missing_ok=True)
+                compositor["area_release_path"].touch(mode=0o600)
+                capture_thread.join(timeout=8.0)
+                for label, child in rpc_children:
+                    try:
+                        child_stdout, child_stderr = child.communicate(timeout=8.0)
+                    except subprocess.TimeoutExpired:
+                        child.kill()
+                        child_stdout, child_stderr = child.communicate(timeout=2.0)
+                    finally:
+                        if child.poll() is None:
+                            child.kill()
+                            child.wait(timeout=2.0)
+                    if label == "ordinary":
+                        ordinary_stdout, ordinary_stderr = child_stdout, child_stderr
+                    else:
+                        rpc_results[label] = (child.returncode, child_stdout, child_stderr)
+                if ordinary_invocation is not None:
+                    ordinary_returncode = ordinary_invocation.returncode
+            assert not capture_thread.is_alive()
+            assert not capture_errors, (
+                f"blocked compiled capture failed: {capture_errors!r}; "
+                f"area_calls={compositor['area_log'].read_text(encoding='utf-8') if compositor['area_log'].exists() else None!r}; "
+                f"owner_receipt={backend.last_region_receipt!r}; "
+                f"target_exists={blocked_target.exists()}; "
+                f"active_processes={backend._active_processes!r}; "
+                f"active_groups={backend.active_process_groups!r}; "
+                f"guardian_groups={driver.guardian.observer_process_groups!r}; "
+                f"gjs_stderr={(compositor['root'] / 'gjs.stderr').read_text(encoding='utf-8') if (compositor['root'] / 'gjs.stderr').exists() else None!r}"
+            )
+            assert blocked_target.is_file()
+            _active_guard_message = "A foreign command line arrived while telemetry capture was active."
+            assert primary_process is not None
+            _primary_stdout, primary_stderr = primary_process.communicate(timeout=0)
+            assert primary_stderr.count(_active_guard_message) == 1
+            _action_guard_message = "A foreign action arrived while telemetry capture was active."
+            _activation_guard_message = "A foreign activation arrived while telemetry capture was active."
+            assert primary_stderr.count(_action_guard_message) == 4
+            assert primary_stderr.count(_activation_guard_message) == 1
+            assert "Telemetry mode requires" not in primary_stderr
+            primary_guard_lines = {line for line in primary_stderr.splitlines() if line}
+            assert primary_guard_lines <= {
+                _active_guard_message,
+                _action_guard_message,
+                _activation_guard_message,
+            }
+            # The forwarded command receives the primary command-line handler's
+            # EXIT_FAILURE status over GApplication's D-Bus protocol; the
+            # guard's diagnostic is written by the primary, not the client.
+            assert ordinary_returncode == 1
+            assert not ordinary_output.exists()
+            assert not ordinary_stdout
+            assert not ordinary_stderr
+            for label, (returncode, rpc_stdout, rpc_stderr) in rpc_results.items():
+                assert returncode == 0, f"{label} D-Bus call failed: {rpc_stdout!r} {rpc_stderr!r}"
+                assert not rpc_stderr, f"{label} D-Bus call wrote stderr: {rpc_stderr!r}"
+            assert primary_process.poll() is not None
+            late_rpc = subprocess.run(
+                [
+                    "busctl",
+                    f"--address={compositor['bus_address']}",
+                    "--auto-start=no",
+                    "call",
+                    "org.gnome.Screenshot",
+                    "/org/gnome/Screenshot",
+                    "org.freedesktop.Application",
+                    "Activate",
+                    "a{sv}",
+                    "0",
+                ],
+                env=rpc_env,
+                text=True,
+                capture_output=True,
+                timeout=2.0,
+                check=False,
+            )
+            assert late_rpc.returncode != 0
+            assert not late_rpc.stdout
+            assert 'Name "org.gnome.Screenshot" does not exist' in late_rpc.stderr
+            late_name_owner = subprocess.run(
+                [
+                    "busctl",
+                    f"--address={compositor['bus_address']}",
+                    "--auto-start=no",
+                    "call",
+                    "org.freedesktop.DBus",
+                    "/org/freedesktop/DBus",
+                    "org.freedesktop.DBus",
+                    "GetNameOwner",
+                    "s",
+                    "org.gnome.Screenshot",
+                ],
+                env=rpc_env,
+                text=True,
+                capture_output=True,
+                timeout=2.0,
+                check=False,
+            )
+            assert late_name_owner.returncode != 0
+            assert not late_name_owner.stdout
+            assert "no such name" in late_name_owner.stderr.lower()
+            assert "org.gnome.Screenshot" in late_name_owner.stderr
+            assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == before_foreign + 1
+            assert len(json.loads(compositor["stock_log"].read_text(encoding="utf-8"))) == 1
+            assert not driver.guardian.observer_process_groups
+            assert driver.guardian.lease.held
+            assert not driver.guardian._watchdog_failed
+
+            # Stop wins at a barrier after the daemon snapshots controller
+            # state but before DesktopDriver enters the atomic admission
+            # section. The barrier is outside both owner locks; no producer
+            # process is registered or executed after stop linearizes.
+            before_admission = threading.Event()
+            release_admission = threading.Event()
+            original_driver_capture = driver.capture_native_region_for_identity
+
+            def wait_before_admission(*args, **kwargs):  # type: ignore[no-untyped-def]
+                before_admission.set()
+                if not release_admission.wait(2.0):
+                    raise TimeoutError("pre-admission fixture barrier was not released")
+                return original_driver_capture(*args, **kwargs)
+
+            driver.capture_native_region_for_identity = wait_before_admission  # type: ignore[method-assign]
+            pre_stop_target = session_dir / "stop-before-admission.png"
+            pre_stop_errors: list[BaseException] = []
+
+            def capture_before_stop() -> None:
+                try:
+                    daemon._capture_native_region_for_identity(
+                        identity,
+                        destination=pre_stop_target,
+                        deadline=time.monotonic() + 8.0,
+                    )
+                except BaseException as exc:
+                    pre_stop_errors.append(exc)
+
+            pre_stop_events: list[tuple[str, float]] = []
+            admission_count_before_stop = len(admission_events)
+            shell_count_before_stop = len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+            pre_stop_thread = threading.Thread(target=capture_before_stop, daemon=True)
+            pre_stop_thread.start()
+            assert before_admission.wait(2.0)
+            pre_stop_events.append(("pre_admission_barrier", time.monotonic()))
+            daemon.controller.stop()
+            pre_stop_events.append(("controller_stop", time.monotonic()))
+            release_admission.set()
+            pre_stop_events.append(("barrier_release", time.monotonic()))
+            pre_stop_thread.join(timeout=3.0)
+            assert not pre_stop_thread.is_alive()
+            pre_stop_events.append(("capture_refused", time.monotonic()))
+            assert [event[0] for event in pre_stop_events] == [
+                "pre_admission_barrier",
+                "controller_stop",
+                "barrier_release",
+                "capture_refused",
+            ]
+            assert pre_stop_events[0][1] <= pre_stop_events[1][1] <= pre_stop_events[2][1]
+            assert pre_stop_errors and isinstance(pre_stop_errors[0], DriverError)
+            assert "changed before observer admission" in str(pre_stop_errors[0])
+            assert len(admission_events) == admission_count_before_stop
+            assert (
+                len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == shell_count_before_stop
+            )
+            assert not pre_stop_target.exists()
+            assert not backend._active_processes and not backend.active_process_groups
+            assert not driver.guardian.observer_process_groups
+            assert driver.guardian.lease.held
+            assert driver.guardian.admission_gate_ready() is None
+
+            # A fresh private daemon owns a fresh private canonical lease. Its
+            # ordinary default route registers before Shell entry; stop then
+            # revokes the capture epoch while the external compositor blocks.
+            driver.close()
+            cancellation_dir = session_dir / "admitted-stop"
+            cancellation_dir.mkdir(mode=0o700)
+            cancellation_config = replace(
+                config,
+                journal=cancellation_dir / "journal.json",
+                socket=cancellation_dir / "session.sock",
+                capture_dir=cancellation_dir / "captures",
+            )
+            cancellation_backend = X11Backend(profile)
+            cancellation_backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+            cancellation_driver = DesktopDriver(
+                profile=profile,
+                backend=cancellation_backend,
+                lease_path=cancellation_dir / "desktop.lock",
+            )
+            cancellation_daemon = SessionDaemon(cancellation_config, driver=cancellation_driver)
+            cancellation_status = cancellation_daemon.controller.start()
+            assert cancellation_status.state.value == "NATIVE_CALIBRATION"
+            cancellation_target = cancellation_dir / "revoked-default-capture.png"
+            # The earlier compiled-command serialization case used the same
+            # compositor gate. Reset its markers so this race proves a new owner
+            # process reached Shell and remains blocked there.
+            compositor["area_started_path"].unlink(missing_ok=True)
+            compositor["area_release_path"].unlink(missing_ok=True)
+            compositor["area_block_path"].touch(mode=0o600)
+            epoch_before = cancellation_backend._capture_revocation_epoch
+            cancellation_errors: list[BaseException] = []
+
+            def capture_until_stop() -> None:
+                try:
+                    cancellation_daemon._capture_native_region_for_identity(
+                        identity,
+                        destination=cancellation_target,
+                        deadline=time.monotonic() + 8.0,
+                    )
+                except BaseException as exc:
+                    cancellation_errors.append(exc)
+
+            cancellation_thread = threading.Thread(target=capture_until_stop, daemon=True)
+            try:
+                cancellation_thread.start()
+                shell_deadline = time.monotonic() + 4.0
+                while not compositor["area_started_path"].exists() and time.monotonic() < shell_deadline:
+                    time.sleep(0.01)
+                assert compositor["area_started_path"].exists(), (
+                    f"fresh-owner capture did not reach blocked Shell; errors={cancellation_errors!r}; "
+                    f"active_processes={cancellation_backend._active_processes!r}; "
+                    f"active_groups={cancellation_backend.active_process_groups!r}; "
+                    f"guardian_groups={cancellation_driver.guardian.observer_process_groups!r}; "
+                    f"watchdog_failed={cancellation_driver.guardian._watchdog_failed!r}; "
+                    f"area_calls={compositor['area_log'].read_text(encoding='utf-8') if compositor['area_log'].exists() else None!r}; "
+                    f"gjs_stderr={(compositor['root'] / 'gjs.stderr').read_text(encoding='utf-8') if (compositor['root'] / 'gjs.stderr').exists() else None!r}"
+                )
+                assert len(cancellation_driver.guardian.observer_process_groups) == 1
+                admitted_event = admission_events[-2:]
+                assert [event[0] for event in admitted_event] == ["admission_enter", "gate_released"]
+                shell_started = int(compositor["area_started_path"].read_text(encoding="ascii")) / 1_000_000
+                assert admitted_event[-1][1] <= shell_started
+                stop_started = time.monotonic()
+                cancellation_daemon.controller.stop()
+                stop_finished = time.monotonic()
+                assert stop_finished - stop_started < 1.0
+                compositor["area_block_path"].unlink()
+                compositor["area_release_path"].touch(mode=0o600)
+                cancellation_thread.join(timeout=4.0)
+                assert not cancellation_thread.is_alive()
+                assert cancellation_errors and isinstance(cancellation_errors[0], DriverError)
+                assert "revoked" in str(cancellation_errors[0]).lower()
+                assert cancellation_backend._capture_revocation_epoch > epoch_before
+                assert not cancellation_target.exists()
+                assert not cancellation_backend._active_processes
+                assert not cancellation_backend.active_process_groups
+                assert not cancellation_driver.guardian.observer_process_groups
+                assert cancellation_driver.guardian.lease.held
+                assert not cancellation_driver.guardian._watchdog_failed
+                assert cancellation_driver.guardian.admission_gate_ready() is None
+            finally:
+                cancellation_driver.close()
+        finally:
+            if retained_capture is not None:
+                daemon.release_native_capture(retained_capture)
+            daemon._cleanup_native_owned_captures()
+            driver.close()
+
+
+def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the opt-in runner at its real socket and compiled capture boundaries."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_offline_harness_runner", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+
+    freeze = json.loads(
+        (root / ".archive/executor-review/gnome-telemetry-region-r6-final-freeze.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    frozen_producer = Path(freeze["private_cache"]) / "prefix/bin/gnome-screenshot"
+    producer_sha256 = hashlib.sha256(frozen_producer.read_bytes()).hexdigest()
+    assert producer_sha256 == freeze["build"]["private_binary_sha256"]
+    width_height = (256, 256)
+
+    client = WowClient()
+    client.set_canonical_plan()
+    client.login()
+    client.publish_agent()
+    payloads: list[bytes] = []
+    decoded_sequences: list[int] = []
+    probe = PixelDecoder()
+    for index in range(26):
+        client.update_agent(1.0)
+        target = BytesIO()
+        client.render_agent_capture().save(target, format="PNG")
+        payload = target.getvalue()
+        payloads.append(payload)
+        with Image.open(BytesIO(payload)) as image:
+            image.load()
+            decoded = probe.decode(image, monotonic=float(index + 1), window_identity="runner-fixture")
+        assert decoded.frame is not None
+        decoded_sequences.append(decoded.frame.sequence)
+    assert decoded_sequences == sorted(set(decoded_sequences))
+    alternate_client = WowClient()
+    alternate_client.set_canonical_plan()
+    alternate_client.login()
+    alternate_client.publish_agent()
+    alternate_client.update_agent(1.0)
+    alternate_png = BytesIO()
+    alternate_client.render_agent_capture().save(alternate_png, format="PNG")
+    with Image.open(BytesIO(payloads[0])) as image:
+        original_boot = PixelDecoder().decode(image, monotonic=1.0, window_identity="original").frame
+    with Image.open(BytesIO(alternate_png.getvalue())) as image:
+        alternate_boot = PixelDecoder().decode(image, monotonic=1.0, window_identity="alternate").frame
+    assert original_boot is not None and alternate_boot is not None
+    assert alternate_boot.boot != original_boot.boot
+
+    rectangle = (123, 77, *width_height)
+    desktop = BytesIO()
+    Image.new("RGB", (1920, 1080), (30, 40, 50)).save(desktop, format="PNG")
+    session_dir = tmp_path / "paused-runner"
+    session_dir.mkdir(mode=0o700)
+    producer = session_dir / "gnome-screenshot-r6"
+    producer.write_bytes(frozen_producer.read_bytes())
+    producer.chmod(0o700)
+    xauthority = session_dir / "Xauthority"
+    xauthority.touch(mode=0o600)
+    socket_path = session_dir / "session.sock"
+    saved_variables = session_dir / "SavedVariables.lua"
+    companion_state = session_dir / "companion.json"
+    data_lua = session_dir / "Data.lua"
+    saved_variables.write_text("", encoding="utf-8")
+    companion_state.write_text("{}", encoding="utf-8")
+    data_lua.write_text("", encoding="utf-8")
+    plan_json = "{}"
+    plan_hash = hashlib.sha256(plan_json.encode()).hexdigest()
+    codex_path = Path(
+        "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/"
+        "vendor/x86_64-unknown-linux-musl/bin/codex"
+    )
+    assert codex_path.is_file()
+    config_path = session_dir / "session.toml"
+
+    def toml_string(value: str) -> str:
+        return json.dumps(value)
+
+    config_path.write_text(
+        "[profile]\n"
+        f"display = {toml_string(':runner-fixture')}\n"
+        f"xauthority = {toml_string(str(xauthority))}\n"
+        "wine_prefix = '/private-fixture-only'\n"
+        "canvas_crop = [123, 77, 256, 256]\n"
+        "model_crop = [80, 48, 640, 480]\n"
+        f"plan_hash = '{plan_hash}'\n"
+        "plan_json = '{}'\n"
+        "[session]\n"
+        f"socket = {toml_string(str(socket_path))}\n"
+        f"journal = {toml_string(str(session_dir / 'journal.json'))}\n"
+        f"capture_dir = {toml_string(str(session_dir / 'captures'))}\n"
+        f"codex_path = {toml_string(str(codex_path))}\n"
+        f"saved_variables = {toml_string(str(saved_variables))}\n"
+        f"companion_state = {toml_string(str(companion_state))}\n"
+        f"data_lua = {toml_string(str(data_lua))}\n"
+        f"telemetry_region_executable = {toml_string(str(producer))}\n"
+        f"telemetry_region_executable_sha256 = '{producer_sha256}'\n",
+        encoding="utf-8",
+    )
+
+    identity = WindowIdentity(
+        0x200,
+        os.getpid(),
+        "WowB.exe",
+        "World of Warcraft",
+        "wowb.exe",
+        0x201,
+        (0, 0, 1928, 1092),
+        (0, 0, 1920, 1080),
+        0x200,
+        str(os.getpid()),
+        ":runner-fixture",
+        "paused-runner-private-window",
+        0x200,
+        0x200,
+        frozenset({0x200, 0x201}),
+    )
+    output_dir = session_dir / "evidence"
+    with harness.private_shell_compositor(
+        payloads=payloads,
+        full_desktop=desktop.getvalue(),
+        rectangle=rectangle,
+        allow_area_gate=True,
+    ) as compositor:
+        monkeypatch.setattr(
+            driver_module, "GNOME_CAPTURE_LOCK_PATH", tmp_path / "runner-private-capture.lock"
+        )
+        # The private display and configured display must be the same so
+        # DesktopDriver verifies and captures through its normal X11 path.
+        identity = replace(identity, display=compositor["display"])
+        monkeypatch.setattr(X11Backend, "resolve_identity", lambda self, **_kwargs: identity)
+        text = config_path.read_text(encoding="utf-8").replace(":runner-fixture", compositor["display"])
+        config_path.write_text(text, encoding="utf-8")
+        config = load_config(config_path)
+        daemon = SessionDaemon(config)
+        driver = daemon.driver
+        backend = driver.backend
+        assert isinstance(backend, X11Backend)
+        assert daemon.config.profile is not driver.profile
+        assert driver.lease_path.is_relative_to(compositor["root"])
+        receipt_publications: list[tuple[Path, dict[str, object]]] = []
+        fail_success_persist = [False]
+        original_persist_receipt = SessionDaemon._persist_paused_region_receipt
+
+        def record_persist_receipt(path: Path, value: dict[str, object]) -> None:
+            receipt_publications.append((path, value.copy()))
+            if fail_success_persist[0] and value.get("ok") is True:
+                fail_success_persist[0] = False
+                raise OSError("injected durable success receipt failure")
+            original_persist_receipt(path, value)
+
+        monkeypatch.setattr(
+            SessionDaemon,
+            "_persist_paused_region_receipt",
+            staticmethod(record_persist_receipt),
+        )
+        admission_events: list[tuple[str, float, int | None]] = []
+        stop_revoke_events: list[float] = []
+        original_observer_admission = driver.guardian.observer_dispatch_admission
+        original_revoke = driver.guardian.revoke
+
+        def record_observer_admission(start, *, calibration: bool = False):  # type: ignore[no-untyped-def]
+            admission_events.append(("admission_enter", time.monotonic(), None))
+            admitted = original_observer_admission(start, calibration=calibration)
+            process = getattr(admitted, "process", None) or getattr(
+                getattr(admitted, "observer", None), "process", None
+            )
+            assert process is not None
+            admission_events.append(("gate_released", time.monotonic(), process.pid))
+            return admitted
+
+        driver.guardian.observer_dispatch_admission = record_observer_admission  # type: ignore[method-assign]
+
+        def record_revoke(reason: str) -> int:
+            if reason == "stop requested":
+                stop_revoke_events.append(time.monotonic())
+            return original_revoke(reason)
+
+        driver.guardian.revoke = record_revoke  # type: ignore[method-assign]
+        daemon.controller.pause("private runner fixture")
+        from crowley.session.cli import (
+            SessionIPC,
+            _BoundedIPCReader,
+            _encode_bounded_record,
+            _parse_bounded_json,
+            _socket_request,
+            serve,
+        )
+
+        ipc = SessionIPC(daemon.controller, daemon)
+        status_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        status_listener.bind(str(socket_path))
+        os.chmod(socket_path, 0o600)
+        status_listener.listen(8)
+        status_listener.settimeout(0.1)
+        stop_status = threading.Event()
+        request_count = [0]
+        sample_count = [0]
+        flip_generation_after_sample = [None]
+        response_mode: list[str | None] = [None]
+        late_response_started = threading.Event()
+        late_response_release = threading.Event()
+        ipc_workers: list[threading.Thread] = []
+        dispatch_observations: list[dict[str, object]] = []
+        ipc_handler_errors: list[str] = []
+        ipc_late_transport_errors: list[str] = []
+
+        def handle_ipc(connection: socket.socket) -> None:
+            with connection:
+                replied = False
+                mode: str | None = None
+                try:
+                    reader = _BoundedIPCReader(connection)
+                    raw = reader.read_record(4096)
+                    if raw is None:
+                        return
+                    request = _parse_bounded_json(raw)
+                    assert isinstance(request, dict)
+                    request_count[0] += 1
+                    mode = None
+                    if request.get("command") == "paused_region_sample":
+                        sample_count[0] += 1
+                        mode = response_mode[0]
+                        response_mode[0] = None
+                    response = ipc.dispatch(request)
+                    if mode is not None:
+                        owner_failure = response.get("failure")
+                        dispatch_observations.append(
+                            {
+                                "mode": mode,
+                                "ok": response.get("ok"),
+                                "has_sample": isinstance(response.get("sample"), dict),
+                                "error": response.get("error"),
+                                "owner_failure_phase": (
+                                    owner_failure.get("phase") if isinstance(owner_failure, dict) else None
+                                ),
+                                "owner_failure_error": (
+                                    owner_failure.get("error") if isinstance(owner_failure, dict) else None
+                                ),
+                            }
+                        )
+                    if mode == "late_response":
+                        late_response_started.set()
+                        late_response_release.wait(2.0)
+                    sample_response = response.get("sample")
+                    if (
+                        mode
+                        in {
+                            "wrong_generation",
+                            "wrong_digest",
+                            "incomplete_png",
+                            "changed_identity",
+                        }
+                        and response.get("ok") is True
+                        and isinstance(sample_response, dict)
+                    ):
+                        if mode == "wrong_generation":
+                            sample_response["generation"] += 1
+                        elif mode == "wrong_digest":
+                            sample_response["png_sha256"] = "0" * 64
+                        elif mode == "incomplete_png":
+                            sample_response["png_base64"] = sample_response["png_base64"][:-4]
+                        else:
+                            sample_response["identity_after"] = "changed-window"
+                    if mode == "duplicate_record":
+                        connection.sendall(b'{"ok":true,"ok":true}\n')
+                        replied = True
+                        return
+                    if mode == "truncated_record":
+                        connection.sendall(b'{"ok":true,"sample":')
+                        replied = True
+                        return
+                    if mode == "oversized_record":
+                        connection.sendall(b"x" * (524288 + 1))
+                        replied = True
+                        return
+                    connection.sendall(_encode_bounded_record(response, 524288))
+                    replied = True
+                    if flip_generation_after_sample[0] == sample_count[0]:
+                        flip_generation_after_sample[0] = None
+                        daemon.controller.pause("fixture generation changed after published sample")
+                except Exception as exc:
+                    error_record = f"{type(exc).__name__}: {exc}"
+                    late_client_disconnect = mode == "late_response" and isinstance(exc, OSError)
+                    if late_client_disconnect:
+                        ipc_late_transport_errors.append(error_record)
+                    else:
+                        ipc_handler_errors.append(error_record)
+                    if not replied and not late_client_disconnect:
+                        try:
+                            connection.sendall(
+                                _encode_bounded_record(
+                                    {"ok": False, "error": f"fixture IPC handler failed: {exc}"},
+                                    524288,
+                                )
+                            )
+                        except OSError as send_error:
+                            ipc_handler_errors.append(f"handler error response failed: {send_error}")
+
+        def serve_ipc() -> None:
+            while not stop_status.is_set():
+                try:
+                    connection, _address = status_listener.accept()
+                except TimeoutError:
+                    continue
+                except OSError:
+                    return
+                worker = threading.Thread(target=handle_ipc, args=(connection,), daemon=True)
+                ipc_workers.append(worker)
+                worker.start()
+
+        status_thread = threading.Thread(target=serve_ipc, daemon=True)
+        status_thread.start()
+        try:
+            initial_generation = daemon.controller.status().generation
+            request_started = time.monotonic()
+            valid_sample_request = {
+                "command": "paused_region_sample",
+                "generation": initial_generation,
+                "parent_started": request_started,
+                "deadline": request_started + 0.9,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            refused = ipc.dispatch({**valid_sample_request, "generation": initial_generation - 1})
+            assert refused["ok"] is False and "generation" in refused["error"]
+            refused = ipc.dispatch({**valid_sample_request, "parent_started": float("nan")})
+            assert refused["ok"] is False and "finite" in refused["error"]
+            refused = ipc.dispatch({**valid_sample_request, "deadline": request_started + 1.01})
+            assert refused["ok"] is False and "one second" in refused["error"]
+            fence_held = threading.Event()
+            release_fence = threading.Event()
+
+            def hold_motion_fence() -> None:
+                with daemon._motion_intent_lock:
+                    fence_held.set()
+                    release_fence.wait(1.0)
+
+            fence_worker = threading.Thread(target=hold_motion_fence, daemon=True)
+            fence_worker.start()
+            assert fence_held.wait(0.5)
+            refused = ipc.dispatch(valid_sample_request)
+            release_fence.set()
+            fence_worker.join(timeout=1.0)
+            assert refused["ok"] is False and "another motion" in refused["error"]
+            # Revoke a real armed Guardian epoch while an owned XI2 observer
+            # is registered. The revoke callback releases the backend capture
+            # epoch, which must make paused diagnostics fail before creating
+            # their output directory.
+            calibration_observer = driver.start_input_observer(calibration=False)
+            assert calibration_observer.observer.process.poll() is None
+            assert len(driver.guardian.observer_process_groups) == 1
+            daemon.controller.start()
+            canceled_generation = driver.guardian.arm(_evidence())
+            driver.guardian.dispatch_admission(
+                canceled_generation,
+                lambda: backend.activate_generation(canceled_generation),
+            )
+            try:
+                daemon.controller.pause("exercise retained capture cancellation")
+            finally:
+                driver.stop_input_observer(calibration_observer)
+            assert not driver.guardian.observer_process_groups
+            assert backend._cancel_active.is_set()
+            canceled_status = daemon.controller.status()
+            canceled_request_started = time.monotonic()
+            canceled_request = {
+                **valid_sample_request,
+                "generation": canceled_status.generation,
+                "parent_started": canceled_request_started,
+                "deadline": canceled_request_started + 0.9,
+            }
+            before_canceled_dirs = sorted((session_dir / "captures").glob("paused-region-*"))
+            refused = ipc.dispatch(canceled_request)
+            assert refused["ok"] is False and "capture-revoked backend" in refused["error"]
+            assert sorted((session_dir / "captures").glob("paused-region-*")) == before_canceled_dirs
+            assert sample_count[0] == 0
+            assert not compositor["area_log"].exists()
+
+            # A real pause after capture revocation cannot be reused for the
+            # diagnostic. Close it and construct a fresh, unarmed owner with
+            # the same configured producer and private X11 environment.
+            daemon._cleanup_native_owned_captures()
+            driver.close()
+            fresh_owner_dir = session_dir / "fresh-owner"
+            fresh_owner_dir.mkdir(mode=0o700)
+            config_text = config_path.read_text(encoding="utf-8")
+            config_text = config_text.replace(
+                str(session_dir / "journal.json"), str(fresh_owner_dir / "journal.json")
+            )
+            config_text = config_text.replace(
+                str(session_dir / "captures"), str(fresh_owner_dir / "captures")
+            )
+            config_path.write_text(config_text, encoding="utf-8")
+            config = load_config(config_path)
+            daemon = SessionDaemon(config)
+            driver = daemon.driver
+            backend = driver.backend
+            assert isinstance(backend, X11Backend)
+            assert daemon.config.profile is not driver.profile
+            assert driver.lease_path.is_relative_to(compositor["root"])
+            daemon.controller.pause("private runner fixture on fresh owner")
+            original_observer_admission = driver.guardian.observer_dispatch_admission
+            driver.guardian.observer_dispatch_admission = record_observer_admission  # type: ignore[method-assign]
+            original_revoke = driver.guardian.revoke
+            driver.guardian.revoke = record_revoke  # type: ignore[method-assign]
+            admission_events.clear()
+            stop_revoke_events.clear()
+            ipc = SessionIPC(daemon.controller, daemon)
+            initial_generation = daemon.controller.status().generation
+            request_started = time.monotonic()
+            valid_sample_request = {
+                "command": "paused_region_sample",
+                "generation": initial_generation,
+                "parent_started": request_started,
+                "deadline": request_started + 0.9,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+
+            result = harness.run_paused_diagnostic(config_path, output_dir)
+            assert result["state"] == "passed"
+            expected_generation = daemon.controller.status().generation
+            assert result["controller_generation"] == expected_generation
+            assert len(result["samples"]) == 8
+            samples = result["samples"]
+            assert isinstance(samples, list)
+            assert [sample["sequence"] for sample in samples] == decoded_sequences[:8]
+            assert all(sample["identity"]["fingerprint"] == identity.fingerprint for sample in samples)
+            assert all(sample["rectangle"] == list(rectangle) for sample in samples)
+            assert all(sample["attempt"]["owner_branch"] == "ScreenshotArea" for sample in samples)
+            assert all(sample["attempt"]["attempt_retired"] is True for sample in samples)
+            assert all(sample["cleanup"]["empty"] is True for sample in samples)
+            assert all(sample["duration_seconds"] < 1.0 for sample in samples)
+            assert all(sample["png_load_seconds"] >= 0 for sample in samples)
+            assert all(sample["pixel_decoder_seconds"] >= 0 for sample in samples)
+            assert all(
+                0.75
+                <= samples[index]["actual_start_monotonic"] - samples[index - 1]["actual_start_monotonic"]
+                <= 1.25
+                for index in range(1, 8)
+            )
+            assert all(
+                0.75
+                <= samples[index]["sample_completed_monotonic"]
+                - samples[index - 1]["sample_completed_monotonic"]
+                <= 1.25
+                for index in range(1, 8)
+            )
+            assert all(Path(sample["png"]).is_file() for sample in samples)
+            persisted = json.loads((output_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert persisted["state"] == "passed"
+            assert persisted["cleanup"]["client_driver_created"] is False
+            assert persisted["cleanup"]["daemon_closed"] is False
+            success_publications = [value for _path, value in receipt_publications if value.get("ok") is True]
+            assert len(success_publications) == 8
+            assert all("owner_returned" in value for value in success_publications)
+            assert all(
+                set(value)
+                == {
+                    "ok",
+                    "generation",
+                    "parent_started",
+                    "deadline",
+                    "owner_entered",
+                    "capture_returned",
+                    "identity",
+                    "identity_after",
+                    "source",
+                    "config",
+                    "producer",
+                    "receipt",
+                    "png_sha256",
+                    "png_bytes",
+                    "png_base64",
+                    "artifact_directory",
+                    "artifact_png",
+                    "cleanup",
+                    "owner_returned",
+                }
+                for value in success_publications
+            )
+            assert all(sample["cleanup"]["lease_held"] for sample in samples)
+            assert all(sample["cleanup"]["watchdog_healthy"] for sample in samples)
+            assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == 8
+            assert request_count[0] == 17  # eight status/sample pairs plus final status
+            successful_gate_events = admission_events[:16]
+            successful_shell_events = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
+            assert [event[0] for event in successful_gate_events] == [
+                name for _ in range(8) for name in ("admission_enter", "gate_released")
+            ]
+            assert len(successful_shell_events) == 8
+            assert all(
+                successful_gate_events[index * 2 + 1][1] * 1_000_000
+                <= successful_shell_events[index]["monotonic_us"]
+                for index in range(8)
+            )
+
+            # A second owner boot in the next genuine Shell response fails on
+            # sample 1 while retaining both client images.
+            payload_paths = compositor["payload_paths"]
+            assert isinstance(payload_paths, tuple)
+            payload_paths[9].write_text(
+                base64.b64encode(alternate_png.getvalue()).decode("ascii"), encoding="ascii"
+            )
+            boot_change_samples = sample_count[0]
+            boot_change_calls = len(successful_shell_events)
+            boot_change_dir = session_dir / "evidence-boot-change"
+            with pytest.raises(RuntimeError, match="boot change"):
+                harness.run_paused_diagnostic(config_path, boot_change_dir)
+            boot_change_receipt = json.loads((boot_change_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert boot_change_receipt["failure"]["phase"] == "sample_1_decode"
+            assert len(boot_change_receipt["samples"]) == 1
+            assert sample_count[0] == boot_change_samples + 2
+            assert (
+                len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == boot_change_calls + 2
+            )
+            assert len(boot_change_receipt["cleanup"]["published_client_pngs"]) == 2
+
+            def area_count() -> int:
+                return len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+
+            def run_runner_failure(mode: str, directory: Path) -> dict[str, object]:
+                before_samples = sample_count[0]
+                before_area = area_count()
+                before_owner_directories = len(list(Path(config.capture_dir).glob("paused-region-*")))
+                response_mode[0] = mode
+                with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
+                    harness.run_paused_diagnostic(config_path, directory)
+                observed_dispatch = dispatch_observations[-1] if dispatch_observations else None
+                if (
+                    not isinstance(observed_dispatch, dict)
+                    or observed_dispatch.get("mode") != mode
+                    or observed_dispatch.get("ok") is not True
+                    or observed_dispatch.get("has_sample") is not True
+                ):
+                    pytest.fail(
+                        f"fixture could not exercise {mode}; actual owner dispatch was {observed_dispatch!r}"
+                    )
+                failed_receipt = json.loads((directory / "receipt.json").read_text(encoding="utf-8"))
+                assert failed_receipt["state"] == "failed"
+                assert sample_count[0] == before_samples + 1
+                assert area_count() == before_area + 1
+                owner_directories = sorted(Path(config.capture_dir).glob("paused-region-*"))
+                assert len(owner_directories) == before_owner_directories + 1
+                assert (owner_directories[-1] / "capture.png").is_file()
+                assert (owner_directories[-1] / "receipt.json").is_file()
+                assert failed_receipt["cleanup"]["daemon_closed"] is False
+                assert failed_receipt["cleanup"]["daemon_lease_released"] is False
+                assert failed_receipt["cleanup"]["published_client_pngs"] == []
+                assert not list(directory.glob("paused-*.png"))
+                return failed_receipt
+
+            for mode in (
+                "wrong_generation",
+                "wrong_digest",
+                "incomplete_png",
+                "duplicate_record",
+                "truncated_record",
+                "oversized_record",
+            ):
+                failed_receipt = run_runner_failure(mode, session_dir / f"evidence-{mode}")
+                assert failed_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
+
+            response_mode[0] = "changed_identity"
+            changed_identity_dir = session_dir / "evidence-changed-identity"
+            with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
+                harness.run_paused_diagnostic(config_path, changed_identity_dir)
+            changed_identity_receipt = json.loads(
+                (changed_identity_dir / "receipt.json").read_text(encoding="utf-8")
+            )
+            assert changed_identity_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
+            assert changed_identity_receipt["cleanup"]["published_client_pngs"] == [
+                str(changed_identity_dir / "paused-00.png")
+            ]
+            assert (changed_identity_dir / "paused-00.png").is_file()
+
+            late_before_samples = sample_count[0]
+            late_before_area = area_count()
+            response_mode[0] = "late_response"
+            with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
+                harness.run_paused_diagnostic(config_path, session_dir / "evidence-late-response")
+            late_receipt = json.loads(
+                (session_dir / "evidence-late-response" / "receipt.json").read_text(encoding="utf-8")
+            )
+            assert late_receipt["state"] == "failed"
+            assert late_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
+            assert late_response_started.is_set()
+            late_response_release.set()
+            assert sample_count[0] == late_before_samples + 1
+            assert area_count() == late_before_area + 1
+            assert late_receipt["cleanup"]["published_client_pngs"] == []
+
+            # Repeating the same genuine compositor payload becomes NO_CHANGE
+            # at PixelDecoder. The runner preserves both owner PNGs and stops
+            # after sample 1 rather than collecting six more frames.
+            payload_paths = compositor["payload_paths"]
+            assert isinstance(payload_paths, tuple)
+            duplicate_index = area_count() + 1
+            payload_paths[duplicate_index].write_bytes(payload_paths[area_count()].read_bytes())
+            no_change_samples = sample_count[0]
+            no_change_calls = area_count()
+            no_change_dir = session_dir / "evidence-no-change"
+            with pytest.raises(RuntimeError, match="not a fresh decoded frame"):
+                harness.run_paused_diagnostic(config_path, no_change_dir)
+            no_change_receipt = json.loads((no_change_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert no_change_receipt["failure"]["phase"] == "sample_1_decode"
+            assert len(no_change_receipt["samples"]) == 1
+            assert sample_count[0] == no_change_samples + 2
+            assert area_count() == no_change_calls + 2
+            assert len(no_change_receipt["cleanup"]["published_client_pngs"]) == 2
+            assert all(Path(path).is_file() for path in no_change_receipt["cleanup"]["published_client_pngs"])
+
+            # Install one real driver anchor bound to an actual compiled
+            # owner PNG, then prove the same paused owner still completes IPC.
+            # The private fixture provider supplies the known control bounds;
+            # capture bytes, identity, target ancestry, sequence and generation
+            # are sealed by DesktopDriver's normal measured-anchor API.
+            anchor_capture_started = time.monotonic()
+            anchor_capture_request = {
+                "command": "paused_region_sample",
+                "generation": daemon.controller.status().generation,
+                "parent_started": anchor_capture_started,
+                "deadline": anchor_capture_started + 0.95,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            anchor_capture_response = _socket_request(socket_path, anchor_capture_request, timeout=1.1)
+            assert anchor_capture_response["ok"] is True
+            anchor_sample = anchor_capture_response["sample"]
+            anchor_png = Path(anchor_sample["artifact_png"])
+            anchor_attempt = anchor_sample["receipt"]
+
+            def fixture_anchor_provider(anchor_identity, action):  # type: ignore[no-untyped-def]
+                assert action == "open_ah"
+                return driver.build_measured_anchor(
+                    action=action,
+                    x=anchor_identity.child_geometry[2] // 2,
+                    y=anchor_identity.child_geometry[3] // 2,
+                    capture_path=anchor_png,
+                    capture_id=anchor_sample["png_sha256"],
+                    capture_sequence=1,
+                    capture_monotonic=anchor_attempt["capture_returned"],
+                    scene=DesktopDriver.ANCHOR_SCENES[action],
+                    bounds=(0, 0, anchor_identity.child_geometry[2], anchor_identity.child_geometry[3]),
+                    target_xid=anchor_identity.child_xid,
+                    target_ancestry=(anchor_identity.xid, anchor_identity.child_xid),
+                    generation=driver.guardian.generation,
+                    source="native-visual",
+                    facts=(("control", DesktopDriver.ANCHOR_CONTROLS[action]),),
+                )
+
+            anchor_generation = driver.guardian.arm(_evidence())
+            driver.guardian.dispatch_admission(
+                anchor_generation,
+                lambda: backend.activate_generation(anchor_generation),
+            )
+            driver.measured_anchor_provider = fixture_anchor_provider
+            measured_anchor = driver.measure_pointer_anchor("open_ah", generation=anchor_generation)
+            assert measured_anchor.verify_seal() is None
+            assert driver._measured_anchors["open_ah"] is measured_anchor
+            assert backend._measured_anchors["open_ah"] is measured_anchor
+            config_semantic_before_runtime_anchor_revoke = session_config_semantic_sha256(config)
+            driver.guardian.revoke("finish private anchor capture proof")
+            assert not driver.guardian.armed and not backend._cancel_active.is_set()
+            assert session_config_semantic_sha256(config) == config_semantic_before_runtime_anchor_revoke
+            after_anchor_started = time.monotonic()
+            after_anchor_response = _socket_request(
+                socket_path,
+                {
+                    **anchor_capture_request,
+                    "generation": daemon.controller.status().generation,
+                    "parent_started": after_anchor_started,
+                    "deadline": after_anchor_started + 0.95,
+                    "config_semantic_sha256": session_config_semantic_sha256(load_config(config_path)),
+                },
+                timeout=1.1,
+            )
+            assert after_anchor_response["ok"] is True
+
+            # The default-constructed driver has an independent profile copy.
+            # Drift in any real configured field must fail before producer
+            # admission even while the loaded daemon config and client hash
+            # remain unchanged.
+            original_model_crop = driver.profile.model_crop
+            semantic_config_hash = session_config_semantic_sha256(daemon.config)
+            config_field_started = time.monotonic()
+            config_field_request = {
+                **anchor_capture_request,
+                "generation": daemon.controller.status().generation,
+                "parent_started": config_field_started,
+                "deadline": config_field_started + 0.95,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": semantic_config_hash,
+            }
+            config_field_area_before = area_count()
+            config_field_admissions_before = len(admission_events)
+            config_field_dirs_before = sorted(Path(config.capture_dir).glob("paused-region-*"))
+            object.__setattr__(driver.profile, "model_crop", (81, 49, 640, 480))
+            try:
+                config_field_response = _socket_request(socket_path, config_field_request, timeout=1.1)
+            finally:
+                object.__setattr__(driver.profile, "model_crop", original_model_crop)
+            assert config_field_response["ok"] is False
+            assert "owning driver profile does not match" in config_field_response["error"]
+            assert area_count() == config_field_area_before
+            assert len(admission_events) == config_field_admissions_before
+            assert sorted(Path(config.capture_dir).glob("paused-region-*")) == config_field_dirs_before
+            assert session_config_semantic_sha256(daemon.config) == semantic_config_hash
+
+            # An actual non-paused owner fails before the producer is entered.
+            # The failed evidence remains durable and the already collected PNGs
+            # are retained for diagnosis.
+            daemon.controller.start()
+            failed_dir = session_dir / "evidence-status-failure"
+            with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
+                harness.run_paused_diagnostic(config_path, failed_dir)
+            failed = json.loads((failed_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert failed["state"] == "failed"
+            assert failed["failure"]["phase"] == "sample_0_status_before"
+            assert failed["samples"] == []
+            assert failed["cleanup"]["client_driver_created"] is False
+            assert area_count() == 8 + 2 + 6 + 1 + 1 + 2 + 2
+
+            # A generation change after sample 0 is observed before sample 1.
+            # The runner must stop without another Shell request and keep the
+            # successful first PNG plus a durable failure receipt.
+            daemon.controller.pause("restore paused state for generation test")
+            before_samples = sample_count[0]
+            flip_generation_after_sample[0] = before_samples + 1
+            partial_dir = session_dir / "evidence-generation-change"
+            with pytest.raises(RuntimeError, match="evidence=.*receipt.json"):
+                harness.run_paused_diagnostic(config_path, partial_dir)
+            partial = json.loads((partial_dir / "receipt.json").read_text(encoding="utf-8"))
+            assert partial["state"] == "failed"
+            assert partial["failure"]["phase"] == "sample_1_status_before"
+            assert len(partial["samples"]) == 1
+            assert partial["cleanup"]["client_driver_created"] is False
+            assert len(partial["cleanup"]["published_client_pngs"]) == 1
+            assert Path(partial["cleanup"]["published_client_pngs"][0]).is_file()
+            assert area_count() == 8 + 2 + 6 + 1 + 1 + 2 + 2 + 1
+
+            # A success receipt write failure leaves only a durable failure
+            # receipt while retaining the actual producer PNG and receipt
+            # attempt evidence.
+            fail_success_persist[0] = True
+            before_receipt_failure_samples = sample_count[0]
+            before_receipt_failure_area = area_count()
+            persist_started = time.monotonic()
+            persist_request = {
+                "command": "paused_region_sample",
+                "generation": daemon.controller.status().generation,
+                "parent_started": persist_started,
+                "deadline": persist_started + 0.9,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            persist_response = _socket_request(socket_path, persist_request, timeout=1.0)
+            assert persist_response["ok"] is False
+            persist_failure = persist_response.get("failure")
+            assert isinstance(persist_failure, dict)
+            assert persist_failure["phase"] == "owner_receipt_persist"
+            assert persist_failure["published_png"] is not None
+            assert Path(persist_failure["published_png"]).is_file()
+            failed_owner_receipt = json.loads(
+                Path(persist_failure["receipt_path"]).read_text(encoding="utf-8")
+            )
+            assert failed_owner_receipt["ok"] is False
+            assert failed_owner_receipt["failure"]["phase"] == "owner_receipt_persist"
+            attempted_success = [
+                value
+                for path, value in receipt_publications
+                if path == Path(persist_failure["receipt_path"]) and value.get("ok") is True
+            ]
+            assert len(attempted_success) == 1 and "owner_returned" in attempted_success[0]
+            assert sample_count[0] == before_receipt_failure_samples + 1
+            assert area_count() == before_receipt_failure_area + 1
+            assert not fail_success_persist[0]
+
+            # Exercise the real supervised server and its actual SessionDaemon
+            # owner. The small facade only gives serve a bounded test shutdown;
+            # capture dispatch, controller, driver, Guardian, producer and
+            # decoder remain the same constructed production objects.
+            supervised_socket = socket_path.with_name("supervised-session.sock")
+            supervised_started = threading.Event()
+            supervised_shutdown = threading.Event()
+            supervised_failure = RuntimeError("bounded supervised fixture shutdown")
+            supervised_errors: list[BaseException] = []
+
+            class SupervisedOwner:
+                def __getattr__(self, name: str):
+                    return getattr(daemon, name)
+
+                def run_forever(self) -> None:
+                    daemon.run_once()
+                    supervised_started.set()
+                    assert supervised_shutdown.wait(3.0)
+                    raise supervised_failure
+
+                def request_shutdown(self) -> None:
+                    supervised_shutdown.set()
+
+            supervised_owner = SupervisedOwner()
+
+            def run_supervised_server() -> None:
+                try:
+                    serve(
+                        supervised_socket,
+                        daemon.controller,
+                        supervised_owner,  # type: ignore[arg-type]
+                        supervise_owner=True,
+                    )
+                except BaseException as exc:
+                    supervised_errors.append(exc)
+
+            supervised_server = threading.Thread(target=run_supervised_server, daemon=True)
+            supervised_server.start()
+            assert supervised_started.wait(2.0)
+            supervised_deadline = time.monotonic() + 2.0
+            while not supervised_socket.exists() and time.monotonic() < supervised_deadline:
+                time.sleep(0.005)
+            assert supervised_socket.exists()
+            served_started = time.monotonic()
+            served_response = _socket_request(
+                supervised_socket,
+                {
+                    "command": "paused_region_sample",
+                    "generation": daemon.controller.status().generation,
+                    "parent_started": served_started,
+                    "deadline": served_started + 0.95,
+                    "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                    "config_semantic_sha256": session_config_semantic_sha256(config),
+                },
+                timeout=1.1,
+            )
+            assert served_response["ok"] is True
+            assert served_response["sample"]["cleanup"]["empty"] is True
+            served_area_count = area_count()
+            serve_fence_entered = threading.Event()
+            release_serve_fence = threading.Event()
+
+            def hold_serve_fence() -> None:
+                with daemon._motion_intent_lock:
+                    serve_fence_entered.set()
+                    assert release_serve_fence.wait(1.0)
+
+            serve_fence_worker = threading.Thread(target=hold_serve_fence, daemon=True)
+            serve_fence_worker.start()
+            assert serve_fence_entered.wait(0.5)
+            busy_started = time.monotonic()
+            busy_response = _socket_request(
+                supervised_socket,
+                {
+                    "command": "paused_region_sample",
+                    "generation": daemon.controller.status().generation,
+                    "parent_started": busy_started,
+                    "deadline": busy_started + 0.75,
+                    "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                    "config_semantic_sha256": session_config_semantic_sha256(config),
+                },
+                timeout=1.0,
+            )
+            assert busy_response["ok"] is False
+            assert "another motion or capture intent" in busy_response["error"]
+            assert area_count() == served_area_count
+            release_serve_fence.set()
+            serve_fence_worker.join(timeout=1.0)
+            assert not serve_fence_worker.is_alive()
+            supervised_shutdown.set()
+            supervised_server.join(timeout=3.0)
+            assert not supervised_server.is_alive()
+            assert supervised_errors and supervised_errors[0].__cause__ is supervised_failure
+            assert not supervised_socket.exists()
+
+            # Linearization case 1: lifecycle stop wins while the owner is
+            # resolving identity, before Guardian admission is entered.
+            identity_entered = threading.Event()
+            release_identity = threading.Event()
+            original_resolve = backend.resolve_identity
+
+            def blocked_identity(**kwargs):  # type: ignore[no-untyped-def]
+                pre_race_events.append(("identity_resolve_enter", time.monotonic()))
+                identity_entered.set()
+                if not release_identity.wait(2.0):
+                    raise TimeoutError("identity fixture gate was not released")
+                pre_race_events.append(("identity_resolve_return", time.monotonic()))
+                return original_resolve(**kwargs)
+
+            backend.resolve_identity = blocked_identity  # type: ignore[method-assign]
+            pre_race_events: list[tuple[str, float]] = []
+            admission_count_before_pre_stop = len(admission_events)
+            shell_count_before_pre_stop = len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+            pre_generation = daemon.controller.status().generation
+            pre_started = time.monotonic()
+            pre_request = {
+                "command": "paused_region_sample",
+                "generation": pre_generation,
+                "parent_started": pre_started,
+                "deadline": pre_started + 1.0,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            pre_result: list[dict[str, object]] = []
+            prior_owner_pngs = sorted(Path(config.capture_dir).glob("paused-region-*/capture.png"))
+            pre_worker = threading.Thread(
+                target=lambda: pre_result.append(_socket_request(socket_path, pre_request, timeout=1.0)),
+                daemon=True,
+            )
+            pre_worker.start()
+            assert identity_entered.wait(1.0)
+            stop_response = _socket_request(
+                socket_path,
+                {"command": "stop", "generation": pre_generation},
+                timeout=0.75,
+            )
+            assert stop_response["ok"] is True
+            pre_race_events.append(("stop_accepted", time.monotonic()))
+            pre_race_events.append(("identity_barrier_released", time.monotonic()))
+            release_identity.set()
+            pre_worker.join(timeout=1.0)
+            assert not pre_worker.is_alive() and pre_result and pre_result[0]["ok"] is False
+            pre_race_events.append(("request_refused", time.monotonic()))
+            assert [event[0] for event in pre_race_events] == [
+                "identity_resolve_enter",
+                "stop_accepted",
+                "identity_barrier_released",
+                "identity_resolve_return",
+                "identity_resolve_enter",
+                "identity_resolve_return",
+                "request_refused",
+            ]
+            assert len(admission_events) == admission_count_before_pre_stop
+            assert (
+                len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                == shell_count_before_pre_stop
+            )
+            assert stop_revoke_events
+            pre_failure = pre_result[0].get("failure")
+            assert isinstance(pre_failure, dict) and pre_failure["published_png"] is None
+            assert Path(pre_failure["receipt_path"]).is_file()
+            assert sample_count[0] == 8 + 2 + 6 + 1 + 1 + 2 + 1 + 1 + 1 + 2 + 1
+            assert area_count() == shell_count_before_pre_stop
+            assert sorted(Path(config.capture_dir).glob("paused-region-*/capture.png")) == prior_owner_pngs
+            assert driver.guardian.lease.held and not driver.guardian.armed
+            assert driver.guardian.admission_gate_ready() is None
+            assert not driver.guardian.observer_process_groups
+
+            # STOPPED capture ownership is terminal. Resolve the persisted stop
+            # through the actual start->pause transition on one fresh owner,
+            # then reopen its legitimate PAUSED journal with a second owner.
+            # The transition owner is itself capture-revoked by pause and is
+            # never reused for a sample.
+            daemon._cleanup_native_owned_captures()
+            driver.close()
+            daemon = SessionDaemon(config)
+            driver = daemon.driver
+            backend = driver.backend
+            assert isinstance(backend, X11Backend)
+            assert daemon.config.profile is not driver.profile
+            assert driver.lease_path.is_relative_to(compositor["root"])
+            recovered_stop = daemon.controller.status()
+            assert recovered_stop.stop_requested
+            assert recovered_stop.action_intent == "stop"
+            started_owner = daemon.controller.start()
+            assert started_owner.state.name == "NATIVE_CALIBRATION"
+            assert not started_owner.stop_requested
+            assert not started_owner.action_intent
+            guardian_generation_before_pause = driver.guardian.generation
+            transition_paused = daemon.controller.pause("persist PAUSED before fresh owner")
+            assert transition_paused.state.name == "PAUSED"
+            assert not transition_paused.stop_requested
+            assert not transition_paused.closeout_requested
+            assert not transition_paused.action_intent
+            assert driver.guardian.generation > guardian_generation_before_pause
+            assert transition_paused.lease_generation == driver.guardian.generation
+            assert not driver.guardian.armed and not driver.guardian.held
+            daemon._cleanup_native_owned_captures()
+            driver.close()
+
+            daemon = SessionDaemon(config)
+            driver = daemon.driver
+            backend = driver.backend
+            assert isinstance(backend, X11Backend)
+            assert daemon.config.profile is not driver.profile
+            assert driver.lease_path.is_relative_to(compositor["root"])
+            final_owner_status = daemon.controller.status()
+            assert final_owner_status.state.name == "PAUSED"
+            assert not final_owner_status.stop_requested
+            assert not final_owner_status.closeout_requested
+            assert not final_owner_status.action_intent
+            assert not driver.guardian.armed and not driver.guardian.held
+            assert driver.guardian.lease.held
+            assert not backend._cancel_active.is_set()
+            assert not driver.guardian.active_process_groups
+            assert not driver.guardian.observer_process_groups
+            original_observer_admission = driver.guardian.observer_dispatch_admission
+            driver.guardian.observer_dispatch_admission = record_observer_admission  # type: ignore[method-assign]
+            original_revoke = driver.guardian.revoke
+            driver.guardian.revoke = record_revoke  # type: ignore[method-assign]
+            admission_events.clear()
+            stop_revoke_events.clear()
+            ipc = SessionIPC(daemon.controller, daemon)
+
+            # An external identity lookup can fail after the owner creates its
+            # durable request directory but before the producer is entered.
+            # Exercise that failure through the real owner socket and runner,
+            # retaining the original phase/error and truthful not-started
+            # producer evidence.
+            original_final_resolve = backend.resolve_identity
+            identity_failure_message = "external identity resolution failed before producer admission"
+
+            def fail_identity_before_capture(**kwargs):  # type: ignore[no-untyped-def]
+                del kwargs
+                raise DriverError(identity_failure_message)
+
+            backend.resolve_identity = fail_identity_before_capture  # type: ignore[method-assign]
+            identity_failure_dir = session_dir / "evidence-identity-before-capture"
+            identity_area_before = area_count()
+            identity_admissions_before = len(admission_events)
+            identity_requests_before = request_count[0]
+            identity_samples_before = sample_count[0]
+            identity_active_processes_before = set(backend._active_processes)
+            identity_active_groups_before = backend.active_process_groups
+            identity_guardian_groups_before = driver.guardian.observer_process_groups
+            try:
+                with pytest.raises(RuntimeError, match="paused diagnostic failed; evidence="):
+                    harness.run_paused_diagnostic(config_path, identity_failure_dir)
+            finally:
+                backend.resolve_identity = original_final_resolve  # type: ignore[method-assign]
+
+            identity_runner_receipt = json.loads(
+                (identity_failure_dir / "receipt.json").read_text(encoding="utf-8")
+            )
+            assert identity_runner_receipt["state"] == "failed"
+            assert identity_runner_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
+            assert identity_runner_receipt["failure"]["error"] == (
+                "RuntimeError: paused diagnostic owner refused sample 0: "
+                f"DriverError: {identity_failure_message}"
+            )
+            assert identity_runner_receipt["cleanup"]["published_client_pngs"] == []
+            identity_owner_failure = identity_runner_receipt["owner_failure"]
+            assert isinstance(identity_owner_failure, dict)
+            assert identity_owner_failure["ok"] is False
+            assert identity_owner_failure["error"] == f"DriverError: {identity_failure_message}"
+            identity_failure = identity_owner_failure["failure"]
+            assert isinstance(identity_failure, dict)
+            assert identity_failure["phase"] == "identity_before_capture"
+            assert identity_failure["error"] == f"DriverError: {identity_failure_message}"
+            assert identity_failure["sample"] is None
+            assert identity_failure["published_png"] is None
+            assert identity_failure["producer_attempt"] == {
+                "stage": "not_started",
+                "request_started": None,
+                "lock_acquired": None,
+                "ack_sent": None,
+            }
+            assert identity_failure["cleanup"]["empty"] is True
+            assert identity_failure["lease_held"] is True
+            assert identity_failure["armed"] is False
+            identity_owner_receipt_path = Path(identity_failure["receipt_path"])
+            assert identity_owner_receipt_path.is_file()
+            persisted_identity_failure = json.loads(identity_owner_receipt_path.read_text(encoding="utf-8"))
+            assert persisted_identity_failure["ok"] is False
+            assert persisted_identity_failure["failure"]["phase"] == "identity_before_capture"
+            assert (
+                persisted_identity_failure["failure"]["error"] == f"DriverError: {identity_failure_message}"
+            )
+            assert (
+                persisted_identity_failure["failure"]["producer_attempt"]
+                == identity_failure["producer_attempt"]
+            )
+            assert request_count[0] == identity_requests_before + 2  # status plus owner IPC
+            assert sample_count[0] == identity_samples_before + 1
+            assert area_count() == identity_area_before
+            assert len(admission_events) == identity_admissions_before
+            assert backend._active_processes == identity_active_processes_before
+            assert backend.active_process_groups == identity_active_groups_before
+            assert driver.guardian.observer_process_groups == identity_guardian_groups_before
+            assert driver.guardian.lease.held and not driver.guardian.armed
+
+            compositor["area_started_path"].unlink(missing_ok=True)
+            compositor["area_release_path"].unlink(missing_ok=True)
+            compositor["area_block_path"].touch(mode=0o600)
+            capture_generation = daemon.controller.status().generation
+            capture_started = time.monotonic()
+            capture_request = {
+                "command": "paused_region_sample",
+                "generation": capture_generation,
+                "parent_started": capture_started,
+                "deadline": capture_started + 1.0,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            capture_result: list[dict[str, object]] = []
+            capture_returned_at: list[float] = []
+
+            def perform_blocked_capture() -> None:
+                try:
+                    capture_result.append(_socket_request(socket_path, capture_request, timeout=1.1))
+                finally:
+                    capture_returned_at.append(time.monotonic())
+
+            capture_worker = threading.Thread(
+                target=perform_blocked_capture,
+                daemon=True,
+            )
+            capture_worker.start()
+            blocked_deadline = time.monotonic() + 0.75
+            while not compositor["area_started_path"].is_file() and time.monotonic() < blocked_deadline:
+                time.sleep(0.005)
+            assert compositor["area_started_path"].is_file(), (
+                f"fresh admitted owner did not reach blocked Shell; response={capture_result!r}; "
+                f"active_processes={backend._active_processes!r}; active_groups={backend.active_process_groups!r}; "
+                f"guardian_groups={driver.guardian.observer_process_groups!r}; "
+                f"watchdog_failed={driver.guardian._watchdog_failed!r}; "
+                f"area_count={area_count()}; "
+                f"gjs_stderr={(compositor['root'] / 'gjs.stderr').read_text(encoding='utf-8') if (compositor['root'] / 'gjs.stderr').exists() else None!r}"
+            )
+            area_started_monotonic = (
+                int(compositor["area_started_path"].read_text(encoding="ascii")) / 1_000_000
+            )
+            admitted_gate_events = admission_events[-2:]
+            assert [event[0] for event in admitted_gate_events] == ["admission_enter", "gate_released"]
+            assert admitted_gate_events[-1][1] <= area_started_monotonic
+            assert driver.guardian.observer_process_groups
+            admitted_race_events: list[tuple[str, float]] = [
+                ("gate_released", admitted_gate_events[-1][1]),
+                ("shell_capture_started", area_started_monotonic),
+            ]
+            stop_started = time.monotonic()
+            admitted_stop = _socket_request(
+                socket_path,
+                {"command": "stop", "generation": capture_generation},
+                timeout=0.75,
+            )
+            stop_elapsed = time.monotonic() - stop_started
+            assert admitted_stop["ok"] is True and stop_elapsed < 0.75
+            admitted_race_events.append(("guardian_stop_revoke", stop_revoke_events[-1]))
+            capture_worker.join(timeout=1.0)
+            assert not capture_worker.is_alive() and capture_result
+            assert capture_returned_at
+            admitted_race_events.append(("capture_failed_and_reaped", capture_returned_at[0]))
+            assert [event[0] for event in admitted_race_events] == [
+                "gate_released",
+                "shell_capture_started",
+                "guardian_stop_revoke",
+                "capture_failed_and_reaped",
+            ]
+            assert [event[1] for event in admitted_race_events] == sorted(
+                event[1] for event in admitted_race_events
+            )
+            assert capture_returned_at and stop_revoke_events[-1] >= area_started_monotonic
+            assert capture_returned_at[0] >= stop_revoke_events[-1]
+            assert capture_result[0]["ok"] is False
+            owner_failure = capture_result[0].get("failure")
+            assert isinstance(owner_failure, dict)
+            assert owner_failure["published_png"] is None
+            assert Path(owner_failure["receipt_path"]).is_file()
+            persisted_owner_failure = json.loads(
+                Path(owner_failure["receipt_path"]).read_text(encoding="utf-8")
+            )
+            assert persisted_owner_failure["ok"] is False
+            assert persisted_owner_failure["failure"]["phase"] == "region_capture"
+            assert owner_failure["cleanup"]["empty"] is True
+            assert owner_failure["lease_held"] is True
+            assert owner_failure["armed"] is False
+            assert not driver.guardian.observer_process_groups
+            assert not backend._active_processes and not backend.active_process_groups
+            assert driver.guardian.admission_gate_ready() is None
+            status_after_stop = _socket_request(socket_path, {"command": "status"}, timeout=0.5)
+            assert status_after_stop["ok"] is True
+            assert status_after_stop["status"]["state"] == "STOPPED"
+            assert sorted(Path(config.capture_dir).glob("paused-region-*/capture.png")) == prior_owner_pngs
+
+            # The client must bind every effective SessionConfig field, not
+            # only the crop and producer that happen to be used by capture.
+            # Change capture_dir while keeping the same socket, crop and
+            # producer; the existing daemon owner must reject before capture.
+            daemon.controller.start()
+            daemon.controller.pause("prepare semantic config mismatch check")
+            original_config_text = config_path.read_text(encoding="utf-8")
+            original_capture_setting = f"capture_dir = {json.dumps(str(config.capture_dir))}"
+            altered_capture_setting = f"capture_dir = {json.dumps(str(session_dir / 'alternate-captures'))}"
+            assert original_config_text.count(original_capture_setting) == 1
+            config_path.write_text(
+                original_config_text.replace(original_capture_setting, altered_capture_setting),
+                encoding="utf-8",
+            )
+            try:
+                altered_config = load_config(config_path)
+                assert altered_config.profile.canvas_crop == config.profile.canvas_crop
+                assert (
+                    altered_config.profile.telemetry_region_executable
+                    == config.profile.telemetry_region_executable
+                )
+                assert (
+                    altered_config.profile.telemetry_region_executable_sha256
+                    == config.profile.telemetry_region_executable_sha256
+                )
+                assert session_config_semantic_sha256(altered_config) != session_config_semantic_sha256(
+                    config
+                )
+                before_semantic_area = area_count()
+                before_semantic_admissions = len(admission_events)
+                before_semantic_dirs = sorted(Path(config.capture_dir).glob("paused-region-*"))
+                semantic_mismatch_dir = session_dir / "evidence-semantic-config-mismatch"
+                with pytest.raises(RuntimeError, match="semantic config hash does not match the owner"):
+                    harness.run_paused_diagnostic(config_path, semantic_mismatch_dir)
+                mismatch_receipt = json.loads(
+                    (semantic_mismatch_dir / "receipt.json").read_text(encoding="utf-8")
+                )
+                assert mismatch_receipt["state"] == "failed"
+                assert mismatch_receipt["failure"]["phase"] == "sample_0_owner_capture_ipc"
+                assert mismatch_receipt["samples"] == []
+                assert len(mismatch_receipt["config_file_sha256"]) == 64
+                assert len(mismatch_receipt["config_semantic_sha256"]) == 64
+                assert area_count() == before_semantic_area
+                assert len(admission_events) == before_semantic_admissions
+                assert sorted(Path(config.capture_dir).glob("paused-region-*")) == before_semantic_dirs
+            finally:
+                config_path.write_text(original_config_text, encoding="utf-8")
+        finally:
+            late_response_release.set()
+            stop_status.set()
+            status_listener.close()
+            status_thread.join(timeout=2.0)
+            for worker in ipc_workers:
+                worker.join(timeout=2.0)
+            assert not status_thread.is_alive()
+            assert not [worker.name for worker in ipc_workers if worker.is_alive()]
+            assert not ipc_handler_errors, ipc_handler_errors
+            assert all(isinstance(error, str) for error in ipc_late_transport_errors)
+            driver.close()
 
 
 def test_real_agent_pixel_decoder_motion_frame_binds_schema3_native_capability() -> None:

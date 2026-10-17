@@ -9,6 +9,7 @@ import math
 import os
 import socket
 import threading
+import time
 from contextlib import contextmanager
 from dataclasses import replace
 from pathlib import Path
@@ -27,6 +28,9 @@ from .motion import (
     MOTION_KEY_OPERATION_SECONDS,
     MOTION_TRANSPORT_MARGIN_SECONDS,
 )
+
+_IPC_REQUEST_MAX_BYTES = 4096
+_IPC_RESPONSE_MAX_BYTES = 524288
 
 
 class SessionIPC:
@@ -50,6 +54,29 @@ class SessionIPC:
         command = request.get("command")
         if not isinstance(command, str):
             return {"ok": False, "error": "IPC command must be a string"}
+        if command == "paused_region_sample":
+            if self.owner is None:
+                return {"ok": False, "error": "paused region sample requires the daemon"}
+            required = {
+                "command",
+                "generation",
+                "parent_started",
+                "deadline",
+                "config_file_sha256",
+                "config_semantic_sha256",
+            }
+            if set(request) != required:
+                return {"ok": False, "error": "paused region request fields are malformed"}
+            try:
+                return self.owner.capture_paused_region_sample(
+                    expected_generation=request["generation"],
+                    parent_started=request["parent_started"],
+                    deadline=request["deadline"],
+                    config_file_sha256=request["config_file_sha256"],
+                    config_semantic_sha256=request["config_semantic_sha256"],
+                )
+            except (RuntimeError, ValueError, KeyError, TypeError) as exc:
+                return {"ok": False, "error": str(exc)}
         generation = request.get("generation")
         mutating = {
             "start",
@@ -411,18 +438,33 @@ def serve(
             def handle(connection: socket.socket) -> None:
                 try:
                     with connection:
-                        data = connection.makefile("r", encoding="utf-8")
-                        output = connection.makefile("w", encoding="utf-8")
-                        for line in data:
+                        reader = _BoundedIPCReader(connection)
+                        while True:
                             try:
-                                request = json.loads(line)
+                                raw = reader.read_record(_IPC_REQUEST_MAX_BYTES)
+                                if raw is None:
+                                    break
+                                request = _parse_bounded_json(raw)
                                 if not isinstance(request, dict):
                                     raise TypeError("IPC request must be a JSON object")
                                 response = ipc.dispatch(request)
-                            except (json.JSONDecodeError, TypeError, AttributeError, OSError) as exc:
-                                response = {"ok": False, "error": str(exc)}
-                            output.write(json.dumps(response, sort_keys=True) + "\n")
-                            output.flush()
+                            except (
+                                json.JSONDecodeError,
+                                TypeError,
+                                AttributeError,
+                                OSError,
+                                ValueError,
+                            ) as exc:
+                                response = {"ok": False, "error": str(exc)[:256]}
+                            try:
+                                encoded = _encode_bounded_record(response, _IPC_RESPONSE_MAX_BYTES)
+                            except ValueError:
+                                encoded = b'{"error":"IPC response exceeds its byte limit","ok":false}\n'
+                            connection.sendall(encoded)
+                            if reader.failed:
+                                break
+                except (OSError, TimeoutError):
+                    pass
                 finally:
                     with handler_lock:
                         handler_connections.discard(connection)
@@ -505,13 +547,151 @@ def _open_process_lease(socket_path: str | os.PathLike[str]) -> tuple[int, Path]
     return lease_fd, lease_path
 
 
-def _socket_request(path: Path, request: dict[str, Any], *, timeout: float = 5.0) -> dict[str, Any]:
+def _socket_request(
+    path: Path,
+    request: dict[str, Any],
+    *,
+    timeout: float = 5.0,
+    response_deadline: float | None = None,
+    failure_evidence_grace: float = 0.0,
+) -> dict[str, Any]:
+    started = time.monotonic()
+    if (
+        isinstance(timeout, bool)
+        or not isinstance(timeout, (int, float))
+        or not math.isfinite(float(timeout))
+    ):
+        raise ValueError("IPC timeout must be a finite number")
+    if timeout <= 0:
+        raise ValueError("IPC timeout must be positive")
+    if (
+        isinstance(failure_evidence_grace, bool)
+        or not isinstance(failure_evidence_grace, (int, float))
+        or not math.isfinite(float(failure_evidence_grace))
+    ):
+        raise ValueError("IPC evidence grace must be a finite number")
+    if failure_evidence_grace < 0 or failure_evidence_grace > 0.25:
+        raise ValueError("IPC failure evidence grace must be between zero and 250ms")
+    if failure_evidence_grace and request.get("command") != "paused_region_sample":
+        raise ValueError("IPC failure evidence grace is limited to paused region capture")
+    request_deadline = started + float(timeout) if response_deadline is None else response_deadline
+    if (
+        isinstance(request_deadline, bool)
+        or not isinstance(request_deadline, (int, float))
+        or not math.isfinite(float(request_deadline))
+    ):
+        raise ValueError("IPC response deadline must be a finite monotonic timestamp")
+    request_deadline = float(request_deadline)
+    if request_deadline <= started:
+        raise TimeoutError("IPC absolute response deadline has already expired")
+    if response_deadline is not None and failure_evidence_grace:
+        request_sample_deadline = request.get("deadline")
+        if (
+            isinstance(request_sample_deadline, bool)
+            or not isinstance(request_sample_deadline, (int, float))
+            or float(request_sample_deadline) != request_deadline
+        ):
+            raise ValueError("IPC evidence grace must match the paused sample deadline")
+    response_read_deadline = request_deadline + float(failure_evidence_grace)
+
+    def set_remaining_timeout(connection: socket.socket, deadline: float) -> None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("IPC absolute response deadline expired")
+        connection.settimeout(remaining)
+
+    encoded_request = _encode_bounded_record(request, _IPC_REQUEST_MAX_BYTES)
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
-        connection.settimeout(timeout)
+        set_remaining_timeout(connection, request_deadline)
         connection.connect(str(path))
-        connection.sendall((json.dumps(request) + "\n").encode("utf-8"))
-        line = connection.makefile("r", encoding="utf-8").readline()
-    return json.loads(line)
+        set_remaining_timeout(connection, request_deadline)
+        connection.sendall(encoded_request)
+        connection.shutdown(socket.SHUT_WR)
+        reader = _BoundedIPCReader(connection)
+        raw = reader.read_record(_IPC_RESPONSE_MAX_BYTES, deadline_monotonic=response_read_deadline)
+        if raw is None:
+            raise RuntimeError("IPC response is truncated")
+        if reader.buffer:
+            raise RuntimeError("IPC response has trailing data after its record")
+        while True:
+            set_remaining_timeout(connection, response_read_deadline)
+            try:
+                trailing = connection.recv(1)
+            except TimeoutError as exc:
+                raise TimeoutError(
+                    "IPC absolute response deadline expired while awaiting record EOF"
+                ) from exc
+            if not trailing:
+                break
+            raise RuntimeError("IPC response has trailing data after its record")
+    response = _parse_bounded_json(raw)
+    if not isinstance(response, dict):
+        raise RuntimeError("IPC response must be a JSON object")
+    return response
+
+
+class _BoundedIPCReader:
+    """Read complete UTF-8 newline records without unbounded buffering."""
+
+    def __init__(self, connection: socket.socket):
+        self.connection = connection
+        self.buffer = bytearray()
+        self.failed = False
+
+    def read_record(self, limit: int, *, deadline_monotonic: float | None = None) -> bytes | None:
+        while True:
+            newline = self.buffer.find(b"\n")
+            if newline >= 0:
+                if newline + 1 > limit:
+                    self.failed = True
+                    raise ValueError("IPC record exceeds its byte limit")
+                record = bytes(self.buffer[:newline])
+                del self.buffer[: newline + 1]
+                return record
+            if len(self.buffer) >= limit:
+                self.failed = True
+                raise ValueError("IPC record is unterminated or exceeds its byte limit")
+            if deadline_monotonic is not None:
+                remaining = deadline_monotonic - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("IPC absolute response deadline expired while reading a record")
+                self.connection.settimeout(remaining)
+            try:
+                chunk = self.connection.recv(min(8192, limit - len(self.buffer) + 1))
+            except TimeoutError as exc:
+                if deadline_monotonic is None:
+                    raise
+                raise TimeoutError("IPC absolute response deadline expired while reading a record") from exc
+            if not chunk:
+                if not self.buffer:
+                    return None
+                self.failed = True
+                raise ValueError("IPC record is truncated before newline")
+            self.buffer.extend(chunk)
+
+
+def _parse_bounded_json(record: bytes) -> Any:
+    try:
+        source = record.decode("utf-8", errors="strict")
+        return json.loads(
+            source,
+            object_pairs_hook=_json_object_without_duplicates,
+            parse_constant=_reject_json_constant,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"IPC record is not strict JSON: {exc}") from exc
+
+
+def _encode_bounded_record(value: Any, limit: int) -> bytes:
+    try:
+        encoded = (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode(
+            "utf-8"
+        )
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"IPC value is not bounded JSON: {exc}") from exc
+    if len(encoded) > limit:
+        raise ValueError(f"IPC record exceeds its {limit}-byte limit")
+    return encoded
 
 
 def _json_object_without_duplicates(pairs: list[tuple[str, Any]]) -> dict[str, Any]:

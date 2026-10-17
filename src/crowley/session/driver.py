@@ -79,11 +79,16 @@ class TelemetryRegionReceipt:
     owner_pgid: int
     owner_exec_fd: int
     owner_branch: str
+    request_started: float
+    lock_acquired: float
+    ack_sent: float
     capture_started: float
+    capture_returned: float
     output_path_digest: str
     output_sha256: str
     output_bytes: int
     capture_epoch: int
+    attempt_retired: bool
 
 
 def _open_sealed_executable(path: Path, expected_sha256: str) -> tuple[int, str]:
@@ -402,6 +407,7 @@ def _json_record(
     deadline: float,
     *,
     check: Callable[[], None] | None = None,
+    process: subprocess.Popen[str] | None = None,
 ) -> dict[str, Any]:
     """Read one strict newline-delimited child protocol record."""
 
@@ -414,6 +420,8 @@ def _json_record(
             raise DriverError("telemetry owner protocol deadline expired")
         readable, _writable, _exceptional = select.select([sock], [], [], min(0.1, remaining))
         if not readable:
+            if process is not None and process.poll() is not None:
+                raise _producer_failure(process, "telemetry producer exited before protocol completion")
             continue
         # Keep record boundaries lossless when a fast producer writes the next
         # record before the parent has parsed this one.
@@ -421,6 +429,8 @@ def _json_record(
             check()
         piece = sock.recv(1)
         if not piece:
+            if process is not None:
+                raise _producer_failure(process, "telemetry producer protocol closed")
             raise DriverError("telemetry owner protocol closed before completion")
         chunks.extend(piece)
         if len(chunks) > 16384:
@@ -437,12 +447,29 @@ def _json_record(
     return record
 
 
+def _producer_failure(process: subprocess.Popen[str], context: str) -> DriverError:
+    """Preserve a terminal producer exit and its actual stderr."""
+
+    return_code = process.poll()
+    detail = ""
+    try:
+        _stdout, stderr = process.communicate(timeout=0)
+        if stderr:
+            detail = stderr.strip()
+    except (OSError, ValueError, subprocess.SubprocessError):
+        pass
+    suffix = f"; stderr={detail!r}" if detail else ""
+    return DriverError(f"{context}: exit={return_code}{suffix}")
+
+
 def _wait_for_complete_png(
     path: Path,
     minimum_size: tuple[int, int],
     deadline_monotonic: float,
     *,
     check: Callable[[], None] | None = None,
+    process: subprocess.Popen[str] | None = None,
+    protocol_socket: socket.socket | None = None,
 ) -> None:
     last_error = "output is not present yet"
     while True:
@@ -457,6 +484,38 @@ def _wait_for_complete_png(
             raise
         except _IncompleteCaptureOutput as exc:
             last_error = str(exc)
+        if process is not None:
+            return_code = process.poll()
+            if return_code is not None:
+                if return_code != 0:
+                    raise _producer_failure(
+                        process, f"telemetry producer exited before PNG completion: {last_error}"
+                    )
+                if check is not None:
+                    check()
+                try:
+                    _validate_complete_png(path, minimum_size)
+                except _InvalidCaptureOutput:
+                    raise
+                except _IncompleteCaptureOutput as exc:
+                    raise _producer_failure(
+                        process, f"telemetry producer exited before PNG completion: {exc}"
+                    ) from exc
+                if check is not None:
+                    check()
+                return
+        if protocol_socket is not None:
+            readable, _writable, _exceptional = select.select([protocol_socket], [], [], 0)
+            if readable:
+                try:
+                    if not protocol_socket.recv(1, socket.MSG_PEEK):
+                        if process is not None:
+                            raise _producer_failure(
+                                process, "telemetry producer closed before PNG completion"
+                            )
+                        raise DriverError("telemetry producer protocol closed before PNG completion")
+                except BlockingIOError:
+                    pass
         remaining = deadline_monotonic - time.monotonic()
         if remaining <= 0:
             raise DriverError(f"GNOME screenshot did not become a complete PNG before deadline: {last_error}")
@@ -1076,6 +1135,7 @@ class X11Backend:
         # a complete, successful producer action has finished.
         self._last_synthetic_motion_query: tuple[Any, ...] | None = None
         self.last_region_receipt: TelemetryRegionReceipt | None = None
+        self.last_region_attempt: dict[str, float | str | None] = {}
 
     def set_admission(self, admission: Callable[[int, Callable[[], Any]], Any] | None) -> None:
         """Install the guardian's shared generation admission fence."""
@@ -1772,7 +1832,12 @@ class X11Backend:
                 pass
 
     def _reap_process_later(
-        self, process: subprocess.Popen[str], authority: Any, *, clear_holds: bool = False
+        self,
+        process: subprocess.Popen[str],
+        authority: Any,
+        *,
+        clear_holds: bool = False,
+        on_reaped: Callable[[int], None] | None = None,
     ) -> None:
         def reap() -> None:
             try:
@@ -1782,12 +1847,19 @@ class X11Backend:
                     process.wait()
                 except (OSError, subprocess.SubprocessError):
                     return
+            if process.poll() is None:
+                return
             if clear_holds and self._publish_holds is not None:
                 try:
                     self._publish_holds(authority, set(), set())
                 except Exception:
                     pass
             self._forget_process(process)
+            if on_reaped is not None:
+                try:
+                    on_reaped(process.pid)
+                except Exception:
+                    pass
 
         threading.Thread(target=reap, name="crowley-process-reaper", daemon=True).start()
 
@@ -2674,6 +2746,9 @@ class X11Backend:
         identity: WindowIdentity,
         rectangle: tuple[int, int, int, int],
         deadline_monotonic: float | None = None,
+        observer_admission: Callable[[Callable[[], Any]], Any] | None = None,
+        observer_reaped: Callable[[int], None] | None = None,
+        _allow_unobserved_fixture: bool = False,
     ) -> WindowIdentity:
         """Capture one exact profile-derived region through the private producer."""
 
@@ -2706,6 +2781,10 @@ class X11Backend:
             or y + height > top + client_height
         ):
             raise DriverError("telemetry region rectangle is outside the verified client geometry")
+        if (observer_admission is None) != (observer_reaped is None):
+            raise DriverError("telemetry region observer admission and reap callbacks must be paired")
+        if observer_admission is None and _allow_unobserved_fixture is not True:
+            raise DriverError("telemetry region capture requires Guardian observer admission")
         deadline = _capture_deadline(deadline_monotonic)
         capture_epoch = self._capture_epoch_snapshot()
         self._check_capture_epoch(capture_epoch)
@@ -2718,14 +2797,34 @@ class X11Backend:
         parent_sock: socket.socket | None = None
         child_sock: socket.socket | None = None
         process: subprocess.Popen[str] | None = None
+        owned_process: subprocess.Popen[str] | None = None
+        observer_registered = False
+        gate_capability: AdmissionGate | None = None
         gate_read = -1
         gate_write = -1
         owner_record: dict[str, Any] | None = None
         nonce = uuid.uuid4().hex
         output_path_digest = ""
         request_started = time.monotonic()
+        lock_acquired: float | None = None
+        ack_sent: float | None = None
+        protocol_stage = "capture_lock_wait"
+
+        def update_protocol_stage(stage_name: str) -> None:
+            nonlocal protocol_stage
+            protocol_stage = stage_name
+            self.last_region_attempt = {
+                "stage": protocol_stage,
+                "request_started": request_started,
+                "lock_acquired": lock_acquired,
+                "ack_sent": ack_sent,
+            }
+
+        update_protocol_stage(protocol_stage)
         try:
             with _capture_lock(deadline, check=lambda: self._check_capture_epoch(capture_epoch)):
+                lock_acquired = time.monotonic()
+                update_protocol_stage("attempt_setup")
                 self._check_capture_epoch(capture_epoch)
                 attempt_dir = Path(tempfile.mkdtemp(prefix=f".{path.name}.telemetry-", dir=path.parent))
                 os.chmod(attempt_dir, 0o700)
@@ -2762,47 +2861,77 @@ class X11Backend:
                 if not self.xauthority:
                     raise DriverError("Xauthority path must be explicitly configured or inherited")
                 environment["XAUTHORITY"] = self.xauthority
+
                 # Hold the same revocation fence across the final epoch check,
                 # spawn, process registration, and positive admission gate.
                 # A release may therefore either precede this entire sequence
                 # or observe the registered child and revoke it before any
                 # protocol ACK can be sent.
-                with self._process_lock:
-                    self._check_capture_epoch_locked(capture_epoch)
-                    if time.monotonic() >= deadline:
-                        raise DriverError("telemetry region capture deadline expired before admission")
-                    process = subprocess.Popen(
-                        [
-                            sys.executable,
-                            "-I",
-                            "-S",
-                            "-c",
-                            _EXEC_ADMISSION_WRAPPER,
-                            str(gate_read),
-                            target,
-                            *args[1:],
-                        ],
-                        stdout=subprocess.PIPE,
-                        stderr=subprocess.PIPE,
-                        text=True,
-                        env=environment,
-                        start_new_session=True,
-                        pass_fds=(gate_read, child_fd, image_fd),
-                    )
-                    self._active_processes.add(process)
-                    self._active_process_groups.add(process.pid)
-                    self._check_capture_epoch_locked(capture_epoch)
-                    admission_gate = AdmissionGate(gate_write)
-                    admission_gate.release()
-                    gate_write = -1
-                    os.close(gate_read)
-                    gate_read = -1
+                class GatedRegionProcess:
+                    def __init__(self, child: subprocess.Popen[str], gate: AdmissionGate):
+                        self.process = child
+                        self._gate = gate
+
+                    def release_admission_gate(self) -> None:
+                        self._gate.release()
+
+                def spawn_gated() -> GatedRegionProcess:
+                    nonlocal gate_capability, gate_read, gate_write, owned_process, process
+                    admission_health = self._admission_health
+                    if admission_health is not None:
+                        admission_health()
+                    with self._process_lock:
+                        self._check_capture_epoch_locked(capture_epoch)
+                        if time.monotonic() >= deadline:
+                            raise DriverError("telemetry region capture deadline expired before admission")
+                        child = subprocess.Popen(
+                            [
+                                sys.executable,
+                                "-I",
+                                "-S",
+                                "-c",
+                                _EXEC_ADMISSION_WRAPPER,
+                                str(gate_read),
+                                target,
+                                *args[1:],
+                            ],
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True,
+                            env=environment,
+                            start_new_session=True,
+                            pass_fds=(gate_read, child_fd, image_fd),
+                        )
+                        process = child
+                        owned_process = child
+                        self._active_processes.add(child)
+                        self._active_process_groups.add(child.pid)
+                        self._check_capture_epoch_locked(capture_epoch)
+                        gate_capability = AdmissionGate(gate_write)
+                        admitted = GatedRegionProcess(child, gate_capability)
+                        gate_write = -1
+                        os.close(gate_read)
+                        gate_read = -1
+                        return admitted
+
+                update_protocol_stage("observer_admission")
+                if observer_admission is None:
+                    admitted_process = spawn_gated()
+                    admitted_process.release_admission_gate()
+                else:
+                    admitted_process = observer_admission(spawn_gated)
+                    observer_registered = True
+                process = getattr(admitted_process, "process", None)
+                if not isinstance(process, subprocess.Popen):
+                    raise DriverError("observer admission did not return its gated telemetry process")
+                update_protocol_stage("owner_ready")
                 child_sock.close()
                 child_sock = None
                 owner_record = _json_record(
                     parent_sock,
                     deadline,
                     check=lambda: self._check_capture_epoch(capture_epoch),
+                    process=process,
                 )
                 required_owner = {
                     "type",
@@ -2855,11 +2984,14 @@ class X11Backend:
                     if process.poll() is not None or time.monotonic() >= deadline:
                         raise DriverError("telemetry capture was revoked before owner ACK")
                     _verify_admitted_process(process, image_fd, verified_digest, os.getpid())
+                    ack_sent = time.monotonic()
+                    update_protocol_stage("capture_started")
                     parent_sock.sendall((ack + "\n").encode())
                 started = _json_record(
                     parent_sock,
                     deadline,
                     check=lambda: self._check_capture_epoch(capture_epoch),
+                    process=process,
                 )
                 if set(started) != {
                     "type",
@@ -2881,20 +3013,24 @@ class X11Backend:
                     or not _protocol_string(started.get("output_path_digest"))
                     or started.get("output_path_digest") != output_path_digest
                     or not _protocol_float(started.get("capture_started"))
-                    or float(started["capture_started"]) < request_started
+                    or float(started["capture_started"]) < ack_sent
                     or float(started["capture_started"]) > time.monotonic()
                 ):
                     raise DriverError("telemetry capture-start proof is malformed")
+                update_protocol_stage("capture_complete")
                 _wait_for_complete_png(
                     stage,
                     (256, 256),
                     deadline,
                     check=lambda: self._check_capture_epoch(capture_epoch),
+                    process=process,
+                    protocol_socket=parent_sock,
                 )
                 completed = _json_record(
                     parent_sock,
                     deadline,
                     check=lambda: self._check_capture_epoch(capture_epoch),
+                    process=process,
                 )
                 if set(completed) != {
                     "type",
@@ -2929,8 +3065,14 @@ class X11Backend:
                     raise DriverError("telemetry output digest proof does not match the complete PNG")
                 _validate_exact_png(stage, (256, 256))
                 self._check_capture_epoch(capture_epoch)
-                if process.wait(timeout=max(0.01, deadline - time.monotonic())) != 0:
-                    raise DriverError("telemetry producer failed after capture completion")
+                try:
+                    return_code = process.wait(timeout=max(0.01, deadline - time.monotonic()))
+                except subprocess.TimeoutExpired as exc:
+                    raise DriverError("telemetry producer did not exit after capture completion") from exc
+                if return_code != 0:
+                    raise _producer_failure(process, "telemetry producer failed after capture completion")
+                capture_returned = time.monotonic()
+                update_protocol_stage("identity_postcheck")
                 after = self.resolve_identity(deadline_monotonic=deadline)
                 self._check_capture_epoch(capture_epoch)
                 if after.fingerprint != before.fingerprint:
@@ -2952,16 +3094,24 @@ class X11Backend:
                         owner_pgid=int(owner_record["pgid"]),
                         owner_exec_fd=int(owner_record["exec_fd"]),
                         owner_branch="ScreenshotArea",
+                        request_started=request_started,
+                        lock_acquired=lock_acquired,
+                        ack_sent=ack_sent,
                         capture_started=float(started["capture_started"]),
+                        capture_returned=capture_returned,
                         output_path_digest=output_path_digest,
                         output_sha256=output_digest,
                         output_bytes=len(output_bytes),
                         capture_epoch=capture_epoch,
+                        attempt_retired=False,
                     )
+                    update_protocol_stage("published")
                     return after
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             raise DriverError(f"telemetry region process failed: {exc}") from exc
         finally:
+            if gate_capability is not None:
+                gate_capability.close()
             if gate_write >= 0:
                 try:
                     os.close(gate_write)
@@ -2978,12 +3128,24 @@ class X11Backend:
                 parent_sock.close()
             if process is not None:
                 if process.poll() is None:
-                    self._terminate_process(process)
-                try:
-                    process.communicate(timeout=0.5)
-                except (OSError, ValueError, subprocess.SubprocessError):
-                    pass
-                self._forget_process(process)
+                    if not self._terminate_process(process):
+                        self._reap_process_later(
+                            process,
+                            capture_epoch,
+                            on_reaped=observer_reaped if observer_registered else None,
+                        )
+                        process = None
+                if process is not None:
+                    try:
+                        process.communicate(timeout=0.5)
+                    except (OSError, ValueError, subprocess.SubprocessError):
+                        pass
+                    self._forget_process(process)
+                    if observer_registered and observer_reaped is not None and process.poll() is not None:
+                        try:
+                            observer_reaped(process.pid)
+                        except Exception:
+                            pass
             if image_fd is not None:
                 try:
                     os.close(image_fd)
@@ -2999,6 +3161,21 @@ class X11Backend:
                     shutil.rmtree(attempt_dir, ignore_errors=True)
                 else:
                     shutil.rmtree(retired_dir, ignore_errors=True)
+                if self.last_region_receipt is not None and self.last_region_receipt.nonce == nonce:
+                    directory_retired = not attempt_dir.exists() and not retired_dir.exists()
+                    if owned_process is None:
+                        process_retired = True
+                    else:
+                        with self._process_lock:
+                            process_retired = (
+                                owned_process.poll() is not None
+                                and owned_process not in self._active_processes
+                                and owned_process.pid not in self._active_process_groups
+                            )
+                    self.last_region_receipt = replace(
+                        self.last_region_receipt,
+                        attempt_retired=directory_retired and process_retired,
+                    )
 
     def synthetic_calibration(
         self, window_id: str, x: int, y: int, *, calibration_ticket: CalibrationTicket | None = None
@@ -4594,9 +4771,6 @@ class DesktopDriver:
         if isinstance(self.backend, X11Backend):
             for anchor in anchors:
                 self.backend.install_measured_anchor(anchor)
-        self.profile.anchor_fingerprints.update(
-            {anchor.action: anchor.identity_fingerprint for anchor in anchors}
-        )
 
     def measure_pointer_anchor(self, action: str, *, generation: int | None = None) -> MeasuredAnchor:
         """Measure one control from a fresh owned-client scene capture."""
@@ -4630,7 +4804,6 @@ class DesktopDriver:
         self._measured_anchors[action] = anchor
         if generation is not None:
             self._measured_anchor_generations[action] = generation
-        self.profile.anchor_fingerprints[action] = anchor.identity_fingerprint
         return anchor
 
     def _refresh_pointer_anchor(
@@ -6324,6 +6497,9 @@ class DesktopDriver:
         *,
         destination: Path | None = None,
         deadline_monotonic: float | None = None,
+        observer_admission: Callable[[Callable[[], Any]], Any] | None = None,
+        observer_reaped: Callable[[int], None] | None = None,
+        _allow_unobserved_fixture: bool = False,
     ) -> Path:
         """Capture the exact native status rectangle without selecting model crops."""
 
@@ -6338,6 +6514,8 @@ class DesktopDriver:
         target = destination or (Path(tempfile.mkdtemp(prefix="crowley-region-")) / "status.png")
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         if not isinstance(self.backend, X11Backend):
+            if _allow_unobserved_fixture is not True:
+                raise DriverError("native region capture requires the configured X11 backend")
             region_capture = getattr(self.backend, "capture_native_region", None)
             if not callable(region_capture):
                 raise DriverError("native region capture requires the configured X11 producer")
@@ -6348,6 +6526,9 @@ class DesktopDriver:
                 identity=identity,
                 rectangle=rectangle,
                 deadline_monotonic=deadline_monotonic,
+                observer_admission=observer_admission,
+                observer_reaped=observer_reaped,
+                _allow_unobserved_fixture=_allow_unobserved_fixture,
             )
         if captured is None or captured.fingerprint != identity.fingerprint:
             raise DriverError("native region capture identity does not match the verified client")

@@ -29,19 +29,17 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at10:15UTC:** seventeen current-session sweeps are persisted and
+**Current status at10:28UTC:** seventeen current-session sweeps are persisted and
 exact-UID ACKed,37581price rows across428target items per sweep. Recent starts
 are exactly900s apart; uploads still inconsistently meet60s. Luna remains the
 sole ordinary GUI operator. The formal autonomous three-sweep qualification,
 fresh-owner native/physical-input qualification and launch strategy engine are
-unfinished. Main's dirty native source is historical R4: do not deploy it.
+unfinished. Eighteenth is collecting normally. Native R6 source is now integrated
+and accepted; the live owner/profile remain unchanged and native opt-in is off.
 The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. Native
-R6 is frozen in its isolated checkout, parent38checks/SolREADY. Actual Opus
-found no production defect but requested a missing regression and fixture
-auto-start correction; the separate test-only checkout closes both, parent checks
-and SolREADY, targeted actual OpusR2 pending.
-Next: finish final native review/verification, integrate accepted source, then
-implement the SolREADY live instrumentation plan and collect its predeclared
+R6 acceptance has parent323broad checks, final compiled checks and Sol/actual
+OpusR3READY. Exact source/limits are in `gnome-telemetry-region-r6-parent-acceptance.json`.
+Next: implement the SolREADY live instrumentation plan and collect its predeclared
 16-run evidence batch. No live computation bottleneck or Rust rewrite is proven.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
@@ -313,6 +311,17 @@ transport candidate nodes passed41.60s. Sol finaltest reviewREADY/no findings;
 actual OpusR2 reviews only this delta, all other11native paths unchanged.
 Both tests now bind the final freeze; dead local-PNG assertions removed. Existing
 game-control skill records D-Bus activation isolation and semantic-negative proof.
+R6R2 actual Opus correctly caught one further assertion gap: nested owner evidence
+is saved before harness validation, so the runner terminal error also must match
+the original refusal. The final two-assertion successorSHAade91281df21869fdf7bdb2b7ccfcde4e92e3333467788811395988427437cb8
+adds that exact error and a strict late-Activate no-name error. SoltestR3 and
+actual CLI claude-opus-5-5R3 are READY/no findings, exit0. Parent323broad host
+checks passed466.96s on the preceding candidate; only two final assertions differ,
+both compiled nodes passed45.20s, then45.13s after exact main integration. The
+accepted performance suite also passed65checks5.51s with R6 integrated. All12
+selected native paths are hash-verified; main's previous frozen R4 was checked
+before replacement. R6 source is accepted, not deployed/opted-in. No private
+profile, service, addon or live input change. See final parent acceptance JSON.
 
 **Recipe foundation accepted:** three-file implementation, packaged normalized
 manifest, nine-profession coverage (eight crafting plus Mining), two blocked

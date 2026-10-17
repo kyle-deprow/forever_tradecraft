@@ -101,6 +101,8 @@ within existing authorization; respect any current movement limits.
   a generic integrity failure cannot hide missing structural validation.
   Keep other invariants valid so the mutation reaches the intended guard;
   assert that guard's error rather than accepting an earlier unrelated refusal.
+  A runner may save owner evidence before validating it. Assert the runner's
+  terminal error as well as the nested owner error, so schema masking cannot pass.
   Preserve complete raw blocks including detail, flags and accelerated/raw
   valuator pairs. An early partial parse cannot prove that a field was absent.
   Reject malformed complete blocks at their native delimiter and retain verbatim

@@ -1,0 +1,82 @@
+Model ID: **claude-opus-5-5**. This is a read-only R6 R2 closure review of `/home/dev/.cache/crowley/worktrees/region-r6-identity-test-20261017`, compared against the R6 root. I made no source edits and ran no tests, builds, Git, network, service, GUI or input actions. I wrote one scratch diff, `/tmp/claude-r6r2-delta.diff`, and a plan-mode copy of this review at `/home/dev/.claude/plans/actual-cli-opus-r6-foamy-clock.md`.
+
+**STATUS: NEEDS WORK.** One test assertion is missing. No production change is needed.
+
+## Identity and scope
+- The final freeze `61166a2a…` is identical in all three roots.
+- Of the 12 mapped paths, 11 are byte-identical. The native test changed `131b491d…` → `a1780bbd…`, and my own diff has the same hunks as the parent r2 delta.
+- The freeze's `build.private_binary_sha256` is `cb938cab…`. The binary at `private_cache/prefix/bin/gnome-screenshot` hashes to `cb938cab…`.
+- **Scope note:** the successor root is not "R6 plus one file". It was checked out from a later base. These differ from R6, and the last four match the primary checkout:
+  - `docs/HANDOFF.md`
+  - `docs/RUNTIME_PERFORMANCE.md`
+  - `tests/test_session_performance.py`
+  - `tools/session_performance.py`
+  - the two `.archive/PLAN-runtime-*` files
+
+  It also has 15 extra archive records. Nothing under `src/` differs, and the native test imports none of these files, so the native result is unaffected. The pending broad batch in this root will also exercise the newer performance-evaluator code, though, so its outcome can't be credited to R6 alone.
+
+## Closure 1: typed `not_started` regression (owner side closed, harness side open)
+**What the test proves:**
+- **Real path:** the call runs `run_paused_diagnostic` → status and owner socket → `SessionIPC.dispatch` → `paused_region_sample` on a fresh default X11 owner.
+  - Only `backend.resolve_identity` is replaced. `driver._identity` calls it with keywords (`driver.py:5220-5226`).
+  - So the `DriverError` reaches `daemon.py:3640` unwrapped, at phase `identity_before_capture`.
+- **Assertions, in both the returned failure and the durable owner receipt:**
+  - the phase and the original error;
+  - the exact all-null `not_started` attempt;
+  - `sample` and `published_png` are null;
+  - `cleanup.empty`;
+  - the lease is held and the Guardian is unarmed.
+- **Counts:** requests +2 and samples +1, with no area call, no admission and unchanged process groups. The resolver is restored in `finally`.
+- **Daemon-side mutations are caught.** All of these fail the exact-dict assertion at test `:2113-2118`:
+  - reverting `daemon.py:3630-3635` to `{}`;
+  - deleting it (a fresh backend defaults to `{}` at `driver.py:1138`);
+  - moving it after the lookup;
+  - renaming the stage.
+
+**Must-fix 1 (test only): nothing guards the harness's acceptance of `not_started`.**
+- **Cause:** the runner stores `receipt["owner_failure"]` at `offline_harness.py:1285`, before `_validate_producer_attempt` runs at `:1324`.
+  - Every new assertion reads `owner_failure` or the owner's own receipt file.
+  - None reads the runner's terminal `receipt["failure"]["error"]` (`:1514`).
+  - `pytest.raises` matches only the generic `paused diagnostic failed; evidence=` prefix.
+- **Failure scenario:** drop `"not_started"` from `stages` (`:1072`), or break the all-null branch (`:1087-1092`).
+  - The runner then fails with `RuntimeError: paused diagnostic owner failure 0 producer stage is unknown` (or the `_finite_time` error), at the same phase `sample_0_owner_capture_ipc`.
+  - `owner_failure` still holds the correct record, so every new assertion passes.
+  - That is the R5 masking (the owner's identity error replaced by a harness schema error). R6 Should-Fix 1 asked to block it on "either side".
+- **Fix:** add this assertion:
+  ```python
+  assert identity_runner_receipt["failure"]["error"] == (
+      "RuntimeError: paused diagnostic owner refused sample 0: "
+      f"DriverError: {identity_failure_message}"
+  )
+  ```
+  The runner can produce that string only after validation passes (`:1324`) and the refusal is raised (`:1363-1364`).
+
+## Closure 2: gdbus auto-start (closed for the five RPCs; the late-call proof can't tell the cases apart)
+- **The five RPCs:** all are typed correctly (`a{sv}` / `sava{sv}` with empty containers) and set NO_AUTO_START.
+- **Existing checks are retained:**
+  - guard counts: 1 command-line, 4 action, 1 activation;
+  - the stderr allowlist;
+  - every RPC exits 0 with empty stderr;
+  - `stock_log == 1`.
+- **GetNameOwner is a real D-Bus exchange.**
+  - The live check gets a typed reply, `s ":…"` (test `:780-801`).
+  - The late failure text `no such name` is dbus-daemon's own string, `Could not get owner of name '%s': no such name`, which is present in `/usr/bin/dbus-daemon`. busctl prints it as `Call failed: %s`.
+  - A busctl usage error can produce neither. The unsupported subcommand is gone.
+- **Should-fix 2 (non-blocking): the late `Activate` check passes either way.** It only asserts a nonzero exit and that the name appears in the output (test `:879-880`).
+  - With NO_AUTO_START, dbus-daemon replies `Name "org.gnome.Screenshot" does not exist`.
+  - Without it, activating `/usr/share/dbus-1/services/org.gnome.Screenshot.service` fails in this tty with `Process org.gnome.Screenshot exited with status 1`, which is also nonzero and also contains the name.
+  - So dropping `--auto-start=no` from the late call would still pass where the test was run.
+  - **Fix:** assert `'Name "org.gnome.Screenshot" does not exist' in late_rpc.stderr` and `not late_rpc.stdout`.
+
+## Closure 3: freeze binding and nits (closed)
+- Both compiled tests read their own root's final freeze and bind `build.private_binary_sha256` (test `:336-343` and `:1073-1080`).
+- The PNG assertions that could never fail are removed. The real proof is still the guard counts, the stderr allowlist and `stock_log`.
+- Deferring the guard-message wording is fine, because the binary is unchanged.
+
+## Not established
+- I did not reproduce the worker run or either parent run. The broad affected batch is still pending.
+- Nothing here qualifies live, load, integration, deployment or native opt-in behaviour, and the earlier negative timing/load evidence stands.
+
+**STATUS: NEEDS WORK.** It needs one test assertion. R3 can be a narrow re-check of that line plus the optional late-RPC tightening.
+
+CLAUDE_EXIT:0

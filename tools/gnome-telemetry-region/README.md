@@ -24,25 +24,51 @@ nonce-bound primary-owner receipt over the inherited capability pipe and waits
 for the parent ACK before calling `ScreenshotArea`. The stock executable is
 selected whenever the profile capability is absent.
 
-The private binary's harmless checks are:
+The private binary reserves a per-user screenshot invocation slot before
+registering with GNOME's single-instance application. It opens the explicit
+`XDG_RUNTIME_DIR` without following symlink components, requires a directory
+owned by the effective user with mode `0700`, and holds a nonblocking `flock`
+on a mode-`0600` regular file until exit. This keeps concurrent ordinary and
+telemetry invocations from reparsing the primary process's shared options.
+While a telemetry capture is active, the telemetry process also rejects
+GApplication activation and every registered action route before option
+mutation, capture, or UI dispatch.
+Cold ordinary screenshot commands still use the stock GNOME path. The harmless
+binary checks require a private runtime directory:
 
 ```text
-gnome-screenshot --version
-gnome-screenshot --help
+runtime_dir=$(mktemp -d)
+chmod 700 "$runtime_dir"
+XDG_RUNTIME_DIR="$runtime_dir" gnome-screenshot --version
+XDG_RUNTIME_DIR="$runtime_dir" gnome-screenshot --help
 python3 tools/gnome-telemetry-region/offline_harness.py --self-test --self-check
 ```
 
-The reproducible R2 container command mounts only
-`/home/dev/.cache/crowley/gnome-telemetry-region-r2` (read/write) and uses the
-pinned
+The reproducible R6 container command mounts only the new
+`/home/dev/.cache/crowley/gnome-telemetry-region-r6` (read/write) cache and
+uses the pinned
 `debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858`
-image, installs the dependencies listed above, and invokes the cache-side
-`build-private.sh`. It does not mount the host repository, home directory,
-display socket, Xauthority, service socket, or credentials. Set
-`GNOME_TELEMETRY_REGION_CONTAINER_DIGEST` to that digest so the generated
-stage manifest records the exact image identity. The prior R1 build mounted
-the repository; that historical fact remains in its receipt and is not the
-R2 reproducibility contract.
+image. The exact package list is `appstream ca-certificates desktop-file-utils
+file gettext gcc libglib2.0-dev libgtk-3-dev libhandy-1-dev libx11-dev
+libxext-dev libxml2-utils meson ninja-build patch pkg-config python3 xz-utils`.
+The command installs these packages inside the temporary container and invokes
+the cache-side `build-private.sh`; the script fails unless
+`GNOME_TELEMETRY_REGION_CONTAINER_DIGEST` equals the pinned digest and records
+the installed package versions. Prepare only the verified archives, Debian
+patch archive, source patch, recipe, manifest, README, and offline harness in
+the new cache before starting the container. It does not mount the host
+repository, home directory, display socket, Xauthority, service socket, or
+credentials. R3/R4/R5 caches and freezes remain preserved; R6 uses a separate
+cache and keeps the same reviewed reproducibility contract.
+
+The exact invocation is:
+
+```sh
+docker run --rm --network bridge \
+  --mount type=bind,src=/home/dev/.cache/crowley/gnome-telemetry-region-r6,dst=/home/dev/.cache/crowley/gnome-telemetry-region-r6 \
+  debian@sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858 \
+  bash -lc 'set -euxo pipefail; apt-get update; apt-get install -y --no-install-recommends appstream ca-certificates desktop-file-utils file gettext gcc libglib2.0-dev libgtk-3-dev libhandy-1-dev libx11-dev libxext-dev libxml2-utils meson ninja-build patch pkg-config python3 xz-utils; mkdir -m 700 -p /home/dev/.cache/crowley/gnome-telemetry-region-r6/build-runtime; export XDG_RUNTIME_DIR=/home/dev/.cache/crowley/gnome-telemetry-region-r6/build-runtime; GNOME_TELEMETRY_REGION_CONTAINER_DIGEST=sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858 GNOME_TELEMETRY_REGION_STAGE=/home/dev/.cache/crowley/gnome-telemetry-region-r6 bash /home/dev/.cache/crowley/gnome-telemetry-region-r6/tools/gnome-telemetry-region/build-private.sh'
+```
 
 No live display, Shell call, input, service activation, profile binding, or
 native-100 run is part of this offline build.

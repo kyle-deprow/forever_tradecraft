@@ -1,0 +1,54 @@
+{
+  "schema": "crowley.region-r6-parent-acceptance",
+  "schema_version": 1,
+  "source_hashes": {
+    "deploy/crowley-session.example.toml": "68b9d0400d1aaa887611f8fdf8ce6a21b56e33c63addb6bd022ade3574cab551",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/daemon.py": "4deab9e1b63aa2488b3f2d0e5b9b17dadd4c23bd8ec59e4cbbcfe704de0e3df0",
+    "src/crowley/session/driver.py": "f33c6b8ffc70263698c690c0572a7f7fa8a5f91aa9b66bfb0b250a0925f593d6",
+    "tests/test_session_capture.py": "3c4e4d267e1af0f3ddad9aa16df498c86d3a94cd3f0a4b2534dc76d2feff15e0",
+    "tests/test_session_cli_motion.py": "082f7f6be6ac5aaf987b2cc07e0175f8d07bc5b971cf96704c1279c9c9214ace",
+    "tests/test_session_native.py": "ade91281df21869fdf7bdb2b7ccfcde4e92e3333467788811395988427437cb8",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "7b5c8eb9aeef0c59f3cad8cb83d7350d10bb5e86389c7234599dee819c190588",
+    "tools/gnome-telemetry-region/README.md": "e45b4d6fae85e9e771a2d4799fe41f998333a74420c1fae3ae66900b2169ad34",
+    "tools/gnome-telemetry-region/build-private.sh": "3098c0580efbd49988c9de440f55422e7c2902177a4d429d8228d9a89fe0c942",
+    "tools/gnome-telemetry-region/manifest.example.json": "e574620e3f818708b3118f279877bd2ecae61ef472961d8a0e89b60ece5ea7b9",
+    "tools/gnome-telemetry-region/offline_harness.py": "5e20d7560e63e9b6b3a731b3ddd8a95b08fba7ecdd3f2e5f9604129e7c7f5d0c"
+  },
+  "native_freeze_sha256": "61166a2a12adf1ad5861a7051f65f926791aeb004246ccdfd52b022877a8ef79",
+  "binary_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+  "manifest_sha256": "21bfe50a645a459c265edd756b65c11acdd96d85c04c8b0da69f905be2d9d866",
+  "reviews": {
+    "sol_source_r6": "READY;658cd7a739fd17e101f906910a5608f6de8015cd88013e9fde694283129d6a5f",
+    "sol_final_test_r3": "READY;1c8890678a02779e4a543aa9363d001b6d96128c53582131663df6560eb089c4",
+    "actual_cli_opus": "claude-opus-5-5;R6R3READY;exit0;65d55494a66bf3dc906d8a7b691cdeca2305f323fe28b53f8fc635fdeb2a42c1"
+  },
+  "parent_checks": {
+    "broad_affected_host": "323 passed in466.96s;exit0",
+    "broad_log_sha256": "28ffe3e56ca32c5ea807fb0c82c1151024a82504db66a860f9f707f0f6358817",
+    "broad_candidate_native_test_sha256": "a1780bbdad1a8c50a352ab36c303d04a52f05226c81bb423c74c6293f01ac354",
+    "final_test_delta": "Only two assertions strengthen original runner error and no-auto-start diagnostic; all other11nativepaths identical. Final focused2passed45.20s; no whole-batch repeat.",
+    "final_test_delta_sha256": "b275e9114263a6bcfd42bf5693739d11dd3384b319d00700ab756644ced93b2b",
+    "main_integrated_compiled_nodes": "2 passed in45.13s",
+    "main_integrated_accepted_performance_suite": "65 passed in5.51s",
+    "ruff": "passed",
+    "format": "7files alreadyformatted",
+    "py_compile": "passed",
+    "source_diff_check": "passed;validunifiedpatchcontextsyntax excluded",
+    "private_harness": "actualR6selftest/selfcheckpassed",
+    "source_integration": "Verified unchanged frozenR4main source and committedexample before exact12filecopy; selectedcandidate/source hashes rechecked after copy."
+  },
+  "behavior": [
+    "Every native region capture remains Guardian-owned with admitted generation/identity/cancellation/reap checks.",
+    "Telemetry process activation and app-action routes cannot start foreign UI/capture.",
+    "Source/config/runtime-anchor state remains separate; diagnostic uses actual owner IPC and truthful cleanup/timing.",
+    "Clean-exit PNG publication race has one final epoch-checked validation without deadline extension.",
+    "Real pre-producer identity refusal survives owner and harness without schema masking; fixture RPCs never auto-start host services."
+  ],
+  "limitations": [
+    "Accepted source only; no private profile edit, daemon/service restart, native opt-in, live capture/input qualification or model-count/performance claim.",
+    "Retained failed builds/serial/concurrent fixtures remain evidence; focused/broad passing does not establish all load behavior.",
+    "Guard diagnostic wording nit deferred; no production impact and no C rebuild for wording alone.",
+    "Runtime instrumentation and matched live CPU/wall evidence remain outstanding; no Rust verdict."
+  ]
+}

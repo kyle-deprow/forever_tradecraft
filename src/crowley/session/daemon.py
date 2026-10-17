@@ -2,14 +2,19 @@
 
 from __future__ import annotations
 
+import base64
+import copy
 import hashlib
 import json
 import math
 import os
 import shutil
+import tempfile
 import threading
 import time
-from dataclasses import replace
+import uuid
+from collections.abc import Callable
+from dataclasses import asdict, is_dataclass, replace
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -97,6 +102,49 @@ from .motion import (
 )
 from .preferences import load_motion_profile
 from .protocol import ProtocolError
+
+
+def _canonical_semantic_value(value: Any) -> Any:
+    """Convert dataclass configuration values to stable JSON primitives."""
+
+    if isinstance(value, Path):
+        return os.fspath(value)
+    if isinstance(value, dict):
+        return {str(key): _canonical_semantic_value(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_canonical_semantic_value(item) for item in value]
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    raise TypeError(f"unsupported session config value: {type(value).__name__}")
+
+
+def _canonical_dataclass_json(value: Any) -> bytes:
+    if not is_dataclass(value) or isinstance(value, type):
+        raise TypeError("session config binding requires a dataclass instance")
+    normalized = _canonical_semantic_value(asdict(value))
+    return json.dumps(normalized, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def session_config_semantic_sha256(config: SessionConfig) -> str:
+    """Hash the loaded semantic config independently of TOML formatting."""
+
+    return hashlib.sha256(_canonical_dataclass_json(config)).hexdigest()
+
+
+def _driver_profile_matches_config(driver: Any, config: SessionConfig) -> bool:
+    try:
+        driver_profile = asdict(driver.profile)
+        configured_profile = asdict(config.profile)
+        return json.dumps(
+            _canonical_semantic_value(driver_profile), sort_keys=True, separators=(",", ":"), allow_nan=False
+        ) == json.dumps(
+            _canonical_semantic_value(configured_profile),
+            sort_keys=True,
+            separators=(",", ":"),
+            allow_nan=False,
+        )
+    except (TypeError, ValueError):
+        return False
 
 
 def _serialized_motion(method):
@@ -191,8 +239,12 @@ class SessionDaemon:
         controller: Controller | None = None,
         driver: DesktopDriver | None = None,
     ):
-        self.config = config
-        self._motion_profiles = self._load_motion_profiles(config)
+        # Keep the loaded config immutable from runtime driver evidence. The
+        # driver retains the supplied profile object and records measured
+        # anchors there after real actions.
+        self.config = copy.deepcopy(config)
+        self._loaded_config_semantic_sha256 = session_config_semantic_sha256(self.config)
+        self._motion_profiles = self._load_motion_profiles(self.config)
         self.capture_index = 0
         self._named_capture_sequence = 0
         self._last_addon_sequence = 0
@@ -237,7 +289,7 @@ class SessionDaemon:
             "result": None,
         }
         self.driver = driver or DesktopDriver(
-            config.profile,
+            copy.deepcopy(self.config.profile),
             pointer_motion_profile=self._motion_profiles["pointer"],
             camera_motion_profile=self._motion_profiles["camera"],
             move_motion_profile=self._motion_profiles["move"],
@@ -280,7 +332,9 @@ class SessionDaemon:
             self.driver.notify_native_resume_required = self.notify_native_resume_required
             self.driver.notify_native_measurement_failed = self.notify_native_measurement_failed
             self.driver.release_native_capture = self.release_native_capture
-        if isinstance(self.driver.backend, X11Backend) and not (config.plan_hash and config.plan_json):
+        if isinstance(self.driver.backend, X11Backend) and not (
+            self.config.plan_hash and self.config.plan_json
+        ):
             # The driver acquires the desktop lease and starts its independent
             # guardian at construction.  Do not leave either owner alive when
             # rejecting an incomplete live profile before the controller exists.
@@ -291,13 +345,13 @@ class SessionDaemon:
             finally:
                 raise DriverError("live session requires an externally pinned canonical plan hash and JSON")
         self.controller = controller or Controller(
-            Journal(config.journal),
+            Journal(self.config.journal),
             driver=self.driver,
-            cadence_seconds=config.cadence_seconds,
-            sweep_cap_seconds=config.sweep_cap_seconds,
-            reload_deadline_seconds=config.reload_deadline_seconds,
-            upload_deadline_seconds=config.upload_deadline_seconds,
-            ack_deadline_seconds=config.ack_deadline_seconds,
+            cadence_seconds=self.config.cadence_seconds,
+            sweep_cap_seconds=self.config.sweep_cap_seconds,
+            reload_deadline_seconds=self.config.reload_deadline_seconds,
+            upload_deadline_seconds=self.config.upload_deadline_seconds,
+            ack_deadline_seconds=self.config.ack_deadline_seconds,
         )
         self.motion_provider = NativeMotionProvider(
             self.capture_status,
@@ -314,7 +368,7 @@ class SessionDaemon:
         )
         self.camera_mapping: CameraMapping | None = None
         self.movement_basis: MovementBasis | None = None
-        self.decoder = PixelDecoder(crop=config.profile.canvas_crop)
+        self.decoder = PixelDecoder(crop=self.config.profile.canvas_crop)
         self.last_error = ""
         self.reopen_action_sent = False
         self.current_evidence = None
@@ -325,9 +379,9 @@ class SessionDaemon:
         self._closeout_scan_candidate: tuple[int, str] | None = None
         self._closeout_fence_observation: tuple[str, int] | None = None
         self.model = LunaAdapter(
-            model=config.model,
-            cli_version=config.cli_version,
-            codex_path=config.codex_path,
+            model=self.config.model,
+            cli_version=self.config.cli_version,
+            codex_path=self.config.codex_path,
         )
         journal_value = self.controller.journal.read()
         stored_recovery_actions = journal_value.get("recoveryActions", [])
@@ -473,7 +527,7 @@ class SessionDaemon:
             identity = self.driver.resolve_identity()
             decoder = self.driver.new_native_decoder()
             if self._native_region_enabled():
-                path = self.driver.capture_native_region_for_identity(identity)
+                path = self._capture_native_region_for_identity(identity)
             else:
                 path = self.driver.capture_client_crop_for_identity(identity)
             # Bind the absence proof to the instant the owned capture was
@@ -1784,13 +1838,48 @@ class SessionDaemon:
     ) -> Path:
         if not self._native_region_enabled():
             return self._capture_client_crop_for_identity(identity, deadline=deadline)
-        if deadline is None:
-            return self.driver.capture_native_region_for_identity(identity, destination=destination)
-        return self.driver.capture_native_region_for_identity(
-            identity,
-            destination=destination,
-            deadline_monotonic=deadline,
-        )
+        if not isinstance(self.driver.backend, X11Backend):
+            raise DriverError("native region capture requires the configured X11 backend")
+        with self.controller.lock:
+            admitted_status = self.controller.status()
+            if admitted_status.state in {
+                ControllerState.PAUSED,
+                ControllerState.BLOCKED,
+                ControllerState.STOPPED,
+            }:
+                raise DriverError("controller state does not admit a native region capture")
+            if admitted_status.stop_requested:
+                raise DriverError("controller stop request does not admit a native region capture")
+            admitted_generation = admitted_status.generation
+            admitted_state = admitted_status.state
+
+        guardian = self.driver.guardian
+
+        def admit_observer(start: Callable[[], Any]) -> Any:
+            # This is the linearization point: the controller state and its
+            # generation remain stable until Guardian registers the gated
+            # process and releases its nonblocking exec gate.
+            with self.controller.lock:
+                current = self.controller.status()
+                if (
+                    current.generation != admitted_generation
+                    or current.state is not admitted_state
+                    or current.stop_requested
+                ):
+                    raise DriverError("controller generation or state changed before observer admission")
+                return guardian.observer_dispatch_admission(start)
+
+        def observer_reaped(process_group: int) -> None:
+            guardian.unregister_observer_process(process_group)
+
+        capture_kwargs: dict[str, Any] = {
+            "destination": destination,
+            "observer_admission": admit_observer,
+            "observer_reaped": observer_reaped,
+        }
+        if deadline is not None:
+            capture_kwargs["deadline_monotonic"] = deadline
+        return self.driver.capture_native_region_for_identity(identity, **capture_kwargs)
 
     def _read_command_buffer(self) -> str:
         # The addon publishes the native EditBox projection on its one-Hz
@@ -3429,6 +3518,432 @@ class SessionDaemon:
         if not lock.acquire(blocking=False):
             return None
         return lock
+
+    def capture_paused_region_sample(
+        self,
+        *,
+        expected_generation: int,
+        parent_started: float,
+        deadline: float,
+        config_file_sha256: str,
+        config_semantic_sha256: str,
+    ) -> dict[str, Any]:
+        """Capture one bounded, read-only region sample through this owner."""
+
+        owner_entered = time.monotonic()
+        request_dir: Path | None = None
+        output: Path | None = None
+        phase = "request_validation"
+        published = False
+        sample: dict[str, Any] | None = None
+        failure: Exception | None = None
+        failure_record: dict[str, Any] = {}
+        capture_returned: float | None = None
+        motion_fence = None
+        try:
+            if (
+                isinstance(expected_generation, bool)
+                or not isinstance(expected_generation, int)
+                or expected_generation <= 0
+            ):
+                raise DriverError("paused region generation must be a positive integer")
+            if any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in (parent_started, deadline)
+            ):
+                raise DriverError("paused region timestamps must be finite monotonic numbers")
+            parent_started = float(parent_started)
+            deadline = float(deadline)
+            for label, digest in (
+                ("config file hash", config_file_sha256),
+                ("semantic config hash", config_semantic_sha256),
+            ):
+                if (
+                    not isinstance(digest, str)
+                    or len(digest) != 64
+                    or any(character not in "0123456789abcdef" for character in digest)
+                ):
+                    raise DriverError(f"paused region {label} is malformed")
+            driver = self.driver
+            owner_config_semantic_sha256 = self._loaded_config_semantic_sha256
+            if not _driver_profile_matches_config(driver, self.config):
+                raise DriverError("owning driver profile does not match the daemon config")
+            if config_semantic_sha256 != owner_config_semantic_sha256:
+                raise DriverError("paused region semantic config hash does not match the owner config")
+            now = time.monotonic()
+            if parent_started > now or now - parent_started > 1.0:
+                raise DriverError("paused region parent start is future or expired")
+            if deadline <= now or deadline > parent_started + 1.0:
+                raise DriverError("paused region absolute deadline is expired or exceeds one second")
+
+            phase = "owner_preconditions"
+            motion_fence = self._claim_motion_fence()
+            if motion_fence is None:
+                raise DriverError("another motion or capture intent is already in flight")
+            with self.controller.lock:
+                self._check_paused_region_admission(expected_generation)
+
+            backend = driver.backend
+            guardian = driver.guardian
+            if not isinstance(backend, X11Backend):
+                raise DriverError("paused region sample requires the configured production X11 backend")
+            if backend._cancel_active.is_set():
+                raise DriverError(
+                    "paused region sample refuses a capture-revoked backend; start a fresh owner"
+                )
+            if not guardian.lease.held:
+                raise DriverError("owning daemon does not hold the canonical desktop lease")
+            if guardian.armed or guardian.held:
+                raise DriverError("paused region sample requires an unarmed, unheld Guardian")
+            if guardian.active_process_groups or guardian.observer_process_groups:
+                raise DriverError("paused region sample refuses another owned process group")
+            if backend._active_processes or backend.active_process_groups:
+                raise DriverError("paused region sample refuses another backend process")
+            if self._native_bootstrap_ready.is_set():
+                raise DriverError("paused region sample refuses pending native bootstrap evidence")
+            calibration = self._calibration_operation_snapshot()
+            if calibration.get("state") in {"starting", "running"}:
+                raise DriverError("paused region sample refuses an active calibration operation")
+            calibration_thread = self._calibration_thread
+            if calibration_thread is not None and calibration_thread.is_alive():
+                raise DriverError("paused region sample refuses a live calibration worker")
+            if guardian._watchdog_failed:
+                raise DriverError("paused region sample refuses an unhealthy input watchdog")
+            guardian.admission_gate_ready()
+            profile = driver.profile
+            executable = profile.telemetry_region_executable
+            executable_hash = profile.telemetry_region_executable_sha256
+            if executable is None or executable_hash is None:
+                raise DriverError("paused region sample requires a configured telemetry producer")
+            profile.validate()
+
+            root = Path(self.config.capture_dir)
+            root.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(root, 0o700)
+            request_dir = Path(tempfile.mkdtemp(prefix="paused-region-", dir=root))
+            os.chmod(request_dir, 0o700)
+            output = request_dir / "capture.png"
+            # A request rejected before the native producer starts must not
+            # inherit the previous request's protocol-stage timestamps.
+            backend.last_region_attempt = {
+                "stage": "not_started",
+                "request_started": None,
+                "lock_acquired": None,
+                "ack_sent": None,
+            }
+
+            phase = "identity_before_capture"
+            if time.monotonic() >= deadline:
+                raise DriverError("paused region deadline expired before identity resolution")
+            identity = driver.resolve_identity(deadline_monotonic=deadline)
+            identity_record = {
+                "pid": identity.pid,
+                "process_start": identity.process_start,
+                "xid": identity.xid,
+                "child_xid": identity.child_xid,
+                "executable": identity.executable,
+                "display": identity.display,
+                "fingerprint": identity.fingerprint,
+                "child_geometry": list(identity.child_geometry),
+            }
+            before_receipt = backend.last_region_receipt
+
+            def admit_observer(start):
+                self._check_paused_region_config_binding(
+                    driver, owner_config_semantic_sha256, config_semantic_sha256
+                )
+                with self.controller.lock:
+                    self._check_paused_region_admission(expected_generation)
+                    return guardian.observer_dispatch_admission(start)
+
+            def unregister_observer(pgid: int) -> None:
+                guardian.unregister_observer_process(pgid)
+
+            phase = "region_capture"
+            driver.capture_native_region_for_identity(
+                identity,
+                destination=output,
+                deadline_monotonic=deadline,
+                observer_admission=admit_observer,
+                observer_reaped=unregister_observer,
+            )
+            capture_returned = time.monotonic()
+            published = output.is_file() and not output.is_symlink()
+            if not published:
+                raise DriverError("paused region producer returned without its PNG publication")
+            output_bytes = output.read_bytes()
+            if not output_bytes or len(output_bytes) > 131072:
+                raise DriverError("paused region PNG exceeds its bounded output size")
+            receipt = backend.last_region_receipt
+            if receipt is None or receipt is before_receipt:
+                raise DriverError("paused region capture has no new actual producer receipt")
+            actual_receipt = asdict(receipt)
+            actual_receipt["rectangle"] = list(receipt.rectangle)
+            if (
+                receipt.executable_sha256 != executable_hash
+                or receipt.output_sha256 != hashlib.sha256(output_bytes).hexdigest()
+                or receipt.output_bytes != len(output_bytes)
+                or receipt.attempt_retired is not True
+            ):
+                raise DriverError("paused region producer receipt does not bind its published PNG")
+            cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+            source = {
+                "api": "org.gnome.Shell.Screenshot.ScreenshotArea",
+                "branch": receipt.owner_branch,
+                "rectangle": list(receipt.rectangle),
+            }
+            config_binding = {
+                "request_config_file_sha256": config_file_sha256,
+                "request_config_semantic_sha256": config_semantic_sha256,
+                "owner_config_semantic_sha256": owner_config_semantic_sha256,
+                "display": profile.display,
+                "canvas_crop": list(profile.canvas_crop),
+            }
+            producer_binding = {"path": str(executable), "sha256": executable_hash}
+            sample = {
+                "generation": expected_generation,
+                "parent_started": parent_started,
+                "deadline": deadline,
+                "owner_entered": owner_entered,
+                "capture_returned": capture_returned,
+                "identity": identity_record,
+                "identity_after": None,
+                "source": source,
+                "config": config_binding,
+                "producer": producer_binding,
+                "receipt": actual_receipt,
+                "png_sha256": hashlib.sha256(output_bytes).hexdigest(),
+                "png_bytes": len(output_bytes),
+                "png_base64": base64.b64encode(output_bytes).decode("ascii"),
+                "artifact_directory": str(request_dir),
+                "artifact_png": str(output),
+                "cleanup": cleanup,
+            }
+            if time.monotonic() >= deadline:
+                raise DriverError("paused region deadline expired before response serialization")
+            phase = "owner_post_capture_check"
+            identity_after = driver.resolve_identity(deadline_monotonic=deadline)
+            if identity_after.fingerprint != identity.fingerprint:
+                raise DriverError("paused region client identity changed during capture")
+            self._check_paused_region_config_binding(
+                driver, owner_config_semantic_sha256, config_semantic_sha256
+            )
+            with self.controller.lock:
+                self._check_paused_region_admission(expected_generation)
+            if guardian.armed or not guardian.lease.held:
+                raise DriverError("paused region capture changed the owning lease or armed state")
+            guardian.admission_gate_ready()
+            cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+            if cleanup["empty"] is not True:
+                raise DriverError("paused region capture did not retire its owner process and attempts")
+            sample["identity_after"] = identity_after.fingerprint
+            sample["cleanup"] = cleanup
+            phase = "owner_receipt_persist"
+        except Exception as exc:
+            failure = exc
+        finally:
+            if request_dir is not None:
+                backend = self.driver.backend
+                guardian = self.driver.guardian
+                cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+                owner_returned = time.monotonic()
+                if sample is not None:
+                    sample["owner_returned"] = owner_returned
+                    sample["cleanup"] = cleanup
+                failure_record = {
+                    "phase": phase,
+                    "error": f"{type(failure).__name__}: {failure}" if failure else "",
+                    "owner_entered": owner_entered,
+                    "owner_returned": owner_returned,
+                    "artifact_directory": str(request_dir),
+                    "receipt_path": str(request_dir / "receipt.json"),
+                    "published_png": str(output)
+                    if published and output is not None and output.is_file()
+                    else None,
+                    "producer_attempt": dict(backend.last_region_attempt),
+                    "cleanup": cleanup,
+                    "generation": expected_generation,
+                    "config_file_sha256": config_file_sha256,
+                    "config_semantic_sha256": config_semantic_sha256,
+                    "owner_config_semantic_sha256": owner_config_semantic_sha256,
+                    "lease_held": guardian.lease.held,
+                    "armed": guardian.armed,
+                }
+                if failure is not None:
+                    failure_record["sample"] = sample
+                    try:
+                        self._persist_paused_region_receipt(
+                            request_dir / "receipt.json", {"ok": False, "failure": failure_record}
+                        )
+                    except Exception as persist_error:
+                        failure_record["receipt_persist_error"] = str(persist_error)
+            else:
+                owner_returned = time.monotonic()
+            if motion_fence is not None:
+                motion_fence.release()
+        if failure is None:
+            assert sample is not None and request_dir is not None
+            try:
+                success_receipt = self._paused_region_success_receipt(sample)
+                self._persist_paused_region_receipt(request_dir / "receipt.json", success_receipt)
+            except Exception as persist_error:
+                failure = persist_error
+                failure_record["phase"] = "owner_receipt_persist"
+                failure_record["error"] = f"{type(persist_error).__name__}: {persist_error}"
+                failure_record["sample"] = sample
+                try:
+                    self._persist_paused_region_receipt(
+                        request_dir / "receipt.json", {"ok": False, "failure": failure_record}
+                    )
+                except Exception:
+                    pass
+        if failure is not None:
+            result: dict[str, Any] = {"ok": False, "error": f"{type(failure).__name__}: {failure}"}
+            if sample is not None:
+                result["sample"] = sample
+            if request_dir is not None:
+                result["failure"] = {
+                    key: (
+                        {name: item for name, item in value.items() if name != "png_base64"}
+                        if key == "sample" and isinstance(value, dict)
+                        else value
+                    )
+                    for key, value in failure_record.items()
+                }
+            return result
+        assert sample is not None
+        return {"ok": True, "sample": sample}
+
+    def _check_paused_region_config_binding(
+        self, driver: Any, initial_sha256: str, requested_sha256: str
+    ) -> None:
+        current_sha256 = session_config_semantic_sha256(self.config)
+        if (
+            current_sha256 != self._loaded_config_semantic_sha256
+            or current_sha256 != initial_sha256
+            or current_sha256 != requested_sha256
+        ):
+            raise DriverError("paused region semantic config changed during capture")
+        if not _driver_profile_matches_config(driver, self.config):
+            raise DriverError("owning driver profile no longer matches the daemon config")
+
+    def _check_paused_region_admission(self, expected_generation: int) -> None:
+        status = self.controller.status()
+        if status.state != ControllerState.PAUSED or status.generation != expected_generation:
+            raise DriverError("paused region owner state or generation changed")
+        if status.stop_requested or status.closeout_requested or status.action_intent:
+            raise DriverError("paused region owner has an active lifecycle or action intent")
+        if status.mode.value == "interaction":
+            raise DriverError("paused region owner refuses interaction mode")
+        if self._native_bootstrap_ready.is_set():
+            raise DriverError("paused region owner has pending native bootstrap evidence")
+        if self._native_baseline_ready.is_set():
+            raise DriverError("paused region owner has active native baseline readiness")
+        operation = self._calibration_operation_snapshot()
+        if operation.get("state") in {"starting", "running"}:
+            raise DriverError("paused region owner has an active calibration operation")
+
+    @staticmethod
+    def _paused_region_cleanup_snapshot(output: Path | None, backend: Any, guardian: Any) -> dict[str, Any]:
+        attempts = []
+        if output is not None:
+            attempts = sorted(
+                {
+                    str(path)
+                    for pattern in (
+                        f".{output.name}.telemetry-*",
+                        f"..{output.name}.telemetry-*.retired-*",
+                    )
+                    for path in output.parent.glob(pattern)
+                }
+            )
+        active = len(backend._active_processes)
+        groups = sorted(backend.active_process_groups)
+        observer_groups = sorted(guardian.observer_process_groups)
+        guardian_groups = sorted(guardian.active_process_groups)
+        lease_held = guardian.lease.held
+        watchdog_healthy = not guardian._watchdog_failed
+        return {
+            "backend_processes": active,
+            "backend_groups": groups,
+            "guardian_observer_groups": observer_groups,
+            "guardian_active_groups": guardian_groups,
+            "attempt_directories": attempts,
+            "lease_held": lease_held,
+            "watchdog_healthy": watchdog_healthy,
+            "armed": guardian.armed,
+            "empty": active == 0
+            and groups == []
+            and not observer_groups
+            and not guardian_groups
+            and not attempts,
+        }
+
+    @staticmethod
+    def _paused_region_success_receipt(sample: dict[str, Any]) -> dict[str, Any]:
+        expected_fields = {
+            "generation",
+            "parent_started",
+            "deadline",
+            "owner_entered",
+            "capture_returned",
+            "identity",
+            "identity_after",
+            "source",
+            "config",
+            "producer",
+            "receipt",
+            "png_sha256",
+            "png_bytes",
+            "png_base64",
+            "artifact_directory",
+            "artifact_png",
+            "cleanup",
+            "owner_returned",
+        }
+        if set(sample) != expected_fields:
+            raise DriverError("paused region success sample has an incomplete final schema")
+        timestamps = (sample["owner_entered"], sample["capture_returned"], sample["owner_returned"])
+        if any(
+            isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(float(value))
+            for value in timestamps
+        ) or not (sample["owner_entered"] <= sample["capture_returned"] <= sample["owner_returned"]):
+            raise DriverError("paused region success timestamps are incomplete or out of order")
+        receipt = {"ok": True, **sample}
+        encoded = (json.dumps(receipt, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode(
+            "utf-8"
+        )
+        if len(encoded) > 196608:
+            raise DriverError("paused region final receipt exceeds its durable size bound")
+        if len(json.dumps(sample, separators=(",", ":"), allow_nan=False).encode("utf-8")) > 480000:
+            raise DriverError("paused region response metadata exceeds its bound")
+        return receipt
+
+    @staticmethod
+    def _persist_paused_region_receipt(path: Path, value: dict[str, Any]) -> None:
+        encoded = (json.dumps(value, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n").encode()
+        if len(encoded) > 196608:
+            raise DriverError("paused region receipt exceeds its size bound")
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            directory = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory)
+            finally:
+                os.close(directory)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
 
     def _reconcile_completed_logout_without_agent(self, *, generation: int) -> bool:
         """Resolve a completed logout from read-only character-select evidence.

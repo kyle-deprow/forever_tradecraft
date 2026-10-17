@@ -86,6 +86,104 @@ def _png_bytes(color: tuple[int, int, int, int], size: tuple[int, int] = IMAGE_S
     return _image_bytes(color, size=size)
 
 
+class _BoundaryProcess:
+    """Expose the producer boundary while making poll's publication atomic."""
+
+    def __init__(self, path: Path, *, payload: bytes | None = None, return_code: int = 0) -> None:
+        self.path = path
+        self.payload = payload
+        self.return_code = return_code
+        self.poll_calls = 0
+
+    def poll(self) -> int:
+        self.poll_calls += 1
+        if self.poll_calls == 1 and self.payload is not None:
+            self.path.write_bytes(self.payload)
+        return self.return_code
+
+    def communicate(self, timeout: float = 0) -> tuple[str, str]:
+        del timeout
+        return "", ""
+
+
+def test_wait_for_complete_png_rechecks_after_clean_producer_exit(tmp_path: Path) -> None:
+    path = tmp_path / "capture.png"
+    valid = _png_bytes((31, 41, 51, 255))
+    path.write_bytes(valid[:24])
+    process = _BoundaryProcess(path, payload=valid)
+    checks: list[int] = []
+
+    driver_module._wait_for_complete_png(
+        path,
+        IMAGE_SIZE,
+        time.monotonic() + 1.0,
+        check=lambda: checks.append(len(checks) + 1),
+        process=process,  # type: ignore[arg-type]
+    )
+
+    assert process.poll_calls == 1
+    assert checks == [1, 2, 3]
+    with Image.open(path) as image:
+        image.load()
+        assert image.format == "PNG"
+        assert image.size == IMAGE_SIZE
+
+
+def test_wait_for_complete_png_keeps_clean_exit_with_truncated_output_terminal(tmp_path: Path) -> None:
+    path = tmp_path / "capture.png"
+    path.write_bytes(_png_bytes((61, 71, 81, 255))[:24])
+    process = _BoundaryProcess(path)
+
+    with pytest.raises(
+        DriverError, match="producer exited before PNG completion: GNOME screenshot is not a complete PNG"
+    ):
+        driver_module._wait_for_complete_png(
+            path,
+            IMAGE_SIZE,
+            time.monotonic() + 1.0,
+            process=process,  # type: ignore[arg-type]
+        )
+
+    assert process.poll_calls == 2
+
+
+def test_wait_for_complete_png_revocation_wins_before_final_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    path = tmp_path / "capture.png"
+    valid = _png_bytes((91, 101, 111, 255))
+    path.write_bytes(valid[:24])
+    process = _BoundaryProcess(path, payload=valid)
+    validation_calls: list[int] = []
+    original_validate = driver_module._validate_complete_png
+
+    def record_validation(*args: object, **kwargs: object) -> None:
+        validation_calls.append(1)
+        original_validate(*args, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(driver_module, "_validate_complete_png", record_validation)
+    checks = 0
+
+    def revoke_before_final_read() -> None:
+        nonlocal checks
+        checks += 1
+        if checks == 2:
+            raise DriverError("capture revoked before final publication")
+
+    with pytest.raises(DriverError, match="capture revoked before final publication"):
+        driver_module._wait_for_complete_png(
+            path,
+            IMAGE_SIZE,
+            time.monotonic() + 1.0,
+            check=revoke_before_final_read,
+            process=process,  # type: ignore[arg-type]
+        )
+
+    assert process.poll_calls == 1
+    assert validation_calls == [1]
+    assert checks == 2
+
+
 def _region_identity() -> WindowIdentity:
     return WindowIdentity(
         0x100,
@@ -219,14 +317,18 @@ int main(int argc, char **argv) {
   dprintf(fd, "{\"type\":\"owner_ready\",\"protocol\":%s,\"nonce\":\"%s\",\"pid\":%d,\"process_start\":\"%s\",\"ppid\":%d,\"pgid\":%d,\"exec_fd\":%d,\"executable_sha256\":\"%s\",\"primary_owner\":true,\"remote\":false,\"branch\":\"ScreenshotArea\",\"rectangle\":[%d,%d,%d,%d],\"output_path_digest\":\"%s\"}\n", sent_protocol, sent_nonce, getpid(), start, getppid(), sent_pgid, exec_fd, sent_digest, x, y, width, height, sent_path_digest);
   read_count = read(fd, ack, sizeof(ack) - 1);
   if (read_count <= 0 || strstr(ack, nonce) == NULL) return 4;
+  if (strcmp(owner_variant, "eof_after_ack") == 0) return 8;
   clock_gettime(CLOCK_MONOTONIC, &now);
+  if (strcmp(owner_variant, "future_started") == 0) now.tv_sec += 100;
   dprintf(fd, "{\"type\":\"capture_started\",\"protocol\":1,\"nonce\":\"%s\",\"branch\":\"ScreenshotArea\",\"rectangle\":[%d,%d,%d,%d],\"output_path_digest\":\"%s\",\"capture_started\":%lld.%09ld}\n", nonce, x, y, width, height, output_digest, (long long)now.tv_sec, now.tv_nsec);
   snprintf(output_path, sizeof(output_path), "%s", output);
   stream = fopen(output_path, "wb");
   if (stream == NULL || fwrite(payload, 1, sizeof(payload), stream) != sizeof(payload)) return 5;
   fclose(stream);
   if (!hash_file(output_path, image_digest)) return 6;
-  dprintf(fd, "{\"type\":\"capture_complete\",\"protocol\":1,\"nonce\":\"%s\",\"branch\":\"ScreenshotArea\",\"rectangle\":[%d,%d,%d,%d],\"output_path_digest\":\"%s\",\"output_sha256\":\"%s\",\"output_bytes\":%zu}\n", nonce, x, y, width, height, output_digest, image_digest, sizeof(payload));
+  if (strcmp(owner_variant, "wrong_complete_digest") == 0)
+    snprintf(image_digest, sizeof(image_digest), "%064d", 0);
+  dprintf(fd, "{\"type\":\"capture_complete\",\"protocol\":1,\"nonce\":\"%s\",\"branch\":\"ScreenshotArea\",\"rectangle\":[%d,%d,%d,%d],\"output_path_digest\":\"%s\",\"output_sha256\":\"%s\",\"output_bytes\":%zu}\n", nonce, x, y, width, height, output_digest, image_digest, strcmp(owner_variant, "wrong_complete_size") == 0 ? sizeof(payload) + 1 : sizeof(payload));
   return 0;
 }
 """.replace("@PAYLOAD@", payload_hex)
@@ -257,7 +359,7 @@ def test_capture_native_region_uses_sealed_producer_and_exact_png(
         client_height=1080,
         outer_width=1928,
         outer_height=1092,
-        canvas_crop=(80, 48, 256, 256),
+        canvas_crop=(123, 77, 256, 256),
         model_crop=(80, 48, 640, 480),
         telemetry_region_executable=executable,
         telemetry_region_executable_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
@@ -272,17 +374,98 @@ def test_capture_native_region_uses_sealed_producer_and_exact_png(
     result = backend.capture_native_region(
         target,
         identity=identity,
-        rectangle=(80, 48, 256, 256),
+        rectangle=(123, 77, 256, 256),
         deadline_monotonic=time.monotonic() + 5.0,
+        _allow_unobserved_fixture=True,
     )
 
     assert result.fingerprint == identity.fingerprint
     assert backend.last_region_receipt is not None
     assert backend.last_region_receipt.owner_branch == "ScreenshotArea"
+    assert backend.last_region_receipt.attempt_retired is True
+    assert not backend._active_processes
+    assert not backend.active_process_groups
+    assert not tuple(tmp_path.glob(".*.telemetry-*"))
     with Image.open(target) as image:
         image.load()
         assert image.format == "PNG"
         assert image.size == (256, 256)
+
+
+def test_capture_native_region_does_not_claim_retirement_after_directory_cleanup_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "region-cleanup-producer"
+    _region_writer(executable)
+    profile = DriverProfile(
+        xauthority=str(tmp_path / "Xauthority"),
+        client_width=1920,
+        client_height=1080,
+        outer_width=1928,
+        outer_height=1092,
+        canvas_crop=(123, 77, 256, 256),
+        model_crop=(80, 48, 640, 480),
+        telemetry_region_executable=executable,
+        telemetry_region_executable_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    identity = _region_identity()
+    backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+    monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", tmp_path / "capture.lock")
+    actual_rmtree = driver_module.shutil.rmtree
+    monkeypatch.setattr(driver_module.shutil, "rmtree", lambda *_args, **_kwargs: None)
+
+    target = tmp_path / "capture-with-unretired-attempt.png"
+    try:
+        backend.capture_native_region(
+            target,
+            identity=identity,
+            rectangle=(123, 77, 256, 256),
+            deadline_monotonic=time.monotonic() + 5.0,
+            _allow_unobserved_fixture=True,
+        )
+
+        assert backend.last_region_receipt is not None
+        assert backend.last_region_receipt.attempt_retired is False
+        leftovers = tuple(tmp_path.glob("..capture-with-unretired-attempt.png.telemetry-*.retired-*"))
+        assert len(leftovers) == 1
+    finally:
+        monkeypatch.setattr(driver_module.shutil, "rmtree", actual_rmtree)
+        for leftover in tmp_path.glob("..capture-with-unretired-attempt.png.telemetry-*.retired-*"):
+            actual_rmtree(leftover, ignore_errors=True)
+
+
+def test_capture_native_region_checks_guardian_before_releasing_admission(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    executable = tmp_path / "guardian-region-producer"
+    _region_writer(executable)
+    profile = DriverProfile(
+        xauthority=str(tmp_path / "Xauthority"),
+        client_width=1920,
+        client_height=1080,
+        outer_width=1928,
+        outer_height=1092,
+        canvas_crop=(80, 48, 256, 256),
+        model_crop=(80, 48, 640, 480),
+        telemetry_region_executable=executable,
+        telemetry_region_executable_sha256=hashlib.sha256(executable.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    backend.resolve_identity = lambda **_kwargs: _region_identity()  # type: ignore[method-assign]
+    backend.set_admission_health(lambda: (_ for _ in ()).throw(DriverError("input watchdog is unhealthy")))
+    monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", tmp_path / "capture.lock")
+    with pytest.raises(DriverError, match="watchdog is unhealthy"):
+        backend.capture_native_region(
+            tmp_path / "guardian-refused.png",
+            identity=_region_identity(),
+            rectangle=(80, 48, 256, 256),
+            deadline_monotonic=time.monotonic() + 5.0,
+            _allow_unobserved_fixture=True,
+        )
+    assert not (tmp_path / "guardian-refused.png").exists()
+    assert not backend.active_process_groups
+    assert not backend._active_processes
 
 
 def test_capture_native_region_revoke_before_owner_ack_publishes_nothing(
@@ -315,6 +498,7 @@ def test_capture_native_region_revoke_before_owner_ack_publishes_nothing(
                 identity=identity,
                 rectangle=(80, 48, 256, 256),
                 deadline_monotonic=time.monotonic() + 5.0,
+                _allow_unobserved_fixture=True,
             )
         except BaseException as exc:  # pragma: no cover - assertion below reports the error
             failures.append(exc)
@@ -344,6 +528,10 @@ def test_capture_native_region_revoke_before_owner_ack_publishes_nothing(
         ("wrong_pgid", "owner proof"),
         ("bool_protocol", "owner proof"),
         ("eof", "protocol closed"),
+        ("eof_after_ack", "protocol closed"),
+        ("future_started", "capture-start proof"),
+        ("wrong_complete_digest", "output digest"),
+        ("wrong_complete_size", "output digest"),
     ),
 )
 def test_capture_native_region_rejects_compiled_owner_proof_variants(
@@ -367,13 +555,17 @@ def test_capture_native_region_rejects_compiled_owner_proof_variants(
     backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
     monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", tmp_path / "capture.lock")
 
+    started_at = time.monotonic()
     with pytest.raises(DriverError, match=error):
         backend.capture_native_region(
             tmp_path / "invalid.png",
             identity=identity,
             rectangle=(80, 48, 256, 256),
             deadline_monotonic=time.monotonic() + 5.0,
+            _allow_unobserved_fixture=True,
         )
+    if owner_variant == "eof_after_ack":
+        assert time.monotonic() - started_at < 2.0
     assert not (tmp_path / "invalid.png").exists()
     assert not backend.active_process_groups
 

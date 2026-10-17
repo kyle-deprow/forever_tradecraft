@@ -1,0 +1,43 @@
+Model ID: **claude-opus-5-5**. This R6 R3 closure review was read-only. I wrote only the plan-mode copy at `/home/dev/.claude/plans/actual-claude-opus-r6-eager-flame.md` and ran no tests, Git, build, network, GUI or runtime actions.
+
+**STATUS: READY.** Both items from R2 are closed: the one must-fix and the non-blocking should-fix. I found nothing new.
+
+## Identity
+- **Test file hashes:** the candidate `tests/test_session_native.py` hashes to `ade91281…` and the predecessor to `a1780bbd…`. The predecessor matches the baseline JSON.
+- **Other paths:** the other 11 mapped paths are byte-identical in both worktrees and match the baseline hashes, including `offline_harness.py` at `5e20d756…`.
+- **Diff:** my own `diff -u` between the two files is identical to the parent delta. It has two hunks, one line removed and five added, and only assertions change. Nothing else in the file changed.
+
+## Must-fix 1 (harness acceptance of `not_started`): closed
+The new assertion at `tests/test_session_native.py:2103-2106` requires the runner's exact terminal error:
+`RuntimeError: paused diagnostic owner refused sample 0: DriverError: {identity_failure_message}`
+
+The runner can only produce that string after both owner-failure checks pass:
+- `_validate_producer_attempt` at `offline_harness.py:1324`;
+- the request-bound check at `:1325-1334`.
+
+The refusal is then raised at `:1364` and formatted at `:1514`. If a sample were present, the raise would come from `:1360-1361` with the same text, and the existing `published_client_pngs == []` check would catch that case.
+
+Two mutations would now fail this assertion:
+- dropping `"not_started"` from the stages;
+- breaking the all-null branch.
+
+Either one turns the error into a `producer stage is unknown` (or `_finite_time`) error at the same phase. That is the R5 masking case, and it is now blocked on the harness side as well as the owner side. The original `owner_failure` and durable owner-receipt assertions are unchanged.
+
+## Should-fix 2 (late `Activate` without auto-start): closed
+- **New checks:** `:880-881` assert `not late_rpc.stdout` and `'Name "org.gnome.Screenshot" does not exist' in late_rpc.stderr`.
+- **Source of that text:** `/usr/bin/dbus-daemon` contains `Name "%s" does not exist`. That is the bus's reply when a name has no owner and auto-start is suppressed.
+- **Mutation now caught:** if `--auto-start=no` were dropped, activation would fail with `Process org.gnome.Screenshot exited with status 1` instead. That doesn't match, so the test would fail.
+- **Unchanged:**
+  - the `--auto-start=no` call and the `returncode != 0` check;
+  - the GetNameOwner exchange;
+  - the five-RPC typing and guard counts;
+  - the cleanup and no-auto-start checks.
+
+## Not established
+- I did not reproduce the worker run (the two compiled tests at 5.65 s / 38.58 s, plus Ruff, format, compile and diff checks) or the parent's repeat of the two tests.
+- The broad 6-file batch is still pending.
+- Nothing here qualifies live, load, integration, deployment or native opt-in behaviour, and the earlier negative timing/load evidence still stands.
+
+The plan-approval tool isn't available in this session, so this verdict and the plan file are the whole deliverable.
+
+CLAUDE_EXIT:0
