@@ -29,7 +29,31 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Live checkpoint at18:03UTC:** collection has resumed with operator assistance.
+**Live checkpoint at18:18UTC:** sweep29,
+`beta-normal-alliance-1792260286-Arthur-5105`, is parent-verified end to end:
+428observations/2592rows (397full/31bounded/allok), exact900s start interval,
+20.044457s upload, fresh exact loadedACK/pending0/AHclosed. AH reopened and the
+next start is due18:19:46UTC. See `build-70450-twentynine-scan-parent-verification.json`.
+The prepared reload helper now rebinds its decoder only after proven dispatch
+and tests UID membership in `loaded.ackedIds`, not the outer `loaded` map.
+These are operator-assisted cycles; autonomous qualification is still pending.
+Fresh snapshot `beta-20261017T181427Z-749cfdb71a90` passed snapshot and independent
+canonical validation (manifestSHAa8a6161da1bef04c4eee29b1d79fc2368fcb7e07db608ded55474f2d0580f6d7).
+No separate restore was run for this snapshot. Stage A native-memory failure
+archiving is frozen in `/home/dev/.cache/crowley/worktrees/native-memory-failure-20261017`:
+parent7newchecks/Ruff/format/diff, fullsuite222pass249.21s, SolR1READY and actual
+OpusR1READY (`claude-opus-5-5`, CLIexit0). Worker combinedsuite221pass/
+1existingGJSaccessibilitywarning failure; exact test subsequently passed on both
+unchangedmain and candidate and the complete parent run passed. Exact frozen
+four files integrated after sole live operator's quiet-window acknowledgement;
+service restart is pending. The diagnostic token on archive failure is private
+in-memory state only, retains the last failure across runs and is not durably
+logged. Opus requested explicit callback-wired under/equal-limit regression and
+test-fixture cleanup followups; runtime correctness review had no Must-Fix.
+Stage B remains plan-only. The user
+has no physical calibration action until native qualification actually passes.
+
+**Resumption checkpoint at18:03UTC:** collection has resumed with operator assistance.
 Sweep28, `beta-normal-alliance-1792259386-Arthur-0836`, persisted at18:00:38.681101UTC:
 428observations/2564rows (399full/28bounded/1query_timeout). Its start was17:49:46UTC;
 next scheduled start is18:04:46UTC. Parent verified original payload digest against

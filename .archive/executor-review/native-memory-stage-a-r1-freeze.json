@@ -1,0 +1,13 @@
+{
+  "kind": "parent-native-memory-stage-a-freeze",
+  "base": "8d06cd0",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-memory-failure-20261017",
+  "files": {
+    "src/crowley/session/calibration.py": "e87e844bc0428f76f2d2c8053e58017651e5ea7e285164bac56ba33bbb39630c",
+    "src/crowley/session/daemon.py": "47702e23606ec9f42a4ce3a54b1be400f64f715f617fa48dc0507782ce189929",
+    "tests/test_session_native.py": "5519aa12759042935fbab00108673452f3cc4a5b8e46a2f4054e712843026e35",
+    "tests/test_session_native_regressions.py": "967123b09c1544aba93aac74ffe1625eb271d00910c55dcbe9d7edbdc8a915be"
+  },
+  "plan_sha256": "8b9fd740a252cf7319a8414d9557644936a199e618116befa77c2c2c089d2286",
+  "sol_plan_review_sha256": "e612224cf44c4b00f18f35faecb9df4cfe9ee6a383286c3d93e7d33bcb624181"
+}

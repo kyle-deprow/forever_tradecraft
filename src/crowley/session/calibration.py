@@ -1227,6 +1227,68 @@ class NativeMemoryArchiveReceipt:
             raise CalibrationError("native historical memory archive was not durable")
 
 
+def _native_memory_measurement_digest(measurement: NativeMemoryMeasurement) -> str:
+    return hashlib.sha256(
+        json.dumps(measurement.to_dict(), sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def _native_memory_failure_outcome_id(measurement: NativeMemoryMeasurement, failure: str) -> str:
+    payload = {
+        "kind": "native_memory_failures",
+        "measurement": measurement.to_dict(),
+        "failure": failure,
+    }
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
+@dataclass(frozen=True)
+class NativeMemoryMeasurementArchiveReceipt:
+    """Durability acknowledgement for one rejected complete memory window."""
+
+    outcome_id: str
+    measurement_sha256: str
+    archive_ordinal: int
+    durable: bool
+
+    @classmethod
+    def from_archive(
+        cls, measurement: NativeMemoryMeasurement, archived: dict[str, Any]
+    ) -> NativeMemoryMeasurementArchiveReceipt:
+        if not isinstance(archived, dict):
+            raise CalibrationError("native failed-memory archive returned no record")
+        ordinal = archived.get("archiveOrdinal")
+        if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal <= 0:
+            raise CalibrationError("native failed-memory archive returned no ordinal")
+        outcome_id = archived.get("outcomeId")
+        if not isinstance(outcome_id, str):
+            raise CalibrationError("native failed-memory archive returned no outcome identity")
+        return cls(
+            outcome_id=outcome_id,
+            measurement_sha256=_native_memory_measurement_digest(measurement),
+            archive_ordinal=ordinal,
+            durable=True,
+        )
+
+    def verify(self, measurement: NativeMemoryMeasurement) -> None:
+        measurement.verify()
+        failure = f"native {measurement.phase} memory growth exceeds its limit"
+        if (
+            not isinstance(self.outcome_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", self.outcome_id)
+            or self.outcome_id != _native_memory_failure_outcome_id(measurement, failure)
+            or not isinstance(self.measurement_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", self.measurement_sha256)
+            or self.measurement_sha256 != _native_memory_measurement_digest(measurement)
+            or isinstance(self.archive_ordinal, bool)
+            or not isinstance(self.archive_ordinal, int)
+            or self.archive_ordinal <= 0
+            or self.durable is not True
+        ):
+            raise CalibrationError("native failed-memory archive receipt is invalid")
+
+
 @dataclass(frozen=True)
 class NativeRestorationReceipt:
     """Explicit Agent restoration status after a failed measurement."""
@@ -1346,6 +1408,8 @@ class LinuxProcStatusVmHwmReset5:
         expected_uid: int | None = None,
         proc_root: str | os.PathLike[str] = "/proc",
         monotonic: Callable[[], float] = time.monotonic,
+        over_limit_archive: Callable[[NativeMemoryMeasurement, str], NativeMemoryMeasurementArchiveReceipt]
+        | None = None,
     ) -> None:
         if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
             raise CalibrationError("native memory PID is invalid")
@@ -1362,6 +1426,9 @@ class LinuxProcStatusVmHwmReset5:
             or self.expected_uid < 0
         ):
             raise CalibrationError("native memory UID is invalid")
+        if over_limit_archive is not None and not callable(over_limit_archive):
+            raise CalibrationError("native failed-memory archive callback is invalid")
+        self._over_limit_archive = over_limit_archive
         self._proc_root = Path(proc_root)
         try:
             self._pid_fd = os.open(self._proc_root / str(pid), os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC)
@@ -1371,6 +1438,7 @@ class LinuxProcStatusVmHwmReset5:
         self.kernel_release = os.uname().release
         self._closed = False
         self._pending_window: _PendingNativeMemoryWindow | None = None
+        self._completing_window: _PendingNativeMemoryWindow | None = None
         try:
             self._verify_identity()
         except Exception:
@@ -1607,8 +1675,48 @@ class LinuxProcStatusVmHwmReset5:
         )
         result.verify()
         if result.growth_bytes > result.limit_bytes:
-            raise CalibrationError(f"native {result.phase} memory growth exceeds its limit")
+            failure = f"native {result.phase} memory growth exceeds its limit"
+            if self._over_limit_archive is not None:
+                # The callback is only admitted while this exact, fully read
+                # window is completing.  The daemon uses this boundary to
+                # bind the archive to the meter's current ownership token.
+                self._completing_window = pending
+                try:
+                    receipt = self._over_limit_archive(result, failure)
+                    if not isinstance(receipt, NativeMemoryMeasurementArchiveReceipt):
+                        raise CalibrationError("native failed-memory archive returned no receipt")
+                    receipt.verify(result)
+                except Exception:
+                    # This audit path must not replace or chain into the
+                    # original causal limit failure.
+                    pass
+                finally:
+                    self._completing_window = None
+            raise CalibrationError(failure)
         return result
+
+    def completion_matches(self, measurement: NativeMemoryMeasurement) -> bool:
+        """Return whether a measurement is the exact window completing now."""
+
+        pending = self._completing_window
+        return bool(
+            pending is not None
+            and measurement.method == pending.method
+            and measurement.phase == pending.phase
+            and measurement.ordinal == pending.ordinal
+            and measurement.pid == pending.pid
+            and measurement.process_start == pending.process_start
+            and measurement.process_executable == pending.process_executable
+            and measurement.identity_fingerprint == pending.identity_fingerprint
+            and measurement.uid == pending.uid
+            and measurement.kernel_release == pending.kernel_release
+            and measurement.historical_hwm_bytes == pending.historical_hwm_bytes
+            and measurement.rss_before_reset_bytes == pending.rss_before_reset_bytes
+            and measurement.reset_completed_monotonic == pending.reset_completed_monotonic
+            and measurement.post_reset_hwm_bytes == pending.post_reset_hwm_bytes
+            and measurement.rss_after_reset_bytes == pending.rss_after_reset_bytes
+            and measurement.limit_bytes == pending.limit_bytes
+        )
 
     def abort_window(self, pending: _PendingNativeMemoryWindow | None = None) -> None:
         """Consume an unfinished window so a later run can retry safely.

@@ -1,0 +1,57 @@
+**Model:** `claude-opus-5-5` (Claude Opus 5.5).
+
+# Stage A review, round 1: native-memory failure retention
+
+**Integrity:** the plan, Sol r1 and freeze SHA-256s match. All four frozen file hashes match. The worktree HEAD is `8d06cd0`, only the four in-scope files are modified, and `git diff --check` is clean. I didn't run anything: no tests, builds, GUI, service, network or git changes. I didn't review Stage B.
+
+**What I checked and found correct:**
+- **Where the callback runs.** It's inside the `growth_bytes > limit_bytes` branch, after `result.verify()` (`calibration.py:1676-1695`). A failed final read or identity check raises before any measurement exists.
+- **Causal error.** The callback runs in `try/except Exception: pass`, and the limit error is raised after that block exits. So `__cause__` and `__context__` are both `None` and the message is the unchanged exact string. The runner re-raises it as-is (`calibration.py:4836-4843`).
+- **Production wiring.** The meter is built in only one production place, `_ensure_native_memory_meter` (`daemon.py:1006`), and that path always installs the callback. The runner takes `driver.native_memory_meter` (`calibration.py:4268`). Both the construction and updates completion sites (`:4647` and `:4733`) are covered.
+- **Binding to the current owner.** The archive is written only if all of these hold:
+  - the failure string and growth still show an over-limit rejection;
+  - the measurement matches the meter's identity and `completion_matches` against the window currently completing;
+  - with `controller.lock` held: the state is `NATIVE_CALIBRATION`, `driver.native_memory_meter is meter`, a fresh identity resolves, and the pinned `/proc` identity re-checks.
+- **Locking.** The lock order is controller lock, then journal lock, which matches the existing controller paths. No code waits or joins while holding the controller lock, so there's no deadlock.
+- **Receipt.** It is built from the record the journal returns. Its keys must be exactly the payload plus `archiveOrdinal`/`archivedAt`. `verify()` recomputes the outcome ID and digest and requires an ordinal above zero and `durable is True`. The meter checks the receipt a second time.
+- **Idempotence.** The journal deduplicates on `outcomeId` (`journal.py:463-474`), and floats survive the JSON round trip exactly.
+- **Privacy and scope.** Files are written mode 0600 with file and directory fsync. On failure only a fixed token is kept, and nothing reaches the handshake, status or evidence. Archive counters stay inside the journal; no code outside `journal.py` reads them. The limit, qualification and public schema are unchanged.
+- **Cleanup.** The window is cleared in a `finally`. The meter is closed and unregistered in the existing `run_native_calibration` `finally`. A closed meter refuses archiving because `_verify_identity` fails.
+- **Test value.** These are the first tests that exercise `_ensure_native_memory_meter` itself. Each over-limit test fails loudly if its guessed status-read count is wrong.
+
+## Must-Fix
+
+None.
+
+## Should-Fix
+
+1. **Missing plan-required test: under-limit windows with the callback wired.**
+   - **Where:** `tests/test_session_native_regressions.py:4128-4250` and `tests/test_session_native.py:6045-6260`.
+   - **Gap:** the plan (`PLAN…md:65-70`) requires proof that under-limit measurements still return unchanged. None of the 7 new tests completes a window at or under the limit with `over_limit_archive` installed. The existing under-limit tests build meters with no callback.
+   - **Consequence:** a later change that fires the callback on `>=` or on every completion, or that changes the returned measurement, would pass this suite.
+   - **Expected:** through `daemon._ensure_native_memory_meter()`, complete a window with `growth_bytes == limit_bytes` and one below the limit. Assert the returned measurement equals the expected value, the callback isn't invoked, and `archives("native_memory_failures") == []`.
+
+## Nits
+
+1. **The diagnostic is never cleared and nothing in production reads it.**
+   - **Where:** `daemon.py:411`, `:1003`.
+   - **Problem:** `run_native_calibration` resets `_native_handshake` (`:4719-4728`) but not `_native_memory_archive_diagnostic`. After one failed archive, every later run keeps showing `"native_memory_failure_archive_failed"`. The test helper resets it by hand (`tests/test_session_native_regressions.py:4089`).
+   - **Expected:** reset it to `None` alongside the handshake. Separately, note in the plan or HANDOFF that this in-memory token is the only signal that an archive was lost; the plan says "logged privately".
+2. **The outcome ID is computed in two places.**
+   - **Where:** `daemon.py:1058-1065` duplicates `_native_memory_failure_outcome_id` (`calibration.py:1236-1243`).
+   - **Consequence:** if the two drift apart, the check after the append fails. You'd then have a durable record plus a diagnostic saying the archive failed.
+   - **Expected:** use the single helper.
+3. **A test helper leaks a file descriptor.**
+   - **Where:** `tests/test_session_native_regressions.py:4077`.
+   - **Problem:** `_native_failure_daemon` sets `driver.native_memory_meter = None` without closing the meter `_native_driver` created at `:3869`. That leaks one pinned `/proc` fd per test.
+   - **Expected:** close that meter before replacing it.
+4. **The append-fault test doesn't prove its fault was reached.**
+   - **Where:** `tests/test_session_native_regressions.py:4218-4222`.
+   - **Problem:** the `"append"` variant asserts the diagnostic token and an empty archive. Both would also hold if a check earlier in `_archive_native_memory_failure` failed.
+   - **Expected:** count calls to `fail_append` and assert it ran exactly once.
+
+The Should-Fix only adds a test. The under-limit code path itself is unchanged, and none of the findings is a correctness defect in the frozen diff. This makes no claim about Rust, native frame 100, or autonomous qualification.
+
+STATUS: READY
+
+CLAUDE_EXIT:0

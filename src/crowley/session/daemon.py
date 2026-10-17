@@ -27,6 +27,8 @@ from .calibration import (
     LinuxProcStatusVmHwmReset5,
     NativeCalibrationRunner,
     NativeMemoryArchiveReceipt,
+    NativeMemoryMeasurement,
+    NativeMemoryMeasurementArchiveReceipt,
     NativePreconstructionEvidence,
     NativeRenderObservation,
     NativeRestorationReceipt,
@@ -404,6 +406,9 @@ class SessionDaemon:
             "restored": None,
             "archiveReceipts": [],
         }
+        # A bounded private diagnostic for a failed rejected-measurement
+        # audit append.  It is intentionally absent from IPC and status.
+        self._native_memory_archive_diagnostic: str | None = None
         self._shutdown_event = threading.Event()
         self._motion_intent_lock = threading.RLock()
         self._motion_deadline_local = threading.local()
@@ -978,6 +983,26 @@ class SessionDaemon:
             raise DriverError("native process Linux executable is unavailable") from exc
         if not linux_executable or not Path(linux_executable).is_absolute():
             raise DriverError("native process Linux executable is incomplete")
+
+        meter: LinuxProcStatusVmHwmReset5 | None = None
+
+        def archive_over_limit(
+            measurement: NativeMemoryMeasurement, failure: str
+        ) -> NativeMemoryMeasurementArchiveReceipt:
+            try:
+                if meter is None:
+                    raise DriverError("native failed-memory meter is not owned")
+                receipt = self._archive_native_memory_failure(meter, measurement, failure)
+                if not isinstance(receipt, NativeMemoryMeasurementArchiveReceipt):
+                    raise DriverError("native failed-memory archive returned no typed receipt")
+                receipt.verify(measurement)
+                return receipt
+            except Exception:
+                # Keep only a fixed private token.  The meter suppresses this
+                # diagnostic failure and raises its original limit error.
+                self._native_memory_archive_diagnostic = "native_memory_failure_archive_failed"
+                raise
+
         meter = LinuxProcStatusVmHwmReset5(
             identity.pid,
             process_start=identity.process_start,
@@ -985,9 +1010,81 @@ class SessionDaemon:
             identity_fingerprint=identity.fingerprint,
             expected_uid=os.getuid(),
             monotonic=self._native_clock,
+            over_limit_archive=archive_over_limit,
         )
         self.driver.native_memory_meter = meter
         return meter
+
+    def _archive_native_memory_failure(
+        self,
+        meter: LinuxProcStatusVmHwmReset5,
+        measurement: NativeMemoryMeasurement,
+        failure: str,
+    ) -> NativeMemoryMeasurementArchiveReceipt:
+        """Durably retain one complete over-limit window under live ownership."""
+
+        expected_failure = f"native {measurement.phase} memory growth exceeds its limit"
+        measurement.verify()
+        if failure != expected_failure or measurement.growth_bytes <= measurement.limit_bytes:
+            raise DriverError("native failed-memory outcome is not an over-limit rejection")
+        if (
+            measurement.method != meter.METHOD
+            or measurement.pid != meter.pid
+            or measurement.process_start != meter.process_start
+            or measurement.process_executable != meter.process_executable
+            or measurement.identity_fingerprint != meter.identity_fingerprint
+            or measurement.uid != meter.expected_uid
+            or measurement.kernel_release != meter.kernel_release
+            or not meter.completion_matches(measurement)
+        ):
+            raise DriverError("native failed-memory measurement is not bound to its completing meter")
+
+        with self.controller.lock:
+            if self.controller.status().state != ControllerState.NATIVE_CALIBRATION:
+                raise DriverError("native failed-memory archive requires NATIVE_CALIBRATION")
+            if self.driver.native_memory_meter is not meter:
+                raise DriverError("native failed-memory meter ownership changed")
+            identity = self.driver.resolve_identity()
+            if (
+                identity.fingerprint != measurement.identity_fingerprint
+                or identity.pid != measurement.pid
+                or identity.process_start != measurement.process_start
+            ):
+                raise DriverError("native failed-memory client identity changed")
+            meter._verify_identity()
+
+            kind = "native_memory_failures"
+            measurement_payload = measurement.to_dict()
+            outcome_payload = {
+                "kind": kind,
+                "measurement": measurement_payload,
+                "failure": failure,
+            }
+            outcome_id = hashlib.sha256(
+                json.dumps(outcome_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            payload = {
+                "schema": 1,
+                "outcomeId": outcome_id,
+                "phase": measurement.phase,
+                "ordinal": measurement.ordinal,
+                "decision": "rejected_over_limit",
+                "qualifies": False,
+                "failure": failure,
+                "measurement": measurement_payload,
+            }
+            archived = self.controller.journal.append_archive(kind, payload)
+            if (
+                not isinstance(archived, dict)
+                or set(archived) != set(payload) | {"archiveOrdinal", "archivedAt"}
+                or any(archived.get(key) != value for key, value in payload.items())
+                or isinstance(archived.get("archivedAt"), bool)
+                or not isinstance(archived.get("archivedAt"), int)
+            ):
+                raise DriverError("native failed-memory archive result is invalid")
+            receipt = NativeMemoryMeasurementArchiveReceipt.from_archive(measurement, archived)
+            receipt.verify(measurement)
+            return receipt
 
     def _native_preconstruction_provider(
         self,

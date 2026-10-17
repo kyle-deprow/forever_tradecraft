@@ -1,0 +1,6 @@
+{
+  "snapshot_id": "beta-20261017T181427Z-749cfdb71a90",
+  "manifest_sha256": "a8a6161da1bef04c4eee29b1d79fc2368fcb7e07db608ded55474f2d0580f6d7",
+  "snapshot_and_parent_validation": "passed",
+  "new_snapshot_restore": "not separately run; prior accepted tool disposable restore drill retained"
+}

@@ -38,6 +38,8 @@ from crowley.session.calibration import (
     NativeCalibrationEvidence,
     NativeCalibrationRunner,
     NativeMemoryArchiveReceipt,
+    NativeMemoryMeasurement,
+    NativeMemoryMeasurementArchiveReceipt,
     NativePreconstructionEvidence,
     NativeRenderObservation,
     NativeRestorationReceipt,
@@ -6040,6 +6042,147 @@ def test_reset5_preserves_transient_peak_after_rss_falls_and_requires_two_window
             meter.close()
 
 
+def test_reset5_archives_complete_over_limit_measurement_before_exact_error() -> None:
+    child = subprocess.Popen(["/bin/sleep", "20"])
+    meter: LinuxProcStatusVmHwmReset5 | None = None
+    try:
+        process_start, executable = _owned_child_identity(child)
+        archived: list[tuple[NativeMemoryMeasurement, str]] = []
+        meter = LinuxProcStatusVmHwmReset5(
+            child.pid,
+            process_start=process_start,
+            process_executable=executable,
+            identity_fingerprint="over-limit-identity",
+        )
+        uid = os.getuid()
+        statuses = iter(
+            [
+                (1_000, 900, uid),
+                (1_000, 900, uid),
+                (1_000, 900, uid),
+                (1_000, 900, uid),
+                (1_000, 900, uid),
+                (1_000 + 200 * 1024 * 1024, 900, uid),
+            ]
+        )
+        meter._status = lambda: next(statuses)  # type: ignore[method-assign]
+        order: list[str] = []
+
+        def retain(measurement, failure):  # type: ignore[no-untyped-def]
+            archived.append((measurement, failure))
+            order.append("archived")
+            outcome = hashlib.sha256(
+                json.dumps(
+                    {
+                        "kind": "native_memory_failures",
+                        "measurement": measurement.to_dict(),
+                        "failure": failure,
+                    },
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode("utf-8")
+            ).hexdigest()
+            return NativeMemoryMeasurementArchiveReceipt(
+                outcome,
+                hashlib.sha256(
+                    json.dumps(measurement.to_dict(), sort_keys=True, separators=(",", ":")).encode("utf-8")
+                ).hexdigest(),
+                1,
+                True,
+            )
+
+        meter._over_limit_archive = retain
+        pending = meter.begin_window(
+            "construction",
+            0,
+            limit_bytes=128 * 1024 * 1024,
+            before_reset=lambda record: NativeMemoryArchiveReceipt.for_record(
+                record, archive_id="before-reset"
+            ),
+        )
+        with pytest.raises(CalibrationError) as failure:
+            meter.finish_window(
+                pending,
+                workload_start_monotonic=pending.reset_completed_monotonic,
+                workload_end_monotonic=pending.reset_completed_monotonic,
+                workload_start_ordinal=0,
+                workload_end_ordinal=0,
+            )
+        order.append("raised")
+        assert str(failure.value) == "native construction memory growth exceeds its limit"
+        assert failure.value.__cause__ is None
+        assert failure.value.__context__ is None
+        assert len(archived) == 1
+        measurement, archived_failure = archived[0]
+        measurement.verify()
+        assert archived_failure == str(failure.value)
+        assert measurement.final_hwm_bytes == 1_000 + 200 * 1024 * 1024
+        assert measurement.growth_bytes == 200 * 1024 * 1024
+        assert measurement.historical_hwm_bytes == 1_000
+        assert measurement.post_reset_hwm_bytes == 1_000
+        assert order == ["archived", "raised"]
+    finally:
+        if meter is not None:
+            meter.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize("failure_point", ["final_read", "identity"])
+def test_reset5_final_accounting_failure_never_fabricates_measurement(failure_point: str) -> None:
+    child = subprocess.Popen(["/bin/sleep", "20"])
+    meter: LinuxProcStatusVmHwmReset5 | None = None
+    try:
+        process_start, executable = _owned_child_identity(child)
+        archived: list[NativeMemoryMeasurement] = []
+        meter = LinuxProcStatusVmHwmReset5(
+            child.pid,
+            process_start=process_start,
+            process_executable=executable,
+            identity_fingerprint="final-read-failure",
+        )
+        uid = os.getuid()
+        statuses = iter([(1_000, 900, uid)] * 5)
+
+        def read_status():
+            if failure_point == "final_read":
+                try:
+                    return next(statuses)
+                except StopIteration:
+                    raise CalibrationError("final status failed") from None
+            return next(statuses)
+
+        meter._status = read_status  # type: ignore[method-assign]
+        meter._over_limit_archive = lambda measurement, _failure: archived.append(measurement)  # type: ignore[method-assign]
+        pending = meter.begin_window(
+            "construction",
+            0,
+            limit_bytes=128 * 1024 * 1024,
+            before_reset=lambda record: NativeMemoryArchiveReceipt.for_record(record, archive_id="reset"),
+        )
+        if failure_point == "identity":
+            meter._verify_identity = lambda: (_ for _ in ()).throw(  # type: ignore[method-assign]
+                CalibrationError("final identity failed")
+            )
+            expected = "final identity failed"
+        else:
+            expected = "final status failed"
+        with pytest.raises(CalibrationError, match=expected):
+            meter.finish_window(
+                pending,
+                workload_start_monotonic=pending.reset_completed_monotonic,
+                workload_end_monotonic=pending.reset_completed_monotonic,
+                workload_start_ordinal=0,
+                workload_end_ordinal=0,
+            )
+        assert archived == []
+    finally:
+        if meter is not None:
+            meter.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
 def test_reset5_rejects_identity_write_and_fsync_failures(monkeypatch: pytest.MonkeyPatch) -> None:
     child = subprocess.Popen(["/bin/sleep", "20"])
     try:
@@ -6083,6 +6226,36 @@ def test_reset5_rejects_identity_write_and_fsync_failures(monkeypatch: pytest.Mo
                 before_reset=lambda record: NativeMemoryArchiveReceipt.for_record(record, archive_id="fsync"),
             )
         meter.close()
+    finally:
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_reset5_invalid_over_limit_callback_is_rejected_before_proc_fd_open(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    child = subprocess.Popen(["/bin/sleep", "20"])
+    try:
+        process_start, executable = _owned_child_identity(child)
+        opened_target: list[int] = []
+        original_open = os.open
+
+        def observe_proc_open(path, flags, *args, **kwargs):  # type: ignore[no-untyped-def]
+            fd = original_open(path, flags, *args, **kwargs)
+            if Path(path) == Path("/proc") / str(child.pid):
+                opened_target.append(fd)
+            return fd
+
+        monkeypatch.setattr("crowley.session.calibration.os.open", observe_proc_open)
+        with pytest.raises(CalibrationError, match="archive callback is invalid"):
+            LinuxProcStatusVmHwmReset5(
+                child.pid,
+                process_start=process_start,
+                process_executable=executable,
+                identity_fingerprint="invalid-callback",
+                over_limit_archive=object(),  # type: ignore[arg-type]
+            )
+        assert opened_target == []
     finally:
         child.terminate()
         child.wait(timeout=3)

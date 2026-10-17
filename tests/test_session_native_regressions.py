@@ -12,6 +12,7 @@ import io
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 import threading
@@ -35,6 +36,7 @@ from crowley.session.calibration import (
     NativeCalibrationRunner,
     NativeMemoryArchiveReceipt,
     NativeMemoryMeasurement,
+    NativeMemoryMeasurementArchiveReceipt,
     NativePreconstructionEvidence,
     NativeRenderObservation,
     NativeRestorationReceipt,
@@ -43,6 +45,8 @@ from crowley.session.calibration import (
     OwnedWindow,
     XTestInputProfile,
 )
+from crowley.session.controller import Controller, ControllerState
+from crowley.session.daemon import SessionDaemon
 from crowley.session.decoder import PixelDecoder
 from crowley.session.driver import (
     _EXEC_ADMISSION_WRAPPER,
@@ -57,6 +61,7 @@ from crowley.session.driver import (
 )
 from crowley.session.guardian import GuardianError, InputGuardian
 from crowley.session.input_events import EventClass, XI2Event, parse_xi2_records
+from crowley.session.journal import Journal
 from crowley.session.protocol import ProtocolError, encode_frame, pack_cells
 from tests.test_session_input_tool import fixture_input_tool
 
@@ -4065,6 +4070,182 @@ def test_reset5_archives_historical_hwm_before_each_owned_window(tmp_path: Path)
         child.wait(timeout=3)
         if meter is not None:
             meter.close()
+
+
+def _native_failure_daemon(tmp_path: Path):
+    driver, _identity, child = _native_driver(tmp_path)
+    driver.native_memory_meter = None
+    controller = Controller(
+        Journal(tmp_path / "failure-journal.json"),
+        driver=driver,
+        recover_on_restart=False,
+    )
+    with controller.lock:
+        controller._state = ControllerState.NATIVE_CALIBRATION
+    daemon = object.__new__(SessionDaemon)
+    daemon.driver = driver
+    daemon.controller = controller
+    daemon._native_clock = lambda: driver._native_test_clock[0]  # type: ignore[attr-defined]
+    daemon._native_memory_archive_diagnostic = None
+    daemon._native_handshake = {"state": "running", "failure": ""}
+    return daemon, driver, controller, child
+
+
+def _complete_over_limit_window(meter: LinuxProcStatusVmHwmReset5) -> None:
+    uid = os.getuid()
+    statuses = iter(
+        [
+            (1_000, 900, uid),
+            (1_000, 900, uid),
+            (1_000, 900, uid),
+            (1_000, 900, uid),
+            (1_000, 900, uid),
+            (1_000 + 200 * 1024 * 1024, 900, uid),
+            (1_000, 900, uid),
+        ]
+    )
+    fallback = (1_000, 900, uid)
+
+    def read_status():
+        return next(statuses, fallback)
+
+    meter._status = read_status  # type: ignore[method-assign]
+    pending = meter.begin_window(
+        "construction",
+        0,
+        limit_bytes=128 * 1024 * 1024,
+        before_reset=lambda record: NativeMemoryArchiveReceipt.for_record(record, archive_id="reset"),
+    )
+    meter.finish_window(
+        pending,
+        workload_start_monotonic=pending.reset_completed_monotonic,
+        workload_end_monotonic=pending.reset_completed_monotonic,
+        workload_start_ordinal=0,
+        workload_end_ordinal=0,
+    )
+
+
+def test_daemon_archives_exact_rejected_measurement_idempotently_and_privately(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, controller, child = _native_failure_daemon(tmp_path)
+    meter: LinuxProcStatusVmHwmReset5 | None = None
+    try:
+        meter = daemon._ensure_native_memory_meter()
+        assert meter is not None
+        original_append = controller.journal.append_archive
+        replayed: list[dict[str, object]] = []
+
+        def append_and_replay(kind: str, record: dict[str, object]) -> dict[str, object]:
+            first = original_append(kind, record)
+            second = original_append(kind, record)
+            assert first == second
+            replayed.extend([first, second])
+            return second
+
+        controller.journal.append_archive = append_and_replay  # type: ignore[method-assign]
+        with pytest.raises(CalibrationError) as failure:
+            _complete_over_limit_window(meter)
+        assert str(failure.value) == "native construction memory growth exceeds its limit"
+        assert failure.value.__cause__ is None
+        assert failure.value.__context__ is None
+        assert len(replayed) == 2
+        assert replayed[0]["archiveOrdinal"] == replayed[1]["archiveOrdinal"] == 1
+        records = controller.journal.archives("native_memory_failures")
+        assert len(records) == 1
+        artifact = next((controller.journal.archive_path / "native_memory_failures").glob("*.json"))
+        assert stat.S_IMODE(artifact.stat().st_mode) == 0o600
+        record = records[0]
+        assert record["schema"] == 1
+        assert record["decision"] == "rejected_over_limit"
+        assert record["qualifies"] is False
+        assert record["failure"] == str(failure.value)
+        assert record["archiveOrdinal"] == 1
+        assert record["measurement"]["final_hwm_bytes"] == 1_000 + 200 * 1024 * 1024
+        assert record["measurement"]["growth_bytes"] == 200 * 1024 * 1024
+        expected_outcome = hashlib.sha256(
+            json.dumps(
+                {
+                    "kind": "native_memory_failures",
+                    "measurement": record["measurement"],
+                    "failure": str(failure.value),
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
+        assert record["outcomeId"] == expected_outcome
+        assert set(record) == {
+            "schema",
+            "outcomeId",
+            "phase",
+            "ordinal",
+            "decision",
+            "qualifies",
+            "failure",
+            "measurement",
+            "archiveOrdinal",
+            "archivedAt",
+        }
+        assert daemon._native_memory_archive_diagnostic is None
+        assert daemon._native_handshake == {"state": "running", "failure": ""}
+        durable = controller.journal.read()
+        assert durable["nativeCalibration"] is False
+        assert durable["calibrationEvidence"] == {}
+        assert durable["qualification"]["totalAccepted"] == 0
+        assert controller.status().state == ControllerState.NATIVE_CALIBRATION
+        assert driver.native_memory_meter is meter
+    finally:
+        if meter is not None:
+            meter.close()
+        driver.native_memory_meter = None
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize("archive_fault", ["append", "receipt"])
+def test_daemon_archive_diagnostic_stays_private_and_preserves_limit_error(
+    tmp_path: Path, archive_fault: str
+) -> None:
+    daemon, driver, controller, child = _native_failure_daemon(tmp_path)
+    meter: LinuxProcStatusVmHwmReset5 | None = None
+    secret = "PRIVATE_ARCHIVE_FAILURE_SENTINEL"
+    try:
+        meter = daemon._ensure_native_memory_meter()
+        assert meter is not None
+        if archive_fault == "append":
+
+            def fail_append(_kind: str, _record: dict[str, object]) -> dict[str, object]:
+                raise RuntimeError(secret)
+
+            controller.journal.append_archive = fail_append  # type: ignore[method-assign]
+        else:
+
+            def invalid_receipt(*_args: object) -> NativeMemoryMeasurementArchiveReceipt:
+                return NativeMemoryMeasurementArchiveReceipt("0" * 64, "0" * 64, 0, True)
+
+            daemon._archive_native_memory_failure = invalid_receipt  # type: ignore[method-assign]
+
+        with pytest.raises(CalibrationError) as failure:
+            _complete_over_limit_window(meter)
+        assert str(failure.value) == "native construction memory growth exceeds its limit"
+        assert failure.value.__cause__ is None
+        assert failure.value.__context__ is None
+        assert daemon._native_memory_archive_diagnostic == "native_memory_failure_archive_failed"
+        assert secret not in repr(daemon._native_handshake)
+        assert secret not in repr(controller.status())
+        assert secret not in repr(controller.journal.read())
+        assert controller.journal.archives("native_memory_failures") == []
+        assert controller._native_calibrated is False
+        assert controller.status().state == ControllerState.NATIVE_CALIBRATION
+    finally:
+        if meter is not None:
+            meter.close()
+        driver.native_memory_meter = None
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
 
 
 def test_native_runner_samples_hwm_before_constructor_and_each_update(
