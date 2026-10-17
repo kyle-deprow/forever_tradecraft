@@ -1,0 +1,31 @@
+**Model:** Claude Opus 5.5 (`claude-opus-5-5`), running in the Claude CLI. I only read files. I made no edits and ran no tests, builds, Git, network or GUI actions. The 31.70s and 189.30s passing runs are the parent's numbers; I did not reproduce them.
+
+**Identity checks all match.** Running `diff -u` between R3 and the closure tree reproduces the diff byte-for-byte (`0974d161…`), and `tests/test_session_native.py` is the only file that differs. The closure test hash is `c742c01a…` and the old R3 test hash is `42279278…`, which matches Sol R3's freeze. The production files, the evaluator, its tests and the docs are byte-identical in both worktrees and match freeze `a56d8b68…`.
+
+**Correction 1: actual config refusal (`tests/test_session_native.py:2389-2400`). Closed.**
+- The test deep-copies the independently computed `live_binding` from `:1519`. It replaces only `config_binding`, using the raw sha256 of the altered file and `altered_semantic`. The file is read inside the `try`, before the `finally` restore at `:2405`.
+- The deep copy is needed because `live_binding` is used again at `:2544`, `:2617` and `:2636`.
+- The receipt now goes through the public `_evaluate_persisted_live_receipt` → `build_live_report` path. The test asserts the run is ineligible and that `config_binding_mismatch` is among its reason codes.
+- "Retained" is implied rather than asserted. No `_LiveRefusal` raises `config_binding_mismatch`, so a refused record can never carry that code.
+- One non-blocking point. In this receipt the run-level `config_ok` is True, so the code comes from the attempt's own failure classification. Because the reason-code check tests membership rather than the exact set, an extra source or producer reason code would not fail it. That doesn't block closure:
+  - the success path at `:1588` asserts `eligible is True` against the same `live_binding`;
+  - `:2385-2388` asserts directly that the owner's semantic hash differs.
+
+**Correction 2: private identity refusal (`:2217-2232`). Closed.**
+- The test reads and parses the 0600 `owner-refusal-00.json`. The harness writes it with `_bounded_failure_response`, which keeps `failure` unchanged.
+- It asserts:
+  - phase `identity_before_capture` (set at daemon `:3849`);
+  - the exact wrapped error `DriverError: <msg>` (daemon `:4066`);
+  - an exact `producer_attempt` dict with stage `not_started` and `attempt_retired: True`, which the daemon derives from the final cleanup ledger;
+  - `lease_held` is True, `armed` is False and `cleanup.empty` is True. The daemon records these after cleanup, so they are the final state.
+
+**Test regressions caused by the delta:** none found.
+- Nothing shared is mutated.
+- The new `accepted-binding.json` is written only into the unique `evidence-semantic-config-mismatch` directory.
+- The `copy` import is in sorted order.
+
+I make no Rust or live-qualification claim. This note is also saved in `/home/dev/.claude/plans/actual-claude-cli-opus-serene-lobster.md`.
+
+**STATUS: READY**
+
+CLAUDE_EXIT:0

@@ -1,0 +1,63 @@
+# Runtime live instrumentation: Opus R3 source-closure review
+
+**Model:** `claude-opus-5-5` (Opus 5.5). This was a read-only review. The only file I wrote is the report, at `/home/dev/.claude/plans/actual-claude-cli-opus-bright-gizmo.md`.
+
+**Hashes:** the freeze, the R2→R3 diff, the parent delta, the plan, all 4 candidate files and all 3 evaluator files match what you gave me. The change still touches exactly 4 files.
+
+## STATUS: NEEDS WORK
+
+### MustFix
+
+**1. A late refusal that includes a sample gets the wrong label (new in R3).**
+- **What changed:** R3 moved refusal handling (`offline_harness.py:1946-1976`) ahead of the deadline check (`:1977-1984`). While `_owner_png_bytes` runs (`:1956`), the phase is still `"owner_ipc"` (set at `:1880`). That function raises a plain `RuntimeError` when the sample's `owner_returned >= deadline` (`:1048-1058`).
+- **When it happens on the real path:** the daemon builds the sample (`daemon.py:3920`) and then refuses after the deadline has passed. That is its own check at `:3944-3945`, or a slow post-capture check at `:3946-3965`. `_socket_request` still returns any reply that arrives within deadline + 0.25 s (`cli.py:595`, `:611`).
+- **Effect:** the receipt records `owner_ipc/owner_ipc_failed`, which says the IPC protocol broke. R2 and accepted R6 (`main harness:1274-1281`) checked lateness first, so they recorded `deadline/sample_deadline_missed`. The private refusal JSON is still kept.
+- **Fix:**
+  - After writing the private refusal and validating `producer_attempt`, check `ipc_returned >= deadline` before `_owner_png_bytes`.
+  - Add a regression for a refusal that arrives late but within the grace period. Today only the after-grace `TimeoutError` case is tested (`test:1743`).
+
+**2. The priority-4 test closure is still open (carried from R2 MustFix 4).**
+- **Model counters:**
+  - The test at `test:2562-2610` calls `_call_model_adapter` outside any sample. It then writes those snapshots into a copy of the success receipt (`:2592-2601`).
+  - No model call overlaps a real owner sample, so the test would pass even if the owner's before/after snapshots (`daemon.py:3751`, `:3976`) were missing or in the wrong place.
+  - The real success receipt still asserts all-zero counters (`test:1552-1563`).
+  - Per-entry-point counts and the `failed` increment are never asserted.
+  - **Needed:** block inside the first sample's owner source gate and run one `observe` call concurrently. Then assert the persisted attempt-0 counter delta, and that the public evaluator marks the run ineligible with `model_call_delta_nonzero`.
+- **Identity refusal:** the test (`:2216-2221`) checks only the state, attempt count and pairs.
+  - Under the unchanged evaluator, this receipt comes out `eligible: false` with `["binding_mismatch", "owner_capture_failed"]`.
+  - The `binding_mismatch` is there because a failure projection has a null producer binding (`session_performance.py:928-933`, `:1138-1145`, `:1534-1536`).
+  - `_live_decision` therefore counts it as a mismatched run and forces the whole batch to `insufficient_evidence` (`:1673-1687`).
+  - That follows from the evaluator as designed, and I'm not proposing a schema change. But the test should lock this outcome so you accept it knowingly.
+- **Config mismatch:** the test (`:2372-2390`) still uses the private `_validate_live_receipt`, with source and producer binding taken from the receipt under test. It should go through `build_live_report` with an independent binding and assert the exact reasons.
+
+### ShouldFix (nonblocking)
+1. **The last source check sits outside the counter window.** `model_calls_after` is taken at `daemon.py:3976`, before the source re-hash at `:3982-3988`. For attempt 7, a model call during that re-hash is never counted. For attempts 0-6 it is caught by the next sample's starting count. Move the snapshot to just before `response_ready` (`:3989`).
+2. **Malformed refusals, or refusals without a `failure` object, lose their detail.**
+   - R3 requires `failure` (`offline_harness.py:1922-1925`). But `SessionIPC` can reply `{"ok": False, "error": ...}` without it (`cli.py:56-79`), and nothing is saved privately in that case.
+   - R6 accepted that reply shape and saved a bounded copy before validating (`main:1282-1298`).
+3. **A malformed capture `source` is labelled `source_binding`** (`offline_harness.py:1086-1090`). That object holds the producer's API, branch and rectangle, not the runtime source map. It should be `producer_binding`. The label matters because `source_binding_drift` blocks the whole batch.
+4. **Gaps in the new timing tests:**
+   - Both new clock tests replace `harness.time` for the whole module (`test:2433`, `:2518`), which the plan forbids (line 208).
+   - No test checks that a final-status failure leaves `sample_completed_monotonic` null.
+   - The delayed-final-status receipt is never run through the evaluator. There it would still be eligible with 8 completed pairs, and the test should lock that.
+
+### Nits
+- `_OWNER_FAILURE_PHASES` (`:1490`) accepts 8 phase names the daemon never sends.
+- An interrupted target wait (`:1829-1836`) drops the original KeyboardInterrupt or SystemExit from the error chain.
+- The identity test's comment says the original phase and error are kept, but the refusal JSON's contents are never checked.
+- The evaluator helper writes `accepted-binding.json` into the private evidence directories (`test:126`).
+- Retirement for refusals before the producer starts uses the owner-wide `empty` ledger. It is conservative, so worth recording in HANDOFF §6.
+- A `TimeoutError` raised before the socket even connects still writes an "unknown" owner-timeout record.
+
+### Closure by priority
+| Priority | Result |
+|---|---|
+| 1. Retirement | **Closed.** The driver records retirement on every exit, including lock timeout (`driver.py:3172-3211`). The daemon fills in the not-started case from its own cleanup ledger, and the harness requires a bool. The identity receipt is kept rather than refused through the public evaluator. |
+| 2. Failure phases | **Closed except MustFix 1 and ShouldFix 3.** An unknown phase now raises. A decode that returns but fails later validation keeps its full CPU as `strict_decode/unknown_required_stage`. Config, status and publication phases are set before their work. NO_CHANGE is refused as `attempt_lifecycle_invalid`; that is forced by the evaluator's rule that identity must advance (`:1185-1189`), so it is as designed. |
+| 3. Schema and binding | **Closed except MustFix 1 and ShouldFix 2.** `ok` must be a real bool and the success shape is exact. The failure payload is validated before it is projected. The owner's config hash is kept separate from the request's. Refusal JSON and failed PNGs are saved with mode 0600, and timeout and late-success records are added. |
+| 4. Tests | **Partly closed.** The independent binding and the public `build_live_report` path are used for success, boot change, status failure, identity, interrupt and drift. MustFix 2 remains. |
+| 5. Target wait and final status | **Closed in code.** An interrupted wait ends `incomplete` with no invented attempt, through the shared finalizer and after-run source hashes. The final status check runs before completion under the original deadline. The test gaps are in ShouldFix 4. |
+
+I did not reopen the confirmed R2 positives. This review does not qualify any schema-2 live run or Rust decision.
+
+CLAUDE_EXIT:0

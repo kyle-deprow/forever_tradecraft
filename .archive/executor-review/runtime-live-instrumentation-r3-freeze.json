@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "isolated_root": "/home/dev/.cache/crowley/worktrees/runtime-instrumentation-r3-20261017",
+  "base_commit": "447b40e",
+  "released_plan_sha256": "a563e4df1450eaac3cb44b87fb3143a823bbed5b23f4209d168703a010a0bb62",
+  "source_hashes": {
+    "src/crowley/session/driver.py": "fb907096007e10ed59f67dceb52dd20a3e54c37ff02e011d21c61f292806938d",
+    "src/crowley/session/daemon.py": "22d156727f87d3b7aa84ce614754023cc68c6edf0da40d6ea4ac001dd8803683",
+    "tools/gnome-telemetry-region/offline_harness.py": "22272f498a62d1a0fa83c8447411cfba3328439e846c781d0e4c1e7d3e64ec47",
+    "tests/test_session_native.py": "422792783d0a52e57972cb4b7c6ce8481310a9d95fefd7e8d98e2df7c60d7553"
+  },
+  "read_only_evaluator": {
+    "tools/session_performance.py": "c46cae849058005e9b7387ef95c34f40f376afb5477739efaf6f40f6a36ebd8c",
+    "tests/test_session_performance.py": "c998aa4a9ff67ba67ddeab05a0e5a0cfa5273a296909e0b07cb79a3d06dd313a",
+    "docs/RUNTIME_PERFORMANCE.md": "54237c344ef0faa3392cca6fe82b75f1f986bbf697c81d3f34493b2f00e1caca"
+  },
+  "delta_sha256": "70a688e72da6acd45fe26923f1a2a04a41f3515d6859859beaf46c9643138b75",
+  "fix_delta_sha256": "2ddb6a6171b257f5731e450a6ce8779534d04896f8903923c508cd2cb1c1d391",
+  "status": "worker complete; frozen for parent verification and focused Sol/actual Opus R3 closure review; no deployment"
+}

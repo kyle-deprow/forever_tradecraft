@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "freeze_sha256": "a56d8b688d0b6533c66f0ec9c12dd9c988c3134485b7896811a9cfa4f3b070c9",
+  "test_sha256": "c742c01a8a3b75518590ebb57afef87388c2d7f6887e814cabf758f9cacab37a",
+  "production_sources_unchanged": true,
+  "parent_focused_compiled_composition": {
+    "passed": 1,
+    "duration_seconds": 32.65,
+    "log_sha256": "fbe1227d565b0a906e828e1647c960609d8a42c93de4c0c21e489ab7718d0bea"
+  },
+  "Sol_test_review": "READY",
+  "actual_Opus_test_review": "READY claude-opus-5-5 CLI exit0",
+  "production_review_status": "R3 Sol READY; actual Opus R3 requires bounded R4 late-refusal/counter-concurrency fixes; no integration",
+  "fresh_backup": {
+    "snapshot": "beta-20261017T120034Z-ec9c55cdffcb",
+    "manifest_sha256": "7d9a78395d45e411c370e82a8a6a33dac5c6ab9d7b7362f9b5a1f48a70f714a4",
+    "snapshot_and_validation": "passed",
+    "separate_restore": "not attempted; prior accepted-tool restore drill retained"
+  }
+}

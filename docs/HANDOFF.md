@@ -29,12 +29,15 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at11:34UTC:** twenty-two current-session sweeps are persisted and
-exact-UID ACKed:49,637 price rows across428target items per sweep. Twenty-second
-completed428queries/2458rows,409full/19bounded/allok in474s; exact900s start
-interval and37.148s upload. Twenty-first uploaded in56.893s; the last two ordinary
-sweeps met60s. Twentieth took91.529s, so consistent autonomous performance is
-still unqualified. Recent starts are exactly900s apart; uploads still
+**Current status at12:06UTC:** twenty-four current-session sweeps are persisted and
+exact-UID ACKed:54,726 price rows across428target items per sweep. Twenty-fourth
+completed428queries/2546rows,407full/21bounded/allok in474s; exact900s start
+interval, upload61.181s. Previous three ordinary sweeps uploaded in56.893s,
+37.148s and39.690s. Formal autonomous performance remains unqualified. After
+#24reload, overlapping characters obscured the auctioneer. Luna identified a
+fresh hover candidate but its click proof expired before dispatch; no button
+went down. A prepared-helper/fresh-proof recovery is underway. Do not infer a
+#25timer defect if its AH-open precondition was unavailable. Recent starts are exactly900s apart; uploads still
 inconsistently meet60s. Luna remains the sole ordinary GUI operator. The formal
 autonomous three-sweep qualification, physical-input qualification and launch
 strategy engine remain unfinished.
@@ -51,13 +54,13 @@ The failed attempt remains preserved. The unit stays inactive/disabled.
 The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. The
 SolREADY live instrumentation plan now has a frozen four-file candidate in
 `/home/dev/.cache/crowley/worktrees/runtime-instrumentation-20261017`; parent
-reproduced69focused R1 checks and71focused R2 checks (29.70s), including a real
-compiled composition receipt evaluated through the unchanged evaluator. SolR1,
-actualOpusR1, SolR2 and actualOpusR2 require fixes. Luna owns the same
-four paths in successor `runtime-instrumentation-r3-20261017`, closing actual
-owner-config failure binding, exact IPC validation, terminal pre-producer cleanup,
-target-wait interruption lifecycle and final-status completion clock defects.
-R1/R2 stay frozen. Do not deploy any instrumentation candidate before acceptance. Next: integrate the reviewed
+reproduced69focused R1,71focused R2, and199native/evaluator R3 checks (189.30s).
+SolR3source READY. A separate test-only closure has parent1compiled check32.65s
+and Sol/actualOpus READY; production files unchanged. ActualOpusR3 still requires
+a late-refusal deadline-label fix and actual concurrent model-call regression.
+Luna owns bounded successor `runtime-instrumentation-r4-20261017`; driver remains
+R3-byte-identical, only daemon/harness/tests may change. Earlier freezes stay
+immutable. No instrumentation candidate is integrated or released. Next: integrate the reviewed
 instrumentation, start a fresh owner, bind the exact sources/config/producer,
 and retain every outcome in a predeclared16-run evidence batch. No live
 computation bottleneck or Rust rewrite is established yet. Instrumentation's
@@ -68,15 +71,23 @@ reads occur inside each owner's measured sample (seven before, seven after).
 Their overhead is included in wall time and excluded from strict-decode CPU;
 no separate overhead distribution has been measured.
 
-Fresh backup `beta-20261017T105809Z-38e4b9dd2ff4` passed snapshot and independent
-validation (manifestSHA08a38defd45bb6cb8e8f7047f90326e934531064b7977fd205960a67a0b9a391).
+Fresh backup `beta-20261017T120034Z-ec9c55cdffcb` passed snapshot and independent
+validation (manifestSHA7d9a78395d45e411c370e82a8a6a33dac5c6ab9d7b7362f9b5a1f48a70f714a4).
 It was not separately restored; the prior accepted-tool disposable restore drill
 remains the restore evidence. Global Codex CLI is now0.163.0; the actual private
 profile uses the cached0.162.1binary and passes the existing startup pin. Do not
 relax the adapter pin to make default-path test fixtures pass.
 
+
+The bounded keyboard-interaction proposal is `.archive/PLAN-deterministic-ah-interaction.md`.
+Build-matched source supports the candidate APIs; live binding/mode/identity/range
+facts remain unknown. A passive query was refused before Return because actual
+staged text omitted parentheses; Escape cleanup verified chat empty and AH unchanged.
+The staging path is not proven to be the allowlisted production typing executor.
+No query ran, no interaction key/binding/config change occurred, and probes stopped.
+
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `408a186` (initial snapshot
+summaries were pushed to the new origin through `736a2b4` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance

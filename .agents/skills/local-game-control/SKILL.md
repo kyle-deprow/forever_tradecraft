@@ -160,6 +160,10 @@ within existing authorization; respect any current movement limits.
   Planner and argv-builder tests do not establish executor behavior. Exercise
   the actual key/camera driver entrypoint and ordered observer completion;
   model the external process/events rather than replacing the ownership gate.
+  For diagnostic format changes, pass actual persisted producer receipts through
+  the public evaluator with bindings derived independently from known fixture
+  files before the run. Separate synthetic evaluator tests and bindings copied
+  from the receipt cannot prove compatibility or detect false provenance.
   Motion-planner checks must include bounded over/undershoot, not only exact
   nominal travel. Minimum pulses and cumulative uncertainty can make an apparent
   in-range target infeasible; refuse it before input rather than increasing bounds.
@@ -214,6 +218,9 @@ within existing authorization; respect any current movement limits.
   buffer is empty before replacing it; Ctrl+U can leave a suffix after the cursor.
   Use verified paste or a measured typing rate and inspect both ends of a
   horizontally scrolled command before submission.
+  Slash-command success does not prove shifted punctuation works. Compare the
+  entire actual buffer, including parentheses and quotes, before Return; cancel
+  malformed input and retain the refusal instead of trying another live route.
 - After a black capture, establish whether the game is loading, obscured, disconnected,
   or uncaptured. Compare capture paths when needed: on GNOME, scrot or XImage can be black
   while gnome-screenshot captures a healthy visible application. A failed
