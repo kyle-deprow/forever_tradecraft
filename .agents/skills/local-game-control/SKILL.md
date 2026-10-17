@@ -54,7 +54,9 @@ within existing authorization; respect any current movement limits.
   previous resolution or window position are stale.
 - A worker shell can lack the graphical environment while the game is running.
   Obtain `DISPLAY` and `XAUTHORITY` from the verified game or graphical session
-  and pass them to capture/query tools. Do not dump the full process environment
+  and pass them to capture/query tools and fresh owner launches. Verify that a
+  replacement owner inherits them or binds the exact authority path in its profile.
+  Do not dump the full process environment
   or treat a missing shell variable as evidence that the desktop is unavailable.
 - Persistent desktop notifications are historical evidence. Before attributing a
   current game problem to memory pressure, check fresh available memory/pressure
@@ -221,6 +223,8 @@ within existing authorization; respect any current movement limits.
   Slash-command success does not prove shifted punctuation works. Compare the
   entire actual buffer, including parentheses and quotes, before Return; cancel
   malformed input and retain the refusal instead of trying another live route.
+  When a harness requires a new evidence directory, let the harness create it;
+  store invocation logs beside that directory, not inside a pre-created one.
   Pointer position can change during Wine capture. Compare actual positions before
   and after capture; a tooltip in the image does not prove the current pointer
   stayed there. Diagnose the change before any guarded final reposition/click.

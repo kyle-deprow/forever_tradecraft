@@ -29,20 +29,19 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at12:30UTC:** twenty-five current-session sweeps are persisted and
-exact-UID ACKed:57,229 price rows across428target items per sweep. Twenty-fourth
-completed428queries/2546rows,407full/21bounded/allok in474s; exact900s start
-interval, upload61.181s. After #24reload, crowded characters obscured the auctioneer.
-A fresh-proof guarded single right-click recovered the AH; #25 began1792239402,
-1599s after #24start (699s late because AH-open was unavailable). Its next due
-is1792240302. Do not attribute this delay to the addon timer. Pointer position
-changed during full-screen capture; pinned and system position tools agreed,
-but the actor/mechanism is unknown. Xwayland-relative-pointer is virtual, not
-proof of physical human input. The first post-click HUD was too early; a later
-advancing frame established AHopen/scanactive. Luna remains sole GUI operator.
-Scan25completed428queries/2503rows/407full/21bounded/allok in477s; upload53.609s.
-AHreopened with fresh proof and26scheduled1792240302. Formal autonomous three-sweep
-and physical-input qualification remain unfinished.
+**Current status at12:54UTC:** twenty-six current-session sweeps are persisted
+and exact-UID ACKed:59,767 price rows across428target items per sweep. #26ran
+428queries/2538rows/407full/21bounded/allok in476s; exact900s start interval,
+but upload109.866s missed the60s target (completion-to-Return about106s).
+A transient foreground failure was recovered; do not attribute all subsequent
+closeout delay to that event. #27started1792241202 and is active with AHopen.
+Luna remains sole GUI operator. Formal autonomous three-sweep and physical-input
+qualification remain unfinished. #25started699s late because crowded-NPC AH
+recovery delayed its open precondition; no addon timer defect is established.
+Pointer position changed during full-screen capture; actor/mechanism remains
+unknown, and the Xwayland-relative-pointer device is not proof of human input.
+A first post-click HUD can precede the action's one-Hz addon update; require
+advancing settled frames before declaring failure or retrying.
 
 Native R6 source is accepted and pushed447b40e: parent323broad checks, final
 compiled checks, Sol and actual OpusR3READY. A fresh manual owner now uses the
@@ -64,14 +63,41 @@ final source-check counter coverage and explicit final-status/public-evaluation
 assertions. Parent66focused compiled/evaluator checks passed62.58s plus Ruff,
 format and diff checks. R4 is frozen (0d2fbfe43079d58a0216aded1895209831083f238e0bc8759678c81f1c2dcad7),
 with driver byte-identical to R3; narrow Sol and actualOpus reviews both READY (OpusCLIexit0/modelclaude-opus-5-5).
-Earlier freezes remain immutable. Exact candidate integrated; parent integrated
-reproduction and fresh-owner transition pending. Nonblocking Opus failed-path
-test coverage/strictness observations are recorded in the R4 review. Next: integrate the reviewed
-instrumentation, start a fresh owner, bind the exact sources/config/producer,
-and retain every outcome in the predeclared16-run evidence batch
-`r4-live-performance-20261017T122938Z` (private bindingSHA
-5c566210954cd303b1c6f59c5b9c98eb832d884a55dab24a077ae7d6a7bd359e). No live
-computation bottleneck or Rust rewrite is established yet. Instrumentation's
+Earlier freezes remain immutable. Exact R4 integrated/pushed3a95d89; parent
+integrated66checks passed57.97s. Nonblocking Opus failed-path coverage/strictness
+observations are recorded in the R4 review. Current fresh manual owner
+PID501046/start5055027 is PAUSEDgen16/opidle, accepted source/R6producer;
+serviceinactive/disabled. An initial batch aborted before samples because the
+operator pre-created a harness-owned directory. The next16runs all refused
+before capture because the replacement owner lacked Xauthority; both sets
+remain retained. Parent verified the sole private-profile change was explicit
+`profile.xauthority` from the verified game session. RawconfigSHA now
+0dde50b95ad0e992a53d3cfa86e02cbba7e60af2d6d722db86804bb77c12c3a1;
+semanticSHA947d61e13809a38509c64ecead709b9dbac12fc779d2f2871eb27ba51a8af96e.
+Never copy the ephemeral authority filename across desktop restarts.
+
+The changed-profile predeclared16-run batch
+`r4-live-performance-explicit-auth-20261017T123740Z` completed without retries.
+BindingSHA b66a4ff556aef131f4cb4cee17108614db72dd8f05a5ef074abe5667f0b14981.
+Whole-batch evaluator:16eligible bindings/0mismatch,16deadline-failed runs,
+26valid decodedCPU/wall pairs,0full8sample runs; decision `insufficient_evidence`.
+CPUQ95=83.98249ms, wallQ95=1064.734439ms, ratioQ95s=7.88765%; one qualifying
+counterfactual candidate is insufficient for the alternate3-run gate. No new
+batches or Rust rewrite are released. Missing120pairs/15fullruns is not a
+`defer_rewrite` verdict. Parent summary retains all16receipt digests; originals,
+PNGs and full sanitized evaluator report remain private. Owner-entry to producer
+request median392ms/p95425ms and capture-return to response-ready median395ms/
+p95421ms surround a native-capture median42ms/p9558ms. These are observed wall
+intervals, not causal attribution to CPU, subprocess startup or language.
+Measured producer-request-to-lock median0.074ms is distinct from the much larger
+owner-entry-to-producer-request interval. Sampled model deltas are zero; this
+does not count external Luna operator cost or qualify zero-model full cycles.
+Read-only code audit `runtime-owner-latency-code-audit.md` maps each large
+interval to two identity resolutions (daemon and backend). Individual operation
+and owner/child CPU costs remain unmeasured. Next: instrument those subphases
+and consider direct native X11 queries or batching only if measured; preserve
+every freshness/identity/Guardian check. Rust alone is not a demonstrated fix. The passive capability plan below is a separate deterministic-offload
+slice, and no computation bottleneck or Rust rewrite is established. Instrumentation's
 `response_ready` records finalized capture/cleanup content before receipt
 validation/fsync, not socket return or persistence completion; the observer's
 IPC-return clock includes that later work. Fourteen descriptor-bound source
@@ -95,6 +121,13 @@ facts remain unknown. A passive query was refused before Return because actual
 staged text omitted parentheses; Escape cleanup verified chat empty and AH unchanged.
 The staging path is not proven to be the allowlisted production typing executor.
 No query ran, no interaction key/binding/config change occurred, and probes stopped.
+The successor `.archive/PLAN-passive-ah-capabilities.md` is SolR3READY
+(hashd9c1db55c486cea4f5720a86270a41c3a948c6c871b11fe973f68e1196ef3e38).
+It proposes passive strict addon facts and private ordered-frame evidence, not
+`CrowleyDB.probe` persistence (that record uploads wholesale). No capability
+source changes or action are implemented/released. Five-fact qualification,
+build-pinned API semantics and sealed supported key mapping remain required.
+
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
 summaries were pushed to the new origin through `736a2b4` (initial snapshot

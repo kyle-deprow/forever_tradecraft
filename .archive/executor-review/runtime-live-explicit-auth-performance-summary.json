@@ -1,0 +1,122 @@
+{
+  "schema": 1,
+  "kind": "parent-live-runtime-performance-summary",
+  "accepted_source_commit": "3a95d89",
+  "accepted_binding_sha256": "b66a4ff556aef131f4cb4cee17108614db72dd8f05a5ef074abe5667f0b14981",
+  "predeclared_manifest_sha256": "89b19c4db75933a0f62feb4448485a34b6a59b3e837860420fbed5fb827fb197",
+  "original_sanitized_report_sha256": "aa612ab5281dfa2e25e2cf232f7e3acbf5a4874f941d16ed764f1a355a365ee2",
+  "accepted_source_hashes": {
+    "cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "daemon.py": "69678fdcd4963ffeb38dd31441cf0074713baf5b95747da3383e90892636073f",
+    "decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739",
+    "driver.py": "fb907096007e10ed59f67dceb52dd20a3e54c37ff02e011d21c61f292806938d",
+    "offline_harness.py": "f682d85636b0073a8fd7e8330a6ae06ba7542d2cb9b7ccc74a1304ea856d7716",
+    "protocol.py": "cf13dedd7a37e553ac799b87dd5429cc29b5910483661f994ffdec3b38a74d2f",
+    "session_performance.py": "c46cae849058005e9b7387ef95c34f40f376afb5477739efaf6f40f6a36ebd8c"
+  },
+  "producer_binding": {
+    "binary_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+    "protocol_branch": "ScreenshotArea"
+  },
+  "config_binding": {
+    "raw_file_sha256": "0dde50b95ad0e992a53d3cfa86e02cbba7e60af2d6d722db86804bb77c12c3a1",
+    "semantic_sha256": "947d61e13809a38509c64ecead709b9dbac12fc779d2f2871eb27ba51a8af96e"
+  },
+  "declared_runs": 16,
+  "retained_runs": 16,
+  "attempts": 26,
+  "failed_runs": 16,
+  "attempts_with_nonzero_model_delta": 0,
+  "decision": "insufficient_evidence",
+  "reason_codes": [
+    "insufficient_completed_pairs",
+    "run_timing_invalid",
+    "sample_deadline_missed"
+  ],
+  "statistics": {
+    "binding_mismatch_run_count": 0,
+    "binding_sha256": "b66a4ff556aef131f4cb4cee17108614db72dd8f05a5ef074abe5667f0b14981",
+    "deadline_failure_candidates": [
+      {
+        "cpu_seconds": 0.101459632,
+        "index": 2,
+        "receipt_sha256": "8dff93c8097f665d1d12e4691059fc5f657464821b9277026d5ea8cd8ecc6081",
+        "wall_seconds": 1.0113255640026182
+      }
+    ],
+    "deadline_failure_trigger": false,
+    "eligible_full_eight_sample_run_count": 0,
+    "eligible_run_count": 16,
+    "failed_attempt_count": 16,
+    "pooled_application_compute_cpu_p95_seconds": 0.08398249,
+    "pooled_completed_count": 26,
+    "pooled_end_to_end_wall_p95_seconds": 1.064734439001768,
+    "quantile_definition": "sorted_samples[ceil(N*q)-1]",
+    "ratio_of_quantiles": 0.07887646620948696,
+    "run_trigger_repeatability": {
+      "application_cpu_threshold_seconds": 0.1,
+      "application_ratio_threshold": 0.2,
+      "cpu_passed": null,
+      "cpu_trigger_runs": 0,
+      "eligible_full_runs": 0,
+      "minimum_fraction": 0.8,
+      "minimum_full_runs": 15,
+      "ratio_passed": null,
+      "ratio_trigger_runs": 0,
+      "runs": []
+    }
+  },
+  "observed_additional_intervals": {
+    "owner_entry_to_producer_request": {
+      "count": 26,
+      "p50_seconds": 0.39208214200334623,
+      "p95_seconds": 0.4245744739964721
+    },
+    "producer_request_to_lock": {
+      "count": 26,
+      "p50_seconds": 7.408099918393418e-05,
+      "p95_seconds": 8.312100544571877e-05
+    },
+    "lock_to_ack": {
+      "count": 26,
+      "p50_seconds": 0.10522977500659181,
+      "p95_seconds": 0.12100822699721903
+    },
+    "native_capture": {
+      "count": 26,
+      "p50_seconds": 0.0419910839991644,
+      "p95_seconds": 0.05805328299902612
+    },
+    "capture_return_to_owner_response_ready": {
+      "count": 26,
+      "p50_seconds": 0.39529703299922403,
+      "p95_seconds": 0.42077151800185675
+    }
+  },
+  "receipt_sha256": [
+    "69c59747f24ce277f61d4683e69dac169ce499dc8541e410ea5b25f5dc9cefe0",
+    "c5fb9007688e73d102a5d35191251868f6cb9c09362a3f1fd9e1195e42a77fca",
+    "8dff93c8097f665d1d12e4691059fc5f657464821b9277026d5ea8cd8ecc6081",
+    "29cafd342d66ff7f3bd0622aec9930cbb72c07dd717bc8f9cea3e9362818ec63",
+    "f89dbb413473df660739eafeae3ddfa22d4ef1faf69f21fd0968df06de987546",
+    "efc735200b7a9a1195ffa16cafc58880fa17d9983ea079f46a7f8df2444662c1",
+    "137165d6fa44a10cf1c47e70de086d899b52e5d5a5bae07513eb3ff99077bda8",
+    "e9c7d910e276219beb2792316eb6cfc7a74201f85fb60d4f945301fbc2559b51",
+    "18a722e30abcbbc2685b5e5c9980fb3878442f3b94e9e29b777ccf4c394abd27",
+    "70ab9ce281c20ce2462b4e02c221e8acc13e30359bf8627db024b38c5bd301ff",
+    "29b97b5a64a55264f170036129b944648fd86996b0a9020b823f1e1d5be31270",
+    "34a3587a7d1308566eb514b97f48c268fc5399e2a84bfbd3104c82bcac4b0141",
+    "3d6c3d31f360e5d3d75ffa02b1d559b599f34be1eef9c4d749e1cd3d1d5a03a0",
+    "2d13f6b9d64c7ce89c0b83568d12a439b86b2cd16da46a41016d779dbb722cf2",
+    "1771421b3ffb773922428c1bbad34feeeddb3e2e66252a6d469befe798f857be",
+    "ba168d661ced1f51e30cb3a56f902a70459202ce61c6005953577ada67a1fcc7"
+  ],
+  "limitations": [
+    "26 decoded pairs, below120; no full8sample runs, below15",
+    "observed owner/capture intervals are wall time, not child or owner CPU; no causal attribution to language or individual subprocess",
+    "ratio is pooledCPUQ95/wallQ95, not mean per-sample fraction",
+    "model counters cover sampled owner intervals, not external Luna operator cost or whole scan cycle",
+    "all16runs retained, no retry; earlier setupabort and different-profile16refusals retained separately",
+    "no Rust migration trigger or full repeating-system qualification established"
+  ]
+}

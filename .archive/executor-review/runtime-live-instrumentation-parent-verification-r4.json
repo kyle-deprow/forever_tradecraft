@@ -27,6 +27,7 @@
     "actual_Opus_model": "claude-opus-5-5",
     "actual_Opus_exit": 0
   },
-  "deployment": "integrated and parent verified; fresh owner transition pending",
-  "nonblocking_followup": "Opus: simple/malformed refusal and producer-source label test coverage; empty refusal error and sample-without-failure strictness nits. Failed attempts only; no live or Rust qualification."
+  "deployment": "accepted3a95d89 running in fresh manual PAUSED/unarmed owner; serviceinactive/disabled",
+  "nonblocking_followup": "Opus: simple/malformed refusal and producer-source label test coverage; empty refusal error and sample-without-failure strictness nits. Failed attempts only; no live or Rust qualification.",
+  "live_followup": "explicit-auth predeclared16run batch:16eligiblebindings,26decodedpairs,16deadlinefailedruns; insufficient_evidence. See runtime-live-explicit-auth-performance-summary.json; no Rust verdict or autonomousqualification."
 }

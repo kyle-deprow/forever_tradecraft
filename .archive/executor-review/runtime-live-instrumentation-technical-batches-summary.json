@@ -1,0 +1,57 @@
+{
+  "schema": 1,
+  "kind": "runtime-live-batch-technical-failures",
+  "accepted_source_commit": "3a95d89",
+  "initial_batch": {
+    "name": "r4-live-performance-20261017T122938Z",
+    "outcome": "technical_pre_sampling_abort",
+    "cause": "operator pre-created harness-owned evidence directory",
+    "receipts": 0,
+    "completed_pairs": 0,
+    "retained": true
+  },
+  "second_batch": {
+    "name": "r4-live-performance-20261017T123528Z",
+    "decision": "insufficient_evidence",
+    "reason_codes": [
+      "binding_mismatch",
+      "insufficient_complete_runs",
+      "insufficient_completed_pairs",
+      "owner_capture_failed"
+    ],
+    "original_public_report_sha256": "e11cac6a1b197a6142e89ad4713a7617390893bd50f567cef87111c99664c22d",
+    "receipt_sha256": [
+      "dc3f28d7d8c0918bdeb9d2c6aaa71ab9a4a13cd392a35de2a8d6af7f313639a6",
+      "dfab1aedec5131cfb805756ebc26073fbbf1e390941d1dc9d087787652748c9d",
+      "811f9a28859005c0188ff6fb4b9378e8798cb626539a0d6c566488c7b87d8f25",
+      "ed6de40ca82a9500095568183a3d1906468331f8ace122ebcbce485cde4bbe61",
+      "ed61d378987ff52c2580675782f3801f903adbe03e3181658596a31660f9b8bd",
+      "5b08853b4e48cca7b6d6892abf3462ee995acfb843f11315b81b71aebc2f9ee8",
+      "0f4b74e494cd16f1cf097e96677c5ae28c95f9ad9029a4730293375a896b6045",
+      "c14f6b3e5b19ee5bb3e8ab76e544676680e2b4b5bdba6f55c8885e2dee82e018",
+      "be3f536274d758c0fbdf1f2e61f8b4a0a681efe402f06e0acae85990f344e9ad",
+      "1a7f05176332d50b88b9a9b359b430974f5bbe8ad83fe6e9bd29925a0ac75c86",
+      "1c51399f7f65b8b6b5166165246698f0d35da3554505e673170b94adabb39c49",
+      "06d55dca33832c52802526e8ca6f68021be16407f985bf09f3a42a55afaee594",
+      "7ef3e932b4ad345ba938eb9b24e5bc7a491179feb76f86056832225ffd3a3318",
+      "5e3ffc9ef5c4219446200d45379e1ec6199f5325a87607a936394a7f077b44f4",
+      "671dd1fccc153560e3ce1c0077ee8f77fc27090519043781289a986b8470c1d4",
+      "9f7ffef00282cda3a71895848d09525d3c690ed658d5f9a1df2294dab509d316"
+    ],
+    "run_count": 16,
+    "completed_pairs": 0,
+    "private_refusal_cause": "identity_before_capture: missing explicit or inherited Xauthority",
+    "retained": true
+  },
+  "remediation": {
+    "private_profile_changed_fields": [
+      "profile.xauthority"
+    ],
+    "old_config_sha256": "e70017e40f40be57949baa0c3071e8ed0f03a760f33fd74a9f9f19066f46abbe",
+    "new_config_sha256": "0dde50b95ad0e992a53d3cfa86e02cbba7e60af2d6d722db86804bb77c12c3a1",
+    "parent_independent_semantic_diff": "sole profile.xauthority change verified; exact source and producer unchanged",
+    "new_batch": "r4-live-performance-explicit-auth-20261017T123740Z",
+    "new_binding_sha256": "b66a4ff556aef131f4cb4cee17108614db72dd8f05a5ef074abe5667f0b14981"
+  },
+  "rust_decision": "insufficient_evidence; no CPU samples in refused batch"
+}
