@@ -140,6 +140,12 @@ within existing authorization; respect any current movement limits.
   arming input, and retain ownership through confirmed termination and reaping.
   Live proof helpers use the production desktop lease; private lease paths are
   for isolated tests and cannot establish exclusive ownership of the desktop.
+  A private D-Bus session can still inherit standard service directories and the
+  host activation environment. Disable auto-start on fixture RPCs (for example,
+  `busctl --auto-start=no`); a late call must fail without starting a host app.
+  A private bus address alone does not isolate service activation from the GUI.
+  Negative RPC checks must prove the expected D-Bus error, not an unsupported
+  CLI command or usage failure; verify the same transport succeeds when owned.
   Before a broad namespace test run, prove the real sealed executable can exec
   there. Namespace-only EACCES can affect both capture and input images; retain
   the failure and compare an owned host fixture before attributing a regression.

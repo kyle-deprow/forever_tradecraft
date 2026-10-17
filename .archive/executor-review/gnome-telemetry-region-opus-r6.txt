@@ -1,0 +1,89 @@
+Model ID: **claude-opus-5-5**. This was a read-only review of `/home/dev/.cache/crowley/worktrees/region-r6-20261017`, compared against the R5 forwarding-test worktree. I made no source edits and ran no tests, builds, Git, network, service, GUI or deploy actions. The only files I wrote are scratch diffs under `/tmp/claude-r6-*` and the plan-mode copy of this review at `/home/dev/.claude/plans/review-the-frozen-r6-tidy-nest.md`.
+
+**STATUS: NEEDS WORK.** I found no production defect. The one blocker is that closure check 3 requires a regression test that doesn't exist (Should-Fix 1).
+
+## Identity and scope
+- The three main artifacts match their given hashes: final freeze `61166a2a…`, final delta `9d1efdac…`, parent delta `a60a3618…`.
+- All 10 owned files match the final-freeze hashes.
+- `cli.py` (`259570fb…`) and `test_session_cli_motion.py` (`082f7f6b…`) are byte-identical to R5, and the R5 native test is `47ac2cef…`.
+- A whole-tree R5→R6 diff shows exactly those 10 files plus 4 R6 archive records. My own diff has the same content as the parent delta; they differ only in how hunks are aligned in the two test files.
+- Binary `cb938cab…`, manifest `21bfe50a…` and patch `7b5c8eb9…` all match the freeze.
+  - The build log records the patch pin, a clean apply with no fuzz or offset, and the binary hash.
+  - The binary contains all three guard messages.
+  - `build-private.sh` changes only `EXPECTED_PATCH_SHA`.
+
+## Closure checks
+**1. C activation/action guards: closed.**
+- **Coverage:** the pinned upstream source registers exactly five app actions: `about`, `help`, `quit`, `screen-shot`, `window-shot` (`screenshot-application.c:804-809`). All five are guarded, and so is `activate` (patch `:161-249`).
+- **Keyed before registration:** the guards check `telemetry_region_arg`. That is a local option (`arg_data`, patch `:83`), set by option parsing before `handle_local_options` registers the app (`:98-112`). It is never forwarded to another instance.
+- **Order:** each guard returns before the shared option parse, `screenshot_start`, or any window lookup.
+- **Unchanged behavior:** non-telemetry processes run the upstream code untouched. The R5 command-line guard and the flock are unchanged.
+- **Test cleanup:** the `try` now starts before `capture_thread.start()` (`test_session_native.py:635-636`). The `finally` (`:771-790`) releases the gate, joins the capture thread, and collects or kills every child, including the forwarded `ordinary` command.
+- **Test assertions:**
+  - exact guard counts: 1 command-line, 4 action and 1 activation message (`:803-810`);
+  - nothing else in the primary's stderr (`:812-817`);
+  - every RPC exits 0 with empty stderr;
+  - no new stock Shell call (`stock_log` stays at 1 from `:586` to `:829`), and exactly one area call;
+  - the original capture succeeds.
+
+**2. Stale RecordingBackend test: closed.** It now asserts the X11-only refusal from `daemon.py:1841-1842` with zero region captures, and keeps the stock-model half (`:312-319`). Fake-backend acceptance was not restored.
+
+**3. Profile anchors and `not_started`: the source is correct, but the test is missing.**
+- Removing the `pop` is safe:
+  - nothing writes `profile.anchor_fingerprints` or `action_anchors` at runtime;
+  - config rejects both keys (`config.py:76`);
+  - measured anchors live in the separate `_measured_anchors` dicts;
+  - the default driver gets a deep copy of the profile (`daemon.py:245,291-292`).
+- The typed `not_started` attempt is truthful:
+  - it is set before `identity_before_capture` (`daemon.py:3630-3640`);
+  - every driver refusal before the producer starts happens before the first `update_protocol_stage` call (`driver.py:2755-2823`), so the null timings are accurate;
+  - the harness accepts only an all-null `not_started` (`offline_harness.py:1087-1092`) and still raises with the owner's original error (`:1364`).
+
+**4. PNG TOCTOU: closed.**
+- **Helper (`driver.py:487-506`):**
+  - a nonzero exit stays terminal;
+  - on exit 0 it runs one validation with an epoch check before and after;
+  - invalid output stays terminal, and still-incomplete output fails with a fresh diagnostic;
+  - there is no new sleep, retry or deadline change.
+- **Callers:** only the region caller passes `process` (`:3021-3028`); the stock caller at `:2709-2714` is unaffected.
+- **Publication still requires every existing check:**
+  - `_json_record` reads the already-buffered `capture_complete` before it checks for process exit (`:419-433`);
+  - the record must then match nonce, branch, rectangle, path digest, SHA-256 and byte count (`:3035-3065`);
+  - then `_validate_exact_png`, a zero exit (`:3069-3073`), the identity check, and the epoch and deadline checks under the lock (`:3080-3083`) before `os.replace`.
+- **Tests:** the three new helper tests (`test_session_capture.py:87-184`) cover the three cases the plan names.
+
+**5. Binary, manifest, patch, example and harness pins: closed.** The README and docs make no stale R5 claims.
+
+## Must-Fix
+None.
+
+## Should-Fix
+**1. No test exercises the typed `not_started` attempt (plan item 5 / closure check 3).**
+- `not_started` appears only at `daemon.py:3631` and `offline_harness.py:1072,1087`; no test produces or asserts it.
+- The closest case, the pre-admission stop race (`test_session_native.py:1866-1925`), calls owner IPC directly instead of `run_paused_diagnostic`. It also fails at `observer_admission`, with timings, and never asserts `producer_attempt`.
+- **What goes wrong:** reverting `daemon.py:3630-3635` to `{}`, or renaming the stage on either side, would pass every focused test. An owner identity failure would then be masked again as "producer attempt schema is malformed", which is exactly the R5 finding.
+- **Fix:** this is feasible with the existing runner fixture. It already substitutes `X11Backend.resolve_identity` (`:1121`) and has `run_runner_failure` (`:1513`). Add a case where the owner's first identity lookup raises, run it through `harness.run_paused_diagnostic`, and assert:
+  - owner phase `identity_before_capture` with the original error;
+  - an all-null `not_started` attempt;
+  - no admission and no Shell call;
+  - a durable failure receipt.
+
+**2. A late `gdbus` call can start the stock `gnome-screenshot` (non-blocking).**
+- The RPCs are staged with fixed 50 ms sleeps (`:768-770`), and the gate is released at `:772-773` with no proof the calls were delivered. If a call (or its introspection) reaches the bus after the producer exits, the bus starts `/usr/bin/gnome-screenshot --gapplication-service`, because:
+  - this host has `org.gnome.Screenshot.service`;
+  - the fixture's `dbus-run-session` (`offline_harness.py:671`) uses the default session config, which includes the standard service directories;
+  - the bus's activation environment is pytest's environment from before the fixture;
+  - `gdbus call` auto-starts services by default.
+- **Consequence:** in this tty environment (no `DISPLAY`) the stock service can't start, so the test fails under load without passing falsely. Run from a desktop terminal, the stock dialog or action would reach the real display and save a file to the real screenshot directory before the test fails.
+- **Fix:** send the calls with auto-start disabled (for example `busctl --address=… --auto-start=no`), or run the fixture bus without service directories, so a late call fails with ServiceUnknown.
+
+## Nits
+- **Guard message wording:** the patch messages at `:167,179,191,203,225,247` say "while telemetry capture was active". They are actually keyed on `telemetry_region_arg` for the whole process lifetime, and in the test they run after the gate is released.
+- **Assertions that can never fail:** `test_session_native.py:830-831` check `session_dir/screen-shot.png` and `window-shot.png`, but an unguarded stock action never writes there. The real no-output proof is the log counts and the stderr check.
+- **Superseded freeze file:** the tests bind to the superseded `gnome-telemetry-region-r6-freeze.json` (`:336`, `:1000`), not the final freeze. Both pin the same `cb938cab…` binary, so behavior is unaffected; worth noting at integration.
+
+I did not reproduce the worker's results, and I don't know the outcome of the parent's 38-test run. The earlier serial and concurrent failures remain unresolved negative evidence. Nothing here qualifies live or under-load behavior, and a source READY would not by itself authorize integration, deployment or native opt-in.
+
+**STATUS: NEEDS WORK**
+
+CLAUDE_EXIT:0

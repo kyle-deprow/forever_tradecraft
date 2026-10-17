@@ -29,8 +29,23 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Current status at10:15UTC:** seventeen current-session sweeps are persisted and
+exact-UID ACKed,37581price rows across428target items per sweep. Recent starts
+are exactly900s apart; uploads still inconsistently meet60s. Luna remains the
+sole ordinary GUI operator. The formal autonomous three-sweep qualification,
+fresh-owner native/physical-input qualification and launch strategy engine are
+unfinished. Main's dirty native source is historical R4: do not deploy it.
+The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. Native
+R6 is frozen in its isolated checkout, parent38checks/SolREADY. Actual Opus
+found no production defect but requested a missing regression and fixture
+auto-start correction; the separate test-only checkout closes both, parent checks
+and SolREADY, targeted actual OpusR2 pending.
+Next: finish final native review/verification, integrate accepted source, then
+implement the SolREADY live instrumentation plan and collect its predeclared
+16-run evidence batch. No live computation bottleneck or Rust rewrite is proven.
+
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `0e2ef72` (initial snapshot
+summaries were pushed to the new origin through `d0235a5` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
@@ -183,6 +198,18 @@ loadedACK boot1792230251-541730/pending0. Upload70.929s missed60s. Fifteen
 sweeps total33028price rows. Sole operator is reopening AH for next due1792230603;
 no autonomous qualification or live computation attribution is claimed.
 
+Sixteenth UID `beta-normal-alliance-1792230603-Arthur-6630` is parent-verified:
+428queries/2219rows,411full/17bounded/allok,478s, exact900s timer-alone start.
+Original payload/logical digest matches the read-only DB/raw reference; fresh
+loadedACK boot1792231196-783397/pending0. Upload46.509s meets60s. Sixteen
+sweeps total35247price rows. Sole operator is preparing next due1792231503.
+
+Seventeenth UID `beta-normal-alliance-1792231503-Arthur-4743` is parent-verified:
+428queries/2334rows,411full/17bounded/allok,476s, exact900s timer-alone start.
+Original payload/logical digest matches the read-only DB/raw reference; fresh
+loadedACK boot1792232068-403623/pending0. Upload61.769s missed60s. Seventeen
+sweeps total37581price rows. Fresh AHopen/pending0 is verified before next due1792232403.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -269,6 +296,23 @@ format/compile/source diffcheck/actual harness also passed; exact10changes and
 protected2, pin-only build delta and unchangedR3/R5 binaries verified. SolsourceR6
 and actual CLI OpusR6 review the frozen delta. No integration/deployment/liveoptin;
 broad final affected verification follows source closure. Earlier failures remain.
+SolsourceR6 is now READY/no must-fix. Its sole test improvement is a direct
+real-IPC/harness identity-before-capture -> not_started/null-clocks failure
+assertion. Luna adds this only in a separate `region-r6-identity-test-20261017`
+checkout, preserving the exact R6 freeze under the still-running Opus review.
+Actual CLI claude-opus-5-5R6 exited0/NEEDS WORK with no production defect:
+the missing identity regression and late fixtureRPC auto-start remained.
+Final test-only successorSHAa1780bbdad1a8c50a352ab36c303d04a52f05226c81bb423c74c6293f01ac354
+closes both. Five genuine activation/actions now use private busctl with auto-start
+disabled; a genuine DBus GetNameOwner succeeds while the primary owns the name
+and gives a semantic no-owner error after exit, with unchanged Shell logs.
+Parent caught and removed an intermediate unsupported CLI subcommand that could
+falsely pass a negative assertion. Final compiled node1passed5.10s/Ruff/format/
+compile/diff; prior unchanged paused/identity node passed38.46s, both preceding
+transport candidate nodes passed41.60s. Sol finaltest reviewREADY/no findings;
+actual OpusR2 reviews only this delta, all other11native paths unchanged.
+Both tests now bind the final freeze; dead local-PNG assertions removed. Existing
+game-control skill records D-Bus activation isolation and semantic-negative proof.
 
 **Recipe foundation accepted:** three-file implementation, packaged normalized
 manifest, nine-profession coverage (eight crafting plus Mining), two blocked
@@ -322,6 +366,13 @@ twelfth ingestion and passed canonical snapshot validation (manifestSHA
 b8d8f750149ab03633b48b65b3e36d2ec339743d10c1c96b7b60734e8a5c488d). It is not separately
 restored; the accepted tool's prior successful disposable restore proof remains
 the recovery qualification. No source service/database write occurred.
+
+Fresh snapshot after sixteenth ingestion:
+`beta-20261017T100037Z-c68008123ce0`, manifestSHA
+7944b6c6fcc9200bf57d9880811418eff7337c455d94e710a677b4d33738dc53.
+Accepted snapshot tool exited0 and parent canonical validation passed. This
+snapshot is not separately restored; prior accepted-tool disposable restore
+proof remains the recovery qualification.
 
 **Deterministic runtime / Rust:** offline Phase1 is integrated after Sol source
 R2 READY (two review rounds) and parent15tests/Ruff/format/compile. It times the
