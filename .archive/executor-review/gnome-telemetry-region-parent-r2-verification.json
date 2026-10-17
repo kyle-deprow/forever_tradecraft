@@ -1,0 +1,39 @@
+{
+  "kind": "parent-region-r2-verification",
+  "host_focused": "14 passed,138 deselected in2.17s",
+  "compiled_harness": {
+    "self_check": true,
+    "self_test": true
+  },
+  "ruff": "passed",
+  "frozen_hashes": "matched",
+  "scope": "zero out-of-fence source changes",
+  "namespace_batch": {
+    "result": "21failed275passed383.58s; pytest teardown remained alive over90s; exact isolated bwrap PID1556138/start2528581 terminated withSIGTERM; outerexit241",
+    "log": ".archive/executor-review/gnome-telemetry-region-parent-r2.log",
+    "failures": [
+      "tests/test_session_capture.py::test_capture_native_region_uses_sealed_producer_and_exact_png",
+      "tests/test_session_capture.py::test_capture_native_region_rejects_compiled_owner_proof_variants[wrong_nonce-owner proof]",
+      "tests/test_session_capture.py::test_capture_native_region_rejects_compiled_owner_proof_variants[wrong_digest-owner proof]",
+      "tests/test_session_capture.py::test_capture_native_region_rejects_compiled_owner_proof_variants[wrong_path-owner proof]",
+      "tests/test_session_capture.py::test_capture_native_region_rejects_compiled_owner_proof_variants[wrong_pgid-owner proof]",
+      "tests/test_session_capture.py::test_capture_native_region_rejects_compiled_owner_proof_variants[bool_protocol-owner proof]",
+      "tests/test_session_native.py::test_real_x11_producer_result_reaches_arm_and_guardian_max_to_zero_echo",
+      "tests/test_session_motion_integration.py::test_session_ipc_motion_cancellation_revokes_inflight_physical_process",
+      "tests/test_session_driver_actions.py::test_run_motion_key_hold_uses_real_driver_entrypoint_and_sealed_level_zero_key",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_requires_position_press_held_motion_and_endpoint_release",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_allows_press_at_start_without_positioning_trace",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[early-release]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[motion-after-release]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[wrong-coordinate]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[motion-before-press]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[wrong-target]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[missing-motion]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[late-motion]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[wrong-release-root]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[wrong-release-event-coordinate]",
+      "tests/test_session_driver_actions.py::test_run_camera_drag_rejects_invalid_native_phase_trace[wrong-release-target]"
+    ],
+    "diagnosis": "separate unchanged test with child stderr exposed PermissionError13 in admission wrapper os.execv; host focused run passed; namespace also rejects protected input memfd images. No broad green claim."
+  }
+}

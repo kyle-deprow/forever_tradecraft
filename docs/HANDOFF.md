@@ -33,9 +33,10 @@ Treat the older sections below as history, not current runtime instructions.
 summaries are being preserved in Git. Raw runtime logs, captures and private
 configuration remain local. The GNOME telemetry-region R2 implementation is
 frozen but NOT accepted/deployed: parent focused tests14passed, compiled private
-producer harness and Ruff passed; full namespace tests and actual Opus review
-remain pending. Namespace capture diagnosis encountered memfd exec permission
-denied; host focused tests pass. Do not label the broad suite green. The last
+producer harness and Ruff passed; full namespace batch reported275passed/21failed, then hung in teardown;
+parent terminated only the identity-bound isolated wrapper. Capture/input
+memfd execution was refused in that namespace; host focused tests pass.
+Actual Sol/Opus source reviews remain pending. Do not label the broad suite green. The last
 live status showed Arthur at the IF auctioneer, AH closed, a due428-item plan,
 zero stored/pending sweeps and zero loaded ACKs. No new70450 scan has started.
 
@@ -50,7 +51,10 @@ unqualified controller. `sol_native_capability_plan` is auditing evidence that
 expires with beta versus work that can finish offline, including launch cutover,
 profession coverage and liquidity estimates. Preserve beta history; never assume
 beta prices predict launch prices. Audit artifact:
-`.archive/executor-review/beta-launch-readiness-audit-20261017.md` (pending).
+`.archive/executor-review/beta-launch-readiness-audit-20261017.md`.
+Parent verified Blizzard’s updated production-hardware stress test is October21
+at14:00PDT/16:00Chicago; the old October19 URL redirects to the updated post.
+Use that short window to probe exact launch realm/region/build identity.
 
 **Autonomous qualification objective:** finish HUD/executor qualification and demonstrate three
 real 428-item scans at seed/+900/+1800 seconds, uploads and loaded acknowledgements,
@@ -934,7 +938,8 @@ docker compose --env-file deploy/.env -f deploy/docker-compose.yml down -v      
 - **Test harness:** the lupa runtime uses `encoding="latin-1"` so Lua byte strings
   round-trip. Python callables cross the boundary as latin-1 `str`.
 - `/v1/houses/{key}/items/{item_key}/history` defaults to the last 7 days.
-- **Auctionator search strings** take max price in gold, not copper.
+- **Auctionator units:** `term.maxPrice` passed to the API is copper; the
+  serialized search-string price field uses gold (copper/10000).
 - **Neutral houses** cost 15%, not 5%. Every arbitrage calculation must use `House.ah_cut`.
 - **Market reports:** new volume reports expose explicit coverage, bounded depth and null
   rates where grouping or evidence is unknown. Legacy `item_stats` rows remain historical and

@@ -1,0 +1,168 @@
+{
+  "schema": 1,
+  "kind": "gnome-telemetry-region-r2-orphan-cleanup",
+  "generated_utc": "2026-10-17T05:42:35Z",
+  "root": "/home/dev/repos/pegasus",
+  "targets": [
+    1466009,
+    1466886,
+    1467229,
+    1467484,
+    1473961,
+    1473962,
+    1473970,
+    1474042
+  ],
+  "before": [
+    {
+      "pid": 1466009,
+      "state": "present",
+      "ppid": 1,
+      "pgrp": 1465994,
+      "session": 1465994,
+      "start_ticks": 2404139,
+      "exe": "/usr/bin/Xvfb",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "Xvfb -displayfd 9 -screen 0 1920x1080x24 ",
+      "environment": {
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus-AjeM4VJbmU,guid=76220ca893df83d39b850eb46ad30482"
+      }
+    },
+    {
+      "pid": 1466886,
+      "state": "present",
+      "ppid": 1,
+      "pgrp": 1466876,
+      "session": 1466876,
+      "start_ticks": 2405307,
+      "exe": "/usr/bin/Xvfb",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "Xvfb -displayfd 9 -screen 0 1920x1080x24 ",
+      "environment": {
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus-Z471sxZtaq,guid=ca57aaf9c14f256389f579256ad3048e"
+      }
+    },
+    {
+      "pid": 1467229,
+      "state": "present",
+      "ppid": 1,
+      "pgrp": 1467219,
+      "session": 1467219,
+      "start_ticks": 2405874,
+      "exe": "/usr/bin/Xvfb",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "Xvfb -displayfd 9 -screen 0 1920x1080x24 ",
+      "environment": {
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus-O9mwDXAlWn,guid=90a00d443eea16c05d3cfb446ad30494"
+      }
+    },
+    {
+      "pid": 1467484,
+      "state": "present",
+      "ppid": 1,
+      "pgrp": 1467474,
+      "session": 1467474,
+      "start_ticks": 2406514,
+      "exe": "/usr/bin/Xvfb",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "Xvfb -displayfd 9 -screen 0 1920x1080x24 ",
+      "environment": {
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus-Qo5Ir4J9S4,guid=ffc983c11097e9d3459df5796ad3049a"
+      }
+    },
+    {
+      "pid": 1473961,
+      "state": "present",
+      "ppid": 1,
+      "pgrp": 1473960,
+      "session": 1473960,
+      "start_ticks": 2416766,
+      "exe": "/usr/bin/dbus-daemon",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "dbus-daemon --nofork --print-address 4 --session ",
+      "environment": {
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/run/user/1000/bus"
+      }
+    },
+    {
+      "pid": 1473962,
+      "state": "present",
+      "ppid": 1,
+      "pgrp": 1473960,
+      "session": 1473960,
+      "start_ticks": 2416767,
+      "exe": "/usr/bin/gjs-console",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "gjs /tmp/gjs-dbus-3zg8scvw/shell.js /tmp/gjs-dbus-3zg8scvw/payload ",
+      "environment": {
+        "DISPLAY": ":6",
+        "GDK_BACKEND": "x11",
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus-4eCps740Zp,guid=53f26ece4a488da36fcbdfba6ad30500"
+      }
+    },
+    {
+      "pid": 1473970,
+      "state": "present",
+      "ppid": 1473962,
+      "pgrp": 1473960,
+      "session": 1473960,
+      "start_ticks": 2416768,
+      "exe": "/usr/bin/Xvfb",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "Xvfb -displayfd 9 -screen 0 1920x1080x24 ",
+      "environment": {
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus-4eCps740Zp,guid=53f26ece4a488da36fcbdfba6ad30500"
+      }
+    },
+    {
+      "pid": 1474042,
+      "state": "present",
+      "ppid": 1,
+      "pgrp": 1473960,
+      "session": 1473960,
+      "start_ticks": 2416777,
+      "exe": "/usr/libexec/gvfsd",
+      "cwd": "/home/dev/repos/pegasus",
+      "cmdline": "/usr/libexec/gvfsd ",
+      "environment": {
+        "DBUS_SESSION_BUS_ADDRESS": "unix:path=/tmp/dbus-4eCps740Zp,guid=53f26ece4a488da36fcbdfba6ad30500"
+      }
+    }
+  ],
+  "ownership_basis": [
+    "Each target was explicitly listed by the parent from R2 fixture runs.",
+    "Xvfb targets have /usr/bin/Xvfb, no real DISPLAY, repo cwd, and PPID 1 after fixture-parent loss.",
+    "dbus-daemon/gjs/Xvfb/gvfsd targets share private session 1473960; gjs command names /tmp/gjs-dbus-3zg8scvw/shell.js.",
+    "The dbus/gjs/Xvfb/gvfsd group is a dbus-run-session private fixture tree; it has no relation to the live desktop/game display."
+  ],
+  "artifacts": [
+    "/tmp/gjs-dbus-3zg8scvw/shell.js",
+    "/tmp/gjs-dbus-3zg8scvw/payload"
+  ],
+  "cleanup": {
+    "sigterm_sent": [
+      1466009,
+      1466886,
+      1467229,
+      1467484,
+      1473961,
+      1473962,
+      1473970
+    ],
+    "already_gone_before_signal": [
+      1474042
+    ],
+    "remaining_after_cleanup": [],
+    "cleanup_method": "identity-checked exact-PID SIGTERM; all sent targets exited without SIGKILL",
+    "current_harness_probe": {
+      "command": "GNOME_TELEMETRY_REGION_STAGE=/home/dev/.cache/crowley/gnome-telemetry-region-r2 GNOME_TELEMETRY_REGION_BINARY=/home/dev/.cache/crowley/gnome-telemetry-region-r2/prefix/bin/gnome-screenshot uv run python tools/gnome-telemetry-region/offline_harness.py --self-test --self-check",
+      "exit": 0,
+      "result": "self_check=true self_test=true",
+      "before_private_fixture_children": "none (the process scan matched only the probe shell itself)",
+      "after_private_fixture_children": "none (the process scan matched only the probe shell itself)",
+      "conclusion": "current exec-gjs harness leaves no Xvfb, private dbus, gjs, or gvfsd orphan"
+    },
+    "source_unchanged": true
+  },
+  "generated_after_cleanup_utc": "2026-10-17T05:42:58Z"
+}
