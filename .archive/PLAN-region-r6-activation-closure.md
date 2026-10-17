@@ -82,3 +82,34 @@ failure as unresolvednegativeevidence; no blanket live-reliability claim.
 
 Return exact changedfiles/hashes, actual commands/results, new source/binary freeze,
 R5->R6 delta and all unresolved findings. DONE only whencomplete; no deployment.
+
+## Parent scope amendment: observed PNG publication race
+
+R6 serial composition logs `focused-composition-r6.log` and
+`focused-composition-r6-retry.log` reproduced the earlier concurrent PNG failure:
+the decoder observed an incomplete image, then process.poll observed exit0.
+Parent and independent Sol source diagnosis confirmed `_wait_for_complete_png`
+fails using that stale pre-exit read. Completion can occur between those two
+operations. This does not establish that every prior PNG failure has this cause.
+
+Extend ownership by exactly two paths (ten total):
+- `src/crowley/session/driver.py`: `_wait_for_complete_png` only;
+- `tests/test_session_capture.py`: deterministic regression for that helper only.
+The earlier prohibition on all driver edits is superseded only for this helper.
+
+After an incomplete read, retain poll's result. A nonzero exit remains terminal.
+For exit0, perform one final validation bracketed by the existing epoch check.
+A valid final PNG may return; an incomplete final PNG fails immediately with its
+fresh diagnostic, and invalid output remains terminal. No sleep, new retry loop,
+deadline extension, source fallback or weakened protocol/identity guard. The
+caller still verifies authenticated completion, nonce/branch/rectangle/path,
+exact byte count/digest, image dimensions, zero exit and original deadline before
+publication. A final read cannot bypass those checks.
+
+Use a deterministic helper regression where initially truncated output becomes
+complete inside poll before it returns0. Also cover clean exit with still
+truncated output and revocation winning before the final read. A small fake
+process is appropriate for this exact unit interleaving; compiled composition
+and the real eight-sample runner remain the end-to-end evidence. Preserve all
+failed logs and recheck the final source/binary rather than rerunning unchanged
+failures until one passes. Sol and actual Opus review the added delta.

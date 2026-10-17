@@ -1,0 +1,145 @@
+{
+  "schema": 1,
+  "label": "gnome-telemetry-region-r6-activation-action-closure",
+  "status": "PARENT_REVIEW_REQUIRED_OUT_OF_SCOPE_PNG_BOUNDARY",
+  "source_root": "/home/dev/repos/pegasus",
+  "isolated_root": "/home/dev/.cache/crowley/worktrees/region-r6-20261017",
+  "base_commit": "2a8d73e",
+  "plan": {
+    "path": ".archive/PLAN-region-r6-activation-closure.md",
+    "sha256": "fbd8034d1de58bdd6c056473939fdcdeaca3b62c6140e54068a74850d2d35cc1"
+  },
+  "r5_baseline": {
+    "path": ".archive/executor-review/gnome-telemetry-region-r6-isolation-baseline.json",
+    "sha256": "a2b22a10b3e7e55a32ebaba84270edb5dbee70f0b842c93ad2bc368eaafaa0f9",
+    "base_r5_freeze_sha256": "307c6ef69ba4c8b7376af4307852b12fcb55a57da3c1df84c3ef1fc4ddda2bf2"
+  },
+  "private_cache": "/home/dev/.cache/crowley/gnome-telemetry-region-r6",
+  "private_binary_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+  "owned_source_sha256": {
+    "deploy/crowley-session.example.toml": "68b9d0400d1aaa887611f8fdf8ce6a21b56e33c63addb6bd022ade3574cab551",
+    "src/crowley/session/daemon.py": "4deab9e1b63aa2488b3f2d0e5b9b17dadd4c23bd8ec59e4cbbcfe704de0e3df0",
+    "tests/test_session_native.py": "131b491df437dc52cdd48a6ab96a0f1b5f6129ee9b6f52980a7359d8399f10d3",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "7b5c8eb9aeef0c59f3cad8cb83d7350d10bb5e86389c7234599dee819c190588",
+    "tools/gnome-telemetry-region/README.md": "e45b4d6fae85e9e771a2d4799fe41f998333a74420c1fae3ae66900b2169ad34",
+    "tools/gnome-telemetry-region/build-private.sh": "3098c0580efbd49988c9de440f55422e7c2902177a4d429d8228d9a89fe0c942",
+    "tools/gnome-telemetry-region/manifest.example.json": "e574620e3f818708b3118f279877bd2ecae61ef472961d8a0e89b60ece5ea7b9",
+    "tools/gnome-telemetry-region/offline_harness.py": "5e20d7560e63e9b6b3a731b3ddd8a95b08fba7ecdd3f2e5f9604129e7c7f5d0c"
+  },
+  "scope": {
+    "r6_changed_from_verified_r5_baseline": [
+      "deploy/crowley-session.example.toml",
+      "src/crowley/session/daemon.py",
+      "tests/test_session_native.py",
+      "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch",
+      "tools/gnome-telemetry-region/README.md",
+      "tools/gnome-telemetry-region/build-private.sh",
+      "tools/gnome-telemetry-region/manifest.example.json",
+      "tools/gnome-telemetry-region/offline_harness.py"
+    ],
+    "r5_files_unchanged": [
+      "src/crowley/session/cli.py",
+      "src/crowley/session/driver.py",
+      "tests/test_session_capture.py",
+      "tests/test_session_cli_motion.py"
+    ]
+  },
+  "build": {
+    "attempt": "06-stage-only",
+    "private_cache": "/home/dev/.cache/crowley/gnome-telemetry-region-r6",
+    "manifest_path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/manifest.json",
+    "manifest_sha256": "21bfe50a645a459c265edd756b65c11acdd96d85c04c8b0da69f905be2d9d866",
+    "patch_sha256": "7b5c8eb9aeef0c59f3cad8cb83d7350d10bb5e86389c7234599dee819c190588",
+    "private_binary": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/prefix/bin/gnome-screenshot",
+    "private_binary_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+    "container_image_digest": "sha256:2c037a04925515fdd6ea85ea14a682d0e79931f5e9f5d07b6dbfc6ba12f9e858",
+    "stage_only_log": {
+      "path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/docker-build-r6-attempt6-stage-only-success.log",
+      "sha256": "7b58ac3a58156610029692cb4f1940dcc7f570a3c0791a554a162c4ff215b316"
+    },
+    "preserved_failed_attempts": [
+      {
+        "path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/docker-build-r6.log",
+        "observation": "compile failed before the R6 handler hunk repair"
+      },
+      {
+        "path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/docker-build-r6-attempt2.log",
+        "observation": "compile failed on the same pre-repair handler signatures"
+      },
+      {
+        "path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/docker-build-r6-attempt3.log",
+        "observation": "compile/install completed, then metadata --version segfaulted without a private runtime"
+      },
+      {
+        "path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/docker-build-r6-attempt5-stage-only.log",
+        "observation": "operator digest typo rejected by Docker before container start"
+      }
+    ]
+  },
+  "verification": {
+    "offline_harness": {
+      "command": "GNOME_TELEMETRY_REGION_STAGE=/home/dev/.cache/crowley/gnome-telemetry-region-r6 GNOME_TELEMETRY_REGION_BINARY=/home/dev/.cache/crowley/gnome-telemetry-region-r6/prefix/bin/gnome-screenshot uv run python tools/gnome-telemetry-region/offline_harness.py --self-test --self-check",
+      "result": "passed; exit 0",
+      "log_sha256": "26d804c40a73dc2095f24514de0fe433f578221378451580e72cf22d73d194ad"
+    },
+    "compiled_default": {
+      "command": "GNOME_TELEMETRY_REGION_STAGE=/home/dev/.cache/crowley/gnome-telemetry-region-r6 GNOME_TELEMETRY_REGION_BINARY=/home/dev/.cache/crowley/gnome-telemetry-region-r6/prefix/bin/gnome-screenshot uv run pytest -q tests/test_session_native.py::test_compiled_region_composes_through_default_daemon_and_stock_model",
+      "result": "BLOCKED: two exact serial runs after the final assertion change exited with code 1 before forwarding; each producer returned exit 0 while capture.png was undecodable. A prior exact run passed before that assertion-only change, and two diagnostic-wrapper runs passed; neither substitutes for a final uninstrumented pass.",
+      "log_path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/focused-composition-r6.log",
+      "log_sha256": "1c34a0f0b600363ea80efe8fb109ee9cb3498bfcae1532e4cbe28e814d686354",
+      "retry_log_path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/focused-composition-r6-retry.log",
+      "retry_log_sha256": "1e0ac4f6bdef4e716bc3edc5d454c66e18d0c171d6d7bc90cc6c5b50f7d9f900",
+      "diagnostic_pass_logs": [
+        "f860ff5001c472ce4163615044c8694983f09c4570c5aefa57d6e89665937d10",
+        "89085e03d3d752c56d0443b5ca0a834adcbe1453e360b41789d082a0a29bb024"
+      ]
+    },
+    "compiled_paused_runner": {
+      "command": "GNOME_TELEMETRY_REGION_STAGE=/home/dev/.cache/crowley/gnome-telemetry-region-r6 GNOME_TELEMETRY_REGION_BINARY=/home/dev/.cache/crowley/gnome-telemetry-region-r6/prefix/bin/gnome-screenshot uv run pytest -q tests/test_session_native.py::test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples",
+      "result": "1 passed in 36.62s; exit 0",
+      "log_path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/focused-runner-r6.log",
+      "log_sha256": "75226fca9fe086ce4192657fcbc503cda950a4e660574d44411843e32957de61"
+    },
+    "fake_backend_regression": {
+      "command": "uv run pytest -q tests/test_session_native.py::test_real_session_daemon_native_provider_route_and_stock_model_capture",
+      "result": "1 passed in 1.30s; exit 0",
+      "log_path": "/home/dev/.cache/crowley/gnome-telemetry-region-r6/focused-fake-backend-r6.log",
+      "log_sha256": "e6c649e59e5603dcfdc2e052cedf668eafc0625e294a29d30d2bfdf64660ab10"
+    },
+    "scope_and_python_checks": {
+      "ruff": "passed; exit 0",
+      "ruff_format": "3 files already formatted; exit 0",
+      "py_compile": "passed; exit 0",
+      "patch_dry_run": "5 files checked with --fuzz=0; exit 0",
+      "logs": {
+        "ruff": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "format": "eee76f865de5a9f2456950f710ae5d5f9b5bd0ea02aa54f614c5eed6642a0bfd",
+        "compile": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "patch_dry_run": "63a1623714bffb67d08f4647e1d2f88dfce64386e5cc189c0c0b1f4093ff3a8a"
+      }
+    },
+    "known_blocker": {
+      "boundary": "driver._wait_for_complete_png checks PNG validity, then immediately treats process.poll() == 0 as terminal without a final validation; the exact uninstrumented serial failures occur in that boundary with no producer stderr",
+      "scope": "driver.py is outside this R6 worker's authorized source scope",
+      "evidence": "both failure logs report exit=0 and cannot identify image file for the temporary capture path; diagnostic wrappers passed, so no source-level retry or deadline relaxation was made"
+    }
+  },
+  "retained_failures": [
+    {
+      "kind": "three_way_compiled_stress",
+      "path": "/tmp/pytest-of-dev/pytest-399/test_compiled_region_composes_0/compiled-region-session/.guarded-capture.png.telemetry-5bfu7if1/capture.png",
+      "observation": "DriverError: telemetry producer exited before PNG completion: PNG is not decodable yet: cannot identify image file; exit=0",
+      "boundary": "PNG readiness while concurrent foreign invocations were staged; no blanket live reliability claim"
+    },
+    {
+      "kind": "r5_parent_batch",
+      "path": ".archive/executor-review/gnome-telemetry-region-r5-forwarding-parent-host-r1.log",
+      "observation": "319 passed, 1 failed; sole failure was the stale fake RecordingBackend native-provider acceptance test"
+    },
+    {
+      "kind": "r6_exact_serial_compiled_default",
+      "path": "/tmp/pytest-of-dev/pytest-448/test_compiled_region_composes_0/compiled-region-session/captures/.status-00000001.png.telemetry-b85kmc8f/capture.png",
+      "observation": "native_bootstrap completed, then producer exit=0 was observed while capture.png was not decodable; second exact retry failed at /tmp/crowley-region-9kx982xb/.status.png.telemetry-sn05nsno/capture.png during native_bootstrap; no producer stderr"
+    }
+  ]
+}

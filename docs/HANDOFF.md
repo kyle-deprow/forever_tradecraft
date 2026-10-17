@@ -30,7 +30,7 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `23a4663` (initial snapshot
+summaries were pushed to the new origin through `0e2ef72` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
@@ -176,6 +176,13 @@ sweeps total30838price rows. Fifteenth timer-alone start1792229703 was
 operator-verified; completion and ACK remain pending. These are operator-assisted
 collections, not the formal autonomous three-sweep qualification.
 
+Fifteenth UID `beta-normal-alliance-1792229703-Arthur-9915` is parent-verified:
+428queries/2190rows,411full/17bounded/allok,476s, exact900s timer-alone start.
+Original payload/logical digest matches the read-only DB/raw reference; fresh
+loadedACK boot1792230251-541730/pending0. Upload70.929s missed60s. Fifteen
+sweeps total33028price rows. Sole operator is reopening AH for next due1792230603;
+no autonomous qualification or live computation attribution is claimed.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -247,6 +254,21 @@ all activation/actions, compiled privateRPC proof, whole cleanup interval,
 stalefakebackendtest, exactprofilecomparison and typednot-started failures.
 New actual C build must go to R6 cache; R3/R5 freezes/binaries stay immutable.
 No driver/CLI/Guardian/controller or live runtime edits, no deployment.
+
+R6 then reproduced a serial PNG publication race: an incomplete image read could
+precede poll observing exit0, causing failure from stale evidence. Parent and Sol
+confirmed the boundary and amended the plan to allow only `_wait_for_complete_png`
+plus three deterministic capture regressions, bringing R6 ownership to10paths.
+Clean exit now permits one epoch-bracketed final validation; no sleep/retry loop,
+deadline extension or protocol/digest relaxation. Final source is frozen at
+`gnome-telemetry-region-r6-final-freeze.json` SHA61166a2a12adf1ad5861a7051f65f926791aeb004246ccdfd52b022877a8ef79;
+actual new binarySHAcb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396.
+Parent38focused hostchecks passed61.48s, including compiled composition, paused
+eight-sample runner, fakebackend refusal/stock capture and35capture checks. Ruff/
+format/compile/source diffcheck/actual harness also passed; exact10changes and
+protected2, pin-only build delta and unchangedR3/R5 binaries verified. SolsourceR6
+and actual CLI OpusR6 review the frozen delta. No integration/deployment/liveoptin;
+broad final affected verification follows source closure. Earlier failures remain.
 
 **Recipe foundation accepted:** three-file implementation, packaged normalized
 manifest, nine-profession coverage (eight crafting plus Mining), two blocked
@@ -337,6 +359,13 @@ retain real CPU/wall pairs even if the later completion marker is absent; declar
 completed attempts still require that marker. Exact source/verification receipt:
 `runtime-evaluator-parent-acceptance.json`. No production instrumentation or real
 schema2 qualifying data is supplied by this offline acceptance.
+The production instrumentation plan now has SolplanR2READY. It pins the accepted
+evaluator read-only and limits edits to driver/daemon/harness/native tests after
+native successor acceptance. Both owner and observer bind all seven exact source
+keys; schema/clock/model-counter/final-cleanup contracts match the evaluator.
+The live evidence batch is predeclared16runs with all outcomes retained, never
+extended selectively until successes. Root applied the nonblocking test-scope
+wording correction after that plan review; no production implementation yet.
 
 **Next reduction of model dependence:** `.archive/PLAN-native-semantic-observations.md`
 is a bounded proposal, not an implemented capability. Current native telemetry
