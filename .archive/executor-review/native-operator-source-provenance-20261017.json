@@ -1,0 +1,11 @@
+{
+  "kind": "native-operator-source-provenance",
+  "reviewed_sha256": "bf79d703cc9b98fc7e0842d119e69cbbfa5539f02456f8d5083d4629bdeee2d0",
+  "current_sha256": "d5530fbd7085478c481e6004608f7d3068e48b5da0c67f05cec9db9376a13466",
+  "reviewed_lines": 447,
+  "current_lines": 461,
+  "private_snapshot_directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-operator-source-provenance-20261017",
+  "delta_sha256": "7b2f59ca6e5059942897af041c986bd713686c1064e572cab21e490553650cb5",
+  "parent_delta_inspection": "Only handshake initial admission changes to the exact clean terminal construct/0 retry boundary. Mouse pulse, release, OCR dispatch and per-action identity/phase guards are unchanged.",
+  "carry_forward": "Use reviewed fixed-action guard pattern; do not carry retry-specific terminal-error admission into the new no-auto-retry operator. New source and full carried delta still require review."
+}

@@ -1,0 +1,64 @@
+{
+  "kind": "operator-assisted-three-cycle-summary",
+  "build": "70450",
+  "items_per_sweep": 428,
+  "cycles": [
+    {
+      "uid": "beta-normal-alliance-1792260286-Arthur-5105",
+      "started_at": 1792260286,
+      "finished_at": 1792260764,
+      "rows": 2592,
+      "coverage": {
+        "full": 397,
+        "bounded": 31
+      },
+      "reasons": {
+        "ok": 428
+      },
+      "start_interval_seconds": 900,
+      "upload_delay_seconds": 20.044457,
+      "loaded_ack_verified": true,
+      "source_record": "build-70450-twentynine-scan-parent-verification.json",
+      "source_sha256": "80a22c33c76e52f9378a733e1d7d7d7c52a3c2a95c1055033247dc7bf3896529"
+    },
+    {
+      "uid": "beta-normal-alliance-1792261186-Arthur-3167",
+      "started_at": 1792261186,
+      "finished_at": 1792261666,
+      "rows": 2553,
+      "coverage": {
+        "full": 398,
+        "bounded": 30
+      },
+      "reasons": {
+        "ok": 428
+      },
+      "start_interval_seconds": 900,
+      "upload_delay_seconds": 22.449055,
+      "loaded_ack_verified": true,
+      "source_record": "build-70450-thirty-scan-parent-verification.json",
+      "source_sha256": "313dc9131fd75ad5c2bfd4419b8d6ebd521bf3a056a6ae399b0194acaf85e97f"
+    },
+    {
+      "uid": "beta-normal-alliance-1792262086-Arthur-6846",
+      "started_at": 1792262086,
+      "finished_at": 1792262565,
+      "rows": 2542,
+      "coverage": {
+        "full": 398,
+        "bounded": 30
+      },
+      "reasons": {
+        "ok": 428
+      },
+      "start_interval_seconds": 900,
+      "upload_delay_seconds": 42.635644,
+      "loaded_ack_verified": true,
+      "source_record": "build-70450-thirtyone-scan-parent-verification.json",
+      "source_sha256": "407f98c1bd7a132ab9a71c2a68ce05d671c6ce3861c0ee8abbf05fe8cc153057"
+    }
+  ],
+  "total_price_rows": 7687,
+  "service_restart": "After sweep30 ACK and before sweep31; these are not three post-restart cycles.",
+  "qualification": "Operator-assisted collection only. Native100, physical input and autonomous service qualification remain unfinished."
+}

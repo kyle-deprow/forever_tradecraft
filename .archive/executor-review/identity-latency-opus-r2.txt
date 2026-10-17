@@ -1,0 +1,99 @@
+Resolved model: claude-opus-5-5
+Model ID: **claude-opus-5-5**
+
+# Identity-latency R2 closure review
+
+**Verdict: NEEDS WORK, for one reason.** R2 fixes every R1 Must and Should item except the failure-path tests: profiles from real owner failures (identity refusal, cancellation, deadline, drift) are still never read or checked. There are no Should-Fix findings, and the rest of the new code holds up.
+
+## Scope and hashes
+- **Freeze and plan:** the freeze file hashes to `4e5791…cd9abd` and the plan to `397bcc…685`, both as stated.
+- **Candidate files:** all four match the freeze hashes. The worktree changes are exactly the four-file fence.
+- **Read-only pins:** all four match, and none differs from `8d06cd0`.
+- **What I ran:** I edited nothing except my plan file, and ran no tests, builds, network, GUI/input, service or git-mutating actions. Git reads used `--no-optional-locks`. I also ran `stat` on the live config and producer.
+
+## R1 findings now closed
+- **IPC client (Opus M1, Sol M2):**
+  - The sidecar now calls the real `crowley.session.cli._socket_request` (`sidecar:17,633-652,793-798`).
+  - That client takes `str(path)`, half-closes the request, rejects trailing data and enforces the absolute deadline.
+  - The 0.25 s grace must equal the request's `deadline` (`cli.py:587-595`).
+- **Binding and owner checks before the first sample (Sol M1, Opus S3):** `sidecar:751-774` runs these checks before creating the raw directory and before sample 0:
+  - the manifest's SHA, then the request config hashes against the manifest;
+  - the raw config file's hash, the semantic hash from the real loader, and the producer's hash;
+  - the seven source-file hashes;
+  - a strict status preflight (`655-677`).
+  - The preflight reads only existing `status_dict` keys (`daemon.py:6038-6070`) and matches the owner's own admission check (`4455-4469`).
+  - Tests at `test_session_native.py:304-394` show that each mismatch sends no sample request and creates no raw directory.
+- **Output locations (Opus S4, Sol S1):** the raw directory must be a fresh 0700 path, and the report output is probed as writable before any request (`sidecar:680-731`).
+- **Size bound vs. event cap (Opus S5):** both sides now allow 512 KiB, and a test round-trips the full 256 events.
+- **Overhead reporting (Opus S6):** the sidecar records send and receive times for each request, plus the time from the owner's return to receipt of the response (`sidecar:571-602`). That gives an upper bound on profile-write overhead.
+- **CPU data in the report (Opus S7, Sol M3):** the report now includes the validated events with owner thread and process CPU. Child CPU stays null with its fixed reason.
+- **Exception-safe sink reset (Opus S8):** a public wrapper (`daemon.py:3958-3979`) resets the sink on every exit. A test (`3147-3186`) raises a real owner exception, then shows the next request succeeds and the sink is empty.
+- **R1 nits closed:**
+  - The `process_verify` event (root-authorized) is recorded, and the test checks two calls with non-zero duration.
+  - `seal_hash` is now a real nested span (`driver.py:176-181`).
+  - `barrier()` checks it is on the owner thread.
+  - The redundant `chmod` after the rename is gone.
+  - The fixture read limit now matches the 512 KiB IPC limit.
+
+## Invariants that still hold
+- **Identity checks:** the four identity barriers wrap the same unchanged calls (`daemon:4136`, `driver:2863`, `3164`, `daemon:4233`).
+- **Unchanged contract:**
+  - The six-key request and the 1 s deadline are unchanged.
+  - Response and receipt key sets are unchanged.
+  - The evaluator files are byte-identical, and status has no new keys.
+- **New private files:** `identity-latency.json`, a temporary `.tmp` and the write-failure token. They are created 0600 inside the 0700 request directory, after the causal receipt is written. Nothing that reads these directories checks their exact contents (`offline_harness.py:1233-1246`).
+- **Profile reader:** it opens without following links and compares descriptor state before and after the read, ending with a final path check (`sidecar:125-155`). The test forces that final check to fail.
+- **Provenance only:** the digest is never used to accept or reject a profile.
+- **No leaks:** the report carries no paths or error text, and IPC failures become the fixed `owner_ipc_unavailable`.
+- **No live blocker:** the real producer (111,160 B) and `session.toml` both fit the sidecar's file checks.
+- **Caveat:** the pre-capture source check hashes the checkout the sidecar runs from (`sidecar:256-257`), so run it from the owner's own checkout.
+
+## Must-Fix
+1. **Failure-path profiles are still unproven** (plan:161-172; R1 Opus M2 and Sol M4 are still partly open).
+   - **Shape-only helper:** `validate_owner_latency_profile` (`tests/test_session_native.py:2051-2071`) only checks the shape and that status is `complete` or `partial`.
+   - **Calls that don't test failures:**
+     - At `2101` and `2127` the fixture alters the response after the owner already succeeded.
+     - At `2347` the last directory belongs to a sample that succeeded.
+     - So all three read success profiles.
+   - **The only real failures checked:** `2172` and `2383` are both receipt-write failures, which happen after all four barriers pass, so their profiles say `complete`.
+   - **Existing tests that never read the profile they create:**
+     - the identity refusal after the request directory exists (`2612-2669`);
+     - the stop/revoke cancellation during capture (`2742-2785`);
+     - the KeyboardInterrupt test (`3147-3175`).
+   - **No test at all** covers owner-side post-capture identity drift, source/config drift, or a deadline.
+   - **Consequence:** the failed and not-reached profile paths, which matter most here, are never run through the real owner. If one regressed, live runs would just report `artifact_invalid` for those samples, and the outcome labels (Nit 1) are never checked.
+   - **Required correction:**
+     - **Identity refusal (after `2669`):** read the profile from the parent of `receipt_path`. Assert `partial`; `daemon_pre` is `failed` with timestamps; the other three barriers and `owner_to_request_started` are `not_reached`.
+     - **Cancellation (after `2785`):** assert `partial`; `backend_pre` is `ok`; `backend_post`, `daemon_post` and `capture_return_to_response_ready` are `not_reached`.
+     - **KeyboardInterrupt test:** read and check that profile too.
+     - **New cases:** add one owner-side post-capture drift case and one owner-side deadline or source/config drift case. Each must assert the profile and that the original phase and error are unchanged.
+     - **Keep:** all existing phase, error, cleanup and lease assertions.
+     - **Optional:** raise from the cleanup snapshot inside `finally` (`4267`). The current test is reset by the inner `finally` at `4422`, so it never needs the outer wrapper.
+
+## Should-Fix
+None.
+
+## Nits
+1. **Outcome labels come from error text** (`daemon.py:343-351`).
+   - A timed-out X11 query says "desktop command timed out" (`driver.py:1812`), so it is labelled `failed`, not `deadline`.
+   - A stop after the producer is running shows up as a producer-exit error, labelled `failed`, not `cancelled`.
+   - Fix: classify from the deadline or cancel state, or document that these two labels undercount.
+2. **`status` doesn't mean the request succeeded** (`daemon.py:440`). It means all four identity lookups finished.
+   - These failures all still report `complete`:
+     - identity drift caught after `daemon_post` (`4236`);
+     - config, admission or cleanup failures;
+     - receipt-write failures.
+   - Fix: document this or rename the field. The report's `response_ok` field does disambiguate.
+3. **An interrupt can be swallowed** (`daemon.py:4274`). This `except BaseException` doesn't set `interrupted`.
+   - So a KeyboardInterrupt or SystemExit during the final source check becomes an ordinary failure response instead of propagating.
+   - That is inconsistent with `4259-4261`, and the base code used `except Exception` here.
+   - Fix: set `interrupted` here too.
+4. **The report drops two useful fields** (`sidecar:529-558`).
+   - It omits `events_truncated`, so a truncated event list looks complete.
+   - It omits the profile's own owner clocks. The return clock is taken just before the profile is written (`daemon:4410`).
+   - With that clock, the report could separate receipt-writing time from profile-writing plus transport, which `owner_return_to_response_received_ns` (`sidecar:600`) currently lumps together.
+
+This review makes no live-qualification claim and does not establish a Rust trigger. The review is also saved at `/home/dev/.claude/plans/state-exact-model-id-floofy-gosling.md`.
+
+STATUS: NEEDS WORK
+CLAUDE_EXIT:0

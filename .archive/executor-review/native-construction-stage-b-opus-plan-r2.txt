@@ -1,0 +1,110 @@
+Resolved model: claude-opus-5-5
+Model ID: `claude-opus-5-5`
+
+This was a read-only review. I edited nothing except my session plan file, and ran no tests, builds, GUI/input, service, network or git actions. The plan's SHA-256 matches `159a9c28…c3258`. Source is `main` `cb27109`, the addon and session code is clean, and no Stage B code exists yet. I read R1 and the Luna R1 report as background only, and did not read other reviewers' R2 reports.
+
+**What R2 gets right:**
+- It closes both Luna R1 findings: Agent does nothing until constructed (plan:110-117), and scheduling is re-requested on finalize while the AH is open (119-122).
+- The claim stays conservative: whole-process growth, no attribution to Agent or terrain.
+- Moving the release after the reset still passes the unchanged runner check (calibration.py:4642-4646).
+- `native-construction:` plus a 64-byte token is 84 bytes, under the 96-byte boot limit.
+- Legacy `native-bootstrap` is left unchanged.
+
+## Must-Fix
+
+1. **SavedVariables do not exist yet when addon files run.**
+   - Plan:27, 69-71 and 98-99 assume they do.
+   - Core only sets `CrowleyDB = CrowleyDB or {}` inside `ADDON_LOADED` (Core.lua:110-116).
+   - The test harness also runs every file first (wow_harness.py:760, 810-815). Tests inject `CrowleyDB` only after that, then fire `ADDON_LOADED` (test_addon.py:1039-1041).
+   - HANDOFF §6 records nothing that says otherwise.
+   - **Consequence:** the check at file run time always sees nothing, so every load builds Agent normally. Core then turns `armed` into `deferred`, and the marker blocks Scanner. But Agent is already built and neither control exists, so finalize refuses. The client is stuck with collection off and no way out.
+   - **Fix:**
+     - Make the decision in Core's `ADDON_LOADED` handler, which runs first.
+     - Move Agent's boot choice and normal construction into Agent's own `ADDON_LOADED` handler. This changes normal timing, so the plan should say so.
+     - Have Scanner check the decision each time it is called.
+     - Keep the harness order as it is, add a test that pins it, and record the fact in HANDOFF §6.
+
+2. **Nothing can type defer, `/reload` or finalize.**
+   - Plan:103-108 and 155-159 don't name who types them, and the existing paths can't:
+     - The driver's allowed-command list excludes `/crowley agent *` (driver.py:3773, enforced at 6420).
+     - In the daemon, `/reload` exists only as the scan save/ack reload (daemon.py:4515-4527). That flow waits up to 45 s for a new Agent boot and otherwise blocks (controller.py:155, 1235-1272). A deferred load has no Agent, so it can never complete.
+     - Hold, measure and resume are actually typed by the private helper through OCR-checked chat (native-handshake-once.py:389-404, 441-443). That path only works while native calibration is running (:217-252). Finalize comes later, after the switch to input calibration.
+   - Nothing says how the pre-reload boot becomes `expected_constructor_boot`.
+   - **Fix:** name one actor. I recommend the helper:
+     - It types defer and `/reload` inside an active native generation, before bootstrap.
+     - It types finalize only at `resume_ready` in the same generation.
+     - It takes the token from a freshly captured, decoded frame with the same boot and a newer sequence.
+   - The alternative is to add driver.py and controller.py to the plan's ownership and spell out those changes.
+
+3. **Restore can't be reached in states that outlive the native run.**
+   - Plan:234-240 admits Restore only for a failed run or a "cancelled same generation". That misses several cases:
+     - Cancelling is a pause, which bumps the generation and revokes the input lease (controller.py:1900-1921). "Same generation with a daemon-owned lease" can never be true afterwards.
+     - A daemon or service restart leaves no calibration operation at all.
+     - After a successful run the operation is complete and the controller has moved to input calibration.
+     - The finalize precondition is held only in memory. After any reload or relog, the load is Agent-less with only Restore available.
+   - A Restore reload the controller didn't send is also treated as an unexpected boot change (controller.py:1235-1247, 1271).
+   - **Fix:**
+     - Add a recovery admission that doesn't depend on a native generation. It should require a paused or dedicated recovery state, a one-shot lease, and a confirmed identity. It also needs a fresh capture showing either no Agent or a `native-construction:` boot, plus a fresh Restore match with a negative Construct match.
+     - Treat success as an ordinary-boot frame within a set time, followed by an explicit owner resume.
+     - Don't resume the controller until finalize or Restore is proven.
+     - Add failure-matrix rows and tests for each case above.
+
+4. **The post-reset absence check isn't sealed, and its timing isn't budgeted.**
+   - The runner requires the absence capture time and the release time to be at most 5 s old (calibration.py:4524-4545). The provider allows 10 s (daemon.py:1109).
+   - The sealed absence capture is the one taken before the reset (daemon.py:674, 1138).
+   - R2 adds a second capture before release and deletes it on completion (plan:177-198).
+   - **Consequence:** the stored proof shows only pre-reset absence, which R2 itself says is not enough (plan:163-165). The extra capture also eats into a margin that has already failed once live as a stale bootstrap. The retained receipt shows 1.15 s between bootstrap and calibrate.
+   - **Fix:** in deferred mode, seal the post-reset capture as the absence evidence (its path, hash, ID and time) and record the release after it. Keep the first capture only as the 10 s entry check. State the time budget, and test just under and just over 5 s through the unchanged runner.
+
+5. **The first deferred load has no reviewed way out.**
+   - The controls only exist in deferred loads.
+   - The helper needs captured, negative-tested templates of those controls.
+   - Restore is the only exit.
+   - A defer that's confirmed but never reloaded also has no exit.
+   - **Fix:**
+     - Create the same control frame when defer succeeds, in the pre-reload load. There, Construct refuses because the state isn't `deferred`, and Restore works. Templates can then be captured while Agent and chat readback still exist.
+     - Live order: inactive code, then template capture in the pre-reload load, negative tests and review, then the first deferred load.
+
+## Should-Fix
+
+1. **Spell out the deferred handshake states.**
+   - The daemon publishes `construction_reset_archived` (daemon.py:852) and `bootstrap_ready` (770).
+   - The helper rejects any state that isn't the exact expected predecessor (helper :264-281). The second capture makes intermediate states visible, so it will trip on them.
+   - **Fix:** define the sequence: running → `construction_reset_archived` → baseline bound (flag false; never `bootstrap_ready`) → `construction_released` (both flags set together) → `hold_required`. Test each step.
+2. **Click deadline.** The provider's 30 s deadline starts when the provider is entered (daemon.py:332, 1378) and is never published. **Fix:** publish a click deadline inside that margin, have the helper refuse to press after it, and test it.
+3. **`ReloadUI` behaviour.**
+   - Plan:146-151 guesses that a normal return means failure.
+   - Plan:150 also says to verify this before implementation, which conflicts with plan:300-305 and with treating it as a live gate.
+   - **Fix:** write `restore_pending` first and keep both controls disabled. Re-enable Restore only from a bounded timer, and prove success from the next load's ordinary boot.
+4. **Restore from a malformed record isn't defined** (plan:79, 145-147). **Fix:** replace the whole value with `{schema=1, state="restore_pending", token=<current boot>, attempts=0}`, and list the malformed test cases.
+5. **Scanner status while natively blocked.**
+   - The protocol accepts only the existing fence and phase values (protocol.py:419, 427-442).
+   - The daemon treats fence `armed` as proof that logout is safe (daemon.py:1835-1858).
+   - Its idle check needs phase `ready` or `scheduled` (1816-1832).
+   - **Fix:** keep the phase `ready`/`scheduled` and define when the fence shows `armed`. Releasing the native block must never clear a separately armed logout fence. Use a distinct, short refusal reason in the schedule trace.
+6. **Helper version.** The helper on disk is `d5530fbd…` (461 lines), but the reviewed r3 version is `bf79d703…` (447 lines). The retained receipt doesn't record a helper hash. **Fix:** pin the base version, reconcile the difference, and record the helper hash in every receipt.
+
+## Nits
+
+1. Plan:51-52 says "no persistent key", but `CrowleyDB.nativeConstruction` is one. The companion and daemon readers ignore unknown keys (sync.py:94-110, evidence.py:517-525, daemon.py:4888-4895). Add an upload test anyway.
+2. The release time uses `time.monotonic` (daemon.py:1129) while captures use the daemon's native clock (1269). The new "capture after release" comparison should use one clock.
+
+## Offline-ready vs live gates
+
+**Can be built and tested offline, once the fixes above are in:**
+- **Addon:** decision at `ADDON_LOADED`, closed marker, Scanner block, inert Agent, transactional construction, controls (inert by default) in both the pre-reload and deferred loads, finalize, AH re-request.
+- **Native:** the deferred request, the sealed post-reset capture, the state sequence, the published deadline, cleanup, the CLI command, and standalone recovery admission.
+- **Helper:** dry tests.
+
+**Live release gates, only after the inactive code exists:**
+- Observing the SavedVariables timing on the real client.
+- A button click from pinned XTEST reaching the button's handler.
+- `ReloadUI` working from a click.
+- Construct and Restore templates captured in the pre-reload load.
+- A live helper preflight.
+- The sole-operator gate.
+
+Nothing here is qualified yet, and this review makes no Rust decision. The full review is also in `/home/dev/.claude/plans/state-exact-model-id-compiled-sedgewick.md`.
+
+STATUS: MAJOR ISSUES
+CLAUDE_EXIT:0

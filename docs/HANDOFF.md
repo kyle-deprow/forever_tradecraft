@@ -29,6 +29,26 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Checkpoint at19:18UTC:** source HEAD remains pushed `f213e1f`; the enabled
+service remains PAUSED/unarmed pending qualification. Parent independently
+verified sweep33 (`beta-normal-alliance-1792263886-Arthur-6051`): 428 queried,
+402 full/26 bounded/all reasons ok, 2623 rows, exact 900-second start interval,
+21.318563-second finish-to-upload, original digest/database match and fresh exact
+loaded ACK/pending0. See `build-70450-thirtythree-scan-parent-verification.json`.
+Luna continues ordinary operator-assisted scans; this is not autonomous proof.
+
+Profiler R3 composed over accepted Stage A passed the parent's 297 checks, but
+the parent then reproduced a whole-read descriptor integrity gap: a same-size
+mutation at EOF returned the old digest. Preserve the frozen R3 tree. Luna owns
+only the sidecar/test closure in the new `identity-latency-final-20261017`
+worktree; final independent source reviews and live paused samples remain.
+No profiler code is integrated or deployed. Stage B R3 remains plan-only:
+independent Luna requires a terminal-native-error-to-PAUSED recovery transition,
+independent owned-input release on helper death, and explicit reservation
+cleanup/handoff. Actual Opus R3 review is still running. Do not implement the
+proposal until those findings are reconciled. Manual physical-input calibration
+is not ready; the user need not stay at the machine waiting for it.
+
 **Live checkpoint at18:29UTC:** accepted Stage A is committed/pushedcb27109.
 Sole live operator restarted the enabled user service after sweep30 ACK; parent
 independently verified MainPID1620243, active/enabled and exact unit cgroup.
@@ -42,6 +62,47 @@ See `build-70450-thirty-scan-parent-verification.json`. Continue operator-assist
 collection while offline profiler closures and Stage B plan revisions proceed;
 do not call this autonomous service qualification. Main driver/addon/producer/
 private profile remain unchanged by Stage A. Native-memory R1 worktree is frozen.
+
+**Collection at18:50UTC:** sweeps29–31 are three consecutive clean
+operator-assisted cycles spanning the service restart, not three after it.
+Parent original-digest/database/fresh-exact-ACK checks passed for all three:
+900s start intervals; uploads20.044457s,22.449055s,42.635644s; all428items
+queried per sweep. #31UID`beta-normal-alliance-1792262086-Arthur-6846` has2542rows,
+398full/30bounded/allok. #32started1792262986 (18:49:46UTC) on timer. Service
+remains PAUSED/unarmed; no native/input/autonomous qualification claim.
+
+**Offline work at18:41UTC:** test-only closure pushedf213e1f; parent9focused
+checks/SolREADY, no further runtime change. Sweep31 started1792262086 on time
+(18:34:46UTC); sole Luna is watching it and will verify/flush the original UID.
+Latency R2 is frozen in its separate worktree (freezeSHA
+4e5791989e57fb861b23f52a83f35f94086d318ac2aa83b94d570aada4cd9abd),
+parent204native/performance checks passed220.47s plus scoped static checks.
+Sol and actual Opus narrow closure reviews are running; it is NOT integrated.
+Final composition must preserve accepted Stage A and the test-only closure.
+Deferred-construction plan R2 is likewise NOT released; independent Luna found
+a malformed-marker recovery gap, and actual Opus plan review is running.
+Fix all real plan findings in a new immutable revision before implementation.
+
+**Review closure at18:52UTC:** actual Opus R2 reviews completed with model
+`claude-opus-5-5`/CLIexit0. Profiler NEEDS WORK: real failed-owner profiles still
+need assertions (not success responses mutated by the fixture), and a final
+source-check interrupt must retain propagation. Sol also requires descriptor/
+config-race checks and truncated-trace reporting. Root composed exact R2 over
+acceptedf213e1f without conflicts in a NEW
+`/home/dev/.cache/crowley/worktrees/identity-latency-r3-20261017`; Luna owns the
+same four-file fence there and will run native/regressions/performance together.
+All earlier worktrees/freezes remain immutable; no profiler code is live.
+
+Deferred-construction R2 plan is MAJOR ISSUES; do not implement it. Its assumption
+that raw SavedVariables are available during addon file execution was wrong.
+The current harness already loads files, injects SavedVariables, then emits
+`ADDON_LOADED`; preserve and pin that order. R3 must decide in Core's first
+`ADDON_LOADED` callback, initialize Agent/boot in its own callback, and keep
+Scanner blocked until the decision. It must also close the exact helper actor/
+command/transition, independent recovery, sealed post-reset absence/time budget,
+pre-reload template, published click-deadline, separate fence and helper-version
+gaps in `native-construction-stage-b-opus-plan-r2.txt`. Sol is rewriting the R3
+proposal; it remains draft until combined findings are resolved and reviewed.
 
 **Checkpoint at18:18UTC:** sweep29,
 `beta-normal-alliance-1792260286-Arthur-5105`, is parent-verified end to end:

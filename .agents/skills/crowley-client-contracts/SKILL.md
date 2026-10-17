@@ -62,6 +62,12 @@ and assert both refusal-before-input and permanent clearing of retained proofs.
 Lua API stubs must forward varargs to argument counters; fixed signatures discard
 unexpected arguments before the counter can detect them. Assert exact failure
 reasons and use distinct simultaneous failures when testing precedence.
+Decide SavedVariables-dependent startup in `ADDON_LOADED`, with initialization
+order covered by the harness: load files, inject saved values, then emit the event.
+File execution alone does not establish that saved values have been restored.
+For reviewed-source hashing, compare descriptor identity and metadata before and
+after the entire read as well as the final path. Two matching late snapshots miss
+an in-place change after bytes were read; test a real same-size mutation at EOF.
 
 - Treat the Lua harness as a model to verify, not proof of native behavior. Check
   real payloads before declaring serialization correct. Native empty Lua tables
