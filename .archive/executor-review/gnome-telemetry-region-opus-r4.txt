@@ -1,0 +1,124 @@
+Model ID: `claude-opus-5-5`
+
+# Review: GNOME telemetry region R3/R4 (owner-IPC diagnostic)
+
+The core capture protocol and the revocation ordering look correct, and every failure I found fails closed: nothing unsafe gets accepted. But the owner's config check breaks once the daemon has clicked anything, and the full affected batch is red. The diagnostic would also refuse every sample on an owner that was paused after running.
+
+## Verification state
+- **Freeze:** all seven R4 sources, both freezes, the delta and the R3 binary (`dc148924…`) match their pinned SHA-256 values.
+- **Focused R2 run:** 16 passed, exit 0.
+- **Earlier focused run:** exit 1, the owner protocol-deadline refusal. It is still retained.
+- **Full affected host batch:** this finished during the review. **1 failed, 317 passed in 426.17 s, exit 1** (`gnome-telemetry-region-parent-r4-frozen-host.log`). The NO_CHANGE case's sample 0 was refused with `GNOME capture lock deadline expired while waiting`.
+- **Hermetic batch:** 316 passed with 2 fixture-setup failures, so it is not a passing batch.
+
+## Must-Fix
+
+**1. The config hash covers live driver state, so the owner refuses every sample once it has made any pointer click.**
+- **Where:** `daemon.py:126-139`, `:3519-3523`, `:3756-3763`; `driver.py:3705`, `:4721-4723`, `:4757`, `:5981`; `config.py:84`.
+- **Trigger:** the owner has done any armed pointer action since it started.
+  - `driver.py:5981` calls `measure_pointer_anchor`, and `:4757` writes into `self.profile.anchor_fingerprints`.
+  - That profile is the same object as `SessionConfig.profile`. `daemon.py:278` passes `config.profile` and `driver.py:3705` stores it without copying.
+  - The dataclass is frozen, but the dict inside it is not, and nothing ever clears it.
+- **Effect:** the owner's hash now includes the fingerprints. A fresh `load_config` always has `{}`, so every sample is refused with "semantic config hash does not match" until the daemon restarts.
+  - In practice the diagnostic only works on an owner that has never clicked since it started.
+  - `_driver_profile_matches_config` compares the profile with itself, both in production and in both fixtures, so it can never fail.
+- **Fix:**
+  - Compute the loaded-config hash once, when `SessionDaemon` is constructed.
+  - Keep runtime-measured anchors out of the shared profile (copy it into the driver, or hold them in driver state).
+  - Compare the live driver's region fields explicitly against that snapshot.
+  - Add an IPC test that installs a real anchor before taking a sample.
+
+**2. The compiled fixtures use the same machine-wide capture lock as the live daemon, and the required batch is red.**
+- **Where:** `driver.py:165` (`~/.cache/crowley/gnome-screenshot.lock`), `:2784`; `test_session_native.py:328`, `:509`. Neither these tests, the conftest nor the harness redirects `GNOME_CAPTURE_LOCK_PATH`; the capture tests do.
+- **Trigger:** another process holds that lock. A live `crowley-session … daemon` (PID 972882) is running on this host.
+- **Effect:**
+  - This is the cause of the full-batch failure at test line 1003. Nothing in the test process holds the lock at that point, so outside contention is the likely cause; I can't prove which process held it.
+  - It cuts both ways. These private-Xvfb tests take the real daemon's lock, and the admitted-stop case holds it across a blocked Shell call. A test run can therefore push the live daemon's own captures past their deadlines.
+- **Fix:** give both compiled fixtures and the harness self-test a private lock path. That's legitimate because they own a private Xvfb and D-Bus. Then rerun the batch.
+
+## Should-Fix
+
+**3. The owner ignores the backend's "capture revoked" flag.**
+- **Where:** `daemon.py:3528-3559`; `driver.py:2034`, `:2653`, `:4445`/`:4509`; `guardian.py:1906-1919`.
+- **Trigger:** the owner was paused from an armed run, or a pause or stop arrived during a paused sample.
+  - While armed, the runtime input monitor is registered as a Guardian observer, so any revoke releases input and sets the backend's `_cancel_active` flag.
+  - Only arming clears that flag (`driver.py:1188-1193`).
+- **Effect:**
+  - Every later sample creates a request directory, resolves identity, then fails in `region_capture` with "desktop capture was revoked".
+  - The fixture never arms the owner. After the stop race it never tries another capture, yet it asserts the owner is healthy.
+- **Fix:**
+  - Refuse up front with a specific error when the flag is set, and add a test for an owner that was armed and then paused.
+  - Whether a read-only paused capture should get past the input flag is a Guardian/backend decision outside R4's scope, but it needs deciding before the live gate.
+
+**4. Owner and runner share one absolute deadline, so deadline failures never reach the runner and can't be attributed.**
+- **Where:** `daemon.py:3577`, `:3602`; `offline_harness.py:1185-1196`; `driver.py:417-419`, `:3076-3095`.
+- **Trigger:** any owner failure at the deadline.
+- **Effect:**
+  - After the deadline the owner still terminates the producer, cleans up and fsyncs its receipt before replying, so the runner has already timed out.
+  - The retained refusal shows exactly this: the runner recorded `TimeoutError` and the owner returned 8.3 ms after the deadline.
+  - The error doesn't name the protocol record it was waiting for. Producer stderr and the lock-acquired time are thrown away.
+- **Fix:**
+  - Reserve a fixed reply margin on the owner side, or let the runner do a short evidence-only read after the deadline. The sample still fails either way.
+  - Record which stage was pending, when the lock was acquired, `ack_sent`, and stderr.
+
+**5. The runner loses the owner's failure record** (`offline_harness.py:1251-1282`).
+- **Trigger:** the owner returns a failure that still carries a sample, and that sample fails the runner's checks. Examples are the owner's "deadline expired before response serialization" (the owner returned after the deadline) and `attempt_retired` false.
+- **Effect:** `_owner_png_bytes` raises before `owner_failure` is saved. The runner's receipt then says only "timestamps are not request-bound" and drops the owner's error, phase and artifact paths.
+- **Fix:** save `_bounded_failure_response` for every failed response before validating its sample.
+
+**6. The owner's cleanup check can't see retired attempt directories** (`daemon.py:3785`).
+- **Trigger:** the backend renames an attempt directory to `..{name}.telemetry-*.retired-*` (`driver.py:3102`), and its deletion then fails or is partial. The harness already globs that pattern (`:1052-1055`); this code doesn't.
+- **Effect:** on failure paths, where no receipt checks retirement, the owner reports `empty: true` when it isn't.
+- **Fix:** match both patterns, or list everything in the private request directory except `capture.png` and `receipt.json`.
+
+**7. The stock region spawn takes two locks in the opposite order to Guardian** (`driver.py:2837-2866`).
+- **Order here:** the backend process lock first, then the Guardian lock, via `admission_gate_ready`.
+- **Order in Guardian's admissions:** Guardian lock first, then the process lock (`guardian.py:784-800`, `:1015-1020`; `driver.py:1610`).
+- **Effect:** if the two ever overlap on separate threads they deadlock, and revocation blocks too. I found no current caller that runs them concurrently, but the plan forbids reverse nesting.
+- **Fix:** run the health check outside the process lock, before releasing the gate, as `_run` already does (`driver.py:1682-1686`).
+
+**8. The C producer's guard against a second command line mid-capture never switches on** (patch `:73`, `:119`).
+- `telemetry_capture_active` is never set to true, here or in the compiled source.
+- **Trigger:** someone runs `gnome-screenshot` and it is forwarded to the telemetry process while it is capturing.
+- **Effect:** the global config is re-parsed, a second `owner_ready` record goes out, and the main loop blocks for up to 15 s.
+  - The parent still fails closed, so nothing bad is accepted.
+  - But the "active primary guard" claimed in the R3 freeze doesn't exist and has no test.
+- **Fix:** set the flag before `owner_ready` and add a harness case. This needs a rebuild.
+
+**9. The owner resolves identity twice more than it needs to.**
+- **Where:** `daemon.py:3577`, `:3664`, on top of the driver's own before/after checks (`driver.py:2766`, `:3027`).
+- **Cost:** at the measured 0.123–0.131 s per resolution, the four together take about 0.5 s of the 1.0 s budget. The owner's post-capture check repeats `:3027` within milliseconds.
+- **Context:** this is a timing cost, not a correctness bug. It matters because the retained refusal shows the producer path alone can already use up the budget, and that was with the identity lookup stubbed out.
+- **Fix:** have `capture_native_region_for_identity` return the verified after-identity instead of resolving again.
+
+## Nits
+- **Race at producer exit** (`driver.py:420-423`, `:486-487`): if the producer finishes and exits between the PNG check and `poll()`, a good exit-0 capture is reported as a failure. Re-check the PNG once after seeing the exit.
+- **Cleanup snapshot ordering** (`daemon.py:3687-3693`): the failure-path snapshot runs after the motion fence is released. Take it first.
+- **New fallbacks** (`daemon.py:3547`, `:3549`, `:3773-3775`, `:3790-3792`): `getattr(..., default)` with permissive defaults, which conflicts with the No-fallbacks rule.
+- **Descriptor leak** (`driver.py:2827-2833`): if Guardian rejects after the spawn, the gate's write descriptor is never closed.
+- **Socket timeout** (`cli.py:552`): the timeout resets on every read, so a slow reply can far exceed the remaining budget before the after-the-fact check catches it.
+- **Test fidelity** (`test_session_native.py`):
+  - The `changed_identity` and `late_response` cases (`:964-991`) don't check the owner's actual dispatch, so they can pass when the owner fails after capture.
+  - The fixture's own socket loop (`:701-806`) bypasses `serve(supervise_owner=True)`. There, `run_once` takes the motion fence every second, and a collision refuses a sample; that path is untested.
+- **Example config** (`deploy/crowley-session.example.toml:59`): it still points at the superseded R2 binary.
+
+## The retained deadline refusals
+- **Behaviour:** both owner refusals failed closed truthfully: no PNG, empty registries, lease held, watchdog healthy.
+- **Fixture fix:** the correction holds for the six mutated-response cases, which now fail loudly with the owner's real dispatch. The new batch failure was also reported with the owner's actual error rather than hidden.
+- **Cause:** still unknown. Both refusals fit contention for the shared lock eating into the shared 1 s budget, but the records lack the lock-acquired time, so that is inference.
+- **Reliability:** one 16/16 pass shows nothing about it, and the full batch is now red.
+
+## Checked and correct
+- **IPC framing:** strict and bounded in both directions; duplicate keys, NaN and trailing data are rejected; the request limit is enforced before dispatch.
+- **Request validation:** exact request fields; finite deadline checks on the same clock.
+- **Stop vs admission:** the controller lock is held through the spawn, and Guardian registers the observer before the gate opens. A registered observer forces the revoke to bump the capture epoch, so the late producer can't publish. Publication is checked against the epoch under the process lock.
+- **Timestamps:** the original parent timestamp reaches the decoder and is verified; the child's capture start must be after the ACK.
+- **Retirement:** the backend receipt's retirement flag is truthful, and an unconfirmed kill hands unregistration to the reaper.
+- **C producer:** the ACK loop handles fragmented, EOF and overlong input; a forwarded invocation is refused at registration; `-d` is rejected; the container digest is pinned.
+- **Model capture:** `_capture_model` on the same opted-in daemon still uses the stock full capture.
+
+The review is also saved to `/home/dev/.claude/plans/state-your-exact-model-floofy-goblet.md`.
+
+STATUS: NEEDS WORK
+
+CLAUDE_EXIT:0

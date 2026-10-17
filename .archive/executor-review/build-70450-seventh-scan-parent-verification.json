@@ -1,0 +1,47 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792222471-Arthur-7817",
+  "saved_variables_sha256": "dce7c4e490632b00f74d8bd5bf24d79980925d47a820e3db578a1cacea76b027",
+  "payload_sha256": "8c68a3438f47f03defdc2c550a6bc56c73cdf417fbdf5f09b6acad50e94df3cf",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "build": "70450",
+  "observations": 428,
+  "rows": 2249,
+  "coverage": {
+    "full": 410,
+    "bounded": 18
+  },
+  "reasons": {
+    "ok": 428
+  },
+  "startedAt": 1792222471,
+  "finishedAt": 1792222948,
+  "duration_seconds": 477,
+  "prior_start_interval_seconds": 900,
+  "loaded_ack": {
+    "uid": "beta-normal-alliance-1792222471-Arthur-7817",
+    "boot": "1792223260-338243",
+    "capture_utc": "2026-10-17T07:47:45.263055+00:00",
+    "receipt_sha256": "9ab408f9f123545b4ad9ffadda4b41fc33ac08bb7a31f0413b062763a109aead",
+    "verification": "Parent independently parsed original envelope, matched read-only server row and read retained decoded FRESH loadedACK/pending0 receipt. No new desktop capture."
+  },
+  "qualification": "Timer-alone900s start demonstrated. Reload/dispatch recovered after first no-effect Return;60s upload target missed. No autonomous qualification claim.",
+  "server_read_only_verification": {
+    "matched_uid": "beta-normal-alliance-1792222471-Arthur-7817",
+    "client_build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "num_observations": 428,
+    "num_rows": 2249,
+    "received_at": "2026-10-17T07:45:12.907477+00:00",
+    "raw_path": "/data/raw/format2/08/08fc9c9f00b7f86fda533157ceb2a717c88a966a3a9a740ae7d12c8d49820180.json.gz",
+    "transaction": "BEGIN READ ONLY; SELECT; ROLLBACK",
+    "exit": 0
+  },
+  "finish_to_server_receipt_seconds": 164.90747690200806,
+  "reload_dispatch": {
+    "successful_logged_start_utc": "2026-10-17T07:45:07.998679+00:00",
+    "finish_to_dispatch_seconds": 159.9986789226532,
+    "dispatch_to_server_receipt_seconds": 4.908797979354858,
+    "failed_first_dispatch": "Operator retained sameboot/unchangedfile/noUID after07:43:44 Return; staged screenshot was old. Causal focus attribution remains unproven."
+  }
+}

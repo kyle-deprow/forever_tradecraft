@@ -1,0 +1,20 @@
+{
+  "source_root": "/home/dev/repos/pegasus",
+  "isolated_root": "/home/dev/.cache/crowley/worktrees/region-r5-20261017",
+  "base_commit": "8c98469",
+  "baseline_hashes": {
+    "src/crowley/session/driver.py": "27b3bdf0c8fb323911eda86557296b9c36b8bd1ebdc20ac535a3301f2ce896f8",
+    "tests/test_session_capture.py": "49f48b601a2e6600b71d6a994f23f038140cb18ceca7ce0f02355215064289da",
+    "tests/test_session_native.py": "ee98950fef873ab343a93f50133fb08d49f48f27d15b998cecc740291f09b520",
+    "tools/gnome-telemetry-region/0001-typed-telemetry-area.patch": "57943d946128c8328187cfcef60752ef80bf0a8aefab1e014699dd94cd1aa66b",
+    "tools/gnome-telemetry-region/README.md": "fe81c05fe8141b075696feb36461d0d64c0a839b8ba2d872c8ad846ce10bb5e3",
+    "tools/gnome-telemetry-region/build-private.sh": "5682c5168105122af62d4087d4faf747a2ca5afaf311069c4213eb66a7d6d01e",
+    "tools/gnome-telemetry-region/manifest.example.json": "6614aa8d4a71fca6263bdce5feaee5d355c9deb62f6ae00d72e72d7208c9ce21",
+    "tools/gnome-telemetry-region/offline_harness.py": "0b310b4f8bd46acdad3644d216ada974041b40a190d127d8e8310144b2efe691",
+    "src/crowley/session/daemon.py": "282e76c0c900efa17a7515f1bc785afafda3a8b80c6602aabe4ccafdad03f3a4",
+    "src/crowley/session/cli.py": "1bb520c4c53753c43459fafc2e560a91ccda6853285e8e97eb2cce6df000422a",
+    "tests/test_session_cli_motion.py": "456dc718c665ac8e5319647fb9fb09044c618a561e87b6c14c824ee9d12e3432"
+  },
+  "r4_freeze_sha256": "2c1f7974cd69d0ef83852fe90c3ecd47f2047782735cc6e0d1a360b6360ff566",
+  "rule": "Worker may edit only R5-owned files in isolated root. Main R4 source remains frozen for active Opus review."
+}

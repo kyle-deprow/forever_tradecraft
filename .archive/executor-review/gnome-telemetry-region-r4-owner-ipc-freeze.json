@@ -1,0 +1,99 @@
+{
+  "schema": 1,
+  "label": "gnome-telemetry-region-r4-owner-ipc",
+  "status": "READY_FOR_PARENT_REPRODUCTION_AND_SOL_OPUS_REVIEW",
+  "source_root": "/home/dev/repos/pegasus",
+  "plan": {
+    "path": ".archive/PLAN-region-owner-ipc-closure.md",
+    "current_sha256": "1c70a04e53df6c9a68440dd2076c7b0de39e896dd95860d0a27e1025e4b171a1",
+    "sol_review_path": ".archive/executor-review/region-owner-ipc-sol-plan-r2.md",
+    "sol_review_sha256": "2c9375beb8824a56bd64bc7abfbc7245163f40519928762ea5a4adaf6de41b61",
+    "sol_reviewed_plan_sha256": "6b2fe53800cf889e937f5bf504009f9dcb077cc2be0f42ae0f0ab471d2ed4182",
+    "parent_clarification": "Parent clarification binds the whole loaded SessionConfig using canonical semantic JSON, keeps raw TOML SHA separate as client provenance, verifies driver.profile correspondence, and requires a real mismatch IPC refusal before capture; it also clarifies both atomic-admission race orders."
+  },
+  "baseline": {
+    "path": ".archive/executor-review/gnome-telemetry-region-r3-freeze.json",
+    "sha256": "361fc8bc8e1b6b866243cc609d472fa36f2a961124a8beac847846f39b34163c",
+    "private_binary": "/home/dev/.cache/crowley/gnome-telemetry-region-r3/prefix/bin/gnome-screenshot",
+    "private_binary_sha256": "dc14892449eba9a1a90ed3a2486d6c47ff25ac3a3a805e0bf7437257fdc87292",
+    "binary_rebuilt": false
+  },
+  "owned_source_sha256": {
+    "tools/gnome-telemetry-region/offline_harness.py": "0b310b4f8bd46acdad3644d216ada974041b40a190d127d8e8310144b2efe691",
+    "src/crowley/session/daemon.py": "282e76c0c900efa17a7515f1bc785afafda3a8b80c6602aabe4ccafdad03f3a4",
+    "src/crowley/session/cli.py": "1bb520c4c53753c43459fafc2e560a91ccda6853285e8e97eb2cce6df000422a",
+    "tests/test_session_native.py": "ee98950fef873ab343a93f50133fb08d49f48f27d15b998cecc740291f09b520",
+    "tests/test_session_cli_motion.py": "456dc718c665ac8e5319647fb9fb09044c618a561e87b6c14c824ee9d12e3432",
+    "src/crowley/session/driver.py": "27b3bdf0c8fb323911eda86557296b9c36b8bd1ebdc20ac535a3301f2ce896f8",
+    "tests/test_session_capture.py": "49f48b601a2e6600b71d6a994f23f038140cb18ceca7ce0f02355215064289da"
+  },
+  "verification": {
+    "compiled_default_daemon_composition": "passed: test_compiled_region_composes_through_default_daemon_and_stock_model (1 passed in 3.84s)",
+    "owner_ipc_eight_sample_runner_and_negative_paths": "passed after semantic config binding and observable owner dispatch handling: test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples (1 passed in 33.56s; retained final focused rerun log). The fixture mutates only an actual ok:true response with a sample and fails explicitly with the observed dispatch if the owner refuses.",
+    "cli_motion_file": "14 passed in 0.96s",
+    "offline_harness_self_check_and_self_test": "passed against the existing compiled R3 binary and private D-Bus/Xvfb compositor",
+    "ruff_check": "passed on all seven owned source files",
+    "ruff_format_check": "passed on all seven owned source files",
+    "py_compile": "passed on all seven owned source files",
+    "git_diff_check": "passed on all seven owned source files",
+    "parent_hermetic_batch": {
+      "result": "316 passed, 2 failed in 368.60s (0:06:08); exit 1",
+      "failure_class": "Both failures occurred during fixture setup because PRIVATE_TOOL_ROOT was absent while X11Backend loaded the authentic private xdotool artifact; they were not test assertion failures.",
+      "log_path": ".archive/executor-review/gnome-telemetry-region-parent-r4-host.log",
+      "log_sha256": "d75f2212ad585c869e539b34370d685dd9421eeadb55adef5207bfeb1af5dea9"
+    },
+    "parent_reported_actual_host_targeted_batch": "16 passed in 35.29s, tool session 99382; output was not retained as a file. This preceded the semantic-config correction.",
+    "live_run": false,
+    "profile_opt_in_or_deployment": false,
+    "focused_retry_history": {
+      "parent_frozen_focused_failure": {
+        "result": "15 passed, 1 failed in 25.26s; exit 1",
+        "log_path": ".archive/executor-review/gnome-telemetry-region-parent-r4-frozen-focused.log",
+        "log_sha256": "b0b960a5d35d930acd923e1f2c685aebd4c1589f4dbe9ea4a3decb177832ade4",
+        "actual_owner_failure": "DriverError: telemetry owner protocol deadline expired in region_capture; owner entered at 32682.065568208 and returned at 32683.072652957, without Shell capture or a published PNG.",
+        "client_receipt_path": ".archive/executor-review/gnome-telemetry-region-parent-r4-deadline-client-receipt.json",
+        "client_receipt_sha256": "e099b2121687cf49898dc86a0c037fce68a1a647e006f2056a4cf468d4d5a64a",
+        "owner_receipt_path": ".archive/executor-review/gnome-telemetry-region-parent-r4-deadline-owner-receipt.json",
+        "owner_receipt_sha256": "161630b3804240a248a502dbb4eddcdd56291c6670895573c2d488a5b692e539",
+        "fixture_issue": "The pre-instrumentation test handler assumed a successful sample, raised KeyError on the actual refusal, and hid the missing Shell capture behind an area-count assertion."
+      },
+      "instrumented_intermediate_failure": {
+        "result": "1 failed in 34.67s; exit 1",
+        "log_path": ".archive/executor-review/gnome-telemetry-region-semantic-repro-r1.log",
+        "log_sha256": "4a4e223d17d5a10c262cfd180990aa840c19f5b63bd1ba44f78fe2fc840f6532",
+        "failure": "At teardown, the late-response fixture retried a bounded error write after the intentionally delayed client had disconnected; the retry hit BrokenPipe. Owner response and mutation cases had reached fixture teardown."
+      },
+      "corrected_focused_rerun": {
+        "result": "1 passed in 33.56s; exit 0",
+        "log_path": ".archive/executor-review/gnome-telemetry-region-semantic-repro-r2.log",
+        "log_sha256": "677b70314dba38b3eb143c665451a64ca40cabd06b19a24df490960cbdc17d0d",
+        "exit_path": ".archive/executor-review/gnome-telemetry-region-semantic-repro-r2.exit",
+        "exit_sha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9"
+      },
+      "interpretation": "The owner-side one-second deadline refusal is preserved and was not reproduced by the single corrected rerun. No timing budget or capture assertion was relaxed; the passing retry does not erase the earlier refusal or establish live timing reliability."
+    },
+    "fixture_dispatch_observability": "For mutated runner cases, the fixture retains actual owner ok/sample/error/failure fields, changes a response only when it is ok:true and sample is a dict, and explicitly fails with the observed owner dispatch if no sample was returned. Late client disconnects are recorded as transport observations without a second socket write."
+  },
+  "timing_evidence": {
+    "runner_fields": [
+      "png_load_seconds",
+      "pixel_decoder_seconds",
+      "duration_seconds",
+      "sample_completed_monotonic"
+    ],
+    "scope": "Per-sample timings are recorded by the private fixture; they are not live desktop performance measurements or a benchmark.",
+    "existing_replay_measurement": "The handoff records strict decode at 54.54ms median / 60.65ms p95 and PNG loading at 0.64ms median for a preserved real frame replay.",
+    "unmeasured": "Real desktop owner-IPC, Shell capture, PNG transfer, and end-to-end runner cost remain unmeasured by this R4 implementation."
+  },
+  "open_review_questions": [
+    "A parent focused run observed one actual owner protocol deadline expiry in region_capture before Shell capture; it failed closed and was not reproduced in one corrected targeted rerun. Review the retained logs and receipts; this implementation did not widen the deadline or claim live timing reliability."
+  ],
+  "delta_path": ".archive/executor-review/gnome-telemetry-region-r3-to-r4-owner-ipc-delta.md",
+  "semantic_config_binding": {
+    "canonicalization": "dataclasses.asdict(SessionConfig), recursively normalize pathlib.Path with os.fspath, sorted compact JSON, SHA-256",
+    "raw_file_digest": "Kept separately as config_file_sha256 client provenance; it is not treated as owner authority.",
+    "owner_checks": "Owner computes its own SessionConfig digest, checks the request before capture, verifies driver.profile equals config.profile, and rechecks profile/config semantic binding at observer admission and after capture.",
+    "negative_ipc": "Real socket runner fixture changes only capture_dir while preserving crop and producer. Owner refuses before admission and Shell capture; no owner sample/artifact is created."
+  },
+  "ownership_resolution": "R4 uses the existing daemon owner and canonical lease; no alternate live lease is introduced. Live diagnostic execution remains unauthorized."
+}

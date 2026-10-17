@@ -30,10 +30,12 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `f2d3f2b` (initial snapshot
+summaries were pushed to the new origin through `ae02543` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
-evidence `60eca5f`, third scan/performance plans `f2d3f2b`). Raw runtime logs, captures and
+evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
+checkpoint `4540671`, reviewed addon timer fix `8c98469`, reviewed backup and
+parent restore drill `ae02543`). Raw runtime logs, captures and
 private configuration remain local. The companion unit now invokes the installed
 tool without a checkout-specific working directory; parent systemd verification
 passed. No runtime service was changed by this source fix.
@@ -112,6 +114,19 @@ is released to verify its reload then reopen AH. Internal retries remain quiet,
 manual cooldown notices remain, and timer_create is logged after successful API
 return. The actual live miss cause remains unknown; retain new scheduleTrace
 on normal SavedVariables flushes. See `addon-schedule-parent-acceptance.json`.
+Seventh parent original/DB/loadedACK verification confirms2249rows/allok,
+900s timer-alone start, but164.907s upload after a recovered no-effect Return.
+Eighth is the first full sweep on the reviewed scanner: UID
+`beta-normal-alliance-1792223398-Arthur-0437`,479s,428observations/2134rows,
+411full/17bounded/allok. Parent validated original envelope, all9scheduleTrace
+events, read-only DB row, and loadedACK boot1792224024-834282/pending0.
+Upload49.940s afterfinish meets60s. Eighth started927s afterseventh because the
+reviewed reload/AH reopen crossed due by27s; autonomous qualification remains
+pending. Eight sweeps total18182price rows. New trace proves actual timer
+creation/callback/start plus finish rearm/cancellation; it does not prove the
+previous miss's cause. Ninth timer-alone start1792224298 was operator-verified
+after continuous AHopen/no input, exactly900s aftereighth. GUI owner is released
+for ongoing ordinary collection without per-sweep approval.
 
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
@@ -135,6 +150,17 @@ real blocked Shell capture prevents publication/reaps the producer. Never block
 inside Popen/gate release to invent an interleaving. Guardian remains unchanged.
 No new live capture is released before parent/Sol/Opus review.
 Capability remains default-off and undeployed.
+Current native closure status: SolR4MAJOR ISSUES and actual CLI
+claude-opus-5-5R4exit0/NEEDS WORK. Parent final focused16passed36.38s; broader
+host317passed/1failed426.17s because private compiled fixtures shared the real
+desktop's screenshot lock. The main native source stays frozen/uncommitted.
+R5 works only in `/home/dev/.cache/crowley/worktrees/region-r5-20261017`, based
+on8c98469 plus11hash-verified R3/R4 overlay files. Scope/accepted reviewer fixes
+are in `.archive/PLAN-region-r5-lifecycle-closure.md`: C active-primary guard/new
+private build, all production region captures Guardian-owned, immutable config
+vs runtime anchors, precise final/failure receipts, cancellation/lock/FD and IPC
+deadline evidence, isolated compiled fixtures and real supervised serving proof.
+No new native opt-in or live executor release; do not deploy R4 from main.
 R4 now validates a canonical hash of the whole loaded SessionConfig on the owner,
 separate from caller raw-TOML provenance, and verifies the driver profile matches.
 Parent's retained focused host run passed the genuine eight-sample happy path but
@@ -184,6 +210,12 @@ is restore_verified with15passed operations and12resolved raw references.
 Parent revalidated manifest/archive/strict receipt success semantics and exact
 project absence (containers/volumes/networks all empty). Historical receipt is
 unchanged. Sanitized public proof: `market-backup-drill-summary-r2.json`.
+Final tool/tests/docs are committedae02543. A new point-in-time snapshot
+`beta-20261017T080304Z-88ac180be7ad` completed after eighth ingestion and passes
+canonical manifest/COMPLETE/archive validation, manifestSHA
+`a0f9b99c6eea2599ecd99ace139e3aab8c6843ad0f590c831c6b3c6568227c04`.
+This latest snapshot is not separately restored; final-tool restore qualification
+uses the earlier canonical snapshot and the retained new successful drill.
 
 **Deterministic runtime / Rust:** user resumed after an architecture discussion,
 wants routine observation/execution in deterministic code and a Rust rewrite
@@ -199,6 +231,15 @@ Sol planR3 is READY at planSHA55f680dc1683c53dfddc5543384621875b7d1e8a4aa5280f7a
 Phase1 can honestly return insufficient_evidence with exact missing paired
 stages/runs and a bounded next-evidence proposal. Implementation remains queued
 after native closure review as required by the plan.
+Parent released pure offline implementation in parallel with frozen native
+review; no capture/input/runtime edits. Corrected candidate is ONLY in the
+addon-schedule worktree (`tools/session_performance.py`, its test, performance
+doc and static audit); main still has an obsolete untracked earlier candidate
+until reviewed integration. Parent10tests/Ruff/format/compile pass. Actual100
+replays/5warmups of one preserved real frame:0failures, strict decode p95
+63.648ms wall/63.397ms processCPU; planner CPU p95<=0.208ms. Sol source review
+pending. Current artifacts cannot establish accepted matched live instrumentation,
+so decision is insufficient_evidence. Never infer defer/migrate from replay.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;

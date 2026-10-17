@@ -37,6 +37,15 @@ against the owner's actual same-host monotonic clock. Enforce a strict overall
 request budget including lock/identity/capture/evidence serialization work.
 Unknown fields, bad types, absent owner and stale generation fail before capture.
 
+Bind actual loaded configuration, not merely a caller-supplied file digest echoed
+as evidence. Use a shared canonical semantic hash of the complete loaded frozen
+SessionConfig (including nested profile and normalized Paths), independently
+computed by client and owner. The actual driver profile must match that loaded
+configuration. Keep raw file hash as separate client provenance. Refuse semantic
+mismatch before capture and preserve the binding through postchecks. A real IPC
+negative test must change an otherwise uncovered field while retaining the same
+display/crop/producer and demonstrate refusal without capture/input.
+
 Implement the operation on the already constructed SessionDaemon, using its
 existing self.driver and configured native region producer. Require PAUSED,
 unchanged generation, no active/bootstrap/calibration/interaction operation,
@@ -139,8 +148,13 @@ non-retirement, NO_CHANGE, identity/boot/sequence changes, late sample immediate
 stop, preserved failed PNG/receipt, and continued owner lease/watchdog health.
 Prove no input/model methods are invoked and status/stop remain responsive while
 sample I/O is blocked. Retain the same-daemon stock model capture regression.
-Specifically block a real gated producer before exec and prove concurrent stop
-prevents execution/publication while retaining canonical lease/watchdog health.
+Prove both linearization cases: stop winning before admission prevents exec;
+admission winning first releases its gate atomically, then stop during a blocked
+real Shell capture prevents publication and reaps the producer while retaining
+canonical lease/watchdog health. Gate release is a bounded nonblocking critical
+section, so do not manufacture interleaving by blocking inside it or Popen.
+Place a pre-admission test barrier outside the controller/Guardian locks, and
+record actual ordered admission/capture events. No Guardian edit is required.
 Use socket-level tests for oversized unterminated requests/responses, duplicate
 fields, NaN/Infinity and truncated/trailing records, plus normal existing
 status/lifecycle compatibility. Distinguish post-publication preserved PNGs from

@@ -29,8 +29,10 @@ timing evidence, then attribute the remaining costs.
 
 ## Phase 1: bounded measurement and deterministic-boundary audit
 
-After the active native closure has frozen and passed review, propose a Luna
-implementation owning only:
+The native closure is now frozen for review. Parent releases the offline-only
+Phase1 implementation in parallel with that review: it cannot capture/input or
+accept an unreviewed live path. Any eligibility or migration verdict still
+requires the reviewed matching source/binding contract below. Luna owns only:
 
 - `tools/session_performance.py` (offline, explicit input artifacts only);
 - `tests/test_session_performance.py`;
@@ -85,6 +87,11 @@ Record both `_measure_pointer_anchor`'s Luna call and the post-movement
 `_refresh_pointer_anchor` call with their actual evidence source. A zero-call
 whole-cycle claim requires an accepted fresh semantic-anchor provider replacing
 both; deterministic telemetry monitoring alone is insufficient.
+Also account for `_observe_addon_state`/`_observe_named_state`: a named world or
+AH-open postcondition currently invokes visual inference even when telemetry is
+available. The two anchor calls are not an exhaustive model-call count. Trace
+actual action preconditions/postconditions and command readback before proposing
+any count, and distinguish code-path counts from observed calls in real journals.
 
 Verification: `uv run pytest -q tests/test_session_performance.py`, scoped
 `uv run ruff check tools/session_performance.py tests/test_session_performance.py`,
