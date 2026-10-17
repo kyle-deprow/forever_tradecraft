@@ -161,6 +161,13 @@ fresh exact loadedACK boot1792227648-134611/pending0. Upload81.306s missed60s.
 Twelve current-session sweeps total26609price rows. Thirteenth due1792227903;
 sole operator verified AHopen/pending0 after normal reload/reopen.
 
+Thirteenth UID `beta-normal-alliance-1792227903-Arthur-2085` is parent-verified:
+428queries/2108rows,411full/17bounded/allok,475s, exact900s timer-alone start.
+Original logical content matches DB/raw reference, fresh exact loadedACK
+boot1792228519-335281/pending0. Upload54.357s meets60s. Thirteen sweeps total
+28717price rows. Fourteenth start1792228803 was operator-verified as exacttimer,
+AHopen/pending0/sameboot/stationary; it is collecting.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -215,6 +222,23 @@ OpusR5 are now reviewing the frozen delta; no integration/deployment/liveoptin.
 See `gnome-telemetry-region-r5-parent-focused-verification.json`. One appropriate
 broad host batch follows source closure. Prior R4 negative timing evidence remains.
 
+R5 actual reviews completed: SolsourceR5NEEDS WORK for missing forwarded-command
+coverage; separate testWT `region-r5-forwarding-test-20261017` causally closes it
+at native-testSHA47ac2cef30d234983609db3c08ad17c24487126abaf3d2b48dc4aeaa4ee15f9b.
+Parent exactcompilednode1passed4.68s/Ruff/format. SolR5R2 still requests entire
+post-start cleanup coverage. Actual CLI claude-opus-5-5R5 exited0/NEEDS WORK:
+telemetry GApplication Activate/action routes bypass command-line guard, plus
+one stale fake-backend regression. These are real fixes, not live failures:
+new source remains unopted-in. Parent's six-file frozenR5 broad hostbatch is
+running and already retains a failure; exact result pending. Concurrent3process
+forwarding stress also retained one PNG-readiness failure; cause unresolved.
+R6 owns only eight scoped files in isolated `region-r6-20261017`, verified R5+
+forwardedtest overlay; plan `.archive/PLAN-region-r6-activation-closure.md` covers
+all activation/actions, compiled privateRPC proof, whole cleanup interval,
+stalefakebackendtest, exactprofilecomparison and typednot-started failures.
+New actual C build must go to R6 cache; R3/R5 freezes/binaries stay immutable.
+No driver/CLI/Guardian/controller or live runtime edits, no deployment.
+
 **Recipe foundation accepted:** three-file implementation, packaged normalized
 manifest, nine-profession coverage (eight crafting plus Mining), two blocked
 Mining/Cooking source-fact candidates. No numeric margins, strategy shopping lists
@@ -263,7 +287,8 @@ This latest snapshot is not separately restored; final-tool restore qualificatio
 uses the earlier canonical snapshot and the retained new successful drill.
 
 Latest fresh snapshot `beta-20261017T090505Z-649ec7a88199` completed after
-twelfth ingestion and passed canonical snapshot validation. It is not separately
+twelfth ingestion and passed canonical snapshot validation (manifestSHA
+b8d8f750149ab03633b48b65b3e36d2ec339743d10c1c96b7b60734e8a5c488d). It is not separately
 restored; the accepted tool's prior successful disposable restore proof remains
 the recovery qualification. No source service/database write occurred.
 

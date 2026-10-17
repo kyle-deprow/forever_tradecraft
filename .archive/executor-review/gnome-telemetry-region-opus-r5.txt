@@ -1,0 +1,64 @@
+Model ID: **claude-opus-5-5**. This was a read-only review: I edited no source and ran no tests, builds, Git, desktop, service or Docker operations. The only file I wrote is the plan-mode summary at `/home/dev/.claude/plans/state-your-exact-model-eager-harbor.md`.
+
+**Identity check:** the freeze record hash (`307c6ef6…`) and all 12 owned source hashes match it. So do the binary (`7f7080c8…`), manifest (`6f2a9f17…`), patch (`0cccf95f…`) and plan (`87396c94…`). The build script differs from frozen R4 only in `EXPECTED_PATCH_SHA`.
+
+## Must-Fix
+
+**1. The C foreign-command guard only covers forwarded command lines. GNOME's D-Bus activation and action calls get past it.**
+- **Where:** `tools/gnome-telemetry-region/0001-typed-telemetry-area.patch:121-125` is the only guard (it handles the forwarded `CommandLine` case). At `:161-179` R5 adds parameters to the upstream `action_screen_shot` / `action_window_shot` handlers but no guard. The upstream `screenshot_application_activate` is also unguarded. I confirmed these against the pinned upstream source tarball.
+- **What happens:** the telemetry producer is the registered `org.gnome.Screenshot` app while a capture is in flight. During that time, any of these D-Bus calls is dispatched on its main loop:
+  - `org.freedesktop.Application.ActivateAction("screen-shot"|"window-shot")`
+  - `org.gtk.Actions.Activate`
+  - `Activate`
+- **Trigger:** this machine's `org.gnome.Screenshot.desktop` has `DBusActivatable=true` and `Actions=screen-shot;window-shot`. So simply launching Screenshot, or one of its quick actions, from GNOME Shell reaches the producer. So does `gapplication action org.gnome.Screenshot screen-shot`. None of these start a new process, so the new flock never sees them, and they are not command lines, so the active flag doesn't either.
+- **Impact:**
+  - The action handlers rerun the shared option parsing, which sets `telemetry_region = FALSE`, and then start a second Shell screenshot with the flash on. The owner's completion proof is skipped and the user's screenshot ends up in our private stage file.
+  - `Activate` sets `interactive = TRUE` and opens the dialog. The producer then doesn't exit and gets killed.
+  - The Python side still refuses to publish anything. But the in-flight capture fails, and R5's central claim ("refused before a second Shell call, output, or shared-option reparse") doesn't hold for these routes.
+- **Fix:** in a telemetry process (key on `telemetry_region_arg`, which is set before registration), refuse or ignore `activate` and every app action. Optionally refuse any foreign command line once the process's own invocation has been handled. Then add compiled cases that make the `gdbus` Activate / ActivateAction calls during the blocked Shell call. Each should assert: no extra entry in the area or stock logs, no output file, and the original capture still completes.
+
+## Should-Fix
+
+**2. An unchanged R4 test will now fail.**
+- `tests/test_session_native.py:193-330` (`test_real_session_daemon_native_provider_route_and_stock_model_capture`) drives `motion_provider.observe` through a fake `RecordingBackend` with the region profile enabled.
+- R5's new X11-only refusal at `daemon.py:1846` raises `DriverError` there. R5 updated the sibling test (`:189`) but not this one. The parent's 50-check run only included the two compiled native tests, so this failure is still waiting for the broad batch.
+- **Fix:** have it assert the refusal and no region capture, or keep only its stock half (the compiled test already covers the positive route).
+
+**3. The test never exercises the forwarded-command-line guard.**
+- The "foreign ordinary" case (`test_session_native.py:642-654`) runs the *private* binary, which the new flock refuses before it even registers with GNOME.
+- The path a stock `/usr/bin/gnome-screenshot` takes (registers as a secondary instance, forwards its command line, `telemetry_capture_active` refuses it) is never run. The stock binary is installed here and the fixture already uses it for model capture.
+- `gnome-telemetry-region-r5-delta.md:13` and `README.md:27-33` claim more coverage than this.
+- **Fix:** run the stock binary, or the private one with a separate 0700 `XDG_RUNTIME_DIR`, during the blocked capture. Assert nonzero exit, no second Shell call, no output. Then reword the docs.
+
+## Nits
+
+- **4.** The comment at `daemon.py:138-142` says the driver records measured anchors in the profile at runtime. R5 removed those writes (in `driver.py`), and config already rejects the `anchor_fingerprints` field. So the exclusion now does nothing and the comment is stale: drop the `pop`, or fix the comment.
+- **5.** At `offline_harness.py:1317`: if the owner fails after creating its request directory but before the producer starts (the identity check before capture), it returns `producer_attempt={}`. The runner then fails with "producer attempt schema is malformed" instead of the owner's real refusal. The owner failure is still saved first, so no evidence is lost. Label the attempt as "not started" instead.
+
+## Checked and no finding
+
+- **Admission and revocation:**
+  - Lock order is controller → Guardian → backend everywhere I traced, with the health check moved out of the backend process lock.
+  - Revoke callbacks run outside the Guardian lock and never take the native bootstrap lock, so there's no deadlock with the new bootstrap path.
+  - The admission-gate descriptor is closed on every rejection after spawn.
+  - Every production native-region route registers with Guardian before exec release, and the fixture escape flag can't be enabled by accident.
+- **Stop/pause:**
+  - Stop before admission is refused by the generation check.
+  - A capture already admitted when pause/stop arrives is revoked and reaped.
+  - Refusing captures once a stop has been requested is not a practical regression: an armed revoke already cancels all backend captures, stock ones included.
+- **Config:** the immutable config copy and profile comparison are correct.
+- **Paused owner:**
+  - A capture-revoked backend is refused before any directory is created.
+  - The cleanup snapshot is taken while the motion fence is held.
+  - There is a single final success receipt with exact fields, ordered timestamps and size limits.
+- **CLI and runner:**
+  - The CLI uses one absolute response deadline.
+  - The ≤250ms grace only retains a late failure. A late success is never qualified, and timeouts are labeled unknown.
+  - The one-second and 0.75–1.25 s sample gates are unchanged.
+- **C invocation guard:** the reservation code itself is sound. It walks `XDG_RUNTIME_DIR` without following symlinks, requires owner/0700/0600, holds a nonblocking flock until exit, and the owner handshake doesn't run the main loop before the active flag is set.
+
+The retained R4 one-second deadline expiry stays open as negative evidence. A passing private fixture doesn't show live speed or reliability.
+
+STATUS: NEEDS WORK
+
+CLAUDE_EXIT:0
