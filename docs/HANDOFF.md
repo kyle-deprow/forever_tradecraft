@@ -30,8 +30,9 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through56787c8 (initial snapshotc000f1f,
-audit214a4e0, companion-unit portability56787c8). Raw runtime logs, captures and
+summaries were pushed to the new origin through `ae9129b` (initial snapshot
+`c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
+foundation and collection receipt `ae9129b`). Raw runtime logs, captures and
 private configuration remain local. The companion unit now invokes the installed
 tool without a checkout-specific working directory; parent systemd verification
 passed. No runtime service was changed by this source fix.
@@ -42,24 +43,36 @@ independently validated by parent for UID
 2183positive-price rows,407full/21bounded, every reason `ok`. Sweep ran
 1792215846→1792216326 (480s). Companion accepted it and wrote the exact UID into
 Data.lua acknowledgements; second reload confirmed `cleared1`, loadedACKs1,
-pending0 and storedsweeps0. The second bounded AH interaction succeeded at
-06:06:22UTC, auto-starting the next sweep; a subsequent status showed286/428.
-No manual scan command was issued. The ordinary repeat started about1336s after
-the first start, so the manual sequence has not met the900s qualification cadence.
-Upload was144s after completion, so this is useful data but does not pass the
-autonomous60s upload gate. Ordinal148/item6371 completed in1s; its earlier stale
+pending0 and storedsweeps0. The second sweep, UID
+`beta-normal-alliance-1792217085-Arthur-3539`, ran1792217085→1792217561
+(476s), queried428items and captured2296positive-price rows,407full/21bounded,
+all reasons `ok`. Its companion upload and client-loaded exact-UID ACK also
+completed. Original envelopes establish a1239s start interval; screenshot-based
+click times and old chat status lines were not scan timestamps. Both uploads
+were144s after completion. These useful ordinary sweeps have not met the900s
+cadence or autonomous60s upload gate. A third ordinary sweep started1792218159
+and is in progress; verify its outcome from fresh telemetry and saved evidence.
+Ordinal148/item6371 completed in1s; its earlier stale
 chat line did NOT establish a stalled scan. Parent receipt:
 `.archive/executor-review/build-70450-first-scan-parent-verification.json`.
+The first interval compared428items, with186showing observed listing/depth
+changes. Depletion/replenishment are liquidity proxies, not sales estimates;
+grouped scope suppresses individual turnover metrics. Receipt:
+`.archive/executor-review/build-70450-first-interval-parent-verification.json`.
 
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
 identity-bound isolated wrapper was terminated. Actual Sol and Opus
-(`claude-opus-5-5`, exit0) source reviews both NEEDS WORK. R3 implementation is
-released to `luna_native_capabilities` under `PLAN-gnome-telemetry-region-r3.md`:
-canonical-owner rejection, stream ACK framing, admission health, terminal failure
-cleanup, composed real-producer/default-daemon tests, reproducible build and an
-eight-sample diagnostic. Capability remains default-off and undeployed.
+(`claude-opus-5-5`, exit0) source reviews both NEEDS WORK. R3 source/binary are
+frozen; parent reproduced19focused tests and compiled producer self-checks.
+Parent rejected completion because the default daemon path was still not
+composed with the real producer, and the diagnostic manufactured timing and
+retirement evidence. Fresh `luna_region_closure` owns the narrow R4 closure in
+`.archive/PLAN-region-composition-diagnostic-closure.md`: real default-daemon
+composition, config/IPC-bound eight-sample diagnostic, and truthful retirement
+evidence. No new live capture is released before parent/Sol/Opus review.
+Capability remains default-off and undeployed.
 
 **Recipe foundation accepted:** three-file implementation, packaged normalized
 manifest, nine-profession coverage (eight crafting plus Mining), two blocked
@@ -68,6 +81,14 @@ or network runtime. Parent23tests/Ruff/five frozen hashes and actual disposable
 wheel install passed; SolsourceR1READY/no findings. See recipe-foundation parent
 acceptance and source review under `.archive/executor-review/`, and
 `docs/WATCHLIST.md`. Further recipe facts and a strategy engine remain to build.
+
+**Recovery work:** a private manual snapshot at
+`~/.local/state/crowley/market-backups/beta-20261017T061327Z` preserves a custom
+database dump and raw archive, but is not restore-qualified. The revised
+`.archive/PLAN-market-backup-restore.md` passed Sol plan R2. The recipe worker
+now owns the three-file backup implementation and a real disposable restore
+drill. Live database/resources stay read-only; restore writes and cleanup must
+prove fresh disposable identities. No restore success is established yet.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;
@@ -87,7 +108,7 @@ Use that short window to probe exact launch realm/region/build identity.
 
 **Autonomous qualification objective:** finish HUD/executor qualification and demonstrate three
 real 428-item scans at seed/+900/+1800 seconds, uploads and loaded acknowledgements,
-then clean closeout without a fourth scan. One ordinary70450 sweep is validated;
+then clean closeout without a fourth scan. Two ordinary70450 sweeps completed;
 the formal autonomous repeating-session qualification has not passed.
 Native/resource, actual human input, camera and movement-basis gates remain.
 
