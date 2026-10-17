@@ -29,15 +29,33 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Live checkpoint at17:36UTC:** user service is now enabled/active, sole owner
-PID1392239; old manual owner501046 exited. Current public state is
-NATIVE_CALIBRATION/repeat/gen19. First native attempt failed because the
-bootstrap observation became stale before calibration startup. Its terminal
-error and clean empty bootstrap state are retained; Luna is preparing one
-public bootstrap/start helper that avoids a model-turn delay. Freshness limits
-remain10s at owner acceptance/5s at runner proof validation. Native100/input/
-resume/three-cycle qualification remain unfinished; no new scan yet. Main
-runtime sources stay857a019. Offline profiling implementation is isolated.
+**Live checkpoint at18:03UTC:** collection has resumed with operator assistance.
+Sweep28, `beta-normal-alliance-1792259386-Arthur-0836`, persisted at18:00:38.681101UTC:
+428observations/2564rows (399full/28bounded/1query_timeout). Its start was17:49:46UTC;
+next scheduled start is18:04:46UTC. Parent verified original payload digest against
+the server and a retained fresh exact loaded ACK/pending0/AHclosed frame; see
+`build-70450-twentyeight-scan-parent-verification.json`. Upload133.681101s missed
+the60s target. A private ACK helper confused profile build `70450` with catalog target
+`1.60.1.70450`; fix the helper argument, not the accepted catalog/config. The
+completion watcher must accept terminal `scheduled` as well as `ready`, bound to
+the observed run's new saved UID and pending ownership. Measure upload delay from
+the actual finish timestamp, not the later watcher observation.
+
+User service is enabled/active, sole ownerPID1392239; old manual owner501046
+exited. Native qualification remains blocked/unarmed. Three retained attempts
+failed respectively on stale bootstrap, no timely construction after readiness,
+and actual construction memory growth exceeding128MiB. The third attempt's
+atomic helper entered the world promptly, but the interval includes world entry
+and cannot attribute growth specifically to Agent. Final growth values were
+discarded before the existing error, so they remain unknown. See private
+`native-handshake-20261017T173946672064Z-pid1439046/receipt.json`; do not retry
+blindly or relax limits. Sol approved Stage A of
+`.archive/PLAN-native-construction-isolation.md` to archive completed rejected
+measurements privately. Luna implements it in an isolated worktree. Stage B
+deferred construction is NOT released: load-order and steady-world proof/trigger
+contracts need a concrete design. Native100/input/resume/three-cycle autonomous
+qualification remain unfinished. No physical-input calibration is ready yet.
+Main runtime source remains the accepted3a95d89 implementation.
 
 **Resumption at17:27UTC:** user explicitly resumed after discovering a four-hour
 collection gap. Database holds27sweeps/62,348rows; latest UID
@@ -64,11 +82,16 @@ operation without the service owner and its actual gates/three-cycle proof.
 
 The new latency plan is SolR2READY, hash
 397bccaa859a7e39c31eef7555aa5f10764dd63329f118478e4004ac5ca2d685.
-Luna is implementing Stage1 only in isolated worktree
-`/home/dev/.cache/crowley/worktrees/identity-latency-20261017` from857a019.
-Its four-file fence is driver/daemon/native tests/new sidecar CLI. Main runtime
-sources remain unchanged; do not integrate or restart during native100/input
-qualification. Parent owns review/integration; actual Opus reviews executor edits.
+Stage1 R1 is frozen in `/home/dev/.cache/crowley/worktrees/identity-latency-20261017`
+from857a019; parent200native/evaluator checks passed. Sol and actual Opus
+(`claude-opus-5-5`, CLIexit0) both NEEDS WORK: live IPC/admission, omitted CPU
+reporting, exception-safe collector reset, overhead/size bounds and negative
+coverage need fixes. Luna works only in a separate R2 worktree
+`/home/dev/.cache/crowley/worktrees/identity-latency-r2-20261017` from8d06cd0.
+The four-file fence remains driver/daemon/native tests/new sidecar CLI. Main
+runtime sources remain unchanged; coordinate integration/restart with sole live
+operator and do not invalidate qualification. Parent owns final verification,
+review/integration; actual Opus reviews executor edits. No Rust trigger established.
 Fresh snapshot `beta-20261017T171506Z-64ed5867f180` and parent canonical validation
 passed (manifestSHAece198340ab5842335a965773f89d90a982cfbfb875f127c5d025eec12deac4c).
 It was not separately restored; the prior accepted-tool restore drill still stands.

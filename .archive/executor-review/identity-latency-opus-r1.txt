@@ -1,0 +1,67 @@
+Model ID: **claude-opus-5-5**
+
+**STATUS: NEEDS WORK.** Live mode crashes before sending its first request, and most of the failure tests the plan requires are missing. The owner-side collector and barrier routing are basically sound.
+
+## Scope and hashes
+- **Plan:** SHA `397bcc…685` matches in both main and the candidate.
+- **Freeze and diff:** freeze `4d4fb6…922` and diff `8c0ca9…6f` match.
+- **Source files:** all four match the freeze hashes.
+- **Read-only pins:** all four match, and none has a diff against `857a019`.
+- **Diff content:** my regenerated diff matches the archived one; the only difference is the absolute-path header on the new file.
+- **Read-only:** I edited nothing and ran no tests, builds, network, GUI/input or Git mutations. My only extra action was a one-line stdlib probe (Must-Fix 1).
+
+## What holds up
+- **One thread:** the sink is a `ContextVar`. All four barriers, the source spans and the `request_started`/`capture_returned` marks run on the one handler thread. The capture path (`capture_native_region_for_identity` → `X11Backend.capture_native_region`) stays on that thread, and Python 3.12 threads don't inherit context.
+- **Clocks:** the entry clock is taken before the directory is created. If no directory is created, nothing is written.
+- **Unchanged contract:** the six-key request, the 1 s deadline, the response and receipt key sets, and the cleanup globs are all unchanged.
+- **CPU fields:** external child CPU is always null with its fixed reason.
+- **Reader:** it checks lstat, opens with `O_NOFOLLOW|O_CLOEXEC`, compares fstat before and after the read, and checks nlink, mode and size. The digest is presented as provenance only.
+
+## Must-Fix
+1. **Live mode can't send any request** (`identity_latency_sidecar.py:484,531`).
+   - `_socket_request(Path(args.socket), …)` calls `connection.connect()` with a `PosixPath`. On the project's Python 3.12.12 I checked that this raises `TypeError: a bytes-like object is required, not 'PosixPath'`.
+   - `except (IdentityLatencyError, OSError)` doesn't catch `TypeError`, so the only live route dies before request 0.
+   - It's also a hand-rolled client, but plan:79 requires the existing one. The hand-rolled version applies a relative 1.25 s timeout to each socket operation instead of an absolute deadline plus grace. It skips the `SHUT_WR`, EOF and trailing-data checks, and it doesn't validate the response schema.
+   - **Fix:** call `crowley.session.cli._socket_request(..., response_deadline=deadline, failure_evidence_grace=0.25)`, as `offline_harness.py:1884-1896` does, and add a test for the live route.
+2. **The negative coverage required by plan:161-172 is mostly missing** (`tests/test_session_native.py:147,1690`). The only additions are one reader/manifest test and assertions on the eight-sample success test. There are no tests for:
+   - a forced artifact-write failure (causal failure unchanged, profile absent, token only);
+   - a profile on a failure path: refusal after directory creation, post-capture identity drift, source/config drift, cancellation, deadline;
+   - a second thread trying to append;
+   - live mode blocked by a missing or mismatched manifest before the first request;
+   - an fstat change after the read (the monkeypatch only forces the "before read" branch);
+   - leaks of argv, paths or identifiers.
+
+   As a result, the profile write after `finally` and the outcome/status values on failure paths are never exercised.
+
+## Should-Fix
+3. **Request config hashes aren't checked against the manifest before sending** (`sidecar:509-529, 551-569`). `--config-*-sha256` are sent as given and only compared with the manifest afterwards. The owner only format-checks `config_file_sha256` (`daemon.py:4022-4031`). So up to three live captures can run under a config-file binding nobody reviewed. **Fix:** take the values from the manifest, or require equality before request 0.
+4. **Output locations aren't preflighted** (`sidecar:517-535, 572-584`). `_write_private_json` uses `O_EXCL`, so a reused `raw_dir` raises an uncaught `FileExistsError` after request 0 has already been sent. That means fewer than three requests and no report. A bad `--output` is only discovered after all three captures. **Fix:** check that `raw_dir` is new and empty and that the output path is writable before the first request.
+5. **The size bound contradicts the event cap** (`daemon.py:470`, `sidecar:16`). One event serializes to about 300–323 bytes, so the 64 KiB limit is hit at about 210 events, below the 256 cap. Truncated profiles — the slowest, most interesting samples — are exactly the ones that disappear behind the failure token. **Fix:** raise both bounds together, or size the cap to fit, and test a full 256-event round-trip.
+6. **Profiling overhead is unreported and sits on the response path** (`daemon.py:465-485, 4379-4388`).
+   - The profile write, including fsync, runs after `finish()` and before the IPC response is sent. `artifact_write` is recorded as a zero-length instant before serialization, so the write's cost is never captured.
+   - The sidecar doesn't record when it sent each request or received the response.
+   - So the added latency, which can push a response past deadline plus 0.25 s grace, is invisible; plan:184 requires overhead to be reported.
+   - **Fix:** drop the fsync (the rename is already atomic and the file is diagnostic), and/or record the write's duration and the parent-side send/receive times.
+7. **The report leaves out the CPU data** (`sidecar:429-438`). It includes only barriers (wall time only) and intervals. The events, which carry owner CPU and the source/seal/protocol/cleanup substeps, are dropped, and no aggregates are produced. That leaves out the input plan:199 says the next decision depends on. **Fix:** include the validated events, or at least per-barrier `identity_return` CPU plus per-name aggregates.
+8. **Installing and resetting the sink isn't exception-safe** (`daemon.py:3972, 4388`).
+   - The sink is set before the `try` and reset after the `finally`.
+   - An exception that escapes skips the reset — for example from the unguarded cleanup snapshot at 4241 or `_model_call_snapshot` at 4005/4254.
+   - The connection handler keeps reading requests on the same thread (`cli.py:440-466`), so later requests append to the stale collector. This is the cross-request contamination the intent forbids.
+   - **Fix:** wrap the whole body in `try/finally` for the reset.
+
+## Nits
+- `daemon.py:342` — `_outcome` classifies errors by substring: "deadline is malformed" becomes `deadline`, while "timed out" becomes `failed`.
+- `daemon.py:437` — `status` means "all four barriers ok", not that the request succeeded. A request that fails after `daemon_post` (config, source or cleanup failure, or identity drift) still reports `complete`. Document this.
+- `driver.py:403` — the `process_verify` decorator isn't in the allowlist, so its events are silently dropped. The `source_binding_before` mark is never used.
+- `driver.py:2915` — `seal_hash` is a zero-length instant, so hashing isn't timed separately from `seal_open`.
+- `driver.py:3269` — driver cleanup is only an end instant, with no span or CPU.
+- `daemon.py:421` — `owner_return_monotonic_ns` is taken after receipt persistence, unlike the response's `owner_returned` (`daemon.py:4263`). The similar names point to different boundaries.
+- `daemon.py:401` — `barrier()` lacks the owner-thread check the other methods have.
+- `daemon.py:485` — the extra `os.chmod` after the rename can fail with the profile already published, leaving both the profile and the failure token. The earlier `fchmod` makes it redundant.
+- `sidecar:503-505` — fixture responses are read with the 64 KiB profile bound rather than the 512 KiB IPC bound.
+
+As stated, none of this proves a Rust trigger, native100, or unattended qualification. The plan file is at `/home/dev/.claude/plans/actual-claude-cli-opus-validated-llama.md`.
+
+STATUS: NEEDS WORK
+
+CLAUDE_EXIT:0

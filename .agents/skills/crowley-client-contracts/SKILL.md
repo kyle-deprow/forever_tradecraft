@@ -24,8 +24,10 @@ flags that the real producer never emits.
 Persist the pre-effect boot at dispatch; reconstructing it from a later frame
 can turn a valid reload into an apparent mismatch and admit a second boot.
 Native bootstrap and calibration startup cross a short freshness window. Prepare
-a bounded helper that sends the public bootstrap/start calls back-to-back before
-collecting model feedback; keep the measured observation time and age limits intact.
+a bounded helper that sends the public bootstrap/start calls back-to-back. Stage
+the actual load action before bootstrap, then dispatch it through fresh guards as
+soon as baseline readiness appears; a model-turn gap can expire the constructor
+wait before the first frame. Keep observation timestamps and age limits intact.
 For a staged handshake, compare each actual observation with the requested phase
 and ordinal and verify the final resumed state. A valid schema or callback that
 only checks arguments does not prove the production side effect.
@@ -88,6 +90,10 @@ reasons and use distinct simultaneous failures when testing precedence.
   A timeout with zero rows
   does not establish an empty market. Inspect diagnostics before repeating a
   long sweep that has already produced only timeouts.
+- Scanner completion can transition directly to `scheduled`, not only `ready`.
+  Detect a fresh saved UID for the observed run, its pending ownership and terminal
+  scanner state; preserve partial results too. Use the actual finish timestamp,
+  rather than when a watcher noticed the transition, for upload latency.
 - Verify stages independently: addon loaded, house/plan correct, scan saved,
   original payload accepted, real retained prices stored, acknowledgement loaded.
   A successful probe or zero-row ingestion proves only the stages it exercised.
