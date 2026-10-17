@@ -1,0 +1,95 @@
+{
+  "schema": "crowley.market-backup-drill-summary",
+  "schema_version": 1,
+  "snapshot_id": "beta-20261017T065805Z-1d88c6e603e3",
+  "manifest_sha256": "5853c42b2db18ee7693bbd9da95b6fb49c3932315a68ab06503bcf4c0149770e",
+  "result": "restore_verified",
+  "aggregate_table_counts": {
+    "client_probes": 2,
+    "houses": 1,
+    "item_stats": 0,
+    "items": 0,
+    "listings": 0,
+    "market_captured_rows": 20243,
+    "market_observations": 5136,
+    "market_plans": 2,
+    "market_sweeps": 12,
+    "own_sale_evidence": 0,
+    "owned_observations": 12,
+    "scans": 0,
+    "schema_migrations": 2
+  },
+  "aggregate_regime_counts": {
+    "legacy_scans": 0,
+    "format2_sweeps": 12
+  },
+  "referenced_objects": 12,
+  "orphan_objects": 0,
+  "versions_match": true,
+  "operations": [
+    {
+      "name": "validate_snapshot",
+      "state": "passed"
+    },
+    {
+      "name": "create_disposable_resources",
+      "state": "passed"
+    },
+    {
+      "name": "start_disposable_database",
+      "state": "passed"
+    },
+    {
+      "name": "create_database_extension",
+      "state": "passed"
+    },
+    {
+      "name": "timescaledb_pre_restore",
+      "state": "passed"
+    },
+    {
+      "name": "pg_restore_single_job_no_owner",
+      "state": "passed"
+    },
+    {
+      "name": "timescaledb_post_restore",
+      "state": "passed"
+    },
+    {
+      "name": "analyze",
+      "state": "passed"
+    },
+    {
+      "name": "count_restored_tables",
+      "state": "passed"
+    },
+    {
+      "name": "extract_raw_archive",
+      "state": "passed"
+    },
+    {
+      "name": "validate_raw_references",
+      "state": "passed"
+    },
+    {
+      "name": "start_server",
+      "state": "passed"
+    },
+    {
+      "name": "health_probe",
+      "state": "passed"
+    },
+    {
+      "name": "authenticated_read",
+      "state": "passed"
+    },
+    {
+      "name": "cleanup_owned_resources",
+      "state": "passed"
+    }
+  ],
+  "cleanup": {
+    "verified": true,
+    "removed_resources": 7
+  }
+}

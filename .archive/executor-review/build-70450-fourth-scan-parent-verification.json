@@ -1,0 +1,210 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792219323-Arthur-9845",
+  "saved_variables_sha256": "b9a29b7e0d3582e1770a0a58f46c44cb7a2e319accf50feb3253aebcf5c186d9",
+  "payload_sha256": "319344cdf82118abeb9209c5fe24fc466f01b7b2ebeb5fa047420e1bb6ddf16c",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "build": "70450",
+  "observations": 428,
+  "rows": 2321,
+  "coverage": {
+    "full": 409,
+    "bounded": 18,
+    "incomplete": 1
+  },
+  "reasons": {
+    "ok": 427,
+    "query_timeout": 1
+  },
+  "startedAt": 1792219323,
+  "finishedAt": 1792219828,
+  "duration_seconds": 505,
+  "prior_start_interval_seconds": 1164,
+  "failed_observations": [
+    {
+      "itemID": 818,
+      "ordinal": 7,
+      "coverage": "incomplete",
+      "reasonCode": "query_timeout",
+      "query": {
+        "kind": "queried",
+        "startedAt": 1792219330,
+        "finishedAt": 1792219360
+      },
+      "rowCount": 0
+    }
+  ],
+  "loaded_ack": {
+    "status": "operator verified fresh client HUD: exact UID in loaded.ackedIds, pending=0, AHclosed/scannerready",
+    "uid": "beta-normal-alliance-1792219323-Arthur-9845",
+    "boot": "1792220014-834954",
+    "verification": "operator decoded actual HUD; parent independently validated original envelope/database row/query trace, not the client ACK raster"
+  },
+  "qualification": "Ordinary beta data; one incomplete observation, autonomous repeating-session qualification not passed.",
+  "server_read_only_verification": {
+    "matched_uid": "beta-normal-alliance-1792219323-Arthur-9845",
+    "client_build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "num_observations": 428,
+    "num_rows": 2321,
+    "received_at": "2026-10-17T06:51:24.581012+00:00",
+    "raw_path": "/data/raw/format2/bc/bcbfb2737d7470c96307ff4b1de432faded608bb01ed6a5d868fdbacf7b89376.json.gz",
+    "transaction": "BEGIN READ ONLY; SELECT; ROLLBACK",
+    "exit": 0
+  },
+  "finish_to_server_receipt_seconds": 56.58101201057434,
+  "query_timeout_trace": {
+    "trace_cap": 256,
+    "dropped": 2428,
+    "events": [
+      {
+        "type": "query_send",
+        "sequence": 43,
+        "attempt": 1,
+        "equipment": false,
+        "identity": {
+          "itemLevel": 15,
+          "itemSuffix": 0,
+          "itemID": 818,
+          "battlePetSpeciesID": 0
+        },
+        "classID": 7,
+        "at": 1792219331,
+        "nativeKey": {
+          "itemLevel": 15,
+          "itemSuffix": 0,
+          "itemID": 818,
+          "battlePetSpeciesID": 0
+        },
+        "itemID": 818,
+        "generation": 1,
+        "operation": "search",
+        "kind": "commodity",
+        "nativeMethod": "SendSearchQuery",
+        "barriers": {
+          "awaiting": false,
+          "sent": false,
+          "sentRequested": true,
+          "response": false
+        }
+      },
+      {
+        "type": "throttle_sent",
+        "sequence": 44,
+        "attempt": 1,
+        "identity": {
+          "itemLevel": 15,
+          "itemSuffix": 0,
+          "itemID": 818,
+          "battlePetSpeciesID": 0
+        },
+        "at": 1792219331,
+        "itemID": 818,
+        "generation": 1,
+        "kind": "commodity",
+        "matching": true,
+        "barriers": {
+          "awaiting": false,
+          "sent": false,
+          "sentRequested": true,
+          "response": false
+        }
+      },
+      {
+        "type": "query_outcome",
+        "sequence": 45,
+        "attempt": 1,
+        "identity": {
+          "itemLevel": 15,
+          "itemSuffix": 0,
+          "itemID": 818,
+          "battlePetSpeciesID": 0
+        },
+        "reason": "query_timeout",
+        "at": 1792219360,
+        "itemID": 818,
+        "generation": 1,
+        "outcome": "incomplete",
+        "kind": "commodity",
+        "rowCount": 0,
+        "barriers": {
+          "awaiting": true,
+          "sent": true,
+          "sentRequested": true,
+          "response": false
+        }
+      },
+      {
+        "type": "throttle_response",
+        "sequence": 46,
+        "attempt": 1,
+        "identity": {
+          "itemLevel": 13,
+          "itemSuffix": 0,
+          "itemID": 858,
+          "battlePetSpeciesID": 0
+        },
+        "at": 1792219361,
+        "itemID": 858,
+        "generation": 1,
+        "kind": "commodity",
+        "matching": false,
+        "barriers": {
+          "awaiting": false,
+          "sent": false,
+          "sentRequested": false,
+          "response": false
+        }
+      },
+      {
+        "type": "dispatch",
+        "sequence": 47,
+        "nativeEvent": "COMMODITY_SEARCH_RESULTS_UPDATED",
+        "attempt": 1,
+        "identity": {
+          "itemLevel": 13,
+          "itemSuffix": 0,
+          "itemID": 858,
+          "battlePetSpeciesID": 0
+        },
+        "resultItemID": 818,
+        "at": 1792219361,
+        "itemID": 858,
+        "generation": 1,
+        "event": "commodity_result",
+        "kind": "commodity",
+        "matching": false,
+        "barriers": {
+          "awaiting": false,
+          "sent": false,
+          "sentRequested": false,
+          "response": false
+        }
+      }
+    ],
+    "interpretation": "Item818 query window1792219330\u21921792219360 timed out with zero rows. Native COMMODITY_SEARCH_RESULTS_UPDATED resultItemID818 arrived at1792219361, after item858 became current, and was correctly rejected as nonmatching. This establishes a late native result, not an empty market; no scanner source change is justified by this event alone."
+  },
+  "next_sweep_timer_observation": {
+    "verification": "parent read operator-preserved decoded HUD receipt; fifth saved envelope not yet available",
+    "receipt_sha256": "6f08ea771bfb4cf35295215b86eee180c1748fc2363fb745a60a944ef70f2d69",
+    "original_capture_utc": "2026-10-17T07:01:51.579389+00:00",
+    "boot": "1792220014-834954",
+    "sequence": 495,
+    "scanner": {
+      "activeSweepId": "",
+      "cursorItemID": 12692,
+      "dueAt": 1792221123,
+      "ordinal": 261,
+      "phase": "item",
+      "planned": 428,
+      "scheduleFence": {
+        "command": "/crowley session fence",
+        "reason": "",
+        "state": "inactive"
+      },
+      "startedAt": 1792220223
+    },
+    "start_interval_seconds": 900,
+    "interpretation": "Addon timer started the next ordinary sweep at900s; this alone is not autonomous qualification."
+  }
+}

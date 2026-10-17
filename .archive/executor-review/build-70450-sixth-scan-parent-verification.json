@@ -1,0 +1,48 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792221571-Arthur-1952",
+  "saved_variables_sha256": "3ca537803c954f0bebf0628a955ff07d4a4b6a631749814a9a27b0c9d859b3d7",
+  "payload_sha256": "00e334d4a137cc2e0163ad820e3454311689a0b70a2964370258a98e711d8920",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "build": "70450",
+  "observations": 428,
+  "rows": 2331,
+  "coverage": {
+    "full": 410,
+    "bounded": 18
+  },
+  "reasons": {
+    "ok": 428
+  },
+  "startedAt": 1792221571,
+  "finishedAt": 1792222047,
+  "duration_seconds": 476,
+  "prior_start_interval_seconds": 1348,
+  "loaded_ack": {
+    "status": "Exact UID loaded and pending0 in operator-preserved fresh decoded HUD receipt",
+    "uid": "beta-normal-alliance-1792221571-Arthur-1952",
+    "boot": "1792222197-345235",
+    "capture_utc": "2026-10-17T07:30:02.890416+00:00",
+    "receipt_sha256": "a3edb3733b8836f8b2483cd17db1337eb92b700dda0a009f218359a2d3a7bf51",
+    "verification": "Parent read retained decoded receipt and independently validated original envelope/database row; no new desktop capture."
+  },
+  "qualification": "Ordinary AH-reopen recovery after fifth timer miss; autonomous cadence/upload qualification not passed.",
+  "server_read_only_verification": {
+    "matched_uid": "beta-normal-alliance-1792221571-Arthur-1952",
+    "client_build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "num_observations": 428,
+    "num_rows": 2331,
+    "received_at": "2026-10-17T07:28:35.886495+00:00",
+    "raw_path": "/data/raw/format2/ce/ce6e8528808f21df5eb229009bd06cf8ef1eab32ba7d582dbf2955d3c5b022dd.json.gz",
+    "transaction": "BEGIN READ ONLY; SELECT; ROLLBACK",
+    "exit": 0
+  },
+  "finish_to_server_receipt_seconds": 68.8864951133728,
+  "reload_dispatch": {
+    "original_logged_start_utc": "2026-10-17T07:28:32.107683+00:00",
+    "finish_to_dispatch_seconds": 65.10768294334412,
+    "dispatch_to_server_receipt_seconds": 3.7788121700286865,
+    "interpretation": "Pre-dispatch delay exceeds60s target; no measured computation attribution."
+  }
+}

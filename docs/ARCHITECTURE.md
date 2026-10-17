@@ -107,6 +107,25 @@ reports never use legacy whole-market statistics.
 
 ## Natural interaction executors
 
+The addon publishes a read-only256x256pixel status surface once per second.
+`session/decoder.py` turns it into strict CRS1 frames with checksum, boot,
+sequence and window-identity checks. Scan state, command-buffer readback and
+movement feedback use this deterministic path. A larger screenshot feeds Luna
+when semantic visual evidence is required. AH reopening currently measures its
+target with Luna, then refreshes that measurement after pointer movement; a
+deterministic scan monitor does not imply a whole cycle without model calls.
+
+The accepted capture path obtains a desktop image before cropping it. The
+default-off region producer under `tools/gnome-telemetry-region/` is native C,
+requests only the status rectangle, and is still undergoing integration review.
+Its diagnostic must use the already leased daemon through IPC, with no second
+desktop owner. Original observation timestamps and absolute deadlines include
+capture and identity work. Compiled isolated tests are not live timing evidence.
+An offline replay measured strict Python decode at about55ms median; the prior
+full-screen path measured1.67s overall. See
+[the conditional runtime performance plan](../.archive/PLAN-deterministic-runtime-performance.md)
+for attribution and the evidence required before a Rust migration plan.
+
 `session/executor.py` plans deterministic pointer curves, click dwell, key holds,
 camera drags and waits. `driver.py` dispatches finite XTEST command chains under
 the existing Guardian admission fence; the Guardian owns process groups and the
@@ -138,7 +157,7 @@ measured two-axis device mapping, and recheck the actual final pointer. Its sour
 and regression implementation is undergoing final verification; no fresh native
 qualification is claimed. Human relative motion keeps its separate interpretation.
 
-`session/motion.py` consumes decoded schema-2 native position, facing, speed,
+`session/motion.py` consumes decoded schema-3 native position, facing, speed,
 combat/death and primary bindings. This status-body version is distinct from
 CRS1 framing and scan format 2. Movement pulses are capped at 0.35 seconds;
 waypoints are local, capped at two world units and a finite 20-second budget.

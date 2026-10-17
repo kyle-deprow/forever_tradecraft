@@ -57,6 +57,14 @@ live capture and end-to-end measurements. Never sum overlapping intervals or
 silently mix source versions. Missing live stage evidence remains unknown.
 No payloads, character identity, screenshots or credentials in committed reports.
 
+The fifth ordinary sweep provides a separate orchestration baseline (see
+`build-70450-fifth-scan-parent-verification.json`): completion to Return dispatch
+81.67s, then dispatch to server receipt4.96s. A preserved completed HUD existed
+about44s before dispatch. This misses the60s upload gate primarily before
+dispatch; it is not evidence of slow Python computation. Audit deterministic
+completion/readback/dispatch handling separately from CPU and server transport.
+Do not attribute all pre-dispatch time to model inference without per-stage logs.
+
 Include real valid fixture sequences and malformed/CRC/pixel-disagreement cases
 from shared Lua/CRS1 boundaries. Preserve production strict refusal behavior.
 Benchmark success says nothing about live-frame freshness qualification.

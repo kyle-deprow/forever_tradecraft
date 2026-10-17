@@ -30,10 +30,10 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `60eca5f` (initial snapshot
+summaries were pushed to the new origin through `f2d3f2b` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
-evidence `60eca5f`). Raw runtime logs, captures and
+evidence `60eca5f`, third scan/performance plans `f2d3f2b`). Raw runtime logs, captures and
 private configuration remain local. The companion unit now invokes the installed
 tool without a checkout-specific working directory; parent systemd verification
 passed. No runtime service was changed by this source fix.
@@ -69,6 +69,45 @@ liquidity proxies, not sales estimates;
 grouped scope suppresses individual turnover metrics. Receipt:
 `.archive/executor-review/build-70450-first-interval-parent-verification.json`.
 
+Fourth UID `beta-normal-alliance-1792219323-Arthur-9845` completed428queries,
+2321rows,409full/18bounded/1incomplete (item818, query_timeout). Its native818
+result arrived one second after timeout and was correctly ignored while858was
+current. Parent verified original envelope/trace/server row; operator confirmed
+loadedACK boot1792220014-834954. Server receipt was56.581s after finish, meeting
+the upload target for this ordinary sweep. Fifth UID
+`beta-normal-alliance-1792220223-Arthur-1792` started exactly900s later on the
+addon timer, completed428queries/2364rows/410full/18bounded/allok in473s.
+Parent verified its envelope/server row and operator-preserved fresh loadedACK
+receipt (boot1792220936-906810,pending0). Upload86.632s afterfinish missed the
+target: Return was81.674s afterfinish, server receipt4.958s later. This is mainly
+pre-dispatch orchestration delay, not evidence of a decoder computation limit.
+Five completed sweeps captured11468price rows. Individual parent receipts are
+under `.archive/executor-review/build-70450-{fourth,fifth}-scan-parent-verification.json`.
+Operator is released to continue ordinary collection, targeting sixth due
+1792221123 (07:12:03UTC), while executor source remains undeployed/unarmed.
+That sixth timer did NOT start: same-boot fresh HUD at07:11:35showed scheduled,
+AHopen,due1792221123;07:12:42and07:17:26showed ready,due0,AHopen,no active scan,
+pending0 and the fifth loadedACK. Root verified installed Scanner.lua symlink/
+sourceSHA `b2843e42d1edf4d9ed4df1b6214928cf12baadde03108b65fd10912fdfc0b218`.
+Cause remains unknown; `Status.phase=scheduled` is derived from cooldown and is
+not proof that a live timer exists. Existing `test_start_cadence_and_no_overlap`
+reopens AH atdue, so it does not establish timer-alone behavior. Preserve this
+failure and add actual timer observability/reproduction before claiming it fixed.
+After bounded diagnostics, root authorized one safe close/reopen with proof of no
+active query. This auto-started ordinary sixth sweep1792221571 (07:19:31UTC),
+nextdue1792222471; no `/scan`, position unchanged. GUI owner continues collection.
+Sixth UID `beta-normal-alliance-1792221571-Arthur-1952` completed at1792222047
+in476s,428observations/2331rows/allok. Parent validated the original persisted
+envelope and read-only DB row received07:28:35.886495UTC (68.886s afterfinish).
+Return dispatch was65.108s afterfinish, then3.779s to server. Preserved fresh
+boot1792222197-345235 confirms the exact loaded ACK/pending0. Six sweeps now
+contain13799positive-price rows. Seventh was scheduled for1792222471 after one
+verified AH reopen. See `build-70450-sixth-scan-parent-verification.json`.
+The isolated addon candidate independently passed164tests and reproduces a timer
+callback one wall-clock second early consuming the only timer. A focused remaining-
+cooldown rearm is authorized in its isolated worktree; review and coordinated
+integration precede a real reload. The actual live miss cause remains unknown.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -85,6 +124,10 @@ found the runner's second DesktopDriver/private lease violates live ownership.
 The correction in `.archive/PLAN-region-owner-ipc-closure.md` uses capture IPC on
 the existing owning daemon; Sol planR2READY released expanded implementation,
 including narrow producer admission/revocation and bounded IPC framing.
+Parent clarified the race test: stop winning before atomic admission prevents
+exec; admission winning first releases its gate nonblocking, then stop during
+real blocked Shell capture prevents publication/reaps the producer. Never block
+inside Popen/gate release to invent an interleaving. Guardian remains unchanged.
 No new live capture is released before parent/Sol/Opus review.
 Capability remains default-off and undeployed.
 
@@ -102,7 +145,27 @@ database dump and raw archive, but is not restore-qualified. The revised
 `.archive/PLAN-market-backup-restore.md` passed Sol plan R2. The recipe worker
 now owns the three-file backup implementation and a real disposable restore
 drill. Live database/resources stay read-only; restore writes and cleanup must
-prove fresh disposable identities. No restore success is established yet.
+prove fresh disposable identities. One real happy-path drill now completed
+`restore_verified`: PostgreSQL16.6/Timescale2.17.2,12sweeps/5136observations/
+20243rows,12raw references/no orphans, both API probes,15passed operations.
+Parent independently validated the canonical manifest/member hashes/private
+receipt and absence of its exact disposable project after cleanup;53unit tests
+passed. This is happy-path evidence, not final source acceptance.
+The partial backup tool has exposed actual Docker inspection/state-transition
+bugs in disposable drills; the worker is resolving them and preserving failures.
+Root independently confirmed project `crowley-drill-13727fb39e3b4808` has no
+remaining containers/volumes/network after its failed attempt. Source commit /
+whole dirty-tree equality was removed as an unintended compatibility requirement;
+those fields are provenance, while actual Compose/migrations/images/versions
+remain pinned. The worker is reusing canonical snapshot
+`beta-20261017T065805Z-1d88c6e603e3` rather than resnapshotting after every helper
+change. Fixed failure-stage metadata must retain actual error categories without
+secrets; no opaque retry loop or live/source writes.
+Sol sourceR1 found four must-fixes: historical Docker IDs wrongly used as a
+compatibility gate, incomplete actual target image/mount validation, partial
+creation cleanup falsely verifiable, and shallow receipt success/type validation.
+The plan now includes the accepted correction contract. Preserve all prior
+receipts; reviewed corrections and new evidence precede committing this tool.
 
 **Deterministic runtime / Rust:** user resumed after an architecture discussion,
 wants routine observation/execution in deterministic code and a Rust rewrite
@@ -114,6 +177,10 @@ an audit of actual Luna calls and a conditional staged migration. No Rust code o
 runtime replacement is released. `_measure_pointer_anchor` and post-motion
 anchor refresh still use Luna for AH reopening; do not claim a zero-model-call
 whole scan cycle or replace fresh anchors with cached coordinates.
+Sol planR3 is READY at planSHA55f680dc1683c53dfddc5543384621875b7d1e8a4aa5280f7a921c427bef5f07.
+Phase1 can honestly return insufficient_evidence with exact missing paired
+stages/runs and a bounded next-evidence proposal. Implementation remains queued
+after native closure review as required by the plan.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;
@@ -133,7 +200,7 @@ Use that short window to probe exact launch realm/region/build identity.
 
 **Autonomous qualification objective:** finish HUD/executor qualification and demonstrate three
 real 428-item scans at seed/+900/+1800 seconds, uploads and loaded acknowledgements,
-then clean closeout without a fourth scan. Three ordinary70450 sweeps completed;
+then clean closeout without a fourth scan. Five ordinary70450 sweeps completed;
 the formal autonomous repeating-session qualification has not passed.
 Native/resource, actual human input, camera and movement-basis gates remain.
 

@@ -1,0 +1,50 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792220223-Arthur-1792",
+  "saved_variables_sha256": "cf34c6cb8d17b62cc0c1c74e67e1114802d6388560c4e410e368d94fa3f1e5bd",
+  "payload_sha256": "cdb13bb72595894cc72ec252146fdb349339d5b957fcec6c9c52210e5c54dab8",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "build": "70450",
+  "observations": 428,
+  "rows": 2364,
+  "coverage": {
+    "full": 410,
+    "bounded": 18
+  },
+  "reasons": {
+    "ok": 428
+  },
+  "startedAt": 1792220223,
+  "finishedAt": 1792220696,
+  "duration_seconds": 473,
+  "prior_start_interval_seconds": 900,
+  "loaded_ack": {
+    "status": "exact UID loaded and pending0 in operator-preserved fresh decoded HUD receipt",
+    "uid": "beta-normal-alliance-1792220223-Arthur-1792",
+    "boot": "1792220936-906810",
+    "capture_utc": "2026-10-17T07:09:42.480456+00:00",
+    "receipt_sha256": "5bad8869ec5cbb555ef957f39c81296f465dc13d5d469c52f5201a43acd34fc3",
+    "verification": "Parent read preserved operator-decoded HUD receipt, independently validated original envelope/database row; no new desktop capture."
+  },
+  "qualification": "Ordinary addon timer demonstrated900s interval; full autonomous qualification not passed.",
+  "server_read_only_verification": {
+    "matched_uid": "beta-normal-alliance-1792220223-Arthur-1792",
+    "client_build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "num_observations": 428,
+    "num_rows": 2364,
+    "received_at": "2026-10-17T07:06:22.631732+00:00",
+    "raw_path": "/data/raw/format2/4b/4bb12277b1a24603416399554779b286d8f2fde2d907b02bf123eaf5c85a60b9.json.gz",
+    "transaction": "BEGIN READ ONLY; SELECT; ROLLBACK",
+    "exit": 0
+  },
+  "finish_to_server_receipt_seconds": 86.63173198699951,
+  "reload_dispatch": {
+    "original_logged_start_utc": "2026-10-17T07:06:17.673676194Z",
+    "return_dispatch_end_utc": "2026-10-17T07:06:17.691354780Z",
+    "saved_variables_written_utc": "2026-10-17T07:06:17.804740380Z",
+    "finish_to_dispatch_seconds": 81.67367601394653,
+    "dispatch_to_server_receipt_seconds": 4.9580559730529785,
+    "interpretation": "Manual observation/orchestration/dispatch delay dominates this upload miss; not evidence of a computation bottleneck."
+  }
+}

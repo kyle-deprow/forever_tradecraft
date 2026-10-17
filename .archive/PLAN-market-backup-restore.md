@@ -263,3 +263,29 @@ mistaken-live-target refusal. Run one real disposable drill from a newly created
 read-only production snapshot after unit checks. Never use the existing manual
 snapshot as proof of the v1 restore path. Acceptance is a successful bound
 `restore_verified` receipt, not merely a successful `pg_dump`.
+
+## Source review R1 correction contract (Oct17)
+
+Parent accepts the four concrete must-fixes in
+`executor-review/market-backup-sol-source-r1.md`. Same three-file ownership and
+read-only live-source restrictions apply. Preserve prior receipts and snapshots.
+
+1. Historical source Docker IDs are provenance and a separate collision deny
+   set, never a compatibility equality requirement. Freeze/recheck the current
+   source during each drill; reject disposable collisions with either set.
+2. Inspect actual target image IDs and the entire mount inventory. Require exactly
+   the expected distinct project database/raw volumes at the expected destinations;
+   reject wrong images, shared or additional mounts, and every extra bind mount.
+3. Track creation attempts. Partial creation/discovery failure cannot yield verified
+   empty cleanup. Either positively discover/guard newly owned resources against
+   pre-create inventory, or record cleanup blocked and leave uncertain resources.
+   Verify absence after removal and retain the actually confirmed removed subset.
+4. Validate nested receipt evidence and success semantics: restore_verified requires
+   all operations passed, exact versions/migrations, populated restored counts,
+   both API checks, complete typed target inventory/references and verified cleanup.
+   Failed/blocked receipts may carry explicitly partial evidence but never bad types.
+
+Add regression coverage for every item, including partial-create and discovery
+failures. Parent unit reproduction and Sol source re-review precede another real
+disposable drill. Never modify/relabel historical receipts to fit stricter validation;
+retain any incompatibility honestly and generate new evidence only if required.
