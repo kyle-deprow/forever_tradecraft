@@ -30,7 +30,7 @@ The detailed prior continuation is retained in
 Treat the older sections below as history, not current runtime instructions.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `ae02543` (initial snapshot
+summaries were pushed to the new origin through `8ba9e0e` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
@@ -137,6 +137,15 @@ Nine current-session sweeps total20303price rows. Tenth timer-alone start
 1792225198 was operator-verified with continuous AHopen/no input; completion
 and ACK are not yet claimed. Qualification remains operator-assisted.
 
+Tenth UID `beta-normal-alliance-1792225198-Arthur-4827` is also parent-verified:
+428queries/2090rows,412full/16bounded/allok,476s, exact900s timer-alone start.
+The original logical content matches the DB/raw reference and the fresh exact
+loadedACK boot1792225780-211734/pending0. Upload43.160s afterfinish meets60s.
+Ten sweeps total22393price rows. New native C build attempt2 succeeded but its
+compiled concurrent foreign-command test exposed blocked GApplication forwarding;
+R5 is correcting nonblocking invocation admission and will preserve all prior
+binaries/logs. It remains isolated and undeployed.
+
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
 275passed/21failed (executable memfd EACCES), then hung in teardown; only the
@@ -242,8 +251,12 @@ AH reopening with visual pointer movement has five possible model calls
 (three named observations, anchor, post-motion refresh); an already-positioned
 pointer can omit refresh. These are source minima, not measured runtime counts.
 Future deterministic semantic observations need their own reviewed contract.
-A bounded live instrumentation plan follows accepted R5 native closure; ongoing
-ordinary collection does not depend on that qualification.
+The bounded live instrumentation plan `.archive/PLAN-runtime-live-instrumentation.md`
+is frozen after parent review at SHAcaabd905b1e591bb495715e3f8b6b68a31c2cda8d79f7ea08ccd58d5159f494d.
+It follows accepted R5 native closure: exact owner/observer source/config/producer
+binding, same-attempt decodeCPU, overlapping wall boundaries, all failures and
+actual model counters. No Rust or production instrumentation is implemented yet.
+Ordinary collection does not depend on that qualification.
 
 **Beta deadline and priority (Oct 17):** the user reports four beta days remain.
 Collect useful real market observations now, in parallel with executor work;
