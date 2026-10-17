@@ -24,6 +24,21 @@ nonce-bound primary-owner receipt over the inherited capability pipe and waits
 for the parent ACK before calling `ScreenshotArea`. The stock executable is
 selected whenever the profile capability is absent.
 
+The container build leaves root-owned output. Before selecting the staged binary
+in the production profile, install its ownership for the account running the
+daemon and verify its checksum still matches `manifest.json`:
+
+```sh
+producer_path=/home/dev/.cache/crowley/gnome-telemetry-region-r6/prefix/bin/gnome-screenshot
+sudo chown -- "$(id -u):$(id -g)" "$producer_path"
+chmod 0700 "$producer_path"
+sha256sum "$producer_path"
+```
+
+This changes installation metadata only. A user-owned fixture copy does not
+validate the configured cache binary's owner or permissions. Keep the driver's
+private-executable check intact.
+
 The private binary reserves a per-user screenshot invocation slot before
 registering with GNOME's single-instance application. It opens the explicit
 `XDG_RUNTIME_DIR` without following symlink components, requires a directory

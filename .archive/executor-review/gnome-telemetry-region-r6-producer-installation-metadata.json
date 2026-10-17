@@ -1,0 +1,18 @@
+{
+  "kind": "r6-private-producer-installation-metadata",
+  "recorded_utc": "2026-10-17T10:47:23.137205+00:00",
+  "binary_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+  "same_inode_and_path": true,
+  "before": {
+    "uid": 0,
+    "gid": 0,
+    "mode": "0o755"
+  },
+  "after": {
+    "uid": 1000,
+    "gid": 1000,
+    "mode": "0o700"
+  },
+  "change": "Installed exact pinned producer as current user private executable; bytes unchanged.",
+  "limitations": "No profile, daemon, service, input or capture action performed by this metadata correction."
+}

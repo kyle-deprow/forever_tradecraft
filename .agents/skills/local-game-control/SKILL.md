@@ -142,6 +142,9 @@ within existing authorization; respect any current movement limits.
   arming input, and retain ownership through confirmed termination and reaping.
   Live proof helpers use the production desktop lease; private lease paths are
   for isolated tests and cannot establish exclusive ownership of the desktop.
+  Check ownership/mode on the actual configured producer after a container build;
+  a user-owned fixture copy can conceal root-owned staged output. Correct install
+  metadata with the pinned bytes unchanged; never relax the executable guard.
   A private D-Bus session can still inherit standard service directories and the
   host activation environment. Disable auto-start on fixture RPCs (for example,
   `busctl --auto-start=no`); a late call must fail without starting a host app.

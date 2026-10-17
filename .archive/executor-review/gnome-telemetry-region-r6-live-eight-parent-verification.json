@@ -1,0 +1,88 @@
+{
+  "schema": "crowley.r6-live-eight-parent-verification",
+  "schema_version": 1,
+  "receipt_sha256": "a4f3651c12d3543afd677371fadae180f2f4120421b115d9f14a9ec80509b741",
+  "receipt_bytes": 20504,
+  "receipt_schema": 1,
+  "receipt_state": "passed",
+  "sample_count": 8,
+  "producer_binding": {
+    "protocol_branch": "ScreenshotArea",
+    "binary_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+    "sha256_verified": true
+  },
+  "config_binding": {
+    "raw_file_sha256": "e70017e40f40be57949baa0c3071e8ed0f03a760f33fd74a9f9f19066f46abbe",
+    "semantic_sha256": "2b5bf55971208d26ba362dfefa8fae1a4a53f68f92dd5a99993146d6cf4ab004",
+    "raw_sha256_verified": true
+  },
+  "generation": {
+    "controller_generation": 14,
+    "all_samples_consistent": true
+  },
+  "identity": {
+    "fingerprint_stable": true,
+    "boot_stable": true,
+    "strictly_increasing_sequence_count": 8,
+    "sequence_order_verified": true
+  },
+  "targets_and_deadlines": {
+    "target_count": 8,
+    "target_step_seconds": 1.0,
+    "all_deadline_offsets_seconds": 1.0,
+    "start_cadence_seconds": [
+      0.999998,
+      1.000008,
+      0.999997,
+      0.999998,
+      1.000004,
+      0.999998,
+      0.999996
+    ],
+    "completion_cadence_seconds": [
+      1.043592,
+      0.908486,
+      1.00172,
+      1.02586,
+      0.977357,
+      1.010255,
+      1.010619
+    ],
+    "all_samples_within_deadline": true
+  },
+  "png_and_decoder": {
+    "png_digest_checks": 8,
+    "png_shape": [256, 256],
+    "png_format": "PNG",
+    "fresh_frames_decoded": 8,
+    "owner_receipts_available": 8,
+    "owner_receipts_ok": 8,
+    "owner_attempt_bindings_verified": 8,
+    "decoder_wall_intervals_seconds": [
+      0.057579991,
+      0.061775306,
+      0.05563966,
+      0.056390778,
+      0.056159436,
+      0.054180344,
+      0.058321838,
+      0.056449257
+    ]
+  },
+  "cleanup": {
+    "all_sample_capture_cleanup_empty": true,
+    "root_cleanup_existing_owner_mode": {
+      "client_driver_created": false,
+      "client_driver_closed": false,
+      "daemon_closed": false,
+      "daemon_lease_released": false
+    }
+  },
+  "qualification": {
+    "schema1_verified": true,
+    "decoder_cpu_measured": false,
+    "rust_gate_qualified": false,
+    "schema2_qualification": "not_attempted"
+  },
+  "verification_errors": []
+}

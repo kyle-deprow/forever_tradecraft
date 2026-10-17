@@ -29,21 +29,33 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at10:35UTC:** eighteen current-session sweeps are persisted and
-exact-UID ACKed,39955price rows across428target items per sweep. Recent starts
-are exactly900s apart; uploads still inconsistently meet60s. Luna remains the
-sole ordinary GUI operator. The formal autonomous three-sweep qualification,
-fresh-owner native/physical-input qualification and launch strategy engine are
-unfinished. Nineteenth is collecting normally. Native R6 source is now integrated
-and accepted; the live owner/profile remain unchanged and native opt-in is off.
-The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. Native
-R6 acceptance has parent323broad checks, final compiled checks and Sol/actual
-OpusR3READY. Exact source/limits are in `gnome-telemetry-region-r6-parent-acceptance.json`.
-Next: implement the SolREADY live instrumentation plan and collect its predeclared
-16-run evidence batch. No live computation bottleneck or Rust rewrite is proven.
+**Current status at10:55UTC:** nineteen current-session sweeps are persisted and
+exact-UID ACKed:42,326 price rows across428target items per sweep. Twentieth is
+collecting normally. Recent starts are exactly900s apart; uploads still
+inconsistently meet60s. Luna remains the sole ordinary GUI operator. The formal
+autonomous three-sweep qualification, physical-input qualification and launch
+strategy engine remain unfinished.
+
+Native R6 source is accepted and pushed447b40e: parent323broad checks, final
+compiled checks, Sol and actual OpusR3READY. A fresh manual owner now uses the
+accepted R6 producer while PAUSED/unarmed; its real eight-sample diagnostic
+passed (approximately0.75–0.84s per sample). This schema1 result has no matched
+decode CPU measurements and does not qualify a Rust decision. The container
+artifact initially had root ownership and was correctly refused; changing only
+its ownership/mode to the runtime user/0700 preserved the pinned binary bytes.
+The failed attempt remains preserved. The unit stays inactive/disabled.
+
+The offline performance evaluator is shipped0e2ef72,65checks/SolR3READY. The
+SolREADY live instrumentation plan now has a frozen four-file candidate in
+`/home/dev/.cache/crowley/worktrees/runtime-instrumentation-20261017`; parent
+reproduced69focused checks. Sol and actual CLI Opus sourceR1 reviews are running.
+Do not deploy this candidate before acceptance. Next: integrate the reviewed
+instrumentation, start a fresh owner, bind the exact sources/config/producer,
+and retain every outcome in a predeclared16-run evidence batch. No live
+computation bottleneck or Rust rewrite is established yet.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `447b40e` (initial snapshot
+summaries were pushed to the new origin through `1e8c234` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance
