@@ -29,11 +29,12 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current status at11:25UTC:** twenty-one current-session sweeps are persisted and
-exact-UID ACKed:47,179 price rows across428target items per sweep. Twenty-first
-completed428queries/2450rows,409full/19bounded/allok in477s; exact900s start
-interval and56.893s upload. Parent verified original envelope/server row/loaded
-ACK. Twentieth upload was91.529s, so60s still is not consistently met. Recent starts are exactly900s apart; uploads still
+**Current status at11:34UTC:** twenty-two current-session sweeps are persisted and
+exact-UID ACKed:49,637 price rows across428target items per sweep. Twenty-second
+completed428queries/2458rows,409full/19bounded/allok in474s; exact900s start
+interval and37.148s upload. Twenty-first uploaded in56.893s; the last two ordinary
+sweeps met60s. Twentieth took91.529s, so consistent autonomous performance is
+still unqualified. Recent starts are exactly900s apart; uploads still
 inconsistently meet60s. Luna remains the sole ordinary GUI operator. The formal
 autonomous three-sweep qualification, physical-input qualification and launch
 strategy engine remain unfinished.
@@ -52,14 +53,20 @@ SolREADY live instrumentation plan now has a frozen four-file candidate in
 `/home/dev/.cache/crowley/worktrees/runtime-instrumentation-20261017`; parent
 reproduced69focused R1 checks and71focused R2 checks (29.70s), including a real
 compiled composition receipt evaluated through the unchanged evaluator. SolR1,
-actualOpusR1, and SolR2 require fixes; actualOpusR2 is running. Luna owns the same
+actualOpusR1, SolR2 and actualOpusR2 require fixes. Luna owns the same
 four paths in successor `runtime-instrumentation-r3-20261017`, closing actual
 owner-config failure binding, exact IPC validation, terminal pre-producer cleanup,
 target-wait interruption lifecycle and final-status completion clock defects.
 R1/R2 stay frozen. Do not deploy any instrumentation candidate before acceptance. Next: integrate the reviewed
 instrumentation, start a fresh owner, bind the exact sources/config/producer,
 and retain every outcome in a predeclared16-run evidence batch. No live
-computation bottleneck or Rust rewrite is established yet.
+computation bottleneck or Rust rewrite is established yet. Instrumentation's
+`response_ready` records finalized capture/cleanup content before receipt
+validation/fsync, not socket return or persistence completion; the observer's
+IPC-return clock includes that later work. Fourteen descriptor-bound source
+reads occur inside each owner's measured sample (seven before, seven after).
+Their overhead is included in wall time and excluded from strict-decode CPU;
+no separate overhead distribution has been measured.
 
 Fresh backup `beta-20261017T105809Z-38e4b9dd2ff4` passed snapshot and independent
 validation (manifestSHA08a38defd45bb6cb8e8f7047f90326e934531064b7977fd205960a67a0b9a391).
@@ -69,7 +76,7 @@ profile uses the cached0.162.1binary and passes the existing startup pin. Do not
 relax the adapter pin to make default-path test fixtures pass.
 
 **Checkpoint:** source, tests, tools, repository skills, plans and curated review
-summaries were pushed to the new origin through `a2ff606` (initial snapshot
+summaries were pushed to the new origin through `408a186` (initial snapshot
 `c000f1f`, audit `214a4e0`, companion-unit portability `56787c8`, reviewed recipe
 foundation and collection receipt `ae9129b`, recovery plans and corrected interval
 evidence `60eca5f`, third scan/performance plans `f2d3f2b`, collection/performance

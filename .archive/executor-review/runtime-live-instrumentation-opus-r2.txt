@@ -1,0 +1,105 @@
+# Runtime live instrumentation: Opus source review R2
+
+**Model:** `claude-opus-5-5` (Opus 5.5). Read-only: no edits, tests, builds, Git, network, services, GUI or input. The only file I wrote is this review, at `/home/dev/.claude/plans/actual-claude-cli-opus-goofy-hoare.md`.
+
+**Hashes checked:**
+- All 4 candidate hashes, the 3 evaluator hashes, the plan, the R2 freeze and the parent delta match what you gave me.
+- The main baselines match the isolation manifest.
+- The delta touches exactly the 4 files. `cli.py`, `decoder.py` and `protocol.py` are unchanged.
+
+## STATUS: NEEDS WORK
+
+R2 closes most of R1, but four problems still block it:
+1. Every owner refusal that happens before a capture attempt starts produces a receipt the unchanged evaluator rejects outright, and under the wrong reason.
+2. Several failures still get false phase labels.
+3. Some refusal and late-response checks from accepted R6 are still missing.
+4. The tests don't exercise those paths, so none of this shows up.
+
+### MustFix
+
+**1. Owner refusals before the attempt starts are rejected as `cleanup_invalid`.**
+- **Cause:**
+  - The driver sets `attempt_retired: None` at entry (`driver.py:2755-2763`) and only computes it when an attempt directory exists (`:3172-3197`).
+  - The daemon resets it to `not_started`/`None` (`daemon.py:3739-3748`, `:3837-3845`).
+  - The harness requires `None` for `not_started` (`offline_harness.py:1272-1279`) and copies `None` into the receipt's cleanup (`:1536-1538`).
+  - The evaluator rejects any cleanup field that isn't a bool (`session_performance.py:1119-1123`).
+- **Affected paths:**
+  - identity refusal (the test at `test_session_native.py:2177` asserts the `None`);
+  - semantic config mismatch (`daemon.py:3778-3783`);
+  - owner-side source drift (`:3846-3847`);
+  - the motion-fence, generation, lease and armed preconditions (`:3790-3821`);
+  - a capture-lock timeout.
+- **Effect:** each of these rejects the whole receipt instead of keeping it as an ineligible failure. The public report says cleanup failed when no process was ever started, and one such run turns a 16-run batch into `insufficient_evidence`.
+- **Fix:**
+  - The driver should report retirement from what it actually observed on every exit. Its own rule at `:3183-3192` (no attempt directory and no owned process means retired) should also apply when no directory was ever created.
+  - The daemon should record the same for requests it never passed to the driver, and the harness should then require a bool at every stage.
+  - Run these receipts through the evaluator and assert each is kept as ineligible with its exact reason.
+
+**2. Some failures are still labelled with the wrong phase (R1 MustFix 7 only partly closed).**
+- **Post-decode failures are labelled `process_termination`.** `_live_failure` (`offline_harness.py:1380`) maps any phase it doesn't know to `process_termination`, and the post-decode phase (`:1807`) isn't in its table.
+  - NO_CHANGE, which the decoder returns rather than raises (`decoder.py:76`), therefore claims the process was terminated. The test locks this in (`test:1729-1732`).
+  - A generation change at the final status check is labelled the same way. `_check_paused_status` raises at `:864-865` before line `:1844` is reached, so `phase = "status"` never runs.
+  - So is an error re-reading the config file (`:1825`).
+- **The phase stays `owner_ipc` too long.** It is set at `:1682` and never changed through `_owner_png_bytes` (`:1746`) or the harness's own PNG write (`:1759`). Observer-detected source, config and producer mismatches (`:1081-1107`) and a failed PNG write all become `owner_ipc_failed`.
+- **Fix:**
+  - Record a decode that returned a non-fresh result as `strict_decode`/`unknown_required_stage` and keep its full CPU. The evaluator only forbids CPU alongside `strict_decode_failed` (`:1051-1066`).
+  - Set the correct phase before each later step (status, config re-read, each binding check, PNG write).
+  - Make `_live_failure` raise on a phase it doesn't know.
+  - Assert the exact NO_CHANGE rejection reason (`test:1738-1739`).
+
+**3. Refusal and late-response checks from accepted R6 are still weaker than main (R1 MustFix 6 only partly closed).**
+- **Response shape:** main required exact response field sets and a string `error` (`main harness:1286-1298`). The candidate only bans extra keys (`:1701-1704`).
+- **Refusal checks:** main checked the refusal's exact fields and that it belongs to this request: generation, raw config hash, semantic config hash, the owner's semantic hash, and the types of phase and error (`main:1299-1334`). The candidate (`:1718-1742`) does none of this, so a refusal from a different request is accepted and copied into the owner evidence.
+- **Late responses:** main kept late responses and timeouts (`main:1260-1281`). The candidate raises the deadline failure (`:1715-1717`) before writing the private refusal (`:1721`), so a late refusal loses its original detail. An IPC timeout leaves `owner: null`, which claims the owner was never entered, with no private record that it may have been.
+- **Failure PNG:** the real PNG from a failed post-check is validated and then thrown away (`:1728-1741`). Main saved it.
+- **Tests:** the identity test lost its checks on the original phase and error, the `not_started` attempt, lease and armed state, and the persisted owner receipt, though its comment (`test:2140-2143`) still claims them. Nothing checks `owner-refusal-NN.json` or that it is 0600.
+
+**4. The tests still can't catch these problems.**
+- **The evaluator binding is circular.** `_evaluate_persisted_live_receipt` (`test:91-107`) builds the "exact" binding from the receipt it is testing, so a wrong producer or raw-config digest can never fail. It also calls the private `_validate_live_receipt` instead of `build_live_report` with a binding file and digest.
+- **The model counters are never exercised.** The success test asserts all-zero counts (`test:1524-1535`), which unwired counters would also report. Nothing calls `_call_model_adapter`, and the concurrent first-attempt increment Sol R1 required is missing.
+- **Most failure paths never reach the evaluator:** identity refusal, config mismatch, source drift on either side, interrupted decode, cleanup failure and nonzero model delta. The two tests the plan names (`:2342`, `:2405`) only check hand-built dicts.
+- **Two phase assertions still accept either of two values** (`test:1687`, `:1709`).
+
+### ShouldFix
+1. **Failure receipts report the request's semantic config hash as the owner's** (`offline_harness.py:1471-1475`, `:1507-1511`). The owner's real value is right there in the failure record (`daemon.py:4012`, `:4066`).
+2. **`response_ready` is effectively `owner_returned`.** It is stamped immediately before `owner_returned` (`daemon.py:3989`, `:4050`) and before the success receipt is validated and fsynced (`:4079-4081`). Either stamp it after the write succeeds, or record the limitation in HANDOFF §6.
+3. **An interrupt between samples produces a receipt the evaluator rejects.** It writes `run_state: failed` with no failed attempt (`:1631-1638`), which the evaluator rejects as `attempt_lifecycle_invalid` (`:1487-1488`). The evaluator's own `incomplete` state describes this case exactly.
+
+### Nits
+- **Fallbacks:** two fallbacks remain that never fire on real responses: `capture_returned` (`:1484-1488`) and `generation` (`:1493`). In failure records, the owner `generation` is just the request's value echoed back.
+- **Source readers:**
+  - `_runtime_source_root` (`daemon.py:147-153`) can crash ordinary owner startup with `IndexError` or a `resolve()` error.
+  - Symlinked intermediate directories aren't rejected.
+  - A short read is reported as "exceeds its bounded size" (`:202`).
+- **Counters:** daemons built with `__new__` start their counters lazily at zero, and creating the lock is racy.
+- **Other small items:**
+  - The root `generation` is a placeholder 0 when the first status call fails.
+  - A missing model method now raises `ModelError` instead of `AttributeError`.
+  - Re-hashing 14 files per sample inside the owner window should be recorded as a limitation.
+  - A cross-sample identity change is caught only by the decoder.
+  - The preflight receipt is rejected by design.
+  - A failed receipt write during an attempt is silently ignored (`:1864-1867`).
+
+### Confirmed closed or OK
+- **Scope:** no C, CLI, controller, Guardian, model-adapter, config, service or addon edits, and the evaluator is byte-identical. Ordinary owners still start if source hashing fails.
+- **Driver (R1 #8 closed):**
+  - `request_started` is back in its original place (`:2817`).
+  - Unreached timestamps are null, and `capture_started` comes from the producer's validated proof.
+  - The final snapshot is written after the process is reaped and the attempt retired.
+  - Deadlines and the protocol are unchanged.
+- **Model counters:** all four model entry points go through the counters. They are lock-protected, return values and exceptions pass through unchanged, and there is a single baseline at owner entry (Sol #1 closed).
+- **Source hashing:**
+  - The fixed 7-file map is taken at construction and checked before and after each sample.
+  - The observer independently hashes before and after the run.
+  - The race where a file is replaced while being read is closed in both readers and tested.
+  - The "after" hashes are `{}` on failure rather than a copy of "before", and drift during the run is now recorded as a `source_binding` failure.
+- **Harness:**
+  - Targets are t0+i with deadlines one second later. There is no rebasing, retry, or continuing after a failure.
+  - CPU is measured only around `decode`. A decode that throws keeps only its partial timings; a decode that returns keeps its full CPU.
+  - The per-sample cleanup, lease, watchdog and armed checks and the final status check are back.
+  - The imported modules are checked to come from the trusted project root.
+- **Cleanup:** Guardian groups are now counted, and a missing lease or watchdog value is null rather than guessed.
+
+**For R3:** fix MustFix 1-4. Use an independently computed binding, and run the identity, config, drift, counter, interrupt and NO_CHANGE receipts through `build_live_report`, asserting each one's exact reason and whether it is kept or rejected. Then re-run the focused native tests, the 65 evaluator tests, Ruff, format, compile and `git diff --check`. This review does not qualify any schema-2 live run or Rust decision.
+
+CLAUDE_EXIT:0
