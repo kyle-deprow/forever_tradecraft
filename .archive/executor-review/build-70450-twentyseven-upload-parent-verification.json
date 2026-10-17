@@ -1,0 +1,31 @@
+{
+  "kind": "parent-live-scan-upload-verification",
+  "uid": "beta-normal-alliance-1792241202-Arthur-9008",
+  "original_saved_variables_sha256": "d4993a60adaeacca7525beecf2449e3fb9bd9d8566514c610871567b684980a0",
+  "logical_digest_matches_database": "f0a9c82e249c3be58d123c3c36d963f3c972a7540a476d10e8634c6810948a6c",
+  "rows": 2581,
+  "observations": 428,
+  "coverage": {
+    "full": 406,
+    "bounded": 22
+  },
+  "reasons": {
+    "ok": 428
+  },
+  "startedAt": 1792241202,
+  "finishedAt": 1792241704,
+  "duration_seconds": 502,
+  "prior_start_interval_seconds": 900,
+  "received_at": "2026-10-17T12:55:56.084108+00:00",
+  "finish_to_server_receipt_seconds": 52.084108114242554,
+  "current_queue_check": {
+    "observed_at_utc": "2026-10-17T17:12:39.816871+00:00",
+    "saved_variables_sha256": "77e4d1b8cfdee5a7b76e0f0d056b0398bce55a16e01a55c0a50cc70cd8c1b62b",
+    "scan_ids_empty": true,
+    "sweep_ids_empty": true,
+    "uid_queued": false,
+    "current_data_ack_contains_uid": false
+  },
+  "loaded_ack": "unknown; no retained exact loaded-ACK frame before disconnect",
+  "qualification": "Server durability and later absent queue verified separately. Exact historical loaded ACK and autonomous streak not established. Empty current ack list follows requests for empty queued IDs; do not infer upload failure from retained UID metadata."
+}

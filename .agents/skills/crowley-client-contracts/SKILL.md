@@ -23,6 +23,9 @@ seeded with the desired result can hide overwritten attempts or impossible proof
 flags that the real producer never emits.
 Persist the pre-effect boot at dispatch; reconstructing it from a later frame
 can turn a valid reload into an apparent mismatch and admit a second boot.
+Native bootstrap and calibration startup cross a short freshness window. Prepare
+a bounded helper that sends the public bootstrap/start calls back-to-back before
+collecting model feedback; keep the measured observation time and age limits intact.
 For a staged handshake, compare each actual observation with the requested phase
 and ordinal and verify the final resumed state. A valid schema or callback that
 only checks arguments does not prove the production side effect.
@@ -95,6 +98,9 @@ reasons and use distinct simultaneous failures when testing precedence.
   queue after a subsequent normal flush rather than claiming disk cleanup from chat.
   Separate when an acknowledgement was written from when an operator noticed it.
   Check UID and journal timestamps; a later periodic refresh is not publication latency.
+  Parse queued scan/sweep keys rather than searching for a UID substring in metadata.
+  The companion requests ACKs only for currently queued IDs; a later empty ACK list
+  after pruning does not prove upload failure or retrospectively prove the loaded ACK.
 - Test depth limits at N-1, exactly N with ties, and N+1 distinct prices. A complete
   market with exactly N levels is full/unbounded; bounded coverage requires a
   strictly higher witness. Keep the validator strict when producer metadata is wrong.

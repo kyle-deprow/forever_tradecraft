@@ -29,6 +29,50 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Live checkpoint at17:36UTC:** user service is now enabled/active, sole owner
+PID1392239; old manual owner501046 exited. Current public state is
+NATIVE_CALIBRATION/repeat/gen19. First native attempt failed because the
+bootstrap observation became stale before calibration startup. Its terminal
+error and clean empty bootstrap state are retained; Luna is preparing one
+public bootstrap/start helper that avoids a model-turn delay. Freshness limits
+remain10s at owner acceptance/5s at runner proof validation. Native100/input/
+resume/three-cycle qualification remain unfinished; no new scan yet. Main
+runtime sources stay857a019. Offline profiling implementation is isolated.
+
+**Resumption at17:27UTC:** user explicitly resumed after discovering a four-hour
+collection gap. Database holds27sweeps/62,348rows; latest UID
+`beta-normal-alliance-1792241202-Arthur-9008` received12:55:56UTC. Parent validated
+its original format2 payload/digest:428observations/2581rows, upload52.084s.
+Exact historical loaded-ACK frame remains unknown. Current saved `scans` and
+`sweeps` maps are empty; UID appears only in metadata. Companion requests ACKs
+only for queued IDs, so later `ackedScans={}` is expected after pruning and is
+not a lost-upload diagnosis. Do not replay/reinsert/reupload27 to manufacture proof.
+The gap occurred because the manual owner was PAUSED/unarmed, the user service
+was disabled, and the chat GUI worker ended after a reload disconnect. No
+independent process was running the scan/reopen loop. Existing repeat engine is
+implemented; see `repeating-runtime-readiness-20261017.md` for exact remaining gates.
+
+Live Luna is restoring the already-authenticated Battle.net client. Old WoW PID
+641068 exited normally; new WoW PID1365676 launched17:21:41UTC. Preserve the
+Agent-absent pre-world screen for native bootstrap when available. Parent released
+handoff from exact manual owner501046/start5055027 to the existing systemd unit,
+enabled/unarmed, then public repeat/native100/input qualification. At17:26:34UTC
+handoff was still pending; it completed by17:28:27UTC (serviceenabled/active). No live
+input gate is complete. Only the sole GUI operator may transition this owner.
+Do not claim collection restored without a fresh active scan, or unattended
+operation without the service owner and its actual gates/three-cycle proof.
+
+The new latency plan is SolR2READY, hash
+397bccaa859a7e39c31eef7555aa5f10764dd63329f118478e4004ac5ca2d685.
+Luna is implementing Stage1 only in isolated worktree
+`/home/dev/.cache/crowley/worktrees/identity-latency-20261017` from857a019.
+Its four-file fence is driver/daemon/native tests/new sidecar CLI. Main runtime
+sources remain unchanged; do not integrate or restart during native100/input
+qualification. Parent owns review/integration; actual Opus reviews executor edits.
+Fresh snapshot `beta-20261017T171506Z-64ed5867f180` and parent canonical validation
+passed (manifestSHAece198340ab5842335a965773f89d90a982cfbfb875f127c5d025eec12deac4c).
+It was not separately restored; the prior accepted-tool restore drill still stands.
+
 **Current status at12:54UTC:** twenty-six current-session sweeps are persisted
 and exact-UID ACKed:59,767 price rows across428target items per sweep. #26ran
 428queries/2538rows/407full/21bounded/allok in476s; exact900s start interval,

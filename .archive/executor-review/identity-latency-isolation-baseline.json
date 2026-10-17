@@ -1,0 +1,18 @@
+{
+  "base_commit": "857a019",
+  "worktree": "/home/dev/.cache/crowley/worktrees/identity-latency-20261017",
+  "plan_sha256": "397bccaa859a7e39c31eef7555aa5f10764dd63329f118478e4004ac5ca2d685",
+  "owned_source_baseline": {
+    "src/crowley/session/driver.py": "fb907096007e10ed59f67dceb52dd20a3e54c37ff02e011d21c61f292806938d",
+    "src/crowley/session/daemon.py": "69678fdcd4963ffeb38dd31441cf0074713baf5b95747da3383e90892636073f",
+    "tests/test_session_native.py": "c47d2bdeebcb2079f24fb901caeb6c54c568fdf607c33eed217ebf20721dd846",
+    "tools/gnome-telemetry-region/identity_latency_sidecar.py": null
+  },
+  "read_only_pins": {
+    "tools/gnome-telemetry-region/offline_harness.py": "f682d85636b0073a8fd7e8330a6ae06ba7542d2cb9b7ccc74a1304ea856d7716",
+    "tools/session_performance.py": "c46cae849058005e9b7387ef95c34f40f376afb5477739efaf6f40f6a36ebd8c",
+    "tests/test_session_performance.py": "c998aa4a9ff67ba67ddeab05a0e5a0cfa5273a296909e0b07cb79a3d06dd313a",
+    "src/crowley/session/protocol.py": "cf13dedd7a37e553ac799b87dd5429cc29b5910483661f994ffdec3b38a74d2f"
+  },
+  "live_source_fence": "No integration or owner restart during service native100/input qualification"
+}

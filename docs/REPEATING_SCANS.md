@@ -105,6 +105,13 @@ whose mode is already correct, use `resume` with the current generation instead.
 If native calibration is missing, that resumes into `NATIVE_CALIBRATION` while
 input stays unarmed. A rejected `start` does not establish that the generation
 changed; inspect the actual state before repeating it.
+To change mode from a persisted `PAUSED` session, first verify there is no pending
+scan or action intent, issue `stop --generation <current-generation>`, and then
+`start --mode repeat --generation <returned-stop-generation>` from `STOPPED`.
+The public socket rejects `start` from `PAUSED` as `stale generation` even when
+the supplied generation matches; retrying the same command does not change mode.
+Pending scan work requires reconciliation through `resume`, rather than this
+empty-session mode-change sequence.
 The two calibration commands are supervised single-flight starts and return
 within the normal five-second socket timeout. Poll `calibration-status` for the
 readiness, completion result, or durable error before issuing the next gate.
