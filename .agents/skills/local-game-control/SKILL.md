@@ -169,6 +169,9 @@ within existing authorization; respect any current movement limits.
   buffer. Opening chat with `/` and pasting a command starting with `/` can leave
   `//command`. Correct the actual buffer before pressing Enter. Do not risk sending
   commands as ordinary public chat.
+  A buffer staged before a long wait is not current dispatch evidence. Immediately
+  before Return, verify fresh addon `chatEdit` is active, focused and contains the
+  exact command; then require the actual boot/file transition for a reload.
   For a timed confirmation, stage a bounded local capture/recognition helper
   before Apply and complete Apply plus the measured confirmation within that
   helper. Model-turn latency can exceed the timer; an expired confirmation

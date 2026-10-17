@@ -1,0 +1,30 @@
+{
+  "schema": "crowley.addon-schedule-parent-acceptance",
+  "schema_version": 1,
+  "source_hashes": {
+    "addon/Crowley/Scanner.lua": "75a8ca368ce1659d1c4a0e338770b11c2d0285161fb99478b2fdff23e98fee9e",
+    "tests/test_addon.py": "f3fe07faaba496437c67289b5f2f711ad3f716f26ceb435c1f1a9b1f8de14583"
+  },
+  "parent_verification": {
+    "diagnostic_before_fix": "164 passed in11.76s",
+    "focused_rearm_candidate": "165 passed in12.84s",
+    "final_candidate": "166 passed in14.57s",
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "diff_check": "passed",
+    "integration": "Atomic copy of exact reviewed two-file candidate, source hashes verified; GUI owner held AHclosed/noactive/pending0 after seventhloadedACK."
+  },
+  "review": {
+    "model": "gpt-5.6-sol",
+    "rounds": 2,
+    "final_status": "READY",
+    "report": ".archive/executor-review/addon-schedule-sol-source-r2.md",
+    "report_sha256": "0e3c3df240fddd5809750c85107aa51d9950ca1ea9bb87a38de8bdd1bd4bce8d"
+  },
+  "behavior": "Current early timer callback re-arms positive remainingcooldown via existing gates; internal retry is quiet; manual cooldown output preserved. Separate bounded64event scheduling trace.",
+  "limitations": [
+    "Controlled early-callback reproduction does not establish cause of previous live timer miss.",
+    "Live candidate load and subsequent timer diagnostics pending operator verification.",
+    "Full autonomous scan cadence/upload qualification remains pending."
+  ]
+}

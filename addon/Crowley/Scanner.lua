@@ -27,6 +27,9 @@ local CANONICAL_CATALOG_HASH = "90918db5cc912e889553b5ddd422b829f3c6cb3773ab6da5
 -- delta from the prior item ID and its canonical pool (0=core, 1=discovery).
 local CANONICAL_PLAN_ENTRIES = "118:0,41:0,571:0,35:0,9:0,9:0,2:0,2:0,31:0,40:0,15:1,56:0,277:0,4:0,78:0,187:0,54:0,176:0,5:0,594:0,9:0,5:0,1:0,128:0,2:0,1:0,2:0,1:0,1:0,1:0,4:0,96:1,34:0,3:0,178:0,1:0,1:0,3:0,1:0,49:1,10:0,1:0,2:0,2:0,1:0,1:0,92:0,62:0,1:0,185:0,173:0,1:0,1:0,1:0,11:0,14:0,2:0,2:0,4:0,4:1,75:0,8:0,8:0,89:0,1:0,1:0,136:0,105:0,1:0,1:0,1:0,2:0,1:0,1:0,2:0,3:1,27:0,1:0,1:0,1:0,4:0,64:0,303:0,1:0,1:0,1:0,1:0,1:0,2:0,2:0,1:0,4:0,20:0,27:1,12:0,1:0,1:0,31:0,1:0,1:0,3:0,15:0,2:0,2:0,2:0,1:0,7:0,4:0,2:0,5:0,5:0,2:0,5:0,1:0,7:0,2:0,3:0,9:1,176:0,33:0,842:0,7:0,10:1,14:0,2:0,4:0,130:0,1:0,2:0,5:1,123:0,10:1,221:0,1:0,40:0,5:0,2:1,105:0,62:1,78:0,2:0,12:0,5:0,18:1,2:1,30:0,1:0,2:0,9:0,1:0,151:0,135:0,4:1,1:0,1:1,51:0,2:1,351:0,1:0,1:0,1:0,1:0,4:0,1:0,1:0,1:0,2:0,1:0,1:0,594:0,2:1,231:0,1:0,1:0,1:0,54:0,1:0,4:0,1:0,4:1,93:0,81:0,3:0,14:0,1:0,1:0,1:0,1:0,1:0,1:0,192:0,3:0,176:0,287:0,5:0,2:0,1:0,6:0,1:0,105:0,110:0,111:0,34:0,4:0,50:0,35:1,3:1,6:1,746:0,235:0,1:0,212:0,7:0,2:0,41:0,10:0,1:0,1:0,1:0,47:1,12:0,24:1,4:0,290:0,1:0,1:0,38:0,20:0,84:0,1:0,1:0,50:0,1:0,2:0,1:0,1:0,35:0,1:0,1:0,1:0,1:0,109:0,1:0,82:0,1:0,383:0,283:0,169:0,10:0,1:0,22:1,120:0,1:0,1:0,2:0,1:0,1:0,39:0,239:0,1:0,1:0,10:0,37:1,107:0,1:0,3:0,5:0,2:0,148:1,464:0,1:0,20:0,1:0,2:0,9:0,1:0,1:0,1:0,1:0,2:0,2:0,1:0,1:0,1:0,1:0,1:0,9:1,9:1,1:1,1:1,1:1,1:1,1:1,3:1,1:1,1:1,1:1,2:1,20:1,236:0,1:0,2:0,1:0,1:0,129:0,37:0,2:0,3:0,1:0,10:1,3:1,1:1,100:0,1:0,1:0,107:0,72:0,29:0,85:0,1:0,1:0,1:0,124:1,31:1,11:1,897:0,2:0,1:0,2:0,2:0,1:0,1:0,1:0,147:0,428:0,1:0,1:0,3:0,44:1,1:1,9:1,60:1,2:1,89:0,1:0,1:0,48:1,804:0,1200:0,6:0,369:0,22:1,788:0,567:0,416:0,28:0,295:0,1:0,1:0,1:0,4:1,1:1,316:0,1:0,27:1,54:0,64:0,2:1,1027:0,2:0,59:1,1:1,224931:0,1:0,1:0,545:0,1029:0,9:0,450:0,117:0,8:0,10:0,1:0,14:0,1:0,4:0,1:0,1:0,1:0,912:0,2:0,34:1,2:1,551:0,5:0,1:0,6:0,32:1,5:1,1:1,6:1,302:0,1145:0,1:0,15:0,1:0,9:0,1:0,24:0,1:0,295:1,1:1,27:1,1:1,130:1,722:0,1:1,2:0,1:1,305:0,62:0,44:0,54:0,1590:1,2:1,4:1,5065:0,3410:1"
 local PRE_LOGOUT_FENCE_COMMAND = "/crowley session fence"
+local SCHEDULE_TRACE_VERSION = 1
+local SCHEDULE_TRACE_CAP = 64
+local SCHEDULE_TRACE_STRING_LIMIT = 32
 local state
 local generation = 0
 local scheduleToken = 0
@@ -34,6 +37,73 @@ local scheduleBlocked = false
 local scheduleFence = { state = "inactive", reason = "", command = PRE_LOGOUT_FENCE_COMMAND }
 local internalSendDepth = 0
 local keyFields
+
+local function scheduleFinite(value)
+  if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then return 0 end
+  return value
+end
+
+local function scheduleInteger(value)
+  value = scheduleFinite(value)
+  if value < 0 then return 0 end
+  return math.floor(value)
+end
+
+local function scheduleString(value)
+  if type(value) ~= "string" then return "" end
+  return value:sub(1, SCHEDULE_TRACE_STRING_LIMIT)
+end
+
+local function ensureScheduleTrace()
+  if not ns.db then return nil end
+  local trace = ns.db.scheduleTrace
+  if type(trace) ~= "table" then trace = {} ns.db.scheduleTrace = trace end
+  trace.version = SCHEDULE_TRACE_VERSION
+  trace.cap = SCHEDULE_TRACE_CAP
+  trace.events = type(trace.events) == "table" and trace.events or {}
+  local retained = {}
+  local first = math.max(1, #trace.events - SCHEDULE_TRACE_CAP + 1)
+  for index = first, #trace.events do
+    if type(trace.events[index]) == "table" then retained[#retained + 1] = trace.events[index] end
+  end
+  trace.events = retained
+  trace.sequence = scheduleInteger(trace.sequence)
+  trace.overflow = scheduleInteger(trace.overflow)
+  trace.loadSequence = scheduleInteger(trace.loadSequence)
+  trace.load = scheduleString(trace.load)
+  return trace
+end
+
+local function beginScheduleLoad()
+  local trace = ensureScheduleTrace()
+  if not trace then return end
+  trace.loadSequence = trace.loadSequence + 1
+  trace.load = scheduleString(("load-%d-%d"):format(scheduleInteger(time()), trace.loadSequence))
+end
+
+local function scheduleEvent(eventType, fields)
+  local trace = ensureScheduleTrace()
+  if not trace or trace.load == "" then return end
+  trace.sequence = trace.sequence + 1
+  local event = {
+    sequence = trace.sequence,
+    type = scheduleString(eventType),
+    wall = scheduleFinite(time()),
+    uptime = scheduleFinite(GetTime()),
+    load = trace.load,
+    token = scheduleInteger(fields and fields.token or scheduleToken),
+    currentToken = scheduleInteger(fields and fields.currentToken or scheduleToken),
+    reason = scheduleString(fields and fields.reason),
+    source = scheduleString(fields and fields.source),
+    due = scheduleFinite(fields and fields.due),
+    delay = scheduleFinite(fields and fields.delay),
+  }
+  if #trace.events >= SCHEDULE_TRACE_CAP then
+    table.remove(trace.events, 1)
+    trace.overflow = trace.overflow + 1
+  end
+  trace.events[#trace.events + 1] = event
+end
 
 local function traceIdentity(key)
   local itemID, itemLevel, itemSuffix, battlePetSpeciesID = keyFields(key)
@@ -114,10 +184,12 @@ hooksecurefunc(C_AuctionHouse, "RequestMoreItemSearchResults", markForeignSearch
 hooksecurefunc(C_AuctionHouse, "QueryOwnedAuctions", markForeignOwned)
 
 ns.ahOpen = false
-ns.On("AUCTION_HOUSE_SHOW", function() ns.ahOpen = true Scanner.Schedule() end)
+ns.On("AUCTION_HOUSE_SHOW", function() ns.ahOpen = true Scanner.Schedule("ah_show") end)
 ns.On("AUCTION_HOUSE_CLOSED", function()
   ns.ahOpen = false
+  local previousToken = scheduleToken
   scheduleToken = scheduleToken + 1
+  scheduleEvent("cancel", { reason = "ah_closed", source = "event", token = previousToken, currentToken = scheduleToken })
   if state then Scanner.Abort("ah_closed") end
 end)
 ns.On("PLAYER_LOGOUT", function()
@@ -125,12 +197,15 @@ ns.On("PLAYER_LOGOUT", function()
   -- queries are marked as logout-tailed, and a cooldown timer that was
   -- created by the completed sweep cannot start a new sweep while the client
   -- is leaving the world.
+  local previousToken = scheduleToken
   scheduleToken = scheduleToken + 1
+  scheduleEvent("cancel", { reason = "logout", source = "event", token = previousToken, currentToken = scheduleToken })
   ns.ahOpen = false
   if state then Scanner.Abort("logout") end
 end)
 ns.On("ADDON_LOADED", function(_, name)
   if name ~= "Crowley" or not ns.db then return end
+  beginScheduleLoad()
   ns.db.agentLastSaved = ns.db.agentLastSaved or {
     memoryUid = "", finishedAt = 0, planned = 0, attempted = 0, failures = 0, rows = 0,
   }
@@ -862,16 +937,39 @@ end
 function Scanner.InProgress() return state ~= nil end
 function Scanner.CooldownRemaining() if not ns.db.lastSweepStart then return 0 end return math.max(0, CADENCE - (time() - ns.db.lastSweepStart)) end
 function Scanner.Due() return Scanner.CooldownRemaining() == 0 end
-function Scanner.Schedule()
-  if scheduleBlocked or not ns.ahOpen or state or ns.db.storageBlocked then return end
+function Scanner.Schedule(source)
+  source = source or "unknown"
+  scheduleEvent("request", { source = source })
+  if scheduleBlocked then scheduleEvent("refusal", { reason = "logout_fence", source = source }) return end
+  if not ns.ahOpen then scheduleEvent("refusal", { reason = "ah_closed", source = source }) return end
+  if state then scheduleEvent("refusal", { reason = "sweep_active", source = source }) return end
+  if ns.db.storageBlocked then scheduleEvent("refusal", { reason = "storage_blocked", source = source }) return end
   local _, planError = loadPlan()
-  if planError then return end
+  if planError then scheduleEvent("refusal", { reason = planError, source = source }) return end
   scheduleToken = scheduleToken + 1
   local token = scheduleToken
-  C_Timer.After(Scanner.CooldownRemaining(), function() if token == scheduleToken and ns.ahOpen then Scanner.Start(false) end end)
+  local delay = Scanner.CooldownRemaining()
+  local timerCallback = function()
+    scheduleEvent("timer_callback", { source = "timer", token = token, currentToken = scheduleToken })
+    if token ~= scheduleToken then
+      scheduleEvent("stale_token", { reason = "token_changed", source = "timer", token = token, currentToken = scheduleToken })
+    end
+    if not ns.ahOpen then
+      scheduleEvent("ah_closed_discard", { reason = "ah_closed", source = "timer", token = token, currentToken = scheduleToken })
+    end
+    if token ~= scheduleToken or not ns.ahOpen then
+      return
+    end
+    Scanner.Start(false, "timer_callback")
+  end
+  C_Timer.After(delay, timerCallback)
+  scheduleEvent("timer_create", {
+    source = source, token = token, currentToken = scheduleToken, delay = delay, due = time() + delay,
+  })
 end
 
-function Scanner.Start(force)
+function Scanner.Start(force, source)
+  source = source or "manual"
   if state then return ns.Print("a sweep is already running") end
   if scheduleBlocked then return ns.Print("scan refused: logout fence active") end
   if not ns.ahOpen then return ns.Print("open the auction house first") end
@@ -879,7 +977,17 @@ function Scanner.Start(force)
   local plan, errorText = loadPlan()
   if not plan or errorText then return ns.Print("scan refused: " .. (errorText or "plan_invalid")) end
   if ns.db.storageBlocked then return ns.Print("scan paused: storage blocked until acknowledgements are loaded") end
-  if not force and not Scanner.Due() then return ns.Print(("scan due in %ds"):format(Scanner.CooldownRemaining())) end
+  if not force and not Scanner.Due() then
+    local remaining = Scanner.CooldownRemaining()
+    if source == "timer_callback" then
+      scheduleEvent("due_refusal", {
+        reason = "cooldown_active", source = source, due = time() + remaining, delay = remaining,
+      })
+      if ns.ahOpen and not scheduleBlocked and not state then Scanner.Schedule("timer_rearm") end
+      return
+    end
+    return ns.Print(("scan due in %ds"):format(remaining))
+  end
   local cursor = ns.db.cursorItemID
   local found = false for _, itemID in ipairs(plan.itemIDs) do if itemID == cursor then found = true break end end
   if ns.db.cursorPlanHash and ns.db.cursorPlanHash ~= CROWLEY_DATA.scanPlan.planHash then
@@ -900,6 +1008,9 @@ function Scanner.Start(force)
   ns.db.activeQueryTrace = state.queryTrace
   traceEvent("sweep_start", nil, { planned = #state.order, house = state.house.key })
   ns.db.lastSweepStart = state.startedAt
+  scheduleEvent("start_commit", {
+    source = source, token = scheduleToken, currentToken = scheduleToken, due = state.startedAt + CADENCE,
+  })
   ns.Print(("sweep started for %s (%d planned items)"):format(state.house.key, #state.order))
   local sweep = state
   C_Timer.After(SWEEP_TIMEOUT, function()
@@ -922,12 +1033,17 @@ function Scanner.PreLogoutFence()
   -- query is refused and remains untouched; ordinary PLAYER_LOGOUT below
   -- still preserves its partial-save behavior.
   if state then
+    scheduleEvent("fence_refusal", { reason = "scan_active", source = "pre_logout_fence" })
     scheduleFence = { state = "refused", reason = "scan_active", command = PRE_LOGOUT_FENCE_COMMAND }
     traceEvent("pre_logout_fence_refused", state, { command = PRE_LOGOUT_FENCE_COMMAND, reason = "scan_active" })
     return false, "scan_active"
   end
+  local previousToken = scheduleToken
   scheduleToken = scheduleToken + 1
   scheduleBlocked = true
+  scheduleEvent("cancel", {
+    reason = "pre_logout_fence", source = "pre_logout_fence", token = previousToken, currentToken = scheduleToken,
+  })
   scheduleFence = { state = "armed", reason = "", command = PRE_LOGOUT_FENCE_COMMAND }
   traceEvent("pre_logout_fence_armed", nil, { command = PRE_LOGOUT_FENCE_COMMAND })
   return true, nil
@@ -975,7 +1091,7 @@ function Scanner.Finish()
   ns.db.storageBlocked = stored >= ns.MAX_STORED_SCANS
   ns.db.cursorItemID, ns.db.cursorPlanHash = s.cursor, s.planHash
   ns.Print(("sweep saved: %d observations, %d rows for %s - /reload to upload"):format(#s.order, ns.db.scans[id].numRows, s.house.key))
-  Scanner.Schedule()
+  Scanner.Schedule("finish")
 end
 
 -- A copied, read-only projection for Agent.lua. The projection intentionally keeps

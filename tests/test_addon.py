@@ -63,6 +63,12 @@ def decoded_payload(client: WowClient) -> dict:
     return validate_v2_envelope(envelope(raw))["decoded"]
 
 
+def schedule_trace(client: WowClient) -> dict:
+    return json.loads(
+        client.lua.globals().C_EncodingUtil.SerializeJSON(client.lua.globals().CrowleyDB.scheduleTrace)
+    )
+
+
 def finish_canonical(client: WowClient) -> None:
     """Drain the canonical sweep after an adversarial event was observed."""
 
@@ -1003,6 +1009,246 @@ def test_start_cadence_and_no_overlap():
     assert len(list(client.lua.globals().CrowleyDB.scans.items())) == 2
     starts = sorted(scan["startedAt"] for _, scan in client.lua.globals().CrowleyDB.scans.items())
     assert first["startedAt"] + 900 == starts[-1]
+
+
+def test_timer_alone_starts_at_900_seconds_without_auction_house_reopen_or_overlap():
+    client = WowClient()
+    run_sweep(client)
+    client.state.fastCanonical = False
+    client.slash("scan")
+    assert "due in" in client.chat[-1]
+
+    remaining = client.ns.Scanner.CooldownRemaining()
+    client.advance(remaining - 1)
+    client.run_timers()
+    assert len(list(client.lua.globals().CrowleyDB.scans.items())) == 1
+    assert not client.ns.Scanner.InProgress()
+
+    client.advance(1)
+    client.run_timers()
+    trace = schedule_trace(client)
+    starts = [event for event in trace["events"] if event["type"] == "start_commit"]
+    assert len(starts) == 2
+    assert client.ns.Scanner.InProgress()
+    client.slash("scan")
+    assert "already running" in client.chat[-1]
+    assert len([event for event in schedule_trace(client)["events"] if event["type"] == "start_commit"]) == 2
+
+
+def test_reload_owner_uses_persisted_last_sweep_start_for_schedule_due():
+    client = WowClient()
+    client.lua.globals().CrowleyDB = client._to_lua({"lastSweepStart": 1760000000})
+    client.login()
+    client.set_canonical_plan()
+    client.fire("AUCTION_HOUSE_SHOW")
+    assert client.lua.globals()._nextTimerAt() == 1760000900
+    timer = next(event for event in schedule_trace(client)["events"] if event["type"] == "timer_create")
+    assert timer["delay"] == 900
+    assert timer["due"] == 1760000900
+
+
+@pytest.mark.parametrize(
+    ("event", "reason"), [("AUCTION_HOUSE_CLOSED", "ah_closed"), ("PLAYER_LOGOUT", "logout")]
+)
+def test_schedule_callback_is_cancelled_and_stale_after_lifecycle_event(event: str, reason: str):
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.fire(event)
+    client.run_timers()
+    trace = schedule_trace(client)
+    assert any(item["type"] == "cancel" and item["reason"] == reason for item in trace["events"])
+    assert any(item["type"] == "stale_token" for item in trace["events"])
+    assert any(item["type"] == "ah_closed_discard" for item in trace["events"])
+    assert not client.ns.Scanner.InProgress()
+    assert client.state.queryCalls == 0
+
+
+def test_schedule_callback_is_cancelled_and_stale_after_pre_logout_fence():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.fire("AUCTION_HOUSE_SHOW")
+    assert client.ns.Scanner.PreLogoutFence() == (True, None)
+    client.run_timers()
+    trace = schedule_trace(client)
+    assert any(item["type"] == "cancel" and item["reason"] == "pre_logout_fence" for item in trace["events"])
+    assert any(item["type"] == "stale_token" for item in trace["events"])
+    assert not client.ns.Scanner.InProgress()
+    assert client.state.queryCalls == 0
+
+
+def test_schedule_refusals_preserve_plan_and_queue_blocks():
+    client = WowClient()
+    client.login()
+    client.set_plan([2589])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.lua.globals().CrowleyDB.storageBlocked = True
+    client.set_canonical_plan()
+    client.fire("AUCTION_HOUSE_SHOW")
+    reasons = [item["reason"] for item in schedule_trace(client)["events"] if item["type"] == "refusal"]
+    assert "plan_invalid" in reasons
+    assert "storage_blocked" in reasons
+    assert client.lua.globals()._nextTimerAt() is None
+    assert client.state.queryCalls == 0
+
+
+def test_active_sweep_rejects_schedule_and_duplicate_start_without_overlap():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(2589, "Linen", 1, 100)])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    before = client.state.queryCalls
+    client.ns.Scanner.Schedule("active-test")
+    client.slash("scan")
+    trace = schedule_trace(client)
+    assert any(item["type"] == "refusal" and item["reason"] == "sweep_active" for item in trace["events"])
+    assert client.state.queryCalls == before
+    assert client.ns.Scanner.InProgress()
+    assert "already running" in client.chat[-1]
+
+
+def test_schedule_trace_is_bounded_fixed_schema_and_separate_from_query_trace():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.fire("AUCTION_HOUSE_SHOW")
+    for _ in range(40):
+        client.ns.Scanner.Schedule("source-" + ("x" * 100))
+    trace = schedule_trace(client)
+    assert trace["version"] == 1
+    assert trace["cap"] == 64
+    assert len(trace["events"]) == 64
+    assert trace["overflow"] > 0
+    fields = {
+        "sequence",
+        "type",
+        "wall",
+        "uptime",
+        "load",
+        "token",
+        "currentToken",
+        "reason",
+        "source",
+        "due",
+        "delay",
+    }
+    assert all(set(event) == fields for event in trace["events"])
+    assert all(len(event["source"]) <= 32 for event in trace["events"])
+    assert client.lua.globals().CrowleyDB.activeQueryTrace is None
+    assert client.state.queryCalls == 0
+
+
+def test_early_timer_callback_with_separate_external_clocks_rearms_at_wall_due():
+    # The pre-fix diagnostic proved this callback consumed the only timer.  The
+    # focused correction must retain the wall/timer split and re-arm once.
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.state.fastCanonical = False
+    globals_ = client.lua.globals()
+    globals_._wallNow = 1760000000
+    globals_._uptimeNow = 500
+    globals_.time = client.lua.eval("function() return _wallNow end")
+    globals_.GetTime = client.lua.eval("function() return _uptimeNow end")
+    globals_.CrowleyDB.lastSweepStart = 1760000000
+    client.fire("AUCTION_HOUSE_SHOW")
+    assert globals_._nextTimerAt() == 1760000900
+
+    globals_._wallNow = 1760000899
+    globals_._uptimeNow = 1400
+    client.advance(900)
+    client.run_timers()
+    trace = schedule_trace(client)
+    refusal = next(item for item in trace["events"] if item["type"] == "due_refusal")
+    assert refusal["delay"] == 1
+    assert refusal["due"] == 1760000900
+    assert refusal["wall"] == 1760000899
+    assert refusal["uptime"] == 1400
+    assert not client.ns.Scanner.InProgress()
+    assert globals_._nextTimerAt() == 1760000901
+
+    globals_._wallNow = 1760000900
+    globals_._uptimeNow = 1401
+    client.advance(1)
+    client.run_timers()
+    trace = schedule_trace(client)
+    assert len([item for item in trace["events"] if item["type"] == "due_refusal"]) == 1
+    assert (
+        len(
+            [
+                item
+                for item in trace["events"]
+                if item["type"] == "timer_create" and item["source"] == "timer_rearm"
+            ]
+        )
+        == 1
+    )
+    assert len([item for item in trace["events"] if item["type"] == "start_commit"]) == 1
+    assert client.ns.Scanner.InProgress()
+
+
+def test_repeated_early_callbacks_rearm_once_each_without_duplicate_start_and_cancel():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.state.fastCanonical = False
+    globals_ = client.lua.globals()
+    globals_._wallNow = 1760000000
+    globals_._uptimeNow = 500
+    globals_.time = client.lua.eval("function() return _wallNow end")
+    globals_.GetTime = client.lua.eval("function() return _uptimeNow end")
+    globals_.CrowleyDB.lastSweepStart = 1760000000
+    client.fire("AUCTION_HOUSE_SHOW")
+    chat_before_callbacks = len(client.chat)
+
+    globals_._wallNow = 1760000899
+    globals_._uptimeNow = 1400
+    client.advance(900)
+    client.run_timers()
+    for _ in range(2):
+        globals_._uptimeNow += 1
+        client.advance(1)
+        client.run_timers()
+
+    trace = schedule_trace(client)
+    assert len([item for item in trace["events"] if item["type"] == "due_refusal"]) == 3
+    assert (
+        len(
+            [
+                item
+                for item in trace["events"]
+                if item["type"] == "timer_create" and item["source"] == "timer_rearm"
+            ]
+        )
+        == 3
+    )
+    assert not [item for item in trace["events"] if item["type"] == "start_commit"]
+    assert client.state.queryCalls == 0
+    assert len(client.chat) == chat_before_callbacks
+
+    client.fire("AUCTION_HOUSE_CLOSED")
+    client.advance(1)
+    client.run_timers()
+    trace = schedule_trace(client)
+    assert any(item["type"] == "cancel" and item["reason"] == "ah_closed" for item in trace["events"])
+    assert any(item["type"] == "stale_token" for item in trace["events"])
+    assert client.state.queryCalls == 0
+
+
+def test_schedule_trace_does_not_claim_timer_creation_when_api_raises():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.lua.globals().C_Timer.After = client.lua.eval("function() error('timer API failure') end")
+    with pytest.raises(Exception, match="timer API failure"):
+        client.fire("AUCTION_HOUSE_SHOW")
+    trace = schedule_trace(client)
+    assert any(item["type"] == "request" and item["source"] == "ah_show" for item in trace["events"])
+    assert not any(item["type"] == "timer_create" for item in trace["events"])
 
 
 def test_ah_close_finalizes_partial_without_replaying_callback():

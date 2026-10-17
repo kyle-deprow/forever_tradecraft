@@ -1,0 +1,22 @@
+# Early callback correction: failing-before evidence
+
+This is the detached-worktree proof captured before the bounded re-arm line was
+restored. The focused test used separate external wall and timer clocks: the
+timer callback ran at wall due-1, recorded `due_refusal`, and consumed the only
+timer.
+
+Command:
+
+    uv run pytest -q tests/test_addon.py -k 'early_timer_callback_with_separate_external_clocks_rearms_at_wall_due'
+
+Result: exit 1, `1 failed, 164 deselected in 0.26s`.
+
+Failure:
+
+    tests/test_addon.py:1172
+    assert globals_._nextTimerAt() == 1760000901
+    E assert None == 1760000901
+
+The correction re-arms once through `Scanner.Schedule("timer_rearm")`; the
+same test passes afterward and the repeated-early-callback/cancellation test
+also passes.

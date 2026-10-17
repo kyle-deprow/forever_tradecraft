@@ -103,10 +103,15 @@ Return dispatch was65.108s afterfinish, then3.779s to server. Preserved fresh
 boot1792222197-345235 confirms the exact loaded ACK/pending0. Six sweeps now
 contain13799positive-price rows. Seventh was scheduled for1792222471 after one
 verified AH reopen. See `build-70450-sixth-scan-parent-verification.json`.
-The isolated addon candidate independently passed164tests and reproduces a timer
-callback one wall-clock second early consuming the only timer. A focused remaining-
-cooldown rearm is authorized in its isolated worktree; review and coordinated
-integration precede a real reload. The actual live miss cause remains unknown.
+The addon diagnostic reproduced an early callback consuming the only timer.
+The remaining-cooldown rearm and bounded scheduling trace are now integrated
+after parent166tests/Ruff and SolsourceR2READY. Exact ScannerSHA:
+`75a8ca368ce1659d1c4a0e338770b11c2d0285161fb99478b2fdff23e98fee9e`.
+Integration occurred after seventhloadedACK/pending0/AHclosed/noactive; GUI owner
+is released to verify its reload then reopen AH. Internal retries remain quiet,
+manual cooldown notices remain, and timer_create is logged after successful API
+return. The actual live miss cause remains unknown; retain new scheduleTrace
+on normal SavedVariables flushes. See `addon-schedule-parent-acceptance.json`.
 
 **HUD implementation:** R2 parent host affected batch296passed/exit0; focused14,
 compiled private producer harness and Ruff also passed. Namespace batch had
@@ -130,6 +135,14 @@ real blocked Shell capture prevents publication/reaps the producer. Never block
 inside Popen/gate release to invent an interleaving. Guardian remains unchanged.
 No new live capture is released before parent/Sol/Opus review.
 Capability remains default-off and undeployed.
+R4 now validates a canonical hash of the whole loaded SessionConfig on the owner,
+separate from caller raw-TOML provenance, and verifies the driver profile matches.
+Parent's retained focused host run passed the genuine eight-sample happy path but
+later failed: an owner protocol deadline expired before Shell, then the fixture
+blindly mutated an absent sample and masked that refusal with a thread KeyError.
+The worker is correcting external-fixture reporting and investigating under the
+unchanged one-second deadline. Earlier hermetic316pass/2fail were missing private
+input-tool fixture setup, not this failure. Preserve both kinds of evidence.
 
 **Recipe foundation accepted:** three-file implementation, packaged normalized
 manifest, nine-profession coverage (eight crafting plus Mining), two blocked
