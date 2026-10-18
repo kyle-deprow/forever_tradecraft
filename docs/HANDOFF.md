@@ -29,6 +29,16 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Live Oct18 at18:42UTC:** accepted addon ordinary load verified independently.
+Sweep44 flush/ACK loaded the promoted source; all4Lua hashes match before/after.
+Parent strictly decoded retained PNGs: fresh ordinaryboot, native normal/0,
+inactive fence, exact pendingUID then exactloadedACK/pending0. Sweep44 has428obs/
+2749rows398full30bounded/allok,900s startinterval,29.128387s upload. AH reopened
+and natural nextdue18:45:52. Native/helper/deferredqualification still pending;
+this proves ordinary regression behavior only. Latest pushed source487f3a7;
+Luna implements native slice in isolated native-construction-native-20261018,
+basee6e17bb. Current service staysPAUSEDgen23 while collection isoperator-assisted.
+
 **Latest Oct18 at18:27UTC:** Stage B addon source accepted after Sol and actual
 Opus final/rearm READY (claude-opus-5-5, both CLI exit0). Parent244addon/companion
 tests31.55s,4atlas/frame checks1.78s before the two-line rearm delta, final scoped

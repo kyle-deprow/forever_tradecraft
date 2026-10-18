@@ -1,0 +1,26 @@
+{
+  "kind": "parent-addon-ordinary-reload-regression",
+  "source_commit": "e6e17bb",
+  "uid": "beta-normal-alliance-1792348252-Arthur-0089",
+  "receipt_sha256": "80aea52c5c857fc1a781c62c62da11958bc67bbefe414e65832b43d0a628e646",
+  "png_sha256": "00faf7266193abdb8304e4b9e6f41aacd649503dbbdc1ef45f0de6979e1ff131",
+  "boot": "1792348766-263360",
+  "sequence": 4,
+  "source_sha256": {
+    "Core.lua": "3bf29b1c09f347d60e8fe6a5e8a4a8ef9aba37ff571d900bd9853159112f09b6",
+    "Scanner.lua": "ae16a58c870adf564f1bea691d53aea1bc326867affabd98827a5c447ae540f9",
+    "Agent.lua": "2c2c0b33caf8801bb7bd04d5752940a95434fe6ff11281534f245910fe84cf58",
+    "Commands.lua": "c68d2d25cb114b731d4986a6704027e4592bcbe46e385f276895fba23d885da2"
+  },
+  "ordinary_fence": "inactive",
+  "pending_exact_uid": true,
+  "verification": "Parent independently decoded retained pixels and rechecked accepted source files/hash maps. Normal load only; not deferred control or native calibration qualification.",
+  "subsequent_ack": {
+    "boot": "1792348846-602425",
+    "nativePhase": "normal",
+    "nativeOrdinal": 0,
+    "pending": 0,
+    "exact_loaded_uid": "beta-normal-alliance-1792348252-Arthur-0089",
+    "proof": ".archive/executor-review/build-70450-fortyfour-scan-parent-verification.json"
+  }
+}
