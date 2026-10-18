@@ -1,0 +1,38 @@
+{
+  "schema": 1,
+  "status": "offline_composition_candidate",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-operator-production-proofs-20261018",
+  "base": "5829bc1",
+  "owned_files": {
+    "tools/native_calibration_operator.py": "715138e50b600c08aac4c348831ce550328051e90a50703f1256d3f304f9e03e",
+    "tests/test_native_calibration_operator.py": "ea4f561fa528afb6cf8b6d5052a3a11ed6bbf3faf4cf93fc5a1574dbabb08dcb"
+  },
+  "development_dependencies": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "e36b11f88f2385d4221cb870afe357c0a0980d7681cc6f09e20a1936b460490d",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "b41d10014bac75b1f36c47c3ad5f5718bfe71a7648fbb82658bef89b6b7208e7",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "imports": {
+    "crowley.session.cli": "/home/dev/.cache/crowley/worktrees/native-operator-production-proofs-20261018/src/crowley/session/cli.py",
+    "crowley.session.controller": "/home/dev/.cache/crowley/worktrees/native-operator-production-proofs-20261018/src/crowley/session/controller.py",
+    "crowley.session.daemon": "/home/dev/.cache/crowley/worktrees/native-operator-production-proofs-20261018/src/crowley/session/daemon.py"
+  },
+  "checks": {
+    "focused_actual_composition": "6 passed, 51 deselected, 8.67s",
+    "terminal_error_recovery": "1 passed, 57 deselected, 0.65s",
+    "helper_suite": "58 passed, 2 warnings, 41.31s",
+    "compiled_producer_direct": "1 passed, 147 deselected, 5.50s",
+    "ruff": "passed",
+    "ruff_format": "passed",
+    "compileall": "passed",
+    "diff_check": "passed"
+  },
+  "limitations": [
+    "The six native files are unaccepted development dependencies.",
+    "No live desktop, service restart, game input, or qualification claim is included.",
+    "Operator UI/OCR/input surfaces are sealed offline fixtures; daemon admissions and AF_UNIX dispatch are real."
+  ]
+}

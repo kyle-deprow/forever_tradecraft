@@ -1,0 +1,10 @@
+{
+  "kind": "parent-market-backup-validation",
+  "snapshot": "beta-20261018T231325Z-166c0ce4fbc3",
+  "created_at_utc": "2026-10-18T23:13:25Z",
+  "private_directory_mode": "0o700",
+  "manifest_sha256": "8cb835d02d5c50b1973d2cbb2de42d59c69de0661b6a5c53b85837e7413cf1b5",
+  "validation": "tools.market_backup.validate_snapshot passed independently",
+  "restore_drill": "Earlier isolated restore drill remains accepted; not repeated",
+  "qualification": "Private backup only; no autonomous scan qualification."
+}

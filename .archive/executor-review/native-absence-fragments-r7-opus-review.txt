@@ -1,0 +1,80 @@
+Resolved model: claude-opus-5-5
+Model ID: **claude-opus-5-5**
+
+# R7 native construction review: full six-file diff from eb2c69e
+
+**Scope.** This was a read-only review. I made no edits, ran no tests or builds, changed no git state and sent no input; the only file I wrote is the plan file. All six candidate hashes (`81d377c4…`, `e36b11f8…`, `df59d15c…`, `9b965c67…`, `b41d1001…`, `6b0bc711…`) and all six base hashes match `native-absence-fragments-r7-freeze.json`. I reviewed the whole diff, not just the classifier change. I also checked the relevant unchanged Guardian.revoke, driver, decoder, protocol and calibration code paths.
+
+**What holds up:**
+- **IPC and CLI.** All eight private request shapes are exact. The CLI derives command names with `replace("-", "_")`, so argparse routes cleanly. Every exception type the owner methods can raise is caught at the IPC layer. The public status output is unchanged.
+- **Durable checkpoint.** Loading is strict, and a malformed or null checkpoint is kept as-is rather than treated as absent.
+- **Recovery completion** is done right:
+  - it takes the controller lock, then the construction lock;
+  - one journal write both publishes the frame and consumes the checkpoint, with rollback if the write fails;
+  - the check after the commit is read-only.
+- **PAUSED captures** are allowed only with the caller's exact capability, which is checked again at the Guardian exec gate.
+- **The aggregate bound** is 3130s (10 + 103×30 + 30). The individual 30s, 10s and 7s deadlines are unchanged.
+- **The absence classifier** is only consulted after the production decoder raises `ProtocolError`, and its byte grouping matches the protocol's LSB-first, 16-bytes-per-row layout. The generated test covers erasing the entire header together with more than 10% of the payload.
+- **The compiled-producer test** in `test_session_native.py` goes through the real PAUSED IPC path (control preflight → recovery begin → recovery complete).
+
+## Must-Fix
+
+**1. A cancelled or expired construction can still finalize as a durable native-calibration success** (`daemon.py:7177-7258`).
+- **Where the gap is.** The worker reads the reservation under the construction lock at 7177-7181 and releases it. It then calls `validate_snapshot`, `rebind_native_construction_frame`, `observe_frame` and `native_calibrated` (7211-7236). Only after that does it publish "finalized" (7244-7258), and it never re-checks the run's ID, epoch or reservation under the lock.
+- **Who can trigger it.** Three things can revoke the owner without changing the controller generation:
+  - `native_construction_recovery_cancel`, which accepts any matching reservation ID, including a consumed measure reservation (2556);
+  - `_native_construction_revoke_owner`, called when a concurrent recheck or admit fails validation;
+  - expiry.
+- **Effect.**
+  - The controller durably records native calibration as complete and moves to INPUT_CALIBRATION after the operator cancelled.
+  - The stored terminal record says "cancelled" while the live state and history say "finalized".
+  - `terminal_reservation` is `None`, so `_record_terminal_locked` returns `None` without any error.
+  - Separately, the ≤10s settle loop (7134-7175) checks only the controller, so a cancel does not stop it promptly.
+- **R6 requirement.** This is the arbitrated R6 requirement that controller-first owner validation must enclose the cancel/success snapshot.
+- **Fix.**
+  - Hold `controller.lock` and then `_native_construction_lock`, re-check that the run context (runId, epoch, not closed) and the reservation ID are still live, and do the `native_calibrated` commit and the "finalized" terminal record inside that one critical section, the same way `recovery_complete` does.
+  - Raise if no terminal record was captured.
+  - Revalidate the owner on each settle-loop iteration.
+  - Either restrict `recovery_cancel` to recovery and preflight owners, or define what cancelling a measure reservation means.
+  - Add a barrier test that cancels between the rebind and `native_calibrated`.
+
+## Should-Fix
+
+**2. Three-lock deadlock cycle.**
+- **The cycle:**
+  - The worker computes its final result while holding the calibration-state lock (`daemon.py:1308-1312`); `status_dict()` takes the controller lock. That order already existed in the base.
+  - Pause holds the controller lock while Guardian.revoke synchronously runs `_on_native_construction_revocation`, which takes the construction lock (928).
+  - `start_calibration`, `_begin_calibration` and `_native_construction_prepare` hold the construction lock and then take the calibration-state lock (1273-1276, 1208, 1858).
+- **Effect.** If three threads collide (a calibration worker finishing, a pause, and a prepare or `native_calibrate`), the daemon hangs permanently with the controller lock held. Guardian releases physical input before running callbacks, so this is a liveness failure, not unsafe input.
+- **Fix.** Compute `status_dict()` before taking the calibration-state lock and only assign the result inside it.
+
+**3. Fallbacks for test doubles in production code, against the project's no-fallback rule.**
+- **`native_calibrated` retry (7217-7240).** If the call raises a `TypeError` mentioning "unexpected keyword", the worker calls it again without the generation/state fence and skips the INPUT_CALIBRATION check. This exists only for an out-of-fence test double (`tests/test_session_runtime.py:1842`).
+- **Guessed resume values (2997-3005).** If the resume observation lacks a sequence or capture time, the code guesses `boundary.sequence + 1` and the boundary's capture time.
+- **Optional owner methods in `cli.py:265-270`.** They are looked up with `getattr(..., None)` and skipped if missing.
+- **Fix.** Remove all three, fail loudly instead, and update the out-of-fence double in a scoped follow-up.
+
+**4. The predecessor-edge tests don't reach the guards they are named for.**
+- **Transitions test.** `test_native_construction_ipc_rejects_all_twelve_predecessor_edges` (`test_session_transitions.py:363`) uses a fake owner that raises the expected message itself, so the test proves nothing about the daemon.
+- **Real-daemon test.** Most cases in `test_session_native_regressions.py:4642-4791` use invented IDs such as `"missing"`, `"cancelled"` and `"completed"`, so they stop at the "reservation is unknown" lookup. The complete-after-cancel and cancel-after-complete cases would pass even if cancel or complete did nothing.
+- **Untested guards.** These have no test reaching them with a valid owner: "bootstrap was replayed", "boot echo is stale", "bootstrap predecessor is invalid", "finalize admission is out of order", "recovery restart cannot overlap", and every deferred callback "arrived out of order" check.
+- **Fix.** Drive each edge with the real reservation or ticket ID so the named guard is the one that fires.
+
+## Nits
+
+5. **Vacuous check.** `daemon.py:3258` assigns `baselineHwm` itself, which makes the "callback did not publish" check at 3259-3260 always pass.
+6. **Producer-not-configured path.** If no telemetry-region producer is configured, `_capture_native_region_for_identity` returns early at 4317-4318, before the PAUSED capability gate. The live config does set the producer, so this isn't reachable in deployment. Construction and recovery should still require the producer rather than silently use the generic crop path.
+7. **Classifier.**
+   - It hardcodes `CRS1`, 1/1/128/128 and the 128×128 / 2×2 geometry instead of importing them from `protocol.py`.
+   - Known gaps worth recording as accepted residual risk:
+     - a uniformly blended or tinted grid classifies as absent;
+     - so does an occlusion that leaves only zero padding, because the remaining bytes are all one value.
+   - Downstream boot and phase sequencing is what actually guards against these. Document that rather than describe the classifier as proof of absence.
+8. **Journal write mid-pause.** The revocation callback writes the journal while pause is half-applied: the generation is already bumped but the state is still the pre-pause state (`controller.py:1297`, no admission check or rollback). The impact is low because a restart invalidates calibration anyway.
+9. **Durable-failure test.** It replaces `controller._save` rather than making `journal.write` fail (regressions 4586-4596), so the `_history` rollback in `commit_native_construction_recovery` is never exercised.
+10. **Checkpoint after success.** `clear_native_construction_checkpoint` has no production caller, so after a successful run the checkpoint stays "prepared" and the next prepare is refused until a PAUSED recovery cycle completes. The composition test at 5593 asserts this behaviour. Confirm it is intended and record it in HANDOFF §6.
+
+These are not new defects: helper integration, native100, genuine human input and the 15-minute autonomous cycles are later qualification gates. I haven't counted the parent's three-suite run as a pass; it was still running when I reviewed.
+
+STATUS: NEEDS WORK
+CLAUDE_EXIT:0

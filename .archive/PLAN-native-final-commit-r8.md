@@ -52,3 +52,53 @@ diff, exact six/base hashes/import origins/private full logs. Extra MAIN writes
 only executor-review/native-final-commit-r8-{closure.md,freeze.json}. DONE only
 complete bounded corrections/proof; parent tests + Sol and actual Opus rereview
 still required. No source promotion/live/native100/qualification claim.
+
+## Final Opus arbitration (root, 23:12 UTC)
+
+Actual R7 Opus review completed exit0, resolved claude-opus-5-5, NEEDS WORK.
+Read the full report native-absence-fragments-r7-opus-review.txt. Root accepts:
+
+- Must1 duplicates Sol finalization/cancel fix; include expiry and recheck revocation,
+  not only explicit cancel. Keep cancellation of measure owners supported; do not
+  restrict it away to avoid the race. Preserve exact epoch/checkpoint semantics.
+- Should2 three-lock liveness cycle is real: compute status_dict BEFORE taking
+  calibration-state lock in worker completion; assign only inside that lock.
+  Add a genuine barrier regression at worker completion/prepare/pause ordering.
+- Should3 native_calibrated TypeError retry and guessed resume sequence/time are
+  reachable unsafe/test-only fallbacks: remove them. Require admitted INPUT state
+  and real finite sequence/capture facts for deferred resume BEFORE publishing
+  resume_ready; never fabricate boundary+1/time. NativeRenderObservation already
+  exposes these fields; no calibration.py changes needed. Scope exception: ONLY
+  test_default_native_meter_binds_real_child_and_closes_on_retry in
+  tests/test_session_runtime.py may be updated to accept the actual generation/state
+  keywords and faithfully return the required INPUT_CALIBRATION status. This is
+  the seventh allowed file, narrow test-double correction only; no other runtime
+  tests/refactor. Run that test along with the original full three native suites.
+- Should4 predecessor coverage must use valid publicly created reservation/ticket
+  IDs and reach named guards. Fake Owner raising its own expected string and
+  invented "cancelled"/"completed" IDs only prove error routing, not lifecycle
+  guards. Cover real bootstrap replay/stale echo/predecessor, finalize ordering,
+  recovery overlap and deferred callback order. Keep the routing matrix as
+  supplemental proof; do not claim it is all real predecessor coverage.
+- Nit9 durable failure test must fail journal.write at the actual commit boundary,
+  not bypass _save. Prove history rollback and original owner normal error handling
+  then a fresh driver/owner. Source correction only if this reveals a real bug.
+- Nit6 duplicates accepted Sol PAUSED no-producer refusal.
+
+Root defers Should3's optional interaction-owner hooks: production SessionDaemon
+implements them; changing standalone/test owner compatibility would be unrelated
+public interaction work. No demonstrated production path has an incomplete owner.
+Do not expand CLI/interaction fixtures for that point. Nit5 is a redundant check
+after assigning independently measured HWM, not demonstrated false evidence;
+no unrelated cleanup. Nit7 constants/refinements and tinted/zero-padding image
+limitations are documented residuals, not another classifier rewrite. The image
+predicate is heuristic, and controls/identity/new-boot/phase proofs remain separate.
+Nit8 mid-pause crash nuance is deferred because restart invalidates calibration;
+do not rewrite general pause/journal behavior. Nit10: confirm/report existing
+post-success prepared checkpoint and ordinary-recovery cleanup contract without
+changing it by assumption; current tests deliberately retain that checkpoint.
+
+This is final arbitration; after these bounded corrections and focused evidence,
+run full native three suites plus the one named runtime test ONCE finalsource.
+Record seven final/base hashes/fence (six original files plus that narrow fixture).
+Do not touch helper/Guardian/driver/journal modules or other runtime tests.

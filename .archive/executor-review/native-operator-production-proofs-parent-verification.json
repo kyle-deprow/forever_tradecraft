@@ -1,0 +1,109 @@
+{
+  "kind": "parent-helper-production-proofs-verification",
+  "source_hashes": {
+    "tools/native_calibration_operator.py": "715138e50b600c08aac4c348831ce550328051e90a50703f1256d3f304f9e03e",
+    "tests/test_native_calibration_operator.py": "ea4f561fa528afb6cf8b6d5052a3a11ed6bbf3faf4cf93fc5a1574dbabb08dcb"
+  },
+  "read_only_development_dependencies": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "e36b11f88f2385d4221cb870afe357c0a0980d7681cc6f09e20a1936b460490d",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "b41d10014bac75b1f36c47c3ad5f5718bfe71a7648fbb82658bef89b6b7208e7",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "private_xdg_mode": "0o700",
+  "checks": [
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "check",
+        "tools/native_calibration_operator.py",
+        "tests/test_native_calibration_operator.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.016,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "summary": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "format",
+        "--check",
+        "tools/native_calibration_operator.py",
+        "tests/test_native_calibration_operator.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.016,
+      "log_sha256": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938",
+      "summary": [
+        "2 files already formatted"
+      ]
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.032,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "summary": []
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "tests/test_native_calibration_operator.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 44.097,
+      "log_sha256": "31cbf90dad7774af65c23c1ae09afe347e2c40c971c0cfb8b60597fd2ebe648f",
+      "summary": [
+        "58 passed, 2 warnings in 43.68s"
+      ]
+    }
+  ],
+  "qualification": "Offline helper verification only; full measure success and owned production-screen composition remain unproved; source reviews and live qualification pending.",
+  "actual_typing": {
+    "kind": "parent-isolated-real-typing-check",
+    "status": "passed",
+    "command": "/crowley agent finalize",
+    "characters": 23,
+    "total_elapsed_seconds": 3.272824,
+    "action_timeout_seconds": 3.99,
+    "presses": 23,
+    "releases": 23,
+    "readback": "/crowley agent finalize",
+    "tool_sha256": "2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155",
+    "helper_sha256": "715138e50b600c08aac4c348831ce550328051e90a50703f1256d3f304f9e03e",
+    "isolation": "Fresh Xvfb display chosen by -displayfd; no host game/desktop input",
+    "limits": "Success-path timing and exact key events only; kill-mid-typing, phase-deadline propagation and closed admission actor remain separate requirements.",
+    "phase_deadline_argument": "Explicit deadline_monotonic=time.monotonic()+10.0 in parent fixture"
+  },
+  "actual_owner_death": {
+    "kind": "parent-isolated-real-typing-owner-death",
+    "status": "passed",
+    "helper_owner_pid": 2376158,
+    "helper_exit_code": -9,
+    "watchdog_pid": 2376161,
+    "watchdog_no_longer_live": true,
+    "actual_held_key_before_kill": true,
+    "actual_all_keys_released": true,
+    "no_late_keypress_window_seconds": 0.2,
+    "cleanup_elapsed_seconds": 0.562473,
+    "tool_sha256": "2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155",
+    "helper_sha256": "715138e50b600c08aac4c348831ce550328051e90a50703f1256d3f304f9e03e",
+    "isolation": "Fresh Xvfb display and XQueryKeymap on its explicit connection; no host desktop input",
+    "limits": "Actual success timing and abrupt owner death are verified separately; phase-deadline propagation, handled signals and admission actor are separate requirements.",
+    "phase_deadline_argument": "Explicit deadline_monotonic=time.monotonic()+10.0 in parent fixture"
+  },
+  "coverage_limits": "Actual operator preflight/recover tests use FakeScreen/FakeInput/raw observations; measurement test permits error; standalone compiled-native fixture does not prove composed helper success. Full measurement success/production-screen owned gate integration remain unproved."
+}

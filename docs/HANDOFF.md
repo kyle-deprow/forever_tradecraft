@@ -29,7 +29,48 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct 18, 23:03 UTC:** parent R7 full330passes345.13s, session57825CLOSED0,
+**Current Oct 18, 23:20 UTC:** collection remains operator-assisted; no native100,
+human-input qualification or autonomous-repeat acceptance. Canonical daemon remains
+PAUSED/gen23 with no candidate promoted. Main last pushed `78764e1`.
+
+Scan62 parent independently verified: UID `beta-normal-alliance-1792364753-Arthur-8911`,
+428 observations / 2640 rows / 404 full / 23 bounded / one incomplete (item12692,
+query_timeout; unknown market, not zero supply). Start interval900s; server receipt
+20.782144s after finish; production PNG decoder confirms exact loaded ACK/pending0.
+Read-only database aggregate:70 sweeps,29960 observations,167498 captured rows,
+latest receipt23:14:45.782144. AH reopen encountered a GNOME login-keyring modal,
+which dims the HUD and causes strict non-black/white rejection. The receipt records
+open_chat and typed targetexact text BEFORE the failure; Return was not dispatched.
+Do not repeat the worker's inaccurate "no input" claim. Sole GUI Luna is diagnosing
+and may cancel the verified keyring dialog, then require fresh exact buffer/HUD
+proof before Return/reopen. No passwords/security changes. Next start due23:20:53;
+actual start may be delayed. Root only views retained screenshots, no game input.
+
+Native R7 actual Opus completed exit0/claude-opus-5-5, NEEDS WORK; session2839 closed.
+Final arbitration is appended to PLAN-native-final-commit-r8.md. Luna R8 now owns
+seven files: original six plus ONLY the named runtime-meter fixture correction.
+Accepted finalization/cancel/expiry serialization, controller-first capture gate,
+three-lock liveness fix, removal of guessed resume/admission fallbacks, and genuine
+predecessor/journal-write regressions. All details and deferred findings are in
+the plan. No remaining hold for Opus arbitration; run final suites once after fixes.
+
+Helper production-proofs tree is frozen: helper715138e5/testea4f561f; parent58pass
+43.68s and scoped statics pass. Real pinned typing on fresh Xvfb:23 exact presses/
+releases,3.272824s within3.99s; actual helper SIGKILL during a held key yields release,
+no late press and actor exit in0.562473s. These are isolated tests, not live gates.
+Full measurement-success/production-screen composition remains unproved; direct
+client error tests and separate compiled-capture tests do not close that gap.
+Sol full helper review active; actual Opus active session22003/PID2369186,
+resolved claude-opus-5-5 (poll <=30s). Sol has preliminarily identified a remaining
+known-ID bootstrap reply-loss cleanup-horizon defect; await final reports before
+bounded fix arbitration. No other root exec session is running.
+
+Hourly snapshot `beta-20261018T231325Z-166c0ce4fbc3` independently validates,
+manifest SHA8cb835d02d5c50b1973d2cbb2de42d59c69de0661b6a5c53b85837e7413cf1b5;
+contains scan61 (created before62 ingestion). Next hourly backup due00:13UTC.
+Continue coordination through real user calibration or repeating-system completion.
+
+**Prior Oct 18, 23:03 UTC:** parent R7 full330passes345.13s, session57825CLOSED0,
 full logSHA bd9b8f95ee6eb11a22c80262119fd4e0d8bf3a19033d05504ede8048f68b2c3b.
 Parent verification JSON retained. Sol fullsource review complete NEEDS WORK,
 two Musts parent independently accepted: finalize wait/commit not exact-owner
