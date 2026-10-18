@@ -29,7 +29,39 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at20:13UTC:** ordinary scans49/50 are parent-verified, including
+**Current Oct18 at20:49UTC:** parentverified scans51/52 (2681/2727rows,
+402full26bounded /403full25bounded, all428ok,900s intervals, exact server digests
+and independently decoded retained-PNG ACKs). After52, another player's health
+bar physically occluded the auctioneer overhead label. Two reopen attempts
+refused before click. Strict green-only OCR passed retained positives/player-only
+negative but cannot restore occluded pixels. AH remains closed;53's20:45:52 due
+is now delayed. Sole GUI Luna is authorized to use fixed /targetexact Auctioneer
+Buckler with exact fresh chat proof, then independent exact target-frame+tooltip
+proof for a guarded stationary reopen. No movement/guessed keybindings or fuzzy
+identity relaxation. Record the real gap rather than claiming continuous900s.
+
+Native R4 worker reports309passes before a final focused6-case correction.
+Parent verified its hashes/importorigin but broad run stopped18pass/1fail at the
+paused diagnostic. Actual cause is completion cadence TOO FAST (0.645715499s
+below0.75), despite starts1.000055196s apart and BOTH samples within1s deadlines.
+See R4-parent-test-adjudication.json and private parent-r4 logs. No proven host
+load/production timeout/Rust trigger follows. Native R5 is in progress: private
+bounded stateHistory for transient states, real configured adapter/thread barrier
+coverage, recovery owner races/polling and fixture timing, under same six-file fence.
+R4 stays frozen/unpromoted. ParentR4 session78131 is CLOSED.
+
+Helper preparationR2 (separate WT) parent13tests4.06s+hashpins passed, but Sol
+source review is MAJOR ISSUES: real terminal shapes, geometry, input ownership,
+ownerdeath/cleanup, deadlines, causal history and production-path coverage.
+Actual CLI Opus helper review is still running, session64207/PID1734439,
+resolved claude-opus-5-5. Poll attached exec at most30s; rawJSONL0600 nevercommit.
+Read PLAN-native-construction-helper-composition-closure.md for the shared history
+and fixed existing native_calibrate/status/pause controls. Keep R2 frozen pending
+combined review arbitration; then a concrete comprehensive helper fix. Native
+acceptance remains required for final helper integration and live input.
+Runtime source/service unchanged: PAUSEDgen23PID882745; no native attempt released.
+
+**Prior Oct18 at20:13UTC:** ordinary scans49/50 are parent-verified, including
 original SavedVariables, database digest and independent retained-PNG loadedACK.
 Both start intervals are900s, all428 reasons ok; rows2679/2620, coverage402full /
 26bounded each. AH reopened after50; next natural due20:15:52. Fresh backup

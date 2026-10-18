@@ -1,0 +1,87 @@
+{
+  "schema": 1,
+  "status": "r4_candidate_pending_parent_verification",
+  "baseCommit": "e6e17bb42474b0251365590e61b87c9307b447fe",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-construction-native-r4-20261018",
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "baseCommitSha256": {
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "finalSha256": {
+    "src/crowley/session/controller.py": "f40ee4d3c4c7682a6d361eb90fc4e7cc54245ff4753f81ce8eeaa19af3b21839",
+    "src/crowley/session/daemon.py": "e6a598410d65138e502007b433ab7b2dd23ad8228b3e06fb4c5338b092f71314",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "4ef7b13d19db92fbe959eb58fe49b477b214bc139b88d04b692f5c61a06f7bd9",
+    "tests/test_session_transitions.py": "cdb4384f3408bb5b21a18445a2c5df8a74dcd271c812ba9b39f9eb171dfce331"
+  },
+  "changedFiles": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "checks": {
+    "fullThreeNativeSuites": {
+      "result": "309 passed in 389.71s (0:06:29); exit_code=0",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-construction-native-r4-20261018/full-three-suites.log",
+      "logSha256": "fb1a37cdfbdde52d28c88e28ce57d5e479682c0befe7da7491a5dd327c5b9e9c",
+      "invocation": "PYTHONPATH=$PWD/src XDG_RUNTIME_DIR=<private-0700> /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py",
+      "scopeNote": "This broad run preceded the final focused expiry bookkeeping correction; the final focused run below covers the post-correction delta."
+    },
+    "finalFocused": {
+      "result": "6 passed, 95 deselected in 2.70s; exit_code=0",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-construction-native-r4-20261018/focused-final.log",
+      "logSha256": "45010fb8bb77aa430dbf5c44f83a59143f78c1672617b1b8f251227a3bd5b631",
+      "invocation": "PYTHONPATH=$PWD/src XDG_RUNTIME_DIR=<private-0700> /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k 'native_capture_decoder_rejects_damaged_encoded_png_as_absence or native_post_reset_absence_keeps_capture_start_time_after_processing or native_absence_classifier or native_construction_expiry_flushes_before_direct_bootstrap_admission or native_construction_callbacks_admit_finalize_and_expiry_fail_closed or native_construction_operation_bound_expires_at_finite_boundary'"
+    },
+    "scopedStatic": {
+      "result": "ruff check passed; ruff format --check 6 files already formatted; compileall passed; git diff --check passed",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-construction-native-r4-20261018/static-final.log",
+      "logSha256": "7932683b324dca12eb27a5028084f8c9a50c309e0ca08acec36371b44dbaabd6"
+    }
+  },
+  "authenticCodex": {
+    "path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "version": "0.162.1"
+  },
+  "privateEvidence": {
+    "directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-construction-native-r4-20261018",
+    "directoryMode": "0700",
+    "logModes": "0600",
+    "runtimeDirectories": [
+      "runtime.qJ2hr3",
+      "runtime-final-targeted-20261018",
+      "runtime-focused-final-20261018"
+    ],
+    "runtimeMode": "0700"
+  },
+  "operationEnvelope": {
+    "formula": "10 + (103 * 30) + 30",
+    "seconds": 3130.0,
+    "providerInvocations": 103,
+    "entrySeconds": 10.0,
+    "perInvocationSeconds": 30.0,
+    "finalizeSeconds": 30.0,
+    "constructorReserveSeconds": 7.0,
+    "constructorReserveAccounting": "inside construct provider deadline"
+  },
+  "incompleteItems": [
+    "Parent independent verification, full source review, Sol review, and actual Opus review remain pending; no live or promotion claim is made."
+  ],
+  "parentVerification": "Root owns independent verification and acceptance; no deployment, live capture, or promotion was performed."
+}

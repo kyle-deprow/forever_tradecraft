@@ -1,0 +1,15 @@
+{
+  "kind": "parent-native-r4-test-adjudication",
+  "source_hashes_verified": true,
+  "test_collection_origin": "actual frozen R4 source",
+  "full_suite": "18 passed / 1 failed; stopped at maxfail1",
+  "failed_test": "test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples",
+  "actual_error": "sample completion cadence is outside 0.75..1.25 seconds",
+  "start_interval_seconds": 1.000055196,
+  "completion_interval_seconds": 0.645715499,
+  "both_samples_met_one_second_deadline": true,
+  "first_ack_latency_seconds": 0.604144885,
+  "second_ack_latency_seconds": 0.236181847,
+  "private_receipt_sha256": "6d9384f7630cb4852e59d0ae6dad264207f1e6e5b7ab9c5c2ec600229f8f6852",
+  "disposition": "Not full green. Preserve runtime limits; repair test fixture scheduling/payload accounting. No proof of host load or production timeout follows."
+}

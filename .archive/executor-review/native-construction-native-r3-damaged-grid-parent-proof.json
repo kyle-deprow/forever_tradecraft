@@ -1,0 +1,8 @@
+{
+  "candidate": "frozen native R3",
+  "case": "one pixel corrupted in genuine retained encoded Agent image",
+  "decoder_error": "invalid pixel crop: status cell pixel is neither black nor white",
+  "classified_as_absent": true,
+  "damaged_png_sha256": "3a4702aa0a83e1c1a3b1885334985ba963de2bdce66abbe4601b8832f21a9379",
+  "classification": "reproduced required guard defect; no live capture/input"
+}
