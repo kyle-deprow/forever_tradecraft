@@ -1,0 +1,110 @@
+{
+  "kind": "parent-native-r8-incremental-verification",
+  "base_commit": "7ac5c853928bd7fb8dc29492a2059007457a807c",
+  "source_hashes": {
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "b727b4df2516691c7071156788649af7fae9f3c8bf8db4be1426593af757fceb",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "329900e05141f0ea9622d3c128d2392eeb2a2bb6d602e13e9044dc8a0f56acd9",
+    "tests/test_session_native_regressions.py": "093b97e15d81c407d40564815ee3eb867003bbd43146acb85a0ed7a1fdd4bba5",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f"
+  },
+  "fence_worker_log_hashes_private_permissions": "verified",
+  "runtime_fixture_fence": "AST verified only named meter fixture and replace import differ",
+  "private_xdg_mode": "0o700",
+  "checks": [
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "check",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "src/crowley/session/cli.py",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_transitions.py",
+        "tests/test_session_runtime.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.034,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "summary": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "format",
+        "--check",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "src/crowley/session/cli.py",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_transitions.py",
+        "tests/test_session_runtime.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.032,
+      "log_sha256": "0321fffcb91606a42c0a19d8c1121d5c544379d663821fce616c71a7bb62f6b5",
+      "summary": [
+        "7 files already formatted"
+      ]
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.033,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "summary": []
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-c",
+        "import crowley.session.daemon as d; import crowley.session.controller as c; print(d.__file__); print(c.__file__)"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.367,
+      "log_sha256": "0b79ea5f202a7ea188a6184c864a96e9497e6fc3e35b1f731f9978abd23f7d56",
+      "summary": [
+        "/home/dev/.cache/crowley/worktrees/native-final-commit-r8-20261018/src/crowley/session/daemon.py",
+        "/home/dev/.cache/crowley/worktrees/native-final-commit-r8-20261018/src/crowley/session/controller.py"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_transitions.py",
+        "tests/test_session_runtime.py",
+        "-k",
+        "native_construction_composes_real_png_runner_and_finalize or public_paused or native_construction_public_predecessors_reach_live_owner_guards or native_poll_validation_releases_construction_lock_before_pause_callback or deferred_start_seals_owner_before_pause_and_never_falls_back_to_legacy or compiled_region_composes_through_default_daemon_and_stock_model or default_native_meter_binds_real_child_and_closes_on_retry"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 58.837,
+      "log_sha256": "619c541bc5fda26198f603df5fd66b4a213d9886672a88ba4d0f2d586ff28482",
+      "summary": [
+        "..........                                                               [100%]",
+        "10 passed, 339 deselected in 58.53s"
+      ]
+    }
+  ],
+  "limits": "Original R8 frozen source checked. Three omitted proof regressions are being added in separate test-only tree; source reviews and live qualification pending. This targeted run does not repeat all334 tests.",
+  "missing_assigned_regressions": [
+    "three-way worker/prepare/pause lock barrier",
+    "deadline expiration while blocked on final transaction lock",
+    "malformed resume facts rejected before publication"
+  ]
+}

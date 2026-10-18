@@ -1,0 +1,101 @@
+Resolved model: claude-opus-5-5
+Model ID: **claude-opus-5-5**
+
+# Helper review: `native_calibration_operator` pair
+
+**Scope.** I reviewed only the two untracked helper files in worktree `native-operator-production-proofs-20261018` (base 5829bc1):
+- `tools/native_calibration_operator.py` (sha `715138e5…`)
+- `tests/test_native_calibration_operator.py` (sha `ea4f561f…`)
+
+Both hashes and HEAD match. I read the six R7 tracked files only to see the interfaces the helper calls. I ran nothing and edited nothing; the only file written is the plan file.
+
+**Bottom line.** The measure-deferred mode cannot succeed against the real daemon. Its post-construct waits always time out, and its success check rejects the state the daemon reaches after finalizing. The terminal-error recovery path also cannot be reached or completed. All three are in helper code, and the tests' `FakeClient` returns daemon states the real daemon never produces, which hid them.
+
+## Must-Fix
+
+**M1. measure-deferred can never return success** (`tools/native_calibration_operator.py:3295-3299`, called at `:3510`)
+- **Cause:** `_await_calibration_terminal` only accepts controller state `NATIVE_CALIBRATION` or `PAUSED`.
+  - `controller.native_calibrated` switches the state to `INPUT_CALIBRATION` (controller.py:1772).
+  - The daemon requires `INPUT_CALIBRATION` before it publishes `finalized` (daemon.py:7240, 7248).
+- **Effect:** every status poll after a real `finalized` raises "status generation/state changed". The receipt and exit code report failure after a calibration that actually succeeded.
+- **Why tests pass:** `FakeClient.calibration_status` returns `NATIVE_CALIBRATION` together with `complete` (tests:245-260), which the real daemon never does.
+- **Fix:** once `finalized` has been adopted, accept `complete` only with `INPUT_CALIBRATION` for the same generation. Accept `error` only before finalization.
+- **Proof needed:** drive real `calibration_status` shapes through `run()`.
+
+**M2. Post-construct waits use a stale 30 s deadline** (`:2754-2763`, `:2733-2734`)
+- **Cause:** `_deadline_for_state` caps the waits for `hold_required` through `resume_ready` with `providerDeadline`.
+  - The daemon sets that field once, for the construct frame only (provider entry + 30 s, daemon.py:3567).
+  - It never refreshes it for the held, update or resume stages, and the helper never removes it.
+- **Effect:** the 99 update frames plus three chat sequences take far longer than 30 s. `_await_state("measure_ready"/"resume_required")` therefore fails with "did not appear before its deadline", even when the state is already in the history.
+- **Why tests pass:** `FakeClient` sets `providerDeadline=1e12` on every state (tests:172-178).
+- **Fix:** apply the provider bound only to `hold_required`, then drop it. Later states use the reservation/operation bound, and the daemon still enforces its own 30 s per-frame limit.
+- **Proof needed:** use the real handshake shape, where the construct-stage value is kept, with a measure phase that runs past 30 s.
+
+**M3. Terminal-error → newer PAUSED → empty-ID recovery cannot happen**
+- **(a) The error is never recognised.** The flag `_calibration_terminal_error` is set only at `:3311`, inside the final calibration-status poll.
+  - Real mid-run failures clear the reservation. Rechecks then return terminal records whose state is `error`, `restoration_required` or `recovery_required` (daemon.py:1491, 3038/3049, 7291).
+  - Those states are outside `HANDSHAKE_STATES`/`RESERVATION_STATES`, and the actor refuses `error` outright (`:1785`).
+  - So the recheck fails first, `_pause_after_terminal_error` returns False, and the helper sends a cancel for an ID the daemon has already closed. No recovery runs.
+- **(b) The fresh recovery binding is refused.** `Controller.pause()` calls `guardian.revoke`, which increments `guardianGeneration`.
+  - Both the actor (`:1807-1819`) and `_adopt_handoff` (`:2778-2790`) require that field to be unchanged across the generation change.
+  - The daemon's recovery ticket is therefore refused after it has been created. The actor still holds the old generation and ID, so its cancel-on-exit is rejected as stale, and the ticket lingers until its ≤600 s expiry.
+- **(c)** `_recover("")` takes its deadline from the closed measure reservation (`:3404`). If the original failure was a deadline expiry, that deadline has already passed and the call refuses.
+- **Fix:**
+  - Accept those exact-ID terminal records for the same generation as a canonical terminal failure in both helper and actor.
+  - Wait, within a bound, for the calibration operation to stop before pausing.
+  - Across the pause, allow `guardianGeneration` to strictly increase; keep owner, profile, identity, B0, boot and lease sealed.
+  - Give the fresh admission its own `now + timeout` deadline.
+- **Proof needed:** `test_actual_measurement_error_pauses_and_recovers_with_empty_id` calls `DaemonClient` directly, not the operator. Drive `NativeCalibrationOperator` (with the actor) through the existing `_ensure_native_memory_meter` failure injection.
+
+M2 and M3(a) depend on reply shapes from the unaccepted R7 daemon; recheck them against the R8 bytes. M1 and M3(b) rest on controller behaviour that already exists at base.
+
+## Should-Fix
+
+- **S1. Actor replies are not matched to requests** (`:2257-2261`, `:2287-2302`).
+  - After a lost reply, or a SIGTERM that interrupts `call()` mid-recheck (the common signal path), the late reply stays in the pipe.
+  - The cleanup `cancel` then reads that old reply as its own. The receipt records `reservation_cancel_failed` and the actor is retained, even though the daemon did cancel.
+  - Fix: add a per-call nonce on the private pipe, or treat the channel as unusable after any incomplete call and record that cleanup relies on the actor's cancel-on-exit.
+- **S2. A refusal before any key or button press still sends physical input** (`:1406-1419`, also `:1327`, `:1360`).
+  - When `before_press` refuses (stale evidence, identity drift, pointer moved, recheck refused), `release_now()` makes the watchdog send `mouseup 1`, or keyups for typed text, although GO was never written.
+  - During a human takeover this could release the person's held button.
+  - Fix: if GO was never written, clear the published ownership with `watchdog.clear()` and abort the emitter; call `release_now()` only once a press may have happened.
+  - Proof: the recorder log stays empty after a `before_press` refusal.
+- **S3. The finalize chat ignores the finalize phase deadline** (`:3043`, `:3507`).
+  - `_chat` uses `_deadline()`, so `/crowley agent finalize`, including the final Return, can be sent after the daemon's ≤10 s finalize window has closed.
+  - Emitter spawn time isn't budgeted, and `press()` (`:1211-1219`) shortens the action timeout instead of refusing.
+  - Fix: pass the applicable phase into `_chat`, and re-check that the action fits immediately before writing GO.
+- **S4. Receipts and cleanup audit.**
+  - `_event` (`:2539-2544`) swallows a `ReceiptError` during the main run, so physical input continues without a durable receipt.
+  - A failure in `input.close()` (`:3565-3572`) and the `release_now()` failures FixedInput swallows produce no receipt event, so an unconfirmed release isn't recorded.
+  - Fix: re-raise before cleanup starts, and add `mandatory_cleanup_failed` events that name the stage.
+- **S5. Critical test gaps.**
+  - (a) No operator-level measure-deferred or terminal-error run uses the real daemon, which is why M1–M3 were missed.
+  - (b) The production `wait_reload_boundary(proof="ordinary")` path is untested; only the absence case is covered (tests:903-933).
+  - (c) The bootstrap-loss test never reaches the old prepare expiry: the default reload deadline is 45 s and the reply is delayed only 0.6 s. The 5 s cleanup grace at `:1938-1939` is never exercised.
+  - (d) Budget refusal is tested only at `_action_timeout` (tests:889-901). Nothing shows that `_chat` or `_click` refuse with no GO and no recorder output.
+  - (e) The `main()` lifetime tests use a client stub without `_request_fn`/`_timeout`, so they bypass the actor, and they write receipts into the real `~/.local/state/crowley`.
+  - (f) Template-matching time in pure Python with production-size templates is unmeasured against the 5 s freshness and release+10 s click windows; the tests use 4×4 templates.
+
+## Nits
+
+- `:2727-2730` has two identical branches.
+- The comment at `:3324-3328` says the actor consumes a late reply; it does not.
+- `_cleanup_started` is set only after the terminal receipt event (`:3521-3528`). A second process-group signal arriving during that write escapes the except block and skips the synchronous cancel (cancel-on-exit still covers it). Repeated signals are not recorded in the receipt.
+- `Watchdog` accepts `owner_start=None` (`:1458-1460`), unlike `CancellationActor`.
+- The actor keeps inherited fds, including multiprocessing's resource-tracker fd. The tracker holds the helper's stderr, so a caller's stderr pipe stays open until the retained actor's cancel-on-exit finishes. Fix by closing non-protocol fds the way `_watchdog_entry` does.
+- Whether admissions go through the actor is decided by duck-typing (`:2516-2518`). That is a second path chosen by attribute presence; an explicit type check would be clearer.
+- The 50 ms poll means each wait cycle costs an actor round trip plus a daemon `resolve_identity`, and the daemon revokes the reservation on a transient identity failure.
+- `OwnedEmitter.start` raises without `abort()` at `:1208-1209`, and `_new_emitter` has a redundant branch (`:1301-1305`).
+
+## Checked and sound
+
+- Closed 8-command IPC vocabulary and canonical 14-field binding.
+- Actor stores the binding and ACKs it before any dependent input, for prepare, the 3130 s bootstrap extension and the same-generation preflight→recovery handoff.
+- Actor disarms only on an exact canonical terminal state; cancel-on-exit otherwise.
+- `setsid` and stdio detach for watchdog and actor; `_discard_spawn_child`.
+- Staged rollback in the watchdog, actor, emitter and `X11Screen`.
+- Exact published keysyms, and emitter safety release after the phase deadline.
+- Backend and decoder calls match the real APIs; `ProtocolError` is a `ValueError`, so it is caught.
+
+STATUS: MAJOR ISSUES
+CLAUDE_EXIT:0

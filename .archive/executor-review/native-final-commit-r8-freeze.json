@@ -1,0 +1,64 @@
+{
+  "stage": "native-final-commit-r8",
+  "status": "bounded-source-proof-complete-review-pending",
+  "candidate_base_commit": "7ac5c853928bd7fb8dc29492a2059007457a807c",
+  "source_fence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py",
+    "tests/test_session_runtime.py (named meter test only)"
+  ],
+  "base_sha256": {
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804",
+    "tests/test_session_runtime.py": "9d634f603968e85c253dfc4116102deedb09fc18e2ed6b5542c3c1b0d2d64868"
+  },
+  "final_sha256": {
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "b727b4df2516691c7071156788649af7fae9f3c8bf8db4be1426593af757fceb",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "329900e05141f0ea9622d3c128d2392eeb2a2bb6d602e13e9044dc8a0f56acd9",
+    "tests/test_session_native_regressions.py": "093b97e15d81c407d40564815ee3eb867003bbd43146acb85a0ed7a1fdd4bba5",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f"
+  },
+  "authentic_cli": {
+    "path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "version": "codex-cli 0.162.1",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1"
+  },
+  "private_evidence": {
+    "directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-final-commit-r8-final-20261018",
+    "directory_mode": "0700",
+    "full_native_three_suites": {
+      "result": "334 passed in 443.09s",
+      "log": "full-native-three-suites-final.log",
+      "sha256": "729f127604cd9fbc13b9c20d53aa2f5a2f8cdc126b9e67ea582a8cfe287df35f",
+      "invocation": "pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py"
+    },
+    "named_runtime_meter": {
+      "result": "1 passed, 14 deselected in 0.58s",
+      "log": "named-runtime-meter-final.log",
+      "sha256": "17e27749bdbc49b9a6cebd270f230b266ebaad4868cb8493074b89f85c7b3548",
+      "invocation": "pytest -q tests/test_session_runtime.py -k default_native_meter_binds_real_child_and_closes_on_retry"
+    },
+    "scoped_statics": {
+      "result": "ruff, format, py_compile, git diff --check passed",
+      "log": "final-statics.log",
+      "sha256": "9a53adb6e001e329dda013bc4e725b45247e5c7257b85e8c1ee2dfc4e5e9c5a6"
+    }
+  },
+  "review": {
+    "parent_reverification": "required",
+    "sol_rereview": "required",
+    "actual_opus_rereview": "required",
+    "live_or_native100_claim": false
+  }
+}

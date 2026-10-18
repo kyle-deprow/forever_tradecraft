@@ -1,0 +1,29 @@
+{
+  "kind": "parent-template-representative-geometry-benchmark",
+  "helper_sha256": "715138e50b600c08aac4c348831ce550328051e90a50703f1256d3f304f9e03e",
+  "image_dimensions": [
+    1920,
+    1080
+  ],
+  "region_dimensions": [
+    220,
+    84
+  ],
+  "template_dimensions": [
+    100,
+    28
+  ],
+  "checks": [
+    {
+      "operation": "one_role_exclusive",
+      "elapsed_seconds": 2.606132,
+      "matched": true
+    },
+    {
+      "operation": "dual_positive",
+      "elapsed_seconds": 5.058175,
+      "matched": true
+    }
+  ],
+  "limits": "Synthetic solid-color templates at source UI-unit geometry, not live controls or proof of physical UI transform. Full pixel loops are exercised; actual live templates and capture/IPC costs remain unmeasured."
+}
