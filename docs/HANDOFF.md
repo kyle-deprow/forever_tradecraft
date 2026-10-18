@@ -29,6 +29,17 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Latest Oct18 at18:27UTC:** Stage B addon source accepted after Sol and actual
+Opus final/rearm READY (claude-opus-5-5, both CLI exit0). Parent244addon/companion
+tests31.55s,4atlas/frame checks1.78s before the two-line rearm delta, final scoped
+statics/hash checks passed. Exact eight-file release-rearm candidate promoted
+under sole GUI quiet. Installed addon points to main via symlink; current load
+still uses old bytes until the next normal reload. No defer/control/measurement
+input released yet. Opus restore-AH test caveat: it models commit ordering; AH
+cannot actually be open at ADDON_LOADED, so no live AH-open claim follows.
+Native offline slice is now released under its prepared implementation plan;
+helper follows accepted native code. Ordinary scan collection continues.
+
 **Current Oct18 at18:20UTC:** recovery restored ordinary operator-assisted collection.
 Sweep41 is parent-verified:428 observations/2738rows,395full33bounded,31.911236s upload.
 Sweep42 is parent-verified:428observations/2710rows,397full30bounded1incomplete

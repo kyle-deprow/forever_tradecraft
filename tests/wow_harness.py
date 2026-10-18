@@ -167,11 +167,17 @@ function chatEdit:HasFocus() return self.focused end
 function chatEdit:GetText() return self.text end
 ChatFrameUtil = { GetActiveWindow = function() return chatEdit.shown and chatEdit or nil end }
 
-function CreateFrame(_, name, parent)
-  local frame = { events = {}, name = name, parent = parent or UIParent }
+function CreateFrame(_, name, parent, template)
+  local frame = { events = {}, name = name, parent = parent or UIParent, template = template }
+  if name then _G[name] = frame end
   function frame:RegisterEvent(e) self.events[e] = true end
   function frame:UnregisterEvent(e) self.events[e] = nil end
-  function frame:SetScript(kind, fn) if kind == "OnEvent" then self.onEvent = fn else self.onUpdate = fn end end
+  function frame:SetScript(kind, fn)
+    if kind == "OnEvent" then self.onEvent = fn
+    elseif kind == "OnUpdate" then self.onUpdate = fn
+    elseif kind == "OnClick" then self.onClick = fn
+    else self[kind] = fn end
+  end
   function frame:SetIgnoreParentScale(value) self.ignoreParentScale = value end
   function frame:GetEffectiveScale()
     if self.ignoreParentScale then return self.scale or 1 end
@@ -188,7 +194,18 @@ function CreateFrame(_, name, parent)
   function frame:Show() self.shown = true end
   function frame:Hide() self.shown = false end
   function frame:IsShown() return self.shown == true end
+  function frame:SetText(value) self.text = value end
+  function frame:GetText() return self.text end
+  function frame:SetEnabled(value) self.enabled = value == true end
+  function frame:IsEnabled() return self.enabled ~= false end
+  function frame:Click()
+    if self.enabled ~= false and self.shown == true and self.onClick then self.onClick(self) end
+  end
   function frame:CreateTexture()
+    harness.textureCreateCount = harness.textureCreateCount + 1
+    if harness.textureFailureAt > 0 and harness.textureCreateCount == harness.textureFailureAt then
+      error("native texture construction failure")
+    end
     local texture = { shown = false, parent = self, color = {0, 0, 0, 1} }
     function texture:SetSnapToPixelGrid(value) self.snap = value end
     function texture:SetTexelSnappingBias(value) self.bias = value end
@@ -573,6 +590,10 @@ function _serialize(name, value)
   table.insert(out, "\n")
   return table.concat(out)
 end
+
+function ReloadUI()
+  harness.reloadCalls = (harness.reloadCalls or 0) + 1
+end
 """
 
 
@@ -684,6 +705,7 @@ class WowClient:
             "TURNLEFT": "Q",
         }
     )
+    initial_savedvars: dict | None = None
 
     def __post_init__(self) -> None:
         if self.presentation_width != 1920 or self.presentation_height != 1080:
@@ -750,6 +772,9 @@ class WowClient:
                 "luaHeapIndex": 0,
                 "gcCalls": 0,
                 "gcMutations": 0,
+                "reloadCalls": 0,
+                "textureCreateCount": 0,
+                "textureFailureAt": 0,
             }
         )
         for action, key in self.bindings.items():
@@ -757,6 +782,8 @@ class WowClient:
         self.lua.execute("return function(...) " + STUBS + " end")(self.state)
         self._install_codec()
         self.ns = self.lua.table()
+        if self.initial_savedvars is not None:
+            self.lua.globals().CrowleyDB = self._to_lua(self.initial_savedvars)
         self._load_addon()
 
     def _install_codec(self) -> None:
@@ -813,6 +840,11 @@ class WowClient:
         for line in (ADDONS / "Crowley" / "Crowley.toc").read_text().splitlines():
             if line.endswith(".lua"):
                 self.run_file(ADDONS / "Crowley" / line)
+
+    def inject_saved_variables(self, value: dict) -> None:
+        """Inject SavedVariables after file execution and before ADDON_LOADED."""
+
+        self.lua.globals().CrowleyDB = self._to_lua(value)
 
     def run_file(self, path: Path) -> None:
         chunk = self.lua.globals().loadstring(path.read_text(), "@" + path.name)
@@ -970,6 +1002,16 @@ class WowClient:
             )
         else:
             raise ValueError(f"unknown readiness API mode: {mode}")
+
+    def set_texture_failure(self, index: int | None) -> None:
+        """Fail the actual CreateTexture callback at a deterministic ordinal."""
+
+        self.state.textureCreateCount = 0
+        self.state.textureFailureAt = int(index or 0)
+
+    @property
+    def visible_native_textures(self) -> list[bool]:
+        return [bool(texture.shown) for texture in self.state.textures.values()]
 
     def set_plan(self, item_ids: list[int]) -> None:
         body = {
@@ -1292,3 +1334,19 @@ class WowClient:
 
     def login(self) -> None:
         self.fire("ADDON_LOADED", "Crowley")
+
+    @property
+    def reload_calls(self) -> int:
+        return int(self.state.reloadCalls or 0)
+
+    def click_native(self, role: str) -> None:
+        names = {
+            "construct": "CrowleyNativeConstructionConstruct",
+            "restore": "CrowleyNativeConstructionRestore",
+        }
+        if role not in names:
+            raise ValueError(f"unknown native construction control {role}")
+        control = self.lua.globals()[names[role]]
+        if control is None:
+            raise AssertionError(f"native construction {role} control is unavailable")
+        control.Click(control)

@@ -5,6 +5,7 @@ import hashlib
 import json
 import math
 import zlib
+from pathlib import Path
 
 import pytest
 
@@ -14,6 +15,8 @@ from crowley.core.watchlist import load_catalog
 from crowley.session.protocol import decode_frame
 
 from .wow_harness import Auction, WowClient
+
+FIXTURES = Path(__file__).parent / "fixtures"
 
 
 def run_sweep(
@@ -56,6 +59,18 @@ def envelope(raw: dict) -> dict:
     }
     result["payload"] = raw["payload"]
     return result
+
+
+def deferred_native_client() -> WowClient:
+    """Reach the real post-reload deferred boundary through the slash command."""
+
+    source = WowClient()
+    source.login()
+    source.slash("agent defer")
+    saved = savedvars.loads(source.saved_variables())["CrowleyDB"]
+    client = WowClient(initial_savedvars=saved)
+    client.login()
+    return client
 
 
 def decoded_payload(client: WowClient) -> dict:
@@ -291,6 +306,811 @@ def test_harness_serializes_empty_lua_tables_as_arrays():
     value = client._to_lua({"empty": {}, "owners": {"Seller": True}})
     wire = json.loads(client.lua.globals().C_EncodingUtil.SerializeJSON(value))
     assert wire == {"empty": [], "owners": {"Seller": True}}
+
+
+def test_addon_decides_saved_marker_after_file_execution_and_unknown_blocks_scanner():
+    client = WowClient()
+    assert client.ns.Agent.Surface() is None
+    fixture = savedvars.load_file(FIXTURES / "native-construction-unknown-savedvars.lua")
+    client.inject_saved_variables(fixture["CrowleyDB"])
+    client.login()
+
+    decision = client._json_table(client.ns.NativeDecision())
+    assert decision["kind"] == "restore_only"
+    assert decision["reason"] == "malformed"
+    assert client.ns.Agent.Lifecycle() == "restore_only"
+    assert client.ns.Agent.Surface() is None
+    assert client.lua.globals().CrowleyDB.nativeConstruction.extra == "must-not-leak"
+    client.set_canonical_plan()
+    assert client.ns.Scanner.Status()["phase"] == "ready"
+    assert client.ns.Scanner.Status()["reason"] == ""
+
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    assert "native construction fence active" in client.chat[-1]
+
+
+def test_native_scalar_marker_is_restore_only_without_raw_value_indexing():
+    client = WowClient(initial_savedvars={"nativeConstruction": True})
+    assert client.ns.Agent.Surface() is None
+    client.login()
+
+    decision = client._json_table(client.ns.NativeDecision())
+    assert decision["kind"] == "restore_only"
+    assert decision["reason"] == "malformed"
+    assert client.ns.Agent.Lifecycle() == "restore_only"
+    assert client.ns.Agent.Surface() is None
+    client.set_canonical_plan()
+    assert client.ns.Scanner.Status()["phase"] == "ready"
+    assert client.ns.Scanner.Status()["reason"] == ""
+    assert client.lua.globals().CrowleyNativeConstructionRestore.IsShown(
+        client.lua.globals().CrowleyNativeConstructionRestore
+    )
+
+    before = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    client.click_native("restore")
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == before
+    assert client.ns.Agent.RecoveryAdmitted() is False
+
+    # Extra arguments are rejected before the command actor can admit recovery.
+    client.slash("agent recover extra")
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == before
+    client.slash("agent recover")
+    assert "agent recover accepted" in client.chat[-1]
+    assert client.ns.Agent.RecoveryMode() is True
+    client.click_native("restore")
+    marker = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    assert marker["state"] == "restore_pending"
+    assert client.reload_calls == 1
+
+
+@pytest.mark.parametrize(
+    "raw_marker",
+    [
+        False,
+        17,
+        "native",
+        [],
+        [1],
+        {"schema": 1, "state": "deferred", "attempts": 0},
+        {"schema": "1", "state": "deferred", "token": "boot", "attempts": 0},
+        {"schema": 1, "state": "unknown", "token": "boot", "attempts": 0},
+        {"schema": 1, "state": 17, "token": "boot", "attempts": 0},
+        {"schema": 1, "state": {"bad": True}, "token": "boot", "attempts": 0},
+        {"schema": 1, "state": "deferred", "token": 17, "attempts": 0},
+        {"schema": 1, "state": "deferred", "token": {"bad": True}, "attempts": 0},
+        {"schema": 1, "state": "deferred", "token": "", "attempts": 0},
+        {"schema": 1, "state": "deferred", "token": "bad token", "attempts": 0},
+        {"schema": 1, "state": "deferred", "token": "bad\nvalue", "attempts": 0},
+        {"schema": 1, "state": "deferred", "token": "x" * 65, "attempts": 0},
+        {"schema": 1, "state": "armed", "token": "boot", "attempts": 2},
+        {"schema": 1, "state": "deferred", "token": "boot", "attempts": 1},
+        {"schema": 1, "state": "deferred", "token": "boot", "attempts": 2},
+        {"schema": 1, "state": "constructing", "token": "boot", "attempts": 0},
+        {"schema": 1, "state": "constructing", "token": "boot", "attempts": 2},
+        {"schema": 1, "state": "armed", "token": "boot", "attempts": 1},
+        {"schema": 1, "state": "constructed", "token": "boot", "attempts": 0},
+        {"schema": 1, "state": "constructed", "token": "boot", "attempts": 2},
+        {"schema": 1, "state": "failed", "token": "boot", "attempts": 0},
+        {"schema": 1, "state": "failed", "token": "boot", "attempts": 2},
+        {"schema": 1, "state": "restore_pending", "token": "recovery:", "attempts": 0},
+        {"schema": 1, "state": "restore_pending", "token": "recovery:" + "a" * 23, "attempts": 0},
+        {"schema": 1, "state": "restore_pending", "token": "recovery:" + "a" * 25, "attempts": 0},
+        {"schema": 1, "state": "restore_pending", "token": "recovery:" + "g" * 24, "attempts": 0},
+        {"schema": 1, "state": "restore_pending", "token": "recovery:" + "a" * 24, "attempts": 1},
+        {"schema": 1, "state": "restore_pending", "token": "recovery:" + "a" * 24, "attempts": 2},
+        {"schema": 1, "state": "deferred", "token": "boot", "attempts": "0"},
+        {"schema": 1, "state": "deferred", "token": "boot", "attempts": 0, "extra": True},
+        {"schema": 1, "state": "restore_pending", "token": "recovery:" + "A" * 24, "attempts": 0},
+    ],
+    ids=[
+        "false",
+        "number",
+        "string",
+        "empty-array",
+        "array",
+        "missing-token",
+        "wrong-schema-type",
+        "unknown-state",
+        "numeric-state",
+        "table-state",
+        "numeric-token",
+        "table-token",
+        "empty-token",
+        "whitespace-token",
+        "control-token",
+        "long-token",
+        "armed-attempt-two",
+        "deferred-attempt-one",
+        "deferred-attempt-two",
+        "constructing-attempt-zero",
+        "constructing-attempt-two",
+        "armed-attempt",
+        "constructed-attempt",
+        "constructed-attempt-two",
+        "failed-attempt-zero",
+        "failed-attempt-two",
+        "recovery-short",
+        "recovery-23-hex",
+        "recovery-long",
+        "recovery-nonhex",
+        "recovery-attempt-one",
+        "recovery-attempt-two",
+        "attempt-type",
+        "extra-field",
+        "recovery-uppercase",
+    ],
+)
+def test_native_malformed_marker_matrix_preserves_raw_value_and_stays_surface_free(raw_marker):
+    client = WowClient(initial_savedvars={"nativeConstruction": raw_marker})
+    client.login()
+    assert client._json_table(client.ns.NativeDecision())["kind"] == "restore_only"
+    assert client.ns.Agent.Lifecycle() == "restore_only"
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == raw_marker
+    client.slash("agent recover")
+    assert "agent recover accepted" in client.chat[-1]
+    client.click_native("restore")
+    canonical = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    assert canonical["state"] == "restore_pending"
+    assert canonical["attempts"] == 0
+    assert canonical["token"].startswith("recovery:") and len(canonical["token"]) == 33
+    assert client.reload_calls == 1
+
+
+def test_native_unknown_preload_entrypoints_refuse_without_side_effects():
+    client = WowClient()
+    before_native = client._json_table(client.ns.Agent.NativeState())
+    for method in (client.ns.Agent.Publish, client.ns.Agent.Snapshot):
+        with pytest.raises(Exception, match="agent_unconstructed"):
+            method()
+    assert client._json_table(client.ns.Agent.NativeState()) == before_native
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.lua.globals().CrowleyDB is None
+
+    # Manual, event, timer, and fence-release entry points all remain inert
+    # until ADDON_LOADED has established the native decision and SavedVariables.
+    client.fire("AUCTION_HOUSE_CLOSED")
+    client.fire("PLAYER_LOGOUT")
+    client.ns.Scanner.Schedule("preload")
+    client.ns.Scanner.SetNativeConstructionFence(False)
+    client.advance_with_timers(1)
+    assert client.ns.Scanner.InProgress() is False
+    assert client.ns.Scanner.PreLogoutFence()[1] == "native_construction_fence"
+    assert client.ns.Agent.Construct() == (False, "construct_not_deferred")
+    assert client.ns.Agent.Hold() == (False, "agent_unconstructed")
+    assert client.ns.Agent.Measure() == (False, "agent_unconstructed")
+    assert client.ns.Agent.Resume() == (False, "agent_unconstructed")
+    assert client.ns.Agent.Restore() == (False, "recovery_not_admitted")
+    assert client.ns.Agent.BeginRecovery() == (False, "recovery_not_required")
+    client.slash("agent recover")
+    assert client.lua.globals().CrowleyDB is None
+
+
+@pytest.mark.parametrize(
+    ("state", "attempts", "token", "expected_lifecycle"),
+    [
+        ("armed", 0, "x" * 64, "deferred"),
+        ("deferred", 0, "x" * 64, "deferred"),
+        ("constructing", 1, "x" * 64, "constructing"),
+        ("constructed", 1, "x" * 64, "restore_only"),
+        ("failed", 1, "x" * 64, "failed"),
+        ("armed", 0, "boot", "deferred"),
+        ("deferred", 0, "boot", "deferred"),
+        ("constructing", 1, "boot", "constructing"),
+        ("constructed", 1, "boot", "restore_only"),
+        ("failed", 1, "boot", "failed"),
+        ("restore_pending", 0, "recovery:" + "a" * 24, "ordinary"),
+    ],
+)
+def test_native_valid_marker_matrix_has_closed_lifecycle_projection(
+    state, attempts, token, expected_lifecycle
+):
+    client = WowClient(
+        initial_savedvars={
+            "nativeConstruction": {"schema": 1, "state": state, "token": token, "attempts": attempts}
+        }
+    )
+    client.login()
+    expected_state = "deferred" if state == "armed" else state
+    assert client._json_table(client.ns.NativeDecision())["kind"] == expected_state
+    assert client.ns.Agent.Lifecycle() == expected_lifecycle
+    if state == "restore_pending":
+        assert client.lua.globals().CrowleyDB.nativeConstruction is None
+        assert client.ns.Agent.Surface() is not None
+    else:
+        assert client.ns.Agent.Surface() is None
+
+
+def test_native_construction_marker_matrix_defers_then_constructs_once():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    armed = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    assert armed["state"] == "armed" and armed["attempts"] == 0
+    assert client.lua.globals().CrowleyNativeConstructionPanel.IsShown(
+        client.lua.globals().CrowleyNativeConstructionPanel
+    )
+
+    # The pre-reload callback is real and inert: it cannot construct early.
+    client.click_native("construct")
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "armed"
+    assert client.ns.Agent.Surface() is not None
+
+    saved = savedvars.loads(client.saved_variables())["CrowleyDB"]
+    deferred = WowClient(initial_savedvars=saved)
+    assert deferred.ns.Agent.Surface() is None
+    deferred.login()
+    assert deferred._json_table(deferred.ns.NativeDecision())["kind"] == "deferred"
+    assert deferred.ns.Agent.Surface() is None
+    deferred.slash("agent release")
+    deferred.click_native("construct")
+    assert deferred.ns.Agent.Lifecycle() == "constructed"
+    assert deferred.ns.Agent.Surface() is not None
+    assert deferred.lua.globals().CrowleyDB.nativeConstruction.state == "constructed"
+    before_update = deferred._json_table(deferred.ns.Agent.Snapshot())["sequence"]
+    deferred.update_agent(1)
+    after_update = deferred._json_table(deferred.ns.Agent.Snapshot())["sequence"]
+    assert after_update > before_update
+    textures = deferred.texture_count
+    deferred.click_native("construct")
+    assert deferred.texture_count == textures
+    resumed = WowClient(initial_savedvars=savedvars.loads(deferred.saved_variables())["CrowleyDB"])
+    resumed.login()
+    assert resumed.ns.Agent.Surface() is None
+    assert resumed.ns.Agent.Lifecycle() == "restore_only"
+
+
+def test_native_frames_decode_across_private_fence_and_measurement_lifecycle():
+    source = WowClient()
+    source.login()
+    source.set_canonical_plan()
+    source.slash("agent defer")
+    deferred_frame = decode_frame(source.publish_agent() and source.agent_frame).snapshot.value
+    assert deferred_frame["scanner"]["phase"] == "ready"
+    assert deferred_frame["scanner"]["scheduleFence"] == {
+        "state": "armed",
+        "reason": "",
+        "command": "/crowley session fence",
+    }
+    assert deferred_frame["pending"] == {"ids": [], "count": 0, "cap": 6, "blocked": False, "reason": ""}
+
+    client = WowClient(initial_savedvars=savedvars.loads(source.saved_variables())["CrowleyDB"])
+    client.login()
+    client.set_canonical_plan()
+    client.slash("agent release")
+    client.click_native("construct")
+    constructed_frame = decode_frame(client.agent_frame).snapshot.value
+    native_boot = constructed_frame["boot"]
+    assert native_boot.startswith("native-construction:")
+    assert constructed_frame["scanner"]["scheduleFence"]["state"] == "armed"
+    assert constructed_frame["render"]["nativePhase"] == "normal"
+    assert constructed_frame["render"]["nativeOrdinal"] == 0
+
+    client.slash("agent hold")
+    assert decode_frame(client.agent_frame).snapshot.value["render"]["nativePhase"] == "held"
+    client.slash("agent measure")
+    client.advance_with_timers(100)
+    assert decode_frame(client.agent_frame).snapshot.value["render"]["nativeOrdinal"] == 100
+    client.slash("agent resume")
+    resumed_frame = decode_frame(client.agent_frame).snapshot.value
+    assert resumed_frame["render"]["nativePhase"] == "normal"
+    assert resumed_frame["render"]["nativeOrdinal"] == 0
+    client.slash("agent finalize")
+    finalized_frame = decode_frame(client.agent_frame).snapshot.value
+    assert finalized_frame["boot"] == native_boot
+    assert finalized_frame["scanner"]["scheduleFence"] == {
+        "state": "inactive",
+        "reason": "",
+        "command": "/crowley session fence",
+    }
+
+    client.slash("agent recover")
+    client.click_native("restore")
+    restored = WowClient(initial_savedvars=savedvars.loads(client.saved_variables())["CrowleyDB"])
+    restored.set_canonical_plan()
+    restored.login()
+    restored_frame = decode_frame(restored.agent_frame).snapshot.value
+    assert restored.lua.globals().CrowleyDB.nativeConstruction is None
+    assert restored.ns.Agent.Lifecycle() == "ordinary"
+    assert restored_frame["boot"] != native_boot
+    assert restored_frame["scanner"]["scheduleFence"]["state"] == "inactive"
+
+
+def test_native_construct_publication_failure_is_transactional_and_recoverable():
+    client = deferred_native_client()
+    client.slash("agent release")
+    client.lua.globals().C_EncodingUtil.SerializeJSON = client.lua.eval(
+        "function() error('publication fixture failure') end"
+    )
+    client.click_native("construct")
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.ns.Agent.Lifecycle() == "failed"
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "failed"
+    assert all(shown is False for shown in client.visible_native_textures)
+    assert client.lua.globals().CrowleyNativeConstructionRestore.IsShown(
+        client.lua.globals().CrowleyNativeConstructionRestore
+    )
+    assert "construct refused: publication_error" in client.chat[-1]
+    assert "agent construct accepted" not in client.chat
+
+
+def test_native_partial_texture_failure_hides_every_owned_texture():
+    client = deferred_native_client()
+    client.slash("agent release")
+    client.set_texture_failure(17)
+    client.click_native("construct")
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.ns.Agent.Lifecycle() == "failed"
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "failed"
+    assert client.visible_native_textures
+    assert all(shown is False for shown in client.visible_native_textures)
+
+
+def test_native_restore_load_publication_failure_keeps_failed_surfaceless():
+    source = WowClient()
+    source.login()
+    source.slash("agent defer")
+    source.slash("agent recover")
+    source.click_native("restore")
+    saved = savedvars.loads(source.saved_variables())["CrowleyDB"]
+    restored = WowClient(initial_savedvars=saved)
+    restored.lua.globals().C_EncodingUtil.SerializeJSON = restored.lua.eval(
+        "function() error('restore publication fixture failure') end"
+    )
+    restored.login()
+    assert restored.ns.Agent.Surface() is None
+    assert restored.ns.Agent.FrameBytes() is None
+    assert restored.ns.Agent.Lifecycle() == "failed"
+    assert restored.lua.globals().CrowleyDB.nativeConstruction.state == "failed"
+    assert restored.lua.globals().CrowleyNativeConstructionRestore.IsShown(
+        restored.lua.globals().CrowleyNativeConstructionRestore
+    )
+    assert restored.lua.globals().CrowleyNativeConstructionRestore.IsEnabled(
+        restored.lua.globals().CrowleyNativeConstructionRestore
+    )
+
+
+def test_native_restore_second_unarmed_publication_failure_preserves_recovery_route():
+    source = WowClient()
+    source.login()
+    source.slash("agent defer")
+    source.slash("agent recover")
+    source.click_native("restore")
+    saved = savedvars.loads(source.saved_variables())["CrowleyDB"]
+
+    restored = WowClient(initial_savedvars=saved)
+    original = restored.lua.globals().C_EncodingUtil.SerializeJSON
+    calls = {"count": 0}
+
+    def fail_second(value):
+        calls["count"] += 1
+        if calls["count"] == 2:
+            raise RuntimeError("second unarmed publication fixture failure")
+        return original(value)
+
+    restored.lua.globals().C_EncodingUtil.SerializeJSON = fail_second
+    restored.login()
+    assert calls["count"] == 2
+    assert restored.ns.Agent.Surface() is None
+    assert restored.ns.Agent.FrameBytes() is None
+    assert restored.ns.Agent.Lifecycle() == "failed"
+    assert restored.ns.Scanner.NativeConstructionFence() is True
+    marker = restored._json_table(restored.lua.globals().CrowleyDB.nativeConstruction)
+    assert marker["state"] == "failed" and marker["attempts"] == 1
+    assert marker["token"].startswith("recovery:") and len(marker["token"]) == 33
+    assert all(shown is False for shown in restored.visible_native_textures)
+    restore_button = restored.lua.globals().CrowleyNativeConstructionRestore
+    assert restore_button.IsShown(restore_button) is True
+    assert restore_button.IsEnabled(restore_button) is True
+
+    # The failed boot remains admitted only through the exact addon-owned
+    # recovery actor and can complete on a fresh ordinary load.
+    restored.slash("agent recover")
+    restored.click_native("restore")
+    recovered = WowClient(initial_savedvars=savedvars.loads(restored.saved_variables())["CrowleyDB"])
+    recovered.login()
+    assert recovered.ns.Agent.Lifecycle() == "ordinary"
+    assert recovered.lua.globals().CrowleyDB.nativeConstruction is None
+    assert recovered.ns.Scanner.NativeConstructionFence() is False
+
+
+def test_native_finalize_publication_failure_rolls_back_marker_and_fence():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    saved = savedvars.loads(client.saved_variables())["CrowleyDB"]
+    client = WowClient(initial_savedvars=saved)
+    client.login()
+    client.slash("agent release")
+    client.click_native("construct")
+    client.set_canonical_plan()
+    client.ns.ahOpen = True
+    client.slash("agent hold")
+    client.slash("agent measure")
+    client.advance_with_timers(100)
+    client.slash("agent resume")
+    assert client.ns.Agent.Lifecycle() == "constructed"
+
+    original = client.lua.globals().C_EncodingUtil.SerializeJSON
+    client.lua.globals().C_EncodingUtil.SerializeJSON = client.lua.eval(
+        "function() error('finalize publication fixture failure') end"
+    )
+    client.slash("agent finalize")
+    assert "agent finalize refused: publication_error" in client.chat[-1]
+    assert "agent finalize accepted" not in client.chat
+    assert client.ns.Agent.Lifecycle() == "constructed"
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    client.lua.globals().C_EncodingUtil.SerializeJSON = original
+    assert not any(
+        event["type"] == "timer_create" and event["source"] == "native_construction_release"
+        for event in schedule_trace(client)["events"]
+    )
+    marker = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    assert marker["state"] == "constructed" and marker["attempts"] == 1
+    restore_button = client.lua.globals().CrowleyNativeConstructionRestore
+    assert restore_button.IsShown(restore_button) is True
+    assert restore_button.IsEnabled(restore_button) is True
+    client.slash("agent recover")
+    client.click_native("restore")
+    recovered = WowClient(initial_savedvars=savedvars.loads(client.saved_variables())["CrowleyDB"])
+    recovered.login()
+    assert recovered.ns.Agent.Lifecycle() == "ordinary"
+    assert recovered.lua.globals().CrowleyDB.nativeConstruction is None
+
+
+def test_native_construction_error_cleans_partial_surface_and_preserves_restore():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    saved = savedvars.loads(client.saved_variables())["CrowleyDB"]
+    deferred = WowClient(initial_savedvars=saved)
+    deferred.login()
+    deferred.slash("agent release")
+    deferred.lua.globals().UIParent.GetWidth = deferred.lua.eval(
+        "function() error('geometry fixture failure') end"
+    )
+    deferred.click_native("construct")
+    assert deferred.ns.Agent.Surface() is None
+    assert deferred.ns.Agent.Lifecycle() == "failed"
+    assert deferred.lua.globals().CrowleyDB.nativeConstruction.state == "failed"
+    assert deferred.lua.globals().CrowleyNativeConstructionRestore.IsShown(
+        deferred.lua.globals().CrowleyNativeConstructionRestore
+    )
+
+
+def test_native_ordinary_surface_failure_reports_reason_and_refuses_defer():
+    client = WowClient(root_width=0)
+    client.login()
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.Lifecycle() == "restore_only"
+    assert any("agent telemetry unavailable" in message for message in client.chat)
+    client.slash("agent defer")
+    assert "ordinary_boot_unavailable" in client.chat[-1]
+
+
+def test_native_initial_ordinary_publication_failure_retries_on_periodic_update():
+    client = WowClient()
+    client.set_canonical_plan()
+    original = client.lua.globals().C_EncodingUtil.SerializeJSON
+    calls = {"count": 0}
+
+    def fail_once(value):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise RuntimeError("ordinary publication transient fixture failure")
+        return original(value)
+
+    client.lua.globals().C_EncodingUtil.SerializeJSON = fail_once
+    client.login()
+    assert calls["count"] == 1
+    assert client.ns.Agent.Surface() is not None
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.ns.Agent.FrameBytes() is None
+    client.update_agent(1)
+    assert calls["count"] == 2
+    assert decode_frame(client.agent_frame).snapshot.value["boot"] == client.ns.Agent.Boot()
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+
+
+def test_native_required_marker_and_reload_apis_fail_closed():
+    marker_missing = WowClient()
+    marker_missing.login()
+    marker_missing.ns.SetNativeMarker = None
+    marker_missing.slash("agent defer")
+    assert "marker_validation_unavailable" in marker_missing.chat[-1]
+    assert marker_missing.lua.globals().CrowleyDB.nativeConstruction is None
+
+    reload_missing = WowClient()
+    reload_missing.login()
+    reload_missing.slash("agent defer")
+    reload_missing.slash("agent recover")
+    reload_missing.lua.globals().ReloadUI = None
+    reload_missing.click_native("restore")
+    assert reload_missing.lua.globals().CrowleyDB.nativeConstruction.state == "armed"
+    assert "recovery not admitted" in reload_missing.chat[-1]
+
+
+def test_native_and_logout_fences_remain_independent():
+    client = WowClient()
+    client.login()
+    client.slash("session fence")
+    assert client.ns.Scanner.PreLogoutFenceStatus()["state"] == "armed"
+    client.slash("agent defer")
+    assert "logout_fence_active" in client.chat[-1]
+    client.ns.Scanner.SetNativeConstructionFence(True)
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    client.ns.Scanner.SetNativeConstructionFence(False)
+    assert client.ns.Scanner.PreLogoutFenceStatus()["state"] == "armed"
+
+
+def test_native_release_rearms_auction_house_schedule_when_house_is_open():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.ns.Scanner.SetNativeConstructionFence(True)
+    client.fire("AUCTION_HOUSE_SHOW")
+    assert client.ns.Scanner.InProgress() is False
+    before = schedule_trace(client)
+    client.ns.Scanner.SetNativeConstructionFence(False)
+    after = schedule_trace(client)
+    assert len(after["events"]) > len(before["events"])
+    assert after["events"][-1]["type"] == "timer_create"
+    assert after["events"][-1]["source"] == "native_construction_release"
+
+
+def test_native_finalize_rearms_open_house_only_after_successful_commit():
+    source = WowClient()
+    source.login()
+    source.slash("agent defer")
+    saved = savedvars.loads(source.saved_variables())["CrowleyDB"]
+    client = WowClient(initial_savedvars=saved)
+    client.login()
+    client.set_canonical_plan()
+    client.slash("agent release")
+    client.click_native("construct")
+    client.fire("AUCTION_HOUSE_SHOW")
+    assert client.ns.Scanner.InProgress() is False
+    client.slash("agent hold")
+    client.slash("agent measure")
+    client.advance_with_timers(100)
+    client.slash("agent resume")
+    client.slash("agent finalize")
+    assert client.ns.Agent.Lifecycle() == "finalized"
+    events = schedule_trace(client)["events"]
+    assert events[-1]["type"] == "timer_create"
+    assert events[-1]["source"] == "native_construction_release"
+    assert decode_frame(client.agent_frame).snapshot.value["scanner"]["scheduleFence"]["state"] == "inactive"
+
+
+def test_native_restore_rearms_open_house_only_after_successful_commit():
+    source = WowClient()
+    source.login()
+    source.slash("agent defer")
+    source.slash("agent recover")
+    source.click_native("restore")
+    saved = savedvars.loads(source.saved_variables())["CrowleyDB"]
+    restored = WowClient(initial_savedvars=saved)
+    restored.set_canonical_plan()
+    # Model the house already being open when ADDON_LOADED performs the
+    # restore transaction; the production commit invokes the existing setter.
+    restored.ns.ahOpen = True
+    restored.login()
+    assert restored.ns.Agent.Lifecycle() == "ordinary"
+    assert restored.lua.globals().CrowleyDB.nativeConstruction is None
+    events = schedule_trace(restored)["events"]
+    assert events[-1]["type"] == "timer_create"
+    assert events[-1]["source"] == "native_construction_release"
+    assert (
+        decode_frame(restored.agent_frame).snapshot.value["scanner"]["scheduleFence"]["state"] == "inactive"
+    )
+
+
+def test_native_restore_admission_uses_fixed_command_actor():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    before = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    client.slash("agent recover extra")
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == before
+    client.click_native("restore")
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == before
+    client.slash("agent recover")
+    assert "agent recover accepted" in client.chat[-1]
+    client.click_native("restore")
+    marker = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    assert marker["state"] == "restore_pending"
+    assert marker["attempts"] == 0
+    assert marker["token"].startswith("recovery:") and len(marker["token"]) == 33
+    assert client.reload_calls == 1
+
+
+def test_native_recovery_refuses_plain_ordinary_and_inflight_restore():
+    ordinary = WowClient()
+    ordinary.login()
+    ordinary.slash("agent recover")
+    assert "recovery_not_required" in ordinary.chat[-1]
+
+    pending = WowClient()
+    pending.login()
+    pending.slash("agent defer")
+    pending.slash("agent recover")
+    pending.click_native("restore")
+    pending.slash("agent recover")
+    assert "recovery_pending" in pending.chat[-1]
+
+
+def test_native_release_window_expires_at_ten_seconds():
+    client = deferred_native_client()
+    client.slash("agent release")
+    client.advance(10)
+    client.click_native("construct")
+    assert client.ns.Agent.Lifecycle() == "deferred"
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "deferred"
+    assert "construction_not_released" in client.chat[-1]
+
+
+def test_native_restore_disables_controls_and_same_load_fallback_reenables_restore():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    client.click_native("restore")
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "armed"
+    client.slash("agent recover")
+    assert (
+        client.lua.globals().CrowleyNativeConstructionConstruct.IsShown(
+            client.lua.globals().CrowleyNativeConstructionConstruct
+        )
+        is False
+    )
+    client.click_native("restore")
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "restore_pending"
+    assert (
+        client.lua.globals().CrowleyNativeConstructionConstruct.IsEnabled(
+            client.lua.globals().CrowleyNativeConstructionConstruct
+        )
+        is False
+    )
+    assert (
+        client.lua.globals().CrowleyNativeConstructionRestore.IsEnabled(
+            client.lua.globals().CrowleyNativeConstructionRestore
+        )
+        is False
+    )
+    client.advance_with_timers(2)
+    assert client.ns.Agent.RecoveryAdmitted() is True
+    assert (
+        client.lua.globals().CrowleyNativeConstructionRestore.IsEnabled(
+            client.lua.globals().CrowleyNativeConstructionRestore
+        )
+        is True
+    )
+
+
+def test_native_restore_timer_cannot_admit_a_newer_nonce_attempt():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    client.slash("agent recover")
+    client.click_native("restore")
+    first = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    # A newer persisted attempt has a distinct nonce while the older timer is
+    # still queued.  The callback must reject its stale nonce and leave the
+    # controls in-flight.
+    newer = dict(first)
+    newer["token"] = "recovery:" + "b" * 24
+    client.lua.globals().CrowleyDB.nativeConstruction = client._to_lua(newer)
+    client.advance_with_timers(2)
+    assert client.ns.Agent.RecoveryAdmitted() is False
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == newer
+    assert (
+        client.lua.globals().CrowleyNativeConstructionRestore.IsEnabled(
+            client.lua.globals().CrowleyNativeConstructionRestore
+        )
+        is False
+    )
+
+
+def test_native_restore_after_finalize_remains_reachable_and_hides_after_successful_reload():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    saved = savedvars.loads(client.saved_variables())["CrowleyDB"]
+    client = WowClient(initial_savedvars=saved)
+    client.login()
+    client.set_canonical_plan()
+    client.slash("agent release")
+    client.click_native("construct")
+    client.slash("agent hold")
+    client.slash("agent measure")
+    client.advance_with_timers(100)
+    client.slash("agent resume")
+    client.slash("agent finalize")
+    assert client.ns.Agent.Lifecycle() == "finalized"
+    assert client.lua.globals().CrowleyNativeConstructionRestore.IsShown(
+        client.lua.globals().CrowleyNativeConstructionRestore
+    )
+    client.slash("agent recover")
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    client.update_agent(1)
+    recovery_frame = decode_frame(client.agent_frame).snapshot.value
+    assert recovery_frame["scanner"]["scheduleFence"] == {
+        "state": "armed",
+        "reason": "",
+        "command": "/crowley session fence",
+    }
+    assert (
+        client.lua.globals().CrowleyNativeConstructionConstruct.IsShown(
+            client.lua.globals().CrowleyNativeConstructionConstruct
+        )
+        is False
+    )
+    client.click_native("restore")
+    restored = WowClient(initial_savedvars=savedvars.loads(client.saved_variables())["CrowleyDB"])
+    restored.login()
+    assert restored.ns.Agent.Lifecycle() == "ordinary"
+    assert restored.lua.globals().CrowleyDB.nativeConstruction is None
+    assert (
+        restored.lua.globals().CrowleyNativeConstructionPanel.IsShown(
+            restored.lua.globals().CrowleyNativeConstructionPanel
+        )
+        is False
+    )
+    restored.slash("agent defer")
+    assert restored.lua.globals().CrowleyDB.nativeConstruction.state == "armed"
+
+
+def test_native_panel_is_commands_owned_and_fixed_geometry():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    panel = client.lua.globals().CrowleyNativeConstructionPanel
+    assert (panel.width, panel.height) == (220, 84)
+    assert list(panel.point.values())[0] == "TOPRIGHT"
+    assert panel.point[2].name == "UIParent"
+    assert list(panel.point.values())[2:] == ["TOPRIGHT", -24, -24]
+    assert client.lua.globals().CrowleyNativeConstructionConstruct.template == "UIPanelButtonTemplate"
+    assert client.lua.globals().CrowleyNativeConstructionRestore.template == "UIPanelButtonTemplate"
+
+
+def test_native_finalize_clears_only_native_fence_after_completed_measurement():
+    client = WowClient()
+    client.login()
+    client.slash("agent defer")
+    saved = savedvars.loads(client.saved_variables())["CrowleyDB"]
+    client = WowClient(initial_savedvars=saved)
+    client.login()
+    client.slash("agent release")
+    client.click_native("construct")
+    client.slash("agent hold")
+    client.slash("agent measure")
+    client.advance_with_timers(100)
+    client.slash("agent resume")
+    before_observed = client._json_table(client.ns.Agent.Snapshot())["sequence"]
+    client.slash("agent finalize")
+    client.update_agent(1)
+    after_observed = client._json_table(client.ns.Agent.Snapshot())["sequence"]
+    assert after_observed > before_observed
+    assert client.ns.Agent.Lifecycle() == "finalized"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+    assert client.ns.Scanner.NativeConstructionFence() is False
+
+
+def test_native_finalize_refuses_resume_from_held_zero_without_measurement():
+    client = deferred_native_client()
+    client.slash("agent release")
+    client.click_native("construct")
+    client.slash("agent hold")
+    client.slash("agent resume")
+    client.slash("agent finalize")
+    assert "agent finalize refused: finalize_requires_resume" in client.chat[-1]
+    assert client.ns.Agent.Lifecycle() == "constructed"
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    assert client.ns.Scanner.LogoutFenceActive() is False
 
 
 def test_query_trace_records_barriers_readiness_and_unchanged_outcomes():

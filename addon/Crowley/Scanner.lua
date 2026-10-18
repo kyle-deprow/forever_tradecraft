@@ -34,9 +34,50 @@ local state
 local generation = 0
 local scheduleToken = 0
 local scheduleBlocked = false
+local nativeConstructionFence = false
 local scheduleFence = { state = "inactive", reason = "", command = PRE_LOGOUT_FENCE_COMMAND }
 local internalSendDepth = 0
 local keyFields
+
+local function nativeDecision()
+  if type(ns.NativeDecision) ~= "function" then return { kind = "unknown", state = "unknown", reason = "not_loaded" } end
+  return ns.NativeDecision()
+end
+
+local function nativeBlocked()
+  if ns.Agent and type(ns.Agent.Lifecycle) == "function" then
+    local lifecycle = ns.Agent.Lifecycle()
+    if lifecycle == "ordinary" or lifecycle == "finalized" then return false end
+  end
+  local decision = nativeDecision()
+  return decision.kind ~= "ordinary" and decision.kind ~= "finalized"
+end
+
+local function effectiveFence()
+  if scheduleBlocked then return { state = scheduleFence.state, reason = scheduleFence.reason, command = scheduleFence.command } end
+  if nativeConstructionFence then
+    -- Native construction is an internal admission fence.  Keep the public
+    -- wire projection on the existing armed/empty-reason contract; the
+    -- scanner entry points below still refuse while this private bit is set.
+    return { state = "armed", reason = "", command = PRE_LOGOUT_FENCE_COMMAND }
+  end
+  return { state = scheduleFence.state, reason = scheduleFence.reason, command = scheduleFence.command }
+end
+
+function Scanner.SetNativeConstructionFence(armed)
+  nativeConstructionFence = armed == true
+  if not nativeConstructionFence and not scheduleBlocked and ns.ahOpen and not state then
+    Scanner.Schedule("native_construction_release")
+  end
+end
+
+function Scanner.NativeConstructionFence()
+  return nativeConstructionFence
+end
+
+function Scanner.LogoutFenceActive()
+  return scheduleBlocked
+end
 
 local function scheduleFinite(value)
   if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge then return 0 end
@@ -206,6 +247,8 @@ end)
 ns.On("ADDON_LOADED", function(_, name)
   if name ~= "Crowley" or not ns.db then return end
   beginScheduleLoad()
+  local decision = nativeDecision()
+  nativeConstructionFence = decision.kind ~= "ordinary" and decision.kind ~= "finalized"
   ns.db.agentLastSaved = ns.db.agentLastSaved or {
     memoryUid = "", finishedAt = 0, planned = 0, attempted = 0, failures = 0, rows = 0,
   }
@@ -941,6 +984,10 @@ function Scanner.Schedule(source)
   source = source or "unknown"
   scheduleEvent("request", { source = source })
   if scheduleBlocked then scheduleEvent("refusal", { reason = "logout_fence", source = source }) return end
+  if nativeBlocked() or nativeConstructionFence then
+    scheduleEvent("refusal", { reason = "native_construction_fence", source = source })
+    return
+  end
   if not ns.ahOpen then scheduleEvent("refusal", { reason = "ah_closed", source = source }) return end
   if state then scheduleEvent("refusal", { reason = "sweep_active", source = source }) return end
   if ns.db.storageBlocked then scheduleEvent("refusal", { reason = "storage_blocked", source = source }) return end
@@ -972,6 +1019,7 @@ function Scanner.Start(force, source)
   source = source or "manual"
   if state then return ns.Print("a sweep is already running") end
   if scheduleBlocked then return ns.Print("scan refused: logout fence active") end
+  if nativeBlocked() or nativeConstructionFence then return ns.Print("scan refused: native construction fence active") end
   if not ns.ahOpen then return ns.Print("open the auction house first") end
   if ns.PruneStorage then ns.PruneStorage() end
   local plan, errorText = loadPlan()
@@ -1032,6 +1080,10 @@ function Scanner.PreLogoutFence()
   -- slip between an idle check and token cancellation.  A live item/owned
   -- query is refused and remains untouched; ordinary PLAYER_LOGOUT below
   -- still preserves its partial-save behavior.
+  if nativeBlocked() or nativeConstructionFence then
+    scheduleEvent("fence_refusal", { reason = "native_construction_fence", source = "pre_logout_fence" })
+    return false, "native_construction_fence"
+  end
   if state then
     scheduleEvent("fence_refusal", { reason = "scan_active", source = "pre_logout_fence" })
     scheduleFence = { state = "refused", reason = "scan_active", command = PRE_LOGOUT_FENCE_COMMAND }
@@ -1050,7 +1102,7 @@ function Scanner.PreLogoutFence()
 end
 
 function Scanner.PreLogoutFenceStatus()
-  return { state = scheduleFence.state, reason = scheduleFence.reason, command = scheduleFence.command }
+  return effectiveFence()
 end
 
 function Scanner.Abort(reason)

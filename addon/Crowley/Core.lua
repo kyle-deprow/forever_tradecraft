@@ -18,6 +18,91 @@ local defaults = {
   lastSweepFailures = 0,
 }
 
+-- Native construction is decided once, by Core's first ADDON_LOADED handler.
+-- Agent and Scanner consume this immutable per-load decision; malformed
+-- SavedVariables are never repaired by a later handler.
+local NATIVE_STATES = {
+  armed = true, deferred = true, constructing = true, constructed = true,
+  failed = true, restore_pending = true,
+}
+
+local function copyValue(value)
+  if type(value) ~= "table" then return value end
+  local result = {}
+  for key, child in pairs(value) do result[key] = copyValue(child) end
+  return result
+end
+
+local function exactKeys(value, allowed)
+  if type(value) ~= "table" then return false end
+  for key in pairs(value) do if not allowed[key] then return false end end
+  for key in pairs(allowed) do if value[key] == nil then return false end end
+  return true
+end
+
+local function validToken(token, allowRecovery)
+  if type(token) ~= "string" or #token < 1 or #token > 64 then return false end
+  if token:find("[%c]") then return false end
+  if allowRecovery then return token:match("^recovery:[0-9a-f]+$") ~= nil and #token == 33 end
+  return token:find("%s") == nil
+end
+
+local function validateNativeMarker(marker)
+  if type(marker) ~= "table" or not exactKeys(marker, { schema = true, state = true, token = true, attempts = true }) then
+    return nil, "malformed"
+  end
+  if marker.schema ~= 1 or type(marker.attempts) ~= "number" or marker.attempts ~= math.floor(marker.attempts) then
+    return nil, "malformed"
+  end
+  local state = marker.state
+  if not NATIVE_STATES[state] then return nil, "malformed" end
+  if state == "restore_pending" then
+    if marker.attempts ~= 0 or not validToken(marker.token, true) then return nil, "malformed" end
+  elseif (state == "armed" or state == "deferred") and marker.attempts ~= 0 then
+    return nil, "malformed"
+  elseif (state == "constructing" or state == "constructed" or state == "failed") and marker.attempts ~= 1 then
+    return nil, "malformed"
+  elseif not validToken(marker.token, false) then
+    return nil, "malformed"
+  end
+  return copyValue(marker), nil
+end
+
+local function decideNativeConstruction()
+  local marker = ns.db.nativeConstruction
+  if marker == nil then
+    ns.nativeDecision = { kind = "ordinary", state = "ordinary", marker = nil, reason = "" }
+    return
+  end
+  local valid, reason = validateNativeMarker(marker)
+  if not valid then
+    ns.nativeDecision = { kind = "restore_only", state = "unknown", marker = copyValue(marker), reason = reason }
+    return
+  end
+  -- armed is the only pre-reload spelling. The next load owns the
+  -- canonical deferred spelling while retaining the exact boot token.
+  if valid.state == "armed" then
+    valid.state = "deferred"
+    ns.db.nativeConstruction = copyValue(valid)
+  end
+  ns.nativeDecision = { kind = valid.state, state = valid.state, marker = valid, reason = "" }
+end
+
+function ns.NativeDecision()
+  return copyValue(ns.nativeDecision or { kind = "unknown", state = "unknown", marker = nil, reason = "not_loaded" })
+end
+
+function ns.NativeMarkerValid(marker)
+  return validateNativeMarker(marker)
+end
+
+function ns.SetNativeMarker(marker)
+  local valid, reason = validateNativeMarker(marker)
+  if not valid then return false, reason end
+  ns.db.nativeConstruction = copyValue(valid)
+  return true
+end
+
 function ns.Print(...)
   local parts = { ... }
   for i = 1, #parts do parts[i] = tostring(parts[i]) end
@@ -114,6 +199,7 @@ ns.On("ADDON_LOADED", function(_, name)
     if CrowleyDB[k] == nil then CrowleyDB[k] = v end
   end
   ns.db = CrowleyDB
+  decideNativeConstruction()
   ns.db.cursorItemID = ns.db.cursorItemID
   ns.db.cursorPlanHash = ns.db.cursorPlanHash
   ns.db.failureCount = ns.db.failureCount or 0

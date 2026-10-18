@@ -1,0 +1,60 @@
+Resolved model: claude-opus-5-5
+Model ID: `claude-opus-5-5`.
+
+# Release-rearm closure review: final → release-rearm delta
+
+This was a read-only review. I made no edits and ran no tests, builds, GUI, input, services, network or git mutations. The test results below come from the parent's run. No native, helper or live qualification is claimed.
+
+**Scope:**
+- `diff -rq` over the two worktrees shows only `addon/Crowley/Agent.lua` and `tests/test_addon.py` differ. The other six files are byte-identical to the final freeze.
+- All 8 sha256 hashes in `native-addon-release-rearm-freeze.json` match the rearm tree.
+- The source delta is exactly two calls to the existing `ns.Scanner.SetNativeConstructionFence(false)`: `Agent.lua:659` (Finalize) and `Agent.lua:798` (restore second publication).
+
+## Your accepted Should-Fix is closed
+
+**Finalize** (`Agent.lua:636-661`):
+- **No timer before commit:** the existing call at `:648` still runs while the lifecycle is `"constructed"` and the load's decision is `"deferred"`. So `nativeBlocked()` refuses it (`Scanner.lua:47-53`, `:987`).
+- **Rollback:**
+  - A publication failure rearms the fence at `:651`, restores `"constructed"` and returns before reaching `:659`.
+  - The marker and the hidden Restore surface are unchanged.
+- **Success:**
+  - The commit runs first: marker nil, `lifecycle = "finalized"`, then `Commands.Refresh`, which only calls `updatePanel()` (`Commands.lua:93`).
+  - Then `:659` calls the setter. Its guards (`not scheduleBlocked and ns.ahOpen and not state`, `Scanner.lua:69`) admit it, `nativeBlocked()` now passes, and `Schedule` creates exactly one timer with source `native_construction_release`.
+- **Cadence and no-overlap:**
+  - The delay is still `CooldownRemaining()`, so the 900-second cadence holds.
+  - The token is bumped, so any earlier timer goes stale.
+  - Finalize refuses during a scan (`:642`). Both the setter and `Schedule` refuse while a sweep is active (`state`).
+  - The logout fence is checked in Finalize (`:645`), in the setter and in `Schedule`.
+
+**Restore** (`Agent.lua:791-812`):
+- Scanner's `ADDON_LOADED` handler is registered before Agent's (toc order puts Scanner first), so the fence is already armed for `restore_pending`.
+- The first release at `:791` is refused, because the lifecycle is still `restore_pending`.
+- On success, `:798` runs only after the marker commit.
+- On failure, `:809` rearms the fence and the new call is never reached.
+
+**Tests:**
+- Both new tests would fail against the final tree, where the last event would be the `native_construction_fence` refusal. So they really test this fix.
+- The Finalize test sends a real `AUCTION_HOUSE_SHOW` in the deferred load and goes through Construct, Hold, Measure (100), Resume and Finalize.
+- The failure test's new negative assertion is meaningful:
+  - It sets the AH open and the canonical plan, and reads the trace only after `SerializeJSON` is restored.
+  - If the lifecycle assignment were moved ahead of publication (the alternative I rejected before), a `timer_create` would appear and the test would fail.
+
+## Must-Fix
+None.
+
+## Should-Fix
+None.
+
+## Nits
+These are all optional and don't block.
+1. **Restore test models a state the client can't reach** (`test_addon.py:~898`):
+   - It sets `ns.ahOpen = True` before login. In the client, `Scanner.lua:227` resets it to false at file load, and the AH can't be open at `ADDON_LOADED`.
+   - The comment already says this, so the test proves call order, not real AH-open behaviour.
+   - In the client, the `:798` call is effectively a no-op, which is harmless and kept for symmetry. No change needed; just don't cite it as live AH-open coverage.
+2. **Negative assertions have no positive witness:**
+   - The failure test's `not any(timer_create …)` would be self-evidently non-vacuous if it also asserted that a `refusal`/`native_construction_fence` event exists with source `native_construction_release`.
+   - Likewise, the Finalize success test could assert the refusal-then-`timer_create` order directly, instead of only checking `events[-1]`.
+3. **Restore second-publication failure has no AH-open no-timer assertion.** It is correct by inspection (`:809` returns before `:798`) and can't happen live, so this is optional.
+
+STATUS: READY
+CLAUDE_EXIT:0

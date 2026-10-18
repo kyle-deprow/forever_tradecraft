@@ -1,4 +1,5 @@
 import json
+from pathlib import Path
 
 import httpx
 import pytest
@@ -10,6 +11,8 @@ from crowley.core.luawriter import render_assignment
 from crowley.core.watchlist import load_catalog
 
 from .test_core import raw_scan
+
+FIXTURE = Path(__file__).parent / "fixtures/native-construction-unknown-savedvars.lua"
 
 
 def write_savedvars(path, scans, probe=None):
@@ -114,3 +117,30 @@ def test_changed_file_waits_for_stability_after_failed_upload(companion):
     assert attempts == ["s1"]  # Changed content needs a new stability interval.
     instance.tick()
     assert attempts == ["s1", "s1", "s2"]
+
+
+def test_unknown_native_marker_fixture_preserves_scan_wire_and_is_not_uploaded(companion):
+    instance, saved = companion
+    fixture = savedvars.load_file(FIXTURE)
+    marker = fixture["CrowleyDB"]["nativeConstruction"]
+    scan = fixture["CrowleyDB"]["scans"]["fixture-native-construction"]
+    assert marker["state"] == "mystery"
+    assert marker["extra"] == "must-not-leak"
+    original_payload = scan["payload"]
+    saved.write_bytes(FIXTURE.read_bytes())
+    uploaded = []
+
+    def respond(request):
+        if request.url.path == "/v1/scans":
+            body = json.loads(request.content)
+            uploaded.append(body)
+            return httpx.Response(
+                200, json={"house": "us-normal-alliance", "listings": 1, "status": "created"}
+            )
+        return httpx.Response(200, json={"generatedAt": 1, "ackedScans": [], "shoppingLists": []})
+
+    instance.client = httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond))
+    instance.once()
+    assert len(uploaded) == 1
+    assert uploaded[0]["payload"] == original_payload
+    assert "nativeConstruction" not in uploaded[0]

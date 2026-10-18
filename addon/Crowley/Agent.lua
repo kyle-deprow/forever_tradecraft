@@ -16,7 +16,8 @@ local POSITION_LIMIT = 1000000
 local FACING_LIMIT = 6.283185307179586
 local SPEED_LIMIT = 1000
 local sequence = 0
-local boot = (tostring(time()) .. "-" .. tostring(math.random(100000, 999999)))
+local boot
+local bootReady = false
 local surface
 local cells = {}
 local frameBytes = nil
@@ -33,12 +34,53 @@ local renderMetrics = {
 }
 local updateSamples = {}
 local lastPublishError
+local lifecycle = "unloaded"
+local releaseAdmitted = false
+local releaseDeadline = 0
+local recoveryAdmitted = false
+local recoveryMode = false
+local restoreInFlight = false
+local restoreAttempt = 0
+local measurementCompleted = false
+local loadId = 0
+local loadInitialized = false
+-- Forward declaration: deferred construction installs the same publication
+-- callback as an ordinary boot before its first publish.
+local attachSurfaceScript
 
 local function copy(value)
   if type(value) ~= "table" then return value end
   local result = {}
   for key, child in pairs(value) do result[key] = copy(child) end
   return result
+end
+
+local function marker()
+  return ns.db and ns.db.nativeConstruction
+end
+
+local function randomBoot()
+  return tostring(time()) .. "-" .. tostring(math.random(100000, 999999))
+end
+
+local function nativeBoot(token)
+  return "native-construction:" .. tostring(token)
+end
+
+local function setMarker(value)
+  if type(ns.SetNativeMarker) ~= "function" then return false, "marker_validation_unavailable" end
+  local ok, reason = ns.SetNativeMarker(value)
+  if not ok then return false, reason end
+  return true
+end
+
+local function clearSurface()
+  if surface then
+    if surface.SetScript then surface:SetScript("OnUpdate", nil) end
+    surface:Hide()
+    for _, texture in pairs(cells) do texture:Hide() end
+  end
+  surface, cells, frameBytes = nil, {}, nil
 end
 
 local function u32(value)
@@ -267,6 +309,7 @@ local function movementTelemetry()
 end
 
 function Agent.Snapshot()
+  if not bootReady or not surface then error("agent_unconstructed") end
   local context = ns.Context.Snapshot()
   local house = ns.Context.House()
   local scanner = ns.Scanner.Status()
@@ -310,7 +353,7 @@ function Agent.Snapshot()
   return copy(value)
 end
 
-local function createSurface()
+local function buildSurface()
   local started = debugprofilestop()
   if not UIParent or type(UIParent.GetWidth) ~= "function" or type(UIParent.GetHeight) ~= "function" or
       type(UIParent.GetEffectiveScale) ~= "function" then
@@ -376,6 +419,14 @@ local function createSurface()
   renderMetrics.cellSize = { 2, 2 }
 end
 
+local function createSurface()
+  clearSurface()
+  local ok, reason = pcall(buildSurface)
+  if ok then return true end
+  clearSurface()
+  return false, reason
+end
+
 local function setGlyph(texture, value)
   local top = (value * GLYPH_HEIGHT + 0.5) / ATLAS_HEIGHT
   local bottom = (value * GLYPH_HEIGHT + GLYPH_HEIGHT - 0.5) / ATLAS_HEIGHT
@@ -417,6 +468,7 @@ local function setNativeState(phase, ordinal)
 end
 
 function Agent.Publish()
+  if not bootReady or not surface then error("agent_unconstructed") end
   renderMetrics.luaHeap = copy(lastLuaHeap)
   renderMetrics.nativePhase, renderMetrics.nativeOrdinal = nativePhase, nativeOrdinal
   local beforeMemory = countLuaMemory()
@@ -450,11 +502,162 @@ function Agent.Publish()
   return result
 end
 
+-- The restore and finalize transitions have a publication boundary whose
+-- result is part of the transaction.  Keep the existing best-effort publisher
+-- for periodic telemetry, but make these two commit points observable.
+local function publishChecked()
+  return pcall(Agent.Publish)
+end
+
 function Agent.FrameBytes() return frameBytes end
 function Agent.Surface() return surface end
 
 function Agent.NativeState()
   return { phase = nativePhase, ordinal = nativeOrdinal }
+end
+
+function Agent.Boot() return boot end
+function Agent.Lifecycle() return lifecycle end
+function Agent.ReleaseAdmitted()
+  return releaseAdmitted and GetTime() < releaseDeadline
+end
+function Agent.RestorePending() return restoreInFlight end
+function Agent.AdmitRelease()
+  local current = marker()
+  if type(current) ~= "table" or current.state ~= "deferred" or current.attempts ~= 0 then
+    return false, "release_not_deferred"
+  end
+  if lifecycle ~= "deferred" or not ns.Scanner or not ns.Scanner.NativeConstructionFence or
+      not ns.Scanner.NativeConstructionFence() then
+    return false, "release_not_admitted"
+  end
+  releaseAdmitted, releaseDeadline = true, GetTime() + 10
+  return true
+end
+function Agent.RecoveryAdmitted() return recoveryAdmitted end
+function Agent.BeginRecovery()
+  -- The exact /crowley agent recover command is the addon-owned admission
+  -- actor.  A future helper/daemon may add an external guard before invoking
+  -- this public path, but there is no hidden manual admission step.
+  local current = marker()
+  if restoreInFlight or lifecycle == "restore_pending" then
+    return false, "recovery_pending"
+  end
+  if current == nil and lifecycle ~= "finalized" then return false, "recovery_not_required" end
+  recoveryAdmitted = true
+  recoveryMode, releaseAdmitted, lifecycle = true, false, "restore_only"
+  if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(true) end
+  if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+  return true
+end
+function Agent.RecoveryMode() return recoveryMode end
+
+local function constructDeferred()
+  local current = marker()
+  if surface then return false, "agent_already_constructed" end
+  if type(current) ~= "table" or current.state ~= "deferred" or current.attempts ~= 0 then
+    return false, "construct_not_deferred"
+  end
+  if not Agent.ReleaseAdmitted() then return false, "construction_not_released" end
+  current.state, current.attempts = "constructing", 1
+  local saved, reason = setMarker(current)
+  if not saved then return false, reason end
+  lifecycle = "constructing"
+  local ok, failure = createSurface()
+  if not ok then
+    clearSurface()
+    current.state = "failed"
+    setMarker(current)
+    lifecycle = "failed"
+    releaseAdmitted = false
+    return false, "constructor_error"
+  end
+  lifecycle = "constructing"
+  attachSurfaceScript()
+  local published, publicationFailure = pcall(Agent.Publish)
+  if not published then
+    clearSurface()
+    current.state = "failed"
+    setMarker(current)
+    lifecycle = "failed"
+    releaseAdmitted = false
+    return false, "publication_error"
+  end
+  current.state = "constructed"
+  local committed, commitReason = setMarker(current)
+  if not committed then
+    clearSurface()
+    current.state = "failed"
+    setMarker(current)
+    lifecycle = "failed"
+    releaseAdmitted = false
+    return false, commitReason
+  end
+  lifecycle = "constructed"
+  releaseAdmitted = false
+  if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+  return true
+end
+
+function Agent.Construct()
+  return constructDeferred()
+end
+
+function Agent.Restore()
+  if not recoveryAdmitted then return false, "recovery_not_admitted" end
+  if not ns.db then return false, "agent_not_loaded" end
+  if type(ReloadUI) ~= "function" then return false, "reload_unavailable" end
+  local token = "recovery:"
+  for _ = 1, 24 do token = token .. string.format("%x", math.random(0, 15)) end
+  local saved, reason = setMarker({ schema = 1, state = "restore_pending", token = token, attempts = 0 })
+  if not saved then return false, reason end
+  releaseAdmitted, recoveryAdmitted = false, false
+  restoreInFlight = true
+  restoreAttempt = restoreAttempt + 1
+  local attempt = restoreAttempt
+  if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(true) end
+  lifecycle = "restore_pending"
+  ReloadUI()
+  local restoreLoad = loadId
+  C_Timer.After(2, function()
+    local current = marker()
+    if type(current) == "table" and current.state == "restore_pending" and current.token == token and
+        bootReady and loadId == restoreLoad and restoreAttempt == attempt then
+      recoveryAdmitted = true
+      recoveryMode = true
+      lifecycle = "restore_only"
+      restoreInFlight = false
+      if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+    end
+  end)
+  return true
+end
+
+function Agent.Finalize()
+  local current = marker()
+  if type(current) ~= "table" or current.state ~= "constructed" or current.attempts ~= 1 then
+    return false, "finalize_not_constructed"
+  end
+  if not measurementCompleted or nativePhase ~= "normal" or nativeOrdinal ~= 0 then return false, "finalize_requires_resume" end
+  if ns.Scanner and ns.Scanner.InProgress and ns.Scanner.InProgress() then return false, "finalize_scan_active" end
+  if type(boot) ~= "string" or boot:sub(1, 20) ~= "native-construction:" then return false, "finalize_boot_mismatch" end
+  if current.token ~= boot:sub(21) then return false, "finalize_boot_mismatch" end
+  if ns.Scanner and ns.Scanner.LogoutFenceActive and ns.Scanner.LogoutFenceActive() then
+    return false, "finalize_logout_fence_active"
+  end
+  if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
+  local published = publishChecked()
+  if not published then
+    if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(true) end
+    lifecycle = "constructed"
+    if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+    return false, "publication_error"
+  end
+  ns.db.nativeConstruction = nil
+  lifecycle = "finalized"
+  if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+  if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
+  return true
 end
 
 local function scheduleMeasurementStep(token)
@@ -473,6 +676,7 @@ local function scheduleMeasurementStep(token)
 end
 
 function Agent.Hold()
+  if not surface then return false, "agent_unconstructed" end
   if nativePhase ~= "normal" then return false, "agent_not_normal" end
   measurementToken = measurementToken + 1
   elapsed = 0
@@ -482,6 +686,7 @@ function Agent.Hold()
 end
 
 function Agent.Measure()
+  if not surface then return false, "agent_unconstructed" end
   if nativePhase ~= "held" or nativeOrdinal ~= 0 then return false, "agent_measure_requires_held0" end
   measurementToken = measurementToken + 1
   local token = measurementToken
@@ -493,10 +698,13 @@ function Agent.Measure()
 end
 
 function Agent.Resume()
+  if not surface then return false, "agent_unconstructed" end
   if nativePhase ~= "held" then return false, "agent_resume_requires_held" end
+  local completed = nativeOrdinal == 100
   measurementToken = measurementToken + 1
   elapsed = 0
   setNativeState("normal", 0)
+  measurementCompleted = completed
   safePublish()
   return true
 end
@@ -514,18 +722,117 @@ safePublish = function()
   end
 end
 
-if not surface then createSurface() end
-surface:SetScript("OnUpdate", function(_, delta)
-  if nativePhase ~= "normal" then return end
-  elapsed = elapsed + (delta or 0)
-  if elapsed >= 1 then elapsed = 0 safePublish() end
-end)
+attachSurfaceScript = function()
+  if not surface then return end
+  surface:SetScript("OnUpdate", function(_, delta)
+    if nativePhase ~= "normal" then return end
+    elapsed = elapsed + (delta or 0)
+    if elapsed >= 1 then elapsed = 0 safePublish() end
+  end)
+end
+
+local function initializeLoad()
+  local decision = type(ns.NativeDecision) == "function" and ns.NativeDecision() or
+    { kind = "unknown", state = "unknown", marker = nil }
+  loadId = loadId + 1
+  sequence, measurementCompleted, releaseAdmitted = 0, false, false
+  recoveryAdmitted, recoveryMode = false, false
+  restoreInFlight = false
+  bootReady = false
+  clearSurface()
+  local state = decision.kind
+  if state == "ordinary" then
+    boot = randomBoot()
+    bootReady, lifecycle = true, "ordinary"
+    local ok, failure = createSurface()
+    if not ok then
+      lifecycle = "restore_only"
+      if ns.Print then ns.Print("agent telemetry unavailable: " .. tostring(failure)) end
+      return
+    end
+    attachSurfaceScript()
+    -- Ordinary startup keeps its surface and periodic retry semantics.  A
+    -- transient telemetry failure is diagnostic, while allocation failure
+    -- above remains a loud restore-only startup refusal.
+    safePublish()
+    return
+  end
+  local current = marker()
+  if type(current) == "table" and type(current.token) == "string" and current.state ~= "restore_pending" then
+    boot = nativeBoot(current.token)
+  else
+    boot = randomBoot()
+  end
+  bootReady = true
+  lifecycle = state
+  if state == "constructed" then
+    -- A persisted successful attempt is never replayed on load. It remains
+    -- recoverable through Restore until a fresh ordinary boot is proven.
+    lifecycle = "restore_only"
+  elseif state == "restore_pending" then
+    local ok = createSurface()
+    if ok then
+      attachSurfaceScript()
+      -- The pending marker and armed fence remain in force through the first
+      -- proof.  A fresh ordinary frame is then published with the fence
+      -- released before the marker is committed away.
+      local firstPublished = publishChecked()
+      if not firstPublished then
+        clearSurface()
+        local failed = marker()
+        if type(failed) == "table" then
+          failed.state, failed.attempts = "failed", 1
+          setMarker(failed)
+        end
+        lifecycle = "failed"
+        restoreInFlight = false
+        if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+      else
+        if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
+        lifecycle = "ordinary"
+        local secondPublished = publishChecked()
+        if secondPublished then
+          ns.db.nativeConstruction = nil
+          restoreInFlight = false
+          if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+          if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
+        else
+          -- A failed unarmed proof must leave a recoverable, nonordinary boot.
+          -- Clear every frame-owned object before rearming the fence so a
+          -- partially written surface cannot be mistaken for acceptance.
+          clearSurface()
+          local failed = marker()
+          if type(failed) == "table" then
+            failed.state, failed.attempts = "failed", 1
+            setMarker(failed)
+          end
+          if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(true) end
+          lifecycle = "failed"
+          restoreInFlight = false
+          recoveryAdmitted, recoveryMode = false, false
+          if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+        end
+      end
+    else
+      local failed = marker()
+      if type(failed) == "table" then
+        failed.state, failed.attempts = "failed", 1
+        setMarker(failed)
+      end
+      lifecycle = "failed"
+      restoreInFlight = false
+      if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+    end
+  end
+end
 
 ns.On("ADDON_LOADED", function(_, name)
   if name == "Crowley" and ns.db then
+    if loadInitialized then return end
+    loadInitialized = true
     ns.db.agentLastSaved = ns.db.agentLastSaved or {
       memoryUid = "", finishedAt = 0, planned = 0, attempted = 0, failures = 0, rows = 0,
     }
-    safePublish()
+    initializeLoad()
   end
 end)

@@ -1,0 +1,78 @@
+Resolved model: claude-opus-5-5
+Model ID: **`claude-opus-5-5`**
+
+# Native addon construction: final closure review (read-only)
+
+There are no Must-Fixes. There is one Should-Fix: a scheduling regression that R4's Finalize reordering introduced, which the reviewed workflow can't reach. The rest are test nits.
+
+## Scope check
+- **Candidate:** HEAD is `3f43d8f`. All 8 file hashes match `native-addon-construction-final-freeze.json`.
+- **Fence:** `git status` shows exactly the 7 modified fenced files plus the one new fixture.
+- **Hash chain:** six files are byte-identical across R3, R4 and final; only `Agent.lua` and `test_addon.py` change in each round. The R3 tree matches the R3 freeze, whose hash `abc046…` is the one R4 pins.
+- **Reference documents:** these hashes match: admission plan `9280…`, Opus R3 `1d06…`, R4 freeze `4cb5…`, Stage B R3 `cc38…`, R4 plan `58ae…`.
+- **What I did:** I read the code only, ran no tests and used no subagents. For test results I'm relying on the parent's 242-test run.
+
+## Must-Fix
+None.
+
+## Should-Fix
+1. **Finalize no longer rearms the scan schedule when the auction house is open** (`Agent.lua:648`, `:657`; `Scanner.lua:47-53`, `:67-71`).
+   - **Cause:** R4 releases the native fence before committing the new lifecycle.
+     - At `:648` the lifecycle is still `"constructed"`.
+     - The release hook calls `Schedule("native_construction_release")`, and `nativeBlocked()` refuses it because the lifecycle is `"constructed"` and the load's decision is `"deferred"`.
+     - `:657` then sets `"finalized"` without scheduling again.
+     - R3 set `lifecycle = "finalized"` before releasing the fence, so R3 rearmed correctly.
+   - **What it breaks:** Stage B R3's rule that native release rearms the schedule while the auction house remains open.
+   - **Concrete case:**
+     1. In the deferred load, fire `AUCTION_HOUSE_SHOW` with the canonical plan.
+     2. Run release, Construct, hold, measure (100), resume, finalize.
+     3. The schedule trace ends with `request` then `refusal native_construction_fence`. No `timer_create` follows, and the scanner stays idle until the AH is reopened or someone runs `/crowley scan`.
+   - **Reachability and impact:**
+     - The helper's fixed sequence can't hit this: the Agentless `/reload` resets `ns.ahOpen = false` (`Scanner.lua:227`), and nothing reopens the AH before Finalize. It only happens if someone opens the AH during the deferred load.
+     - The cost is limited to losing automatic scheduling for the rest of that load. Safety, recovery and the Finalize proof are unaffected.
+   - **Coverage claim is wrong:** the final closure lists "auction-house schedule rearm", but `test_addon.py:845-857` toggles the Scanner fence directly in an ordinary load and never goes through Finalize.
+   - **Correction:**
+     - After `lifecycle = "finalized"` at `:657`, call `ns.Scanner.SetNativeConstructionFence(false)` again. The setter is idempotent and reruns the release hook after the commit.
+     - Don't instead move the lifecycle assignment ahead of the publication; a failed publication would then leave a live timer behind.
+     - Test the real Finalize path with the AH open, expecting `timer_create` with source `native_construction_release`, and a publication-failure variant that creates no timer.
+   - **Restore load:** `:790` has the same ordering but is harmless, because `ns.ahOpen` is always false at `ADDON_LOADED`.
+
+## Nits
+- **Boot assertion is only half-closed** (`test_addon.py:586`): it checks the `native-construction:` prefix. It should assert equality with `"native-construction:" + source.ns.Agent.Boot()`, and that the restored boot differs from B0 as well as from the native boot.
+- **Retry test skips the diagnostic** (`test_addon.py:789-811`): it doesn't assert that the transient failure printed `agent telemetry blocked`, which is the diagnostic half of item 3.
+- **One assertion moved** (`test_addon.py:1027-1047` → `:1060`): `LogoutFenceActive() is False` moved from the Finalize-success test to the new held/0 test. It was vacuous in the original because the logout fence was never armed, so no coverage was lost.
+- **Two predicates are never reached:**
+  - No matrix case hits fractional attempts or a numeric wrong schema (`Core.lua:54`, e.g. `attempts = 0.5`, `schema = 2`).
+  - The preload test (`:462-488`) doesn't fire `AUCTION_HOUSE_SHOW` or run `/crowley scan`. Both gates are correct by inspection.
+- **Unchanged from Opus R3:**
+  - Every Restore refusal prints the same "recovery not admitted" message (`Commands.lua:85`).
+  - Publication error text is discarded (`Agent.lua:649`, `:778`, `:792`), and both restore-load failure branches print nothing (`:779-788`, `:797-812`).
+  - After an ordinary constructor failure, the panel shows an enabled Restore that `BeginRecovery` refuses (`Agent.lua:546`).
+
+## What I verified as closed
+- **Malformed markers recover** (`Agent.lua:543`): recovery now refuses only on in-load state (`restoreInFlight` or `lifecycle == "restore_pending"`).
+  - Every malformed matrix case is admitted by the fixed recover slash and canonicalized by a real Restore click, with the raw marker kept until then (`:444-459`). That includes raw `restore_pending` markers with 0/23/25-character, non-hex or uppercase nonces, attempts of 1 or 2, and extra keys.
+  - A plain ordinary load and an in-flight restore are still refused (`:879-891`).
+- **Post-Finalize recover arms the fence** (`:549-550`): the next real OnUpdate frame decodes with the armed, empty-reason projection (`:984-992`).
+- **Ordinary startup matches base again** (`:752-757`): a transient failure keeps the surface and its periodic retry, and the next frame decodes strictly. A constructor allocation failure is still a loud restore-only refusal (`:746-751`).
+- **Transactions are not weakened:** Construct (`:577-585`), the restore load (`:778-813`) and Finalize (`:648-655`) all still check their publications.
+- **Restore load keeps the marker through both publications.** If the second fails, the code:
+  - detaches OnUpdate, hides every texture and clears the frame bytes;
+  - writes a valid `failed/1` marker with the `recovery:` token;
+  - re-arms the fence and leaves Restore shown and enabled.
+
+  The fault is injected at the real serializer on its second call, and the test then recovers through the slash command and a new load. Both publications run synchronously inside `ADDON_LOADED`, so no intermediate frame can be rendered or captured.
+- **Finalize failure:** a fault at the Finalize publication rolls back the fence and lifecycle without touching the marker. The command prints `publication_error`, never "accepted", and recovery stays reachable (`:721-756`).
+- **Matrix and frames:**
+  - Every state is crossed with invalid attempt counts, and the 64-byte valid and 65-byte invalid tokens are both covered.
+  - Wrong-type state and token fields, nonce length boundaries and direct Publish/Snapshot refusals are covered.
+  - The Construct and Finalize frames carry the same prefixed boot, Finalize projects the fence as inactive, and the restored frame has a different boot with an unarmed fence.
+
+Live client pixels, button callbacks, `ReloadUI` behaviour and installed hashes are still future qualification checks; nothing here claims them.
+
+A copy of this review is in `/home/dev/.claude/plans/state-exact-model-id-typed-allen.md`.
+
+STATUS: READY
+
+There are no Must-Fixes. I'd fold in the one-line Should-Fix and its Finalize test before promoting the source; it doesn't block releasing the native slice.
+CLAUDE_EXIT:0

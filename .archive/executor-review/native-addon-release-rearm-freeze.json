@@ -1,0 +1,68 @@
+{
+  "task": "native-addon-release-rearm",
+  "status": "frozen",
+  "base": "3f43d8f40aa17035409a87c4718e1f34a888ff65",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-addon-release-rearm-20261018",
+  "plan_sha256": "86e64f9234011c2904677f9d151be0f3aae3b5020378d8c0ff1c761cae8910b7",
+  "sol_final_sha256": "70d61b2d3677296b1c063d386a03de63b9ef545248f9c6a976742c970d81a8b6",
+  "final_freeze_sha256": "4cad33ff7924e16163b2c48111b24d01c5fb71b8242b108c33798cea64607d8e",
+  "source_delta_from_final": [
+    "addon/Crowley/Agent.lua",
+    "tests/test_addon.py"
+  ],
+  "scope": [
+    "addon/Crowley/Core.lua",
+    "addon/Crowley/Scanner.lua",
+    "addon/Crowley/Agent.lua",
+    "addon/Crowley/Commands.lua",
+    "tests/wow_harness.py",
+    "tests/test_addon.py",
+    "tests/test_companion.py",
+    "tests/fixtures/native-construction-unknown-savedvars.lua"
+  ],
+  "sha256": {
+    "addon/Crowley/Core.lua": "3bf29b1c09f347d60e8fe6a5e8a4a8ef9aba37ff571d900bd9853159112f09b6",
+    "addon/Crowley/Scanner.lua": "ae16a58c870adf564f1bea691d53aea1bc326867affabd98827a5c447ae540f9",
+    "addon/Crowley/Agent.lua": "2c2c0b33caf8801bb7bd04d5752940a95434fe6ff11281534f245910fe84cf58",
+    "addon/Crowley/Commands.lua": "c68d2d25cb114b731d4986a6704027e4592bcbe46e385f276895fba23d885da2",
+    "tests/wow_harness.py": "c9f7accbd2c629ec256e2f439111d29a4c4f4706ec01ce0b925de1482745342e",
+    "tests/test_addon.py": "8d289c3bbff28bfced9b8e7815eece2d497e05a0630df4f71017a5d16ba8f2b9",
+    "tests/test_companion.py": "f0859966ce8afdb11219f7bd7a97e21143de5386e9c3d33ef8bf7de5da0b9793",
+    "tests/fixtures/native-construction-unknown-savedvars.lua": "5ecd62d324293ad040aa0910754179d988a58f73c3b8f5c38f7fe94c8ac09033"
+  },
+  "fixes": [
+    "After successful Finalize commits lifecycle=finalized, marker removal, and checked inactive-fence publication, invoke the existing fence setter again so an open AH gets the release timer only after commit.",
+    "After successful restore-load second publication commits lifecycle=ordinary, marker removal, and response refresh, invoke the same existing fence setter so an open AH gets the release timer only after commit.",
+    "Real AH-open Finalize and restore tests assert the release timer source; checked Finalize publication failure asserts no release timer."
+  ],
+  "verification": [
+    {
+      "command": "uv run pytest -q tests/test_addon.py tests/test_companion.py --maxfail=1",
+      "result": "244 passed in 31.67s"
+    },
+    {
+      "command": "uv run pytest -q tests/test_session.py -k 'lua_frame_roundtrips_through_pixel_packer_and_python_decoder or lua_atlas_rasterizes_the_actual_surface_and_decodes' --maxfail=1",
+      "result": "4 passed, 63 deselected in 2.07s"
+    },
+    {
+      "command": "uv run ruff check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run ruff format --check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "3 files already formatted"
+    },
+    {
+      "command": "python3 -m compileall -q tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "limitations": [
+    "The offline Lua harness and compiled atlas/frame checks exercise the production addon scheduling boundary; live client callbacks, pixels, ReloadUI, and service qualification remain separate gates.",
+    "No main source, daemon/helper, GUI, deployment, service, config, or game changes were made."
+  ]
+}

@@ -1,5 +1,8 @@
 local _, ns = ...
 
+local Commands = {}
+ns.Commands = Commands
+
 local HELP = {
   "/crowley scan [force] - targeted watchlist sweep into the current house",
   "/crowley status - current house, next sweep, stored sweeps, data age",
@@ -11,6 +14,108 @@ local HELP = {
 -- absent from help and accepts no arguments; the controller must prove this
 -- exact preparation command before issuing the normal /logout.
 local SESSION_FENCE = "session"
+
+local panel
+local constructButton
+local restoreButton
+
+local function marker()
+  return ns.db and ns.db.nativeConstruction
+end
+
+local function show(value)
+  if not value then return end
+  if value.Show then value:Show() end
+end
+
+local function hide(value)
+  if not value then return end
+  if value.Hide then value:Hide() end
+end
+
+local function setText(value, text)
+  if value and value.SetText then value:SetText(text) end
+end
+
+local function setEnabled(value, enabled)
+  if value and value.SetEnabled then value:SetEnabled(enabled == true) end
+end
+
+local function updatePanel()
+  if not panel or not ns.Agent then return end
+  local current = marker()
+  local lifecycle = ns.Agent.Lifecycle()
+  local visible = current ~= nil or lifecycle ~= "ordinary"
+  local restoreInFlight = ns.Agent.RestorePending and ns.Agent.RestorePending() or false
+  if visible then show(panel) else hide(panel) end
+  local constructVisible = type(current) == "table" and (current.state == "armed" or current.state == "deferred") and
+    not (ns.Agent.RecoveryMode and ns.Agent.RecoveryMode())
+  if constructVisible then show(constructButton) else hide(constructButton) end
+  if visible then show(restoreButton) else hide(restoreButton) end
+  setEnabled(constructButton, constructVisible and not restoreInFlight)
+  setEnabled(restoreButton, visible and not restoreInFlight)
+end
+
+local function ensurePanel()
+  if panel then updatePanel() return panel end
+  panel = CreateFrame("Frame", "CrowleyNativeConstructionPanel", UIParent)
+  panel:SetSize(220, 84)
+  panel:SetPoint("TOPRIGHT", UIParent, "TOPRIGHT", -24, -24)
+  if panel.SetFrameStrata then panel:SetFrameStrata("DIALOG") end
+  constructButton = CreateFrame("Button", "CrowleyNativeConstructionConstruct", panel, "UIPanelButtonTemplate")
+  constructButton:SetSize(100, 28)
+  constructButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8)
+  setText(constructButton, "Construct")
+  constructButton:SetScript("OnClick", function()
+    local current = marker()
+    if type(current) ~= "table" or current.state ~= "deferred" then
+      ns.Print("construct not released")
+      return
+    end
+    local ok, reason = ns.Agent.Construct()
+    if not ok then ns.Print("construct refused: " .. tostring(reason)) end
+    updatePanel()
+  end)
+  restoreButton = CreateFrame("Button", "CrowleyNativeConstructionRestore", panel, "UIPanelButtonTemplate")
+  restoreButton:SetSize(100, 28)
+  restoreButton:SetPoint("TOPLEFT", panel, "TOPLEFT", 112, -8)
+  setText(restoreButton, "Restore")
+  restoreButton:SetScript("OnClick", function()
+    local ok, reason = ns.Agent.Restore()
+    if not ok then ns.Print("recovery not admitted") end
+    updatePanel()
+  end)
+  updatePanel()
+  return panel
+end
+
+function Commands.Panel() return panel end
+function Commands.Refresh() updatePanel() end
+
+local function deferConstruction()
+  local current = marker()
+  if ns.Agent.Lifecycle() ~= "ordinary" or not ns.Agent.Surface() then return false, "ordinary_boot_unavailable" end
+  if current ~= nil then return false, "native_construction_already_set" end
+  if ns.Scanner.InProgress() then return false, "scan_active" end
+  if ns.Scanner.NativeConstructionFence and ns.Scanner.NativeConstructionFence() then return false, "native_construction_fence_active" end
+  if type(ns.SetNativeMarker) ~= "function" then return false, "marker_validation_unavailable" end
+  if type(ns.Scanner.SetNativeConstructionFence) ~= "function" then return false, "native_fence_unavailable" end
+  local fence = ns.Scanner.PreLogoutFenceStatus()
+  if fence.state ~= "inactive" then return false, "logout_fence_active" end
+  local token = ns.Agent.Boot()
+  if type(token) ~= "string" or token == "" then return false, "ordinary_boot_unavailable" end
+  local ok, reason = ns.SetNativeMarker({ schema = 1, state = "armed", token = token, attempts = 0 })
+  if not ok then return false, reason end
+  ns.Scanner.SetNativeConstructionFence(true)
+  ensurePanel()
+  return true
+end
+
+local function admitRelease()
+  local ok, reason = ns.Agent.AdmitRelease()
+  if ok then ensurePanel() end
+  return ok, reason
+end
 
 local function status()
   local house = ns.Context.House()
@@ -80,7 +185,16 @@ SlashCmdList.CROWLEY = function(msg)
     end
   elseif cmd == "agent" and not args[3] and ns.Agent then
     local ok, reason
-    if args[2] == "hold" then
+    if args[2] == "defer" then
+      ok, reason = deferConstruction()
+    elseif args[2] == "release" then
+      ok, reason = admitRelease()
+    elseif args[2] == "recover" then
+      ok, reason = ns.Agent.BeginRecovery()
+      if ok then updatePanel() end
+    elseif args[2] == "finalize" then
+      ok, reason = ns.Agent.Finalize()
+    elseif args[2] == "hold" then
       ok, reason = ns.Agent.Hold()
     elseif args[2] == "measure" then
       ok, reason = ns.Agent.Measure()
@@ -108,3 +222,7 @@ SlashCmdList.CROWLEY = function(msg)
     for _, line in ipairs(HELP) do ns.Print(line) end
   end
 end
+
+ns.On("ADDON_LOADED", function(_, name)
+  if name == "Crowley" and ns.db then ensurePanel() end
+end)
