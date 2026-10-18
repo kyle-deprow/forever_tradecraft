@@ -15,6 +15,10 @@ controller transitions or supplying calibration booleans does not prove an auton
 session. Exercise captured native file/event fixtures before requesting live input.
 Cover default service construction and its public calibration entrypoint.
 Required meters and providers must be wired without manual fixture assignment.
+For helper composition, drive the actual SessionDaemon/SessionIPC handlers;
+scripted client replies cannot establish that the three production modes compose.
+Pinned development dependencies permit offline composition before live acceptance;
+finish assigned composition tests instead of deferring them as parent verification.
 For restart checks, create a fresh driver and owner without process-local evidence.
 For owner-death tests, signal the actual helper owner PID, not its emitter child.
 Prove independent release and reservation cancellation while that owner is dead;

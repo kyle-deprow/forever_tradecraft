@@ -49,3 +49,10 @@ Extra MAIN writes ONLY executor-review/native-absence-fragments-r7-{closure.md,f
 DONE only when this bounded component and regression proof are complete. Parent
 tests plus Sol and actual CLI Opus source review remain required; no promotion,
 native100, human calibration or unattended qualification claim.
+
+Root verification amendment: if the full suites already passed the final R7
+PRODUCTION code and only the generated regression tests are added afterwards,
+run those new focused tests and freeze with honest pre/post-test-file hashes.
+Do not restart a second broad worker run solely for that test addition if it has
+not begun. Parent will run all three suites on the final complete bytes before
+acceptance. An already-running worker suite may finish; preserve every result.

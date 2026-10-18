@@ -29,7 +29,36 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct 18, 22:38 UTC:** native R6 fix1 froze 329 worker passes (411.78s),
+**Current Oct 18, 22:55 UTC:** R7 native candidate is frozen, worker330pass352.47s.
+Parent independently verified six-file fence/base/final/log hashes, scoped statics,
+and only classifier+related test delta from fix1 (other daemon AST/four files same).
+Focused parent 7pass7.90s includes actual compiled public PAUSED capture/default
+daemon, all-eight IPC/CLI routing and damaged/ordinary/generated absence checks.
+Parent FULL three suites ACTIVE session57825, private native-absence-fragments-r7-
+parent-20261018/{run.py,full-three-suites.log,result.json}. No final pass assumed.
+Sol native full-source review active (reused sol_final_composition_plan worker,
+report native-absence-fragments-r7-sol-review.md). Actual CLI Opus review ACTIVE
+session2839 PID2289998, resolved claude-opus-5-5; raw0600 JSONL remains private.
+Poll attached review at most30s; progress JSON has fresh events. Parentprecheck
+77406 CLOSED0. Lastpush31813 CLOSED0, main5829bc1. No source promotion/live gate.
+
+Helper final-composition froze source715138e5/test1f6d9137, worker51passes32.33s,
+but actual SessionDaemon/SessionIPC mode composition is ABSENT (zeroimports), so
+parent did NOT accept its "candidate complete" claim. Root wrote
+PLAN-native-operator-production-proofs.md and created matching tree from5829bc1,
+exact2finalhelper+6R7 PENDING-REVIEW development files copied/hashverified. Luna
+now owns onlyhelper+helpertests there, tests-first actualall3mode/publicAF_UNIX/
+compiledproducer/productionreadiness/ownedgate proof plus lostbootstrapexpiry
+regression. Do not defer assigned tests as "parent composition pending". Existing
+client-contract skill gained four concise lines for that mistake, validated.
+
+Scan60 parentverified UIDbeta-normal-alliance-1792362953-Arthur-0893,
+428observations2707rows402full26bounded allok,900sinterval24.372325sfinish-to-server,
+exactproductionPNG loadedACK. Luna reopenedAH22:45; scan61 started22:50:53 exact900s.
+Continue ordinary collection, finish pending native checks/reviews and actualhelper
+composition. No user calibration needed yet; no native100 or autonomous qualification.
+
+**Prior Oct 18, 22:38 UTC:** native R6 fix1 froze 329 worker passes (411.78s),
 but parent REJECTED its header-only classifier before another full suite/review.
 All-four-magic-byte damage is fixed; erasing the whole first physical row plus
 payload still incorrectly returns absence. Parent verified exact six-file fence,

@@ -1,0 +1,170 @@
+{
+  "authenticCodex": {
+    "path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "version": "0.162.1"
+  },
+  "baseCommit": "eb2c69ee2bd8aad8055abb90af294aac96d995b1",
+  "baseCommitSha256": {
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "changedFiles": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "checks": {
+    "finalThreeNativeSuites": {
+      "invocation": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=<candidate>/src /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-absence-fragments-r7-final-20261018/native-three-suites-final-generated-guard.log",
+      "logSha256": "b27d1a240b088d1d14f3cddab4313c8103421441ce92d57994b446c9ceddb789",
+      "result": "330 passed in 352.47s (0:05:52); exit_code=0"
+    },
+    "focusedGeneratedGuard": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k 'combined_header_payload or absence_fragment' --maxfail=1",
+      "result": "2 passed, 114 deselected in 1.79s; exit_code=0"
+    },
+    "focusedRetainedAndOrdinary": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k 'absence_fragment or absence_classifier' --maxfail=1",
+      "result": "4 passed, 112 deselected in 2.94s; exit_code=0"
+    },
+    "preGeneratedFinalSuites": {
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-absence-fragments-r7-final-20261018/native-three-suites-final.log",
+      "logSha256": "9821dba398a2ae8818b1e77aa887dfb3afd7c193858018c1f219aeb4c9d3ee41",
+      "result": "330 passed in 348.20s (0:05:48); exit_code=0",
+      "scope": "Final production classifier before generated-test-only amendment."
+    },
+    "scopedStatic": {
+      "invocation": "ruff format/check, python -m py_compile, git diff --check over exact six-file fence",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-absence-fragments-r7-final-20261018/scoped-statics-final.log",
+      "logSha256": "ef52491033e141c3155544a71cb5d144d629277dadeb632909fbdd17ec1cbde8",
+      "result": "ruff format --check passed; ruff check passed; py_compile passed; git diff --check passed; exit_code=0"
+    }
+  },
+  "finalSha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "e36b11f88f2385d4221cb870afe357c0a0980d7681cc6f09e20a1936b460490d",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "b41d10014bac75b1f36c47c3ad5f5718bfe71a7648fbb82658bef89b6b7208e7",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "fragmentRule": {
+    "alignedByteCells": 8,
+    "evidence": "any complete aligned group of eight exact-flat cells containing both black and white values",
+    "globalPercentage": false,
+    "headerIndependent": true,
+    "logicalCellPhysicalSize": "2x2"
+  },
+  "generatedCoverage": [
+    "one-byte magic erasure plus >10% payload occlusion",
+    "all four magic-byte erasure plus >10% payload occlusion",
+    "whole first physical row erasure plus >10% payload occlusion",
+    "complete 26-byte header erasure plus >10% payload occlusion",
+    "malformed size/mode, binary loading, and ordinary grayscale/color positives"
+  ],
+  "incompleteItems": [
+    "Parent independent verification and final source review remain pending.",
+    "Sol review and actual CLI Opus review remain pending.",
+    "No deployment, live qualification, promotion, or unattended native claim is made."
+  ],
+  "ownedChanges": [
+    "src/crowley/session/daemon.py::_strict_native_absence_image",
+    "tests/test_session_native_regressions.py::absence-fragment-regressions"
+  ],
+  "preservedR6Coverage": "All prior public IPC/CLI/predecessor/barrier/durable/compiled producer tests remain in final three suites.",
+  "privateEvidence": {
+    "directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-absence-fragments-r7-final-20261018",
+    "directoryMode": "0700",
+    "logModes": "0600",
+    "logs": {
+      "native-three-suites-final-generated-guard.log": {
+        "mode": "0o600",
+        "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-absence-fragments-r7-final-20261018/native-three-suites-final-generated-guard.log",
+        "sha256": "b27d1a240b088d1d14f3cddab4313c8103421441ce92d57994b446c9ceddb789"
+      },
+      "native-three-suites-final.log": {
+        "mode": "0o600",
+        "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-absence-fragments-r7-final-20261018/native-three-suites-final.log",
+        "sha256": "9821dba398a2ae8818b1e77aa887dfb3afd7c193858018c1f219aeb4c9d3ee41"
+      },
+      "scoped-statics-final.log": {
+        "mode": "0o600",
+        "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-absence-fragments-r7-final-20261018/scoped-statics-final.log",
+        "sha256": "ef52491033e141c3155544a71cb5d144d629277dadeb632909fbdd17ec1cbde8"
+      }
+    },
+    "runtimeMode": "0700"
+  },
+  "retainedNegatives": [
+    {
+      "classifier": false,
+      "decoder": "ProtocolError",
+      "file": "black-loading.png",
+      "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+    },
+    {
+      "classifier": false,
+      "decoder": "ProtocolError",
+      "file": "encoded-header-and-payload-occlusion.png",
+      "sha256": "d28917c2061dfb5f28ac28275d1e3a05c2f318e252e9d121d264c233408054ed"
+    },
+    {
+      "classifier": false,
+      "decoder": "ProtocolError",
+      "file": "encoded-entire-magic-and-payload-occlusion.png",
+      "sha256": "f28413cf71925638edda9f45ab2f775b84a94a8c33210af0bcd47f8af5e01e06"
+    },
+    {
+      "classifier": false,
+      "decoder": "ProtocolError",
+      "file": "encoded-whole-first-row-and-payload-occlusion.png",
+      "sha256": "87d321bbe2e04c99da66c238c58405de3f16b75f33eb0e98f82d9bcda25d0b6e"
+    }
+  ],
+  "retainedOrdinaryAvailability": [
+    {
+      "classifier": true,
+      "file": "ordinary-game-region-1.png",
+      "qualification": "ordinary non-Agent game-region availability check only",
+      "sha256": "e6a047dd6817af06aef7b803370ea2a73433bbb0bf1eb51e42e5c94445eed9b6"
+    },
+    {
+      "classifier": true,
+      "file": "ordinary-game-region-2.png",
+      "qualification": "ordinary non-Agent game-region availability check only",
+      "sha256": "7e92d021419f1548e77ba13dd29384b89d7557d4cb317a199dc92b5c7cd8ac6e"
+    },
+    {
+      "classifier": true,
+      "file": "ordinary-game-region-3.png",
+      "qualification": "ordinary non-Agent game-region availability check only",
+      "sha256": "73bb8d6700dbc9c86629cedf992833458ebe16c6f144f8c1312000af82a2f64b"
+    },
+    {
+      "classifier": true,
+      "file": "ordinary-game-region-4.png",
+      "qualification": "ordinary non-Agent game-region availability check only",
+      "sha256": "8af8b29fde3237066cb936d87766bf9e0b93dd0c4161af0a76a68c2c2091e801"
+    }
+  ],
+  "schema": 1,
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "status": "r7_candidate_pending_parent_verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-absence-fragments-r7-20261018"
+}

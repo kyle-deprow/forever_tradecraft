@@ -1,0 +1,18 @@
+{
+  "status": "candidate_complete_development_only",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-operator-final-composition-20261018",
+  "base": "03258f3",
+  "owned_files": {
+    "tools/native_calibration_operator.py": "715138e50b600c08aac4c348831ce550328051e90a50703f1256d3f304f9e03e",
+    "tests/test_native_calibration_operator.py": "1f6d9137b6704a79d43d52393b357d0e7feb55ed2385f7568f61465800c02013"
+  },
+  "checks": {
+    "helper_private_xdg": "51 passed, 2 warnings, 32.33s",
+    "ruff_check": "passed",
+    "ruff_format_check": "passed",
+    "python_compileall": "passed"
+  },
+  "development_dependencies_match_initial_manifest": true,
+  "qualified": false,
+  "live": false
+}
