@@ -1,0 +1,119 @@
+{
+  "kind": "parent-native-r7-suite-verification",
+  "returncode": 0,
+  "elapsed_seconds": 345.45,
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-q",
+    "-x",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "cwd": "/home/dev/.cache/crowley/worktrees/native-absence-fragments-r7-20261018",
+  "import_origins": [
+    "/home/dev/.cache/crowley/worktrees/native-absence-fragments-r7-20261018/src/crowley/session/daemon.py",
+    "/home/dev/.cache/crowley/worktrees/native-absence-fragments-r7-20261018/src/crowley/session/controller.py",
+    "/home/dev/.cache/crowley/worktrees/native-absence-fragments-r7-20261018/src/crowley/session/cli.py"
+  ],
+  "private_xdg_mode": "0o700",
+  "cli_version": "codex-cli 0.162.1",
+  "cli_sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+  "source_hashes": {
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "e36b11f88f2385d4221cb870afe357c0a0980d7681cc6f09e20a1936b460490d",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "b41d10014bac75b1f36c47c3ad5f5718bfe71a7648fbb82658bef89b6b7208e7",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "log_sha256": "bd9b8f95ee6eb11a22c80262119fd4e0d8bf3a19033d05504ede8048f68b2c3b",
+  "precheck": {
+    "kind": "parent-native-r7-precheck",
+    "source_hashes": {
+      "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+      "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+      "src/crowley/session/daemon.py": "e36b11f88f2385d4221cb870afe357c0a0980d7681cc6f09e20a1936b460490d",
+      "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+      "tests/test_session_native_regressions.py": "b41d10014bac75b1f36c47c3ad5f5718bfe71a7648fbb82658bef89b6b7208e7",
+      "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+    },
+    "fence_base_worker_log_hashes": "verified",
+    "r7_delta": "Only pure classifier and directly related tests; other daemon AST and four files unchanged from frozen fix1",
+    "checks": [
+      {
+        "command": [
+          "/home/dev/repos/pegasus/.venv/bin/ruff",
+          "check",
+          "src/crowley/session/controller.py",
+          "src/crowley/session/daemon.py",
+          "src/crowley/session/cli.py",
+          "tests/test_session_native.py",
+          "tests/test_session_native_regressions.py",
+          "tests/test_session_transitions.py"
+        ],
+        "returncode": 0,
+        "seconds": 0.016,
+        "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+        "summary": [
+          "All checks passed!"
+        ]
+      },
+      {
+        "command": [
+          "/home/dev/repos/pegasus/.venv/bin/ruff",
+          "format",
+          "--check",
+          "src/crowley/session/controller.py",
+          "src/crowley/session/daemon.py",
+          "src/crowley/session/cli.py",
+          "tests/test_session_native.py",
+          "tests/test_session_native_regressions.py",
+          "tests/test_session_transitions.py"
+        ],
+        "returncode": 0,
+        "seconds": 0.016,
+        "log_sha256": "ef7d13d02214e98ca902b05257cdbe6a8e84f3b4714508efdc19766460b54209",
+        "summary": [
+          "6 files already formatted"
+        ]
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "returncode": 0,
+        "seconds": 0.032,
+        "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "summary": []
+      },
+      {
+        "command": [
+          "/home/dev/repos/pegasus/.venv/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "-x",
+          "tests/test_session_native.py",
+          "tests/test_session_native_regressions.py",
+          "tests/test_session_transitions.py",
+          "-k",
+          "compiled_region_composes_through_default_daemon_and_stock_model or absence_classifier or absence_fragment or native_construction_cli_argparse_roundtrips_all_eight_commands or native_construction_ipc_routes_all_eight_shapes"
+        ],
+        "returncode": 0,
+        "seconds": 8.228,
+        "log_sha256": "1477059ee29500e7bad30a913dd51af78c5f30ff1a3da9cb05148d49cb8b620c",
+        "summary": [
+          ".......                                                                  [100%]",
+          "7 passed, 323 deselected in 7.90s"
+        ]
+      }
+    ]
+  },
+  "full_summary": "330 passed in 345.13s (0:05:45)",
+  "qualification": "Independent offline native source checks pass; source reviews pending and preliminary finalize/cancel race identified. No deployment or live acceptance."
+}

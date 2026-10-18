@@ -29,7 +29,33 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct 18, 22:55 UTC:** R7 native candidate is frozen, worker330pass352.47s.
+**Current Oct 18, 23:03 UTC:** parent R7 full330passes345.13s, session57825CLOSED0,
+full logSHA bd9b8f95ee6eb11a22c80262119fd4e0d8bf3a19033d05504ede8048f68b2c3b.
+Parent verification JSON retained. Sol fullsource review complete NEEDS WORK,
+two Musts parent independently accepted: finalize wait/commit not exact-owner
+atomic against same-generation cancel; optional no-producer PAUSED stock capture
+returns before controller/capability gate. No Should/Nits. Root wrote
+PLAN-native-final-commit-r8.md, new native-final-commit-r8-20261018 from7ac5c85
+with exact6R7files. Luna owns same6fence, focused two corrections/barriers first;
+NO broad final suite until root sends final Opus arbitration. R7 stays frozen.
+Opus R7 actualreview stillACTIVE session2839 PID2289998/claude-opus-5-5, fresh
+events/no stall; poll <=30s. No sourcepromotion/liveattempt. Mainlastpushed7ac5c85.
+
+Sol report originally guessed "Model: GPT-6" despite explicit gpt-5.6-sol request.
+Root preserved original0600 as R7parent/original-sol-review.md (SHA8e14fb32c2f98126
+b1d5c08b20f3a3c04b0b1be028b75fc2fbf26b616c15d229) and corrected curated firstline
+to requested-model-only, no resolved runtime claim (SHA09775eed6012cb68af96eb1e6
+ac98bbb4e994cfad01f6509609e58db024bc8e7). Findings unchanged. Actual Opus model
+is independently present in CLI system metadata; do not infer IDs from prose.
+
+Helper production-proofs Luna active in its separate2file tree, no result yet;
+six R7 deps remain pending-source-review developmentinputs. SoleGUI scan61 parent
+verified: UIDbeta-normal-alliance-1792363853-Arthur-0139,428obs2698rows404full24bounded
+allok,900sinterval19.54343sfinish-to-server/exactPNGloadedACK. Reopened23:00:08;
+nextdue23:05:53. Latestbackup22:12 snapshot; nexthourlydue23:12. Continue until
+genuine user calibration or actual repeating-system completion, not statusfinal.
+
+**Prior Oct 18, 22:55 UTC:** R7 native candidate is frozen, worker330pass352.47s.
 Parent independently verified six-file fence/base/final/log hashes, scoped statics,
 and only classifier+related test delta from fix1 (other daemon AST/four files same).
 Focused parent 7pass7.90s includes actual compiled public PAUSED capture/default
