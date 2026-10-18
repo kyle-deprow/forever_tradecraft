@@ -1,0 +1,105 @@
+{
+  "schema": 1,
+  "kind": "identity-latency-after-filter-binding-adjudication",
+  "status": "FAIL_INCOMPLETE_COMPARISON",
+  "source_commit_restored": "fe439243afdb7e2fd0ba8244819eac2fa9086761",
+  "source_binding_restored": {
+    "cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739",
+    "driver.py": "ca0ca123d0fa09d8361c8632d9cc1c2c501d87adf99cb3cc268688dd4291a166",
+    "offline_harness.py": "f682d85636b0073a8fd7e8330a6ae06ba7542d2cb9b7ccc74a1304ea856d7716",
+    "protocol.py": "cf13dedd7a37e553ac799b87dd5429cc29b5910483661f994ffdec3b38a74d2f",
+    "session_performance.py": "c46cae849058005e9b7387ef95c34f40f376afb5477739efaf6f40f6a36ebd8c"
+  },
+  "input_proofs": {
+    "plans": {
+      ".archive/PLAN-process-matching-cost.md": "6556e5255e247d0989a90dc4c8892a63c97147873876d42c3e82100760a90520",
+      ".archive/PLAN-process-matching-cost-implementation.md": "6105f139727fd484b105775ab79362e2e3f516396d9ec3cb697fb47afd90e749"
+    },
+    "before_summary": {
+      "path": ".archive/executor-review/identity-latency-live-20261018-summary.json",
+      "sha256": "ee1e53b16ed6dfde83fd32399405fb97248007ffc3cc07fdcac0367538601a77"
+    },
+    "after_private_evidence": {
+      "directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/identity-latency-after-filter-binding-20261018",
+      "manifest.json": "96befc049d2bc2a12597947aa9d0b6aa625b6919d290673c87a6320cadbbdf75",
+      "report.json": "0f50ba263dd64ee08b1fbc77dffac955a423978dfcd8402755777abedb0f5ffd",
+      "responses/response-00.json": "f6b420ea4955d2489c244c7cc259de70daa7d33a1d871980fe109a7c62cf2447",
+      "responses/response-01.json": "e1e2e420d847f5a0a1d2e2ebb04ca602bec4b5d1c81f189e9c87106266af746",
+      "responses/response-02.json": "5018e53ae457f73a84c6cf5d0435da1ed55c5a15a492c82c4b0b60aa0f7ef71a"
+    },
+    "rollback_manifest": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/identity-latency-rollback-binding-20261018/manifest.json",
+      "sha256": "5a3e3311bbc5f4f601a906b637857a9de88160f357183512027006e5b929c67a",
+      "directory_mode": "0700",
+      "file_mode": "0600"
+    }
+  },
+  "unchanged_bindings": {
+    "config_file_sha256": "0dde50b95ad0e992a53d3cfa86e02cbba7e60af2d6d722db86804bb77c12c3a1",
+    "config_semantic_sha256": "947d61e13809a38509c64ecead709b9dbac12fc779d2f2871eb27ba51a8af96e",
+    "producer_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396"
+  },
+  "before": {
+    "requests": 3,
+    "failure_phase": "owner_post_capture_check",
+    "barriers_reached_per_request": 4,
+    "process_match_span_count": 12,
+    "process_match_medians_ms": {
+      "daemon_pre": {"count": 3, "owner_thread_cpu": 105.277835, "wall": 105.547809},
+      "backend_pre": {"count": 3, "owner_thread_cpu": 105.033735, "wall": 105.78996},
+      "backend_post": {"count": 3, "owner_thread_cpu": 102.839772, "wall": 103.143155},
+      "daemon_post": {"count": 3, "owner_thread_cpu": 102.949214, "wall": 103.064664}
+    },
+    "outer_barrier_wall_medians_ms": {
+      "daemon_pre": 205.417545,
+      "backend_pre": 220.341799,
+      "backend_post": 209.997101,
+      "daemon_post": 153.203318
+    },
+    "pooled_process_match": {"count": 12, "owner_thread_cpu_median_ms": 103.158364, "wall_median_ms": 103.625733}
+  },
+  "after": {
+    "requests": 3,
+    "responses_ok": 0,
+    "failure_phase": "region_capture",
+    "artifact_status": "partial",
+    "binding_consistent": true,
+    "barriers_reached_per_request": {"daemon_pre": 3, "backend_pre": 3},
+    "barriers_not_reached_per_request": {"backend_post": 3, "daemon_post": 3},
+    "process_match_span_count": 6,
+    "process_match_medians_ms": {
+      "daemon_pre": {"count": 3, "owner_thread_cpu": 34.100135, "wall": 35.375467},
+      "backend_pre": {"count": 3, "owner_thread_cpu": 33.187342, "wall": 40.059847},
+      "backend_post": {"count": 0, "owner_thread_cpu": null, "wall": null},
+      "daemon_post": {"count": 0, "owner_thread_cpu": null, "wall": null}
+    },
+    "outer_barrier_wall_medians_ms": {
+      "daemon_pre": 259.414393,
+      "backend_pre": 370.734902,
+      "backend_post": null,
+      "daemon_post": null
+    },
+    "pooled_process_match_descriptive_only": {
+      "before_count": 12,
+      "after_count": 6,
+      "before_owner_thread_cpu_median_ms": 103.158364,
+      "after_owner_thread_cpu_median_ms": 33.6437385,
+      "observed_difference_percent": 67.38632022120863,
+      "unequal_barrier_count": true
+    }
+  },
+  "adjudication": {
+    "result": "FAIL",
+    "reason": "All three after-filter requests failed in region_capture and reached only two of four required fresh barriers; the required four-barrier median comparison is incomplete.",
+    "causal_regression_claim": false,
+    "rust_trigger_claim": false,
+    "new_samples_authorized": false
+  },
+  "verification_outputs": {
+    "rollback_source_hashes": "all seven current source blobs matched the fresh rollback manifest",
+    "rollback_config_hashes": "raw, semantic, and producer hashes matched the retained manifest",
+    "evidence_read": "retained manifest/report/responses only; no response error or sensitive config value was emitted"
+  }
+}

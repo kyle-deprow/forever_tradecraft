@@ -1,0 +1,68 @@
+{
+  "task": "native-addon-admission-ordinary-closure",
+  "status": "frozen",
+  "base": "3f43d8f40aa17035409a87c4718e1f34a888ff65",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-addon-construction-final-20261018",
+  "plan_sha256": "9280483547da67d54cea8a6a5f8135484660e9edc00351b9124f5a72a702a48a",
+  "opus_r3_sha256": "1d066176f78507cb60752494ffab65f854b14cb88c074c2c9c863974fd746463",
+  "r4_freeze_sha256": "4cb57c22f60cbb24f161ec306f48efdacd2ef762f57a956f4c9e16203695ac5b",
+  "source_delta_from_r4": [
+    "addon/Crowley/Agent.lua",
+    "tests/test_addon.py"
+  ],
+  "scope": [
+    "addon/Crowley/Core.lua",
+    "addon/Crowley/Scanner.lua",
+    "addon/Crowley/Agent.lua",
+    "addon/Crowley/Commands.lua",
+    "tests/wow_harness.py",
+    "tests/test_addon.py",
+    "tests/test_companion.py",
+    "tests/fixtures/native-construction-unknown-savedvars.lua"
+  ],
+  "sha256": {
+    "addon/Crowley/Core.lua": "3bf29b1c09f347d60e8fe6a5e8a4a8ef9aba37ff571d900bd9853159112f09b6",
+    "addon/Crowley/Scanner.lua": "ae16a58c870adf564f1bea691d53aea1bc326867affabd98827a5c447ae540f9",
+    "addon/Crowley/Agent.lua": "5860ddb7c27d22b00d8abdfcb3fa2a26fadbaee198098214e20fcbdc7c38dd0d",
+    "addon/Crowley/Commands.lua": "c68d2d25cb114b731d4986a6704027e4592bcbe46e385f276895fba23d885da2",
+    "tests/wow_harness.py": "c9f7accbd2c629ec256e2f439111d29a4c4f4706ec01ce0b925de1482745342e",
+    "tests/test_addon.py": "31b6ef818b53f034db9f886ad4df4cdccdded86a679e3942af92073f401a174d",
+    "tests/test_companion.py": "f0859966ce8afdb11219f7bd7a97e21143de5386e9c3d33ef8bf7de5da0b9793",
+    "tests/fixtures/native-construction-unknown-savedvars.lua": "5ecd62d324293ad040aa0910754179d988a58f73c3b8f5c38f7fe94c8ac09033"
+  },
+  "fixes": [
+    "BeginRecovery now refuses only an actual in-load restore attempt or restore_pending lifecycle, so malformed raw restore_pending markers remain recoverable through the fixed slash actor and Restore callback until canonicalization.",
+    "Accepted recovery immediately rearms the private native fence and refreshes the existing Commands panel; the next periodic frame projects the strict armed empty-reason fence.",
+    "Ordinary startup retains its allocated surface and OnUpdate callback after a transient first publication failure, using safePublish so the next periodic update retries and strictly decodes; constructor allocation failures remain loud restore-only refusals."
+  ],
+  "verification": [
+    {
+      "command": "uv run pytest -q tests/test_addon.py tests/test_companion.py --maxfail=1",
+      "result": "242 passed in 30.40s"
+    },
+    {
+      "command": "uv run pytest -q tests/test_session.py -k 'lua_frame_roundtrips_through_pixel_packer_and_python_decoder or lua_atlas_rasterizes_the_actual_surface_and_decodes' --maxfail=1",
+      "result": "4 passed, 63 deselected in 2.49s"
+    },
+    {
+      "command": "uv run ruff check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "All checks passed"
+    },
+    {
+      "command": "uv run ruff format --check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "3 files already formatted"
+    },
+    {
+      "command": "python3 -m compileall -q tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "limitations": [
+    "The offline Lua harness and compiled atlas/frame checks exercise source and serialization boundaries; live client templates, pixels, callbacks, and ReloadUI remain separate live qualification gates.",
+    "No main source, daemon/helper, GUI, deployment, service, config, or game changes were made."
+  ]
+}

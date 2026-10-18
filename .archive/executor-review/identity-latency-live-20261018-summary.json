@@ -1,0 +1,199 @@
+{
+  "kind": "parent-live-identity-latency-diagnostic",
+  "source_commit": "fe43924",
+  "manifest_sha256": "5a3e3311bbc5f4f601a906b637857a9de88160f357183512027006e5b929c67a",
+  "report_sha256": "5108a15568d243da2bcb777a6951014733ecf0f1e426ba5659b9ef3292d81a01",
+  "request_count": 3,
+  "deadline_seconds": 1.0,
+  "failure_evidence_grace_seconds": 0.25,
+  "controller": "PAUSED/repeat/generation21",
+  "samples": [
+    {
+      "ordinal": 0,
+      "response_sha256": "90f1cd9c0dec30cae0cb29b8232b1cf8da735ece39d6a63c1540b8af6f346264",
+      "artifact_sha256": "25f49582e14ca8424145d468084db68cdb38d45c4d425be36679340c99ff5213",
+      "response_ok": false,
+      "binding_consistent": true,
+      "artifact_status": "partial",
+      "event_count": 80,
+      "events_truncated": true,
+      "failure_phase": "owner_post_capture_check",
+      "deadline_error_observed": true,
+      "barriers": [
+        {
+          "name": "daemon_pre",
+          "duration_ms": 212.254904,
+          "outcome": "ok"
+        },
+        {
+          "name": "backend_pre",
+          "duration_ms": 207.578457,
+          "outcome": "ok"
+        },
+        {
+          "name": "backend_post",
+          "duration_ms": 221.673097,
+          "outcome": "ok"
+        },
+        {
+          "name": "daemon_post",
+          "duration_ms": 104.708364,
+          "outcome": "deadline"
+        }
+      ],
+      "process_match_spans": [
+        {
+          "barrier": "daemon_pre",
+          "wall_ms": 112.244427,
+          "owner_thread_cpu_ms": 111.70299,
+          "owner_process_cpu_ms": 111.70414
+        },
+        {
+          "barrier": "backend_pre",
+          "wall_ms": 102.21907,
+          "owner_thread_cpu_ms": 101.237703,
+          "owner_process_cpu_ms": 101.496453
+        },
+        {
+          "barrier": "backend_post",
+          "wall_ms": 116.677572,
+          "owner_thread_cpu_ms": 115.39388,
+          "owner_process_cpu_ms": 115.39492
+        },
+        {
+          "barrier": "daemon_post",
+          "wall_ms": 104.108311,
+          "owner_thread_cpu_ms": 103.367514,
+          "owner_process_cpu_ms": 103.398564
+        }
+      ]
+    },
+    {
+      "ordinal": 1,
+      "response_sha256": "7e7eda42df3c1e93be7f7e4a142a653f4e05fcc4a88907d80df129270b5260bb",
+      "artifact_sha256": "e6d9deb2c18c360e8767972780d2a877438f64213156bf86fbe77d5db54ee190",
+      "response_ok": false,
+      "binding_consistent": true,
+      "artifact_status": "partial",
+      "event_count": 83,
+      "events_truncated": true,
+      "failure_phase": "owner_post_capture_check",
+      "deadline_error_observed": true,
+      "barriers": [
+        {
+          "name": "daemon_pre",
+          "duration_ms": 205.417545,
+          "outcome": "ok"
+        },
+        {
+          "name": "backend_pre",
+          "duration_ms": 220.341799,
+          "outcome": "ok"
+        },
+        {
+          "name": "backend_post",
+          "duration_ms": 209.997101,
+          "outcome": "ok"
+        },
+        {
+          "name": "daemon_post",
+          "duration_ms": 153.203318,
+          "outcome": "failed"
+        }
+      ],
+      "process_match_spans": [
+        {
+          "barrier": "daemon_pre",
+          "wall_ms": 105.547809,
+          "owner_thread_cpu_ms": 105.277835,
+          "owner_process_cpu_ms": 105.279205
+        },
+        {
+          "barrier": "backend_pre",
+          "wall_ms": 112.842879,
+          "owner_thread_cpu_ms": 111.557359,
+          "owner_process_cpu_ms": 111.80526
+        },
+        {
+          "barrier": "backend_post",
+          "wall_ms": 103.143155,
+          "owner_thread_cpu_ms": 102.839772,
+          "owner_process_cpu_ms": 102.842122
+        },
+        {
+          "barrier": "daemon_post",
+          "wall_ms": 103.064664,
+          "owner_thread_cpu_ms": 102.949214,
+          "owner_process_cpu_ms": 102.949714
+        }
+      ]
+    },
+    {
+      "ordinal": 2,
+      "response_sha256": "f134ea9d7f2b82cb1993ba96ea6ad3a9c8876a2531d97edaadba4f393c2f69f7",
+      "artifact_sha256": "645a30af0dddbd5c899ecbdf4303afdd811777b674d3e5b89a3aa2daed9343b9",
+      "response_ok": false,
+      "binding_consistent": true,
+      "artifact_status": "partial",
+      "event_count": 85,
+      "events_truncated": true,
+      "failure_phase": "owner_post_capture_check",
+      "deadline_error_observed": true,
+      "barriers": [
+        {
+          "name": "daemon_pre",
+          "duration_ms": 193.288786,
+          "outcome": "ok"
+        },
+        {
+          "name": "backend_pre",
+          "duration_ms": 222.658822,
+          "outcome": "ok"
+        },
+        {
+          "name": "backend_post",
+          "duration_ms": 195.253037,
+          "outcome": "ok"
+        },
+        {
+          "name": "daemon_post",
+          "duration_ms": 182.144972,
+          "outcome": "failed"
+        }
+      ],
+      "process_match_spans": [
+        {
+          "barrier": "daemon_pre",
+          "wall_ms": 94.188754,
+          "owner_thread_cpu_ms": 94.151877,
+          "owner_process_cpu_ms": 94.153477
+        },
+        {
+          "barrier": "backend_pre",
+          "wall_ms": 105.78996,
+          "owner_thread_cpu_ms": 105.033735,
+          "owner_process_cpu_ms": 105.264276
+        },
+        {
+          "barrier": "backend_post",
+          "wall_ms": 92.933506,
+          "owner_thread_cpu_ms": 91.588094,
+          "owner_process_cpu_ms": 91.588964
+        },
+        {
+          "barrier": "daemon_post",
+          "wall_ms": 96.703158,
+          "owner_thread_cpu_ms": 96.100049,
+          "owner_process_cpu_ms": 96.100709
+        }
+      ]
+    }
+  ],
+  "limits": [
+    "Instrumented three single requests, not schema-2 qualification or an uninstrumented benchmark.",
+    "All profiles partial and event traces truncated; four barrier records remain independently available.",
+    "Nested event/barrier durations must not be added.",
+    "CPU is owner-thread/process only; external child CPU remains unmeasured.",
+    "No Rust trigger or autonomous qualification is established by these diagnostics."
+  ]
+}

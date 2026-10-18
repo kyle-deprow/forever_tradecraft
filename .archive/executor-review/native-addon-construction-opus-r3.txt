@@ -1,0 +1,74 @@
+Resolved model: claude-opus-5-5
+Model ID: **`claude-opus-5-5`**
+
+# Native addon R3 closure review (read-only)
+
+R3 closes nearly all of the R1 Opus and Sol findings and both defects the parent reproduced. Two new defects remain, both small to fix: one recovery deadlock, and one out-of-scope change to ordinary loads.
+
+**Scope check:**
+- **Candidate:** HEAD is `3f43d8f`, and all 8 file hashes match the R3 freeze.
+- **Fence:** `git status` shows exactly the 7 modified fenced files plus the new fixture, nothing outside the fence.
+- **Reference hashes:** the R3 plan, Opus R1, Sol R1 and R2 freeze hashes all match.
+- **Load order:** the TOC loads Core, then Scanner, then Agent, then Commands, which is the order the design relies on.
+- **What I did:** I read the code; I ran no tests, edits, builds or git mutations, and used no subagents. I relied on the parent's and worker's reported test results.
+
+## Must
+
+1. **A malformed marker in the `restore_pending` state can never be recovered** (`Agent.lua:536`).
+   - **Cause:** `BeginRecovery` refuses whenever the raw saved marker's state is `restore_pending`.
+   - **When it happens:** at load, a valid `restore_pending` marker is always cleared, or rewritten to `failed`. So in a fresh load, a raw `restore_pending` marker can only be a malformed one.
+   - **Failure case:** take the matrix's own `recovery-uppercase` case (`test_addon.py:405`). Core maps it to restore-only and the scanner stays fenced. `/crowley agent recover` then returns `recovery_pending` every time, and Restore says "recovery not admitted" every time. The only way out is a manual SavedVariables edit, which breaks the rule that malformed markers stay restore-only.
+   - **Correction:** refuse only on in-load state (`restoreInFlight or lifecycle == "restore_pending"`). Extend the malformed matrix so it asserts that `slash("agent recover")` followed by a Restore click writes a valid `restore_pending` marker and calls reload.
+
+2. **A failed first ordinary publication now disables telemetry for the whole load** (`Agent.lua:738-743`).
+   - **Before:** the base code printed `agent telemetry blocked` and the 1 Hz OnUpdate retried within about a second.
+   - **Now:** one failed publication at `ADDON_LOADED` tears down the surface and sets the lifecycle to `restore_only`. `defer` is then refused and the panel shows a Restore button that `recover` rejects.
+   - **Why it's out of scope:** closure item 4 and the adjudication cover only Construct and the restore load. Stage B says "Ordinary addon behavior remains externally the same after `ADDON_LOADED`" and "preserve ordinary initial publication".
+   - **Risk:** I can't confirm offline whether this triggers live. The strict position, facing and binding checks run at `ADDON_LOADED` after each fresh login in the session controller's logout/login cycle. Any brief failure there would now cost the whole session's HUD frames.
+   - **Correction:**
+     - In the ordinary branch, keep the surface, then call `attachSurfaceScript()` and `safePublish()` as before.
+     - Keep the printed constructor-failure path.
+     - Replace `test_addon.py:640` with a case where the first publication fails transiently and a later `update_agent` frame decodes.
+
+## Should
+
+1. **After a post-Finalize `recover`, the scanner is blocked but the frame says it isn't** (`Agent.lua:539-541`, `Scanner.lua:47-65`).
+   - `recover` sets the lifecycle to `restore_only`. Finalize has already cleared the private fence (`Agent.lua:641`).
+   - So `nativeBlocked()` is true, and Schedule, Start and the session fence all refuse with `native_construction_fence`. Yet every frame projects the fence as `inactive`.
+   - Stage B requires the projection to be armed when either cause is armed. Restore re-arms it (`:609`), but nothing does if Restore is never clicked.
+   - **Correction:** arm the native fence when `BeginRecovery` accepts, and assert the projected fence in the existing post-Finalize test.
+
+2. **Test gaps against plan item 6 and the accepted Shoulds.** The code is correct by inspection for each of these; only the tests are missing.
+   - No test that the schedule is re-armed when the native fence is released with the auction house open (`Scanner.lua:67-71`), after either Finalize or a restore load.
+   - No test that `defer` is refused under an armed logout fence (`Commands.lua:103-104`).
+   - `test_addon.py:671` toggles the Scanner fence directly and never checks that nothing gets scheduled.
+   - The malformed matrix is missing four invalid state/attempt pairs: `deferred/1`, `constructing/0`, `failed/0` and `restore_pending/1`.
+   - The matrix also lacks a valid 64-byte token and recovery tokens of 23 or 25 hex characters.
+   - No test that Resume from `held/0` followed by Finalize is refused with `finalize_requires_resume`.
+
+## Nits
+
+- `Commands.lua:84-85` prints "recovery not admitted" for every refusal, including `reload_unavailable`, and `test_addon.py:653-668` locks that in.
+- The underlying error text is still thrown away (`Agent.lua:557,568`), and a failed restore load prints nothing (`:759-789`).
+- After an ordinary constructor failure, the panel shows an enabled Restore (`Commands.lua:48`) that `BeginRecovery` refuses (`Agent.lua:539`).
+- The decode test (`test_addon.py:502-551`) never checks the frame's boot field:
+  - the Construct and Finalize frames should carry `native-construction:<B0>`;
+  - the restored frame's boot should differ from B0.
+
+## What R3 verifiably fixes
+
+- **Recovery entry point:** recovery now goes through the fixed no-argument slash command and refreshes the panel. Extra arguments and Restore clicks before the command do nothing, and post-Finalize recovery works.
+- **Strict wire:** frames decode strictly after defer, Construct, Hold/Measure/Resume, Finalize and the restore reload. The native fence projects as armed with an empty reason, and public status stays ready/scheduled.
+- **1 Hz publisher:** OnUpdate attaches after Construct and keeps publishing after Finalize.
+- **Non-table markers:** handled as restore-only without crashing.
+- **Controls:** both are explicitly enabled or disabled, and the fallback timer is bound to the nonce, the load and the attempt. A second attempt can't start while the first timer is pending, so the R2 stale-timer defect can no longer happen through real clicks. A successful restore load hides the panel.
+- **Failed first publication:** cleanup is transactional for Construct and the restore load.
+- **Buttons and harness:** both buttons use `UIPanelButtonTemplate`, and the harness asserts the template and refuses clicks on hidden or disabled controls.
+- **Earlier Shoulds:** the vacuous `PLAYER_LOGOUT` line is gone, and Resume from `held/0` works again.
+
+Live button pixels and callbacks, `ReloadUI`, and template availability on the real client are still future live checks; these offline tests don't prove them.
+
+The review is also saved in the plan file at `/home/dev/.claude/plans/state-exact-model-id-iterative-meteor.md`.
+
+STATUS: NEEDS WORK
+CLAUDE_EXIT:0

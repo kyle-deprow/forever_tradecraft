@@ -29,6 +29,35 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Current Oct18 at18:20UTC:** recovery restored ordinary operator-assisted collection.
+Sweep41 is parent-verified:428 observations/2738rows,395full33bounded,31.911236s upload.
+Sweep42 is parent-verified:428observations/2710rows,397full30bounded1incomplete
+(query_timeout), exact900s start interval,34.568856s upload and exact loadedACK/
+pending0 independently decoded from its retained PNG. The cached launcher recovery
+succeeded; Arthur remains at IF AH, sole GUI agent luna_live_continuation.
+
+Profiler is accepted/pushed in fe43924. Three paused diagnostic singles reached
+four identity barriers but missed the existing deadline. An exact-candidate-first
+process matcher passed parent33tests/Sol/actualOpus source review; its separately
+bound three live comparisons reduced observed proc-match CPU but reached only two
+barriers and failed earlier at region_capture. The frozen gate therefore FAILED;
+root restored exact fe439 driver/tests and restarted once under sole-operator quiet.
+Current service PID882745, PAUSED/repeat/gen23, native/inputfalse, operationidle.
+Rollback parent26tests9.87s+statics passed; fresh rollback source/config/producer
+manifest verified. No extra samples, Rust trigger or autonomous proof follows.
+See process-matching-cost-live-adjudication.md and the before/after summaries.
+
+Stage B addon final candidate passed parent242tests but is NOT promoted/installed.
+Sol found actual Finalize/restore release scheduling occurs before lifecycle commit,
+losing AH-open rearm. Luna now fixes only that boundary in a new release-rearm tree;
+actual Opus reviews the frozen final independently. All prior broad fixes remain
+frozen. Native controller/daemon/CLI slice has a concrete entry map and prepared
+implementation plan; it starts only after addon Sol/actualOpus source acceptance.
+The versioned operator helper follows accepted native source. Native100 then real
+human-input calibration and autonomous cycles remain outstanding. User need not
+wait at the machine for physical calibration yet. Continue coordination; ending a
+status turn previously stopped progress despite the user's continue instruction.
+
 **Resumption Oct18 at17:22UTC:** root incorrectly ended after status replies,
 leaving coordination idle. Luna continued through sweep40, then stopped after
 three OCR failures reopening the AH. Database independently checked:48 total

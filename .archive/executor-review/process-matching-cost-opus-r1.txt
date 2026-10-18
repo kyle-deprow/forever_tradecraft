@@ -1,0 +1,76 @@
+Resolved model: claude-opus-5-5
+Model ID: **claude-opus-5-5**
+
+# Opus source review: process-matching cost (status READY)
+
+This was a read-only review. I made no edits and ran no tests, builds, network calls, GUI actions or git mutations, and used no agents. The test results below are the parent's and the worker's, not mine.
+
+## Hashes and fence
+- **Worktree:** HEAD is `fe439243…`. The only changes are the two modified files, and there are no untracked files.
+- **Source hashes match the freeze record:**
+  - `driver.py`: `ca0ca123…` → `965c4b3f…`
+  - test file: `6d5b21dd…` → `7bf8538b…`
+- **Input hashes match:** the implementation plan `6105f139…`, the main plan `6556e525…` and the diagnostic summary `ee1e53b1…`.
+- **Test file:** it only adds lines (477 added, 0 removed), so no existing test was changed.
+
+## Production change (`driver.py:2198-2213`)
+- **Where the change is:** two hunks, both inside `_process_executable`.
+  - The `cmdline` read is now in its own `try`, with the same exception tuple and the same "cannot inspect game process" message.
+  - The exact basename and exactly-one check (2203-2207) is unchanged.
+  - The `stat`, `status` and `exe` reads moved into a second `try` (2208-2213) with the same except clause and message.
+  - The `Name`, loader, prefix and `environ` checks and the return (2214-2234) are untouched.
+- **Matching candidates:**
+  - Read order is still cmdline → stat → status → exe → environ.
+  - Error classes and error text are unchanged.
+  - The result is still `(matches[0], start)`.
+- **Stable `/proc` snapshot:** the matched set is identical.
+  - A process is in the set only if every read succeeds and every check passes, the same conditions as before. Only the order of evaluation changed for non-matching processes.
+  - For non-matching processes the set of exceptions that can escape only shrinks; for example, the ASCII `UnicodeDecodeError` can no longer occur.
+  - `_matching_game_pids` swallows the same exception classes as before.
+- **Unchanged by construction:** both hunks are inside this one function. So all of these stay byte-identical:
+  - `_matching_game_pids` and its `proc_match` timing span
+  - `resolve_identity`, including the window-PID membership check at 2342 and the fresh recheck at 2344
+  - the four independent barriers, deadlines and cancellation
+- **Where the precedence change can show:** only through a direct caller. Through the window recheck with a single window (2401-2406), a window PID that becomes a zombie between the scan and the recheck now reports "does not expose the configured Windows executable" instead of "cannot inspect game process N".
+  - This is still a `DriverError` in the same identity-refusal path.
+  - No code anywhere in `src/` or `tests/` matches on these strings.
+  - This is the earlier non-candidate precedence that the implementation plan explicitly accepts.
+
+## Tests (`tests/test_session_driver_actions.py:203-675`)
+- **The test that catches a regression:** the zero-match/duplicate test asserting `reads == ["cmdline"]` (345-378) is the one that would fail on the old code.
+- **Tests that pin the old behaviour (expected to pass before and after):**
+  - read order for a matching process
+  - wrong `Name`, loader and prefix
+  - the malformed-`stat` injection, which only checks an existing failure
+  - process exit after the `cmdline` read
+  - both directions of the synchronized `exec` transition, followed by a fresh call
+  - duplicate-candidate PID set {first, second} leading to the "found 2" refusal
+  - the real resolver binding to the real matched PID
+- **Fixture safety:**
+  - Fixtures are named `CrowleyTest.exe`, which is 15 bytes and fits in the kernel's process-name field. They never identify as `WowB.exe`, the default.
+  - Each test uses its own Wine prefix, which also keeps concurrent test runs out of each other's PID sets.
+  - Only the X11 `_run` subprocess call is faked. The matcher and resolver are the real code.
+  - Every child is terminated or killed and reaped in `finally`.
+
+## Must
+None.
+
+## Should
+None.
+
+## Nits
+1. **`tests/test_session_driver_actions.py:523`: the test name overclaims.** `test_process_executable_exec_transition_never_accepts_mixed_generation` claims more than the code guarantees.
+   - Counterexample: a matching process execs to a non-matching argv but keeps comm `CrowleyTest.exe` with the same loader and prefix. Its start time doesn't change across `exec`, so both the old and new code accept it with the old `cmdline`.
+   - **Effect:** the name implies an atomicity guarantee that the implementation plan explicitly says not to promise.
+   - **Fix:** rename it to something like `…_exec_transition_decides_on_read_cmdline_and_rescans_fresh`, or add a one-line comment saying the guarantee is "decide on this call's cmdline, then rescan fresh", not atomicity.
+2. **Unused test-helper inputs:**
+   - the `_fixture_process` `tmp_path` parameter (231)
+   - the `_process_backend` `loader_name` parameter (305)
+   - the `FIXTURE_EXPECTED` environment variable (250), which the fixture code never reads
+
+   **Effect:** none at runtime; they are just misleading. **Fix:** remove them.
+
+I make no claim here about live performance, Rust, or qualification. The later comparison of three diagnostic single runs is a separate gate.
+
+STATUS: READY
+CLAUDE_EXIT:0

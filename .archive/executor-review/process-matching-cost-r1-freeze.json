@@ -1,0 +1,73 @@
+{
+  "schema": 1,
+  "kind": "executor-process-matching-cost-r1-freeze",
+  "status": "READY_FOR_PARENT_SOURCE_REVIEW",
+  "base_commit": "fe439243afdb7e2fd0ba8244819eac2fa9086761",
+  "worktree": "/home/dev/.cache/crowley/worktrees/process-matching-cost-20261018",
+  "plans": {
+    ".archive/PLAN-process-matching-cost-implementation.md": "6105f139727fd484b105775ab79362e2e3f516396d9ec3cb697fb47afd90e749",
+    ".archive/PLAN-process-matching-cost.md": "6556e5255e247d0989a90dc4c8892a63c97147873876d42c3e82100760a90520"
+  },
+  "diagnostic_input": {
+    ".archive/executor-review/identity-latency-live-20261018-summary.json": "ee1e53b16ed6dfde83fd32399405fb97248007ffc3cc07fdcac0367538601a77"
+  },
+  "files": {
+    "src/crowley/session/driver.py": {
+      "before_sha256": "ca0ca123d0fa09d8361c8632d9cc1c2c501d87adf99cb3cc268688dd4291a166",
+      "after_sha256": "965c4b3f20842f3e065469077358b6886d8260d24aab5fe7ed3933beca0d13f6"
+    },
+    "tests/test_session_driver_actions.py": {
+      "before_sha256": "6d5b21dd11a3af45d20f494ce7950ea18f676e40f47c5d01aae8a30e655f2413",
+      "after_sha256": "7bf8538bdb804cd4e5d275d7c311b86171ce7ec9f650999371c6169abca956a6"
+    }
+  },
+  "scope": {
+    "changed_paths": [
+      "src/crowley/session/driver.py",
+      "tests/test_session_driver_actions.py"
+    ],
+    "source_change": "Moved exact cmdline basename/cardinality refusal ahead of stat/status/exe/environ reads; matching candidates retain existing checks, order, errors, and results.",
+    "forbidden_changes": false,
+    "live_actions": false,
+    "integration_or_commit": false
+  },
+  "checks": {
+    "focused": {
+      "command": "uv run pytest -q tests/test_session_driver_actions.py -k 'process_executable or matching_game_pids or native_resolver'",
+      "result": "9 passed, 24 deselected in 1.62s"
+    },
+    "full_driver_actions": {
+      "command": "uv run pytest -q tests/test_session_driver_actions.py",
+      "result": "33 passed in 11.20s"
+    },
+    "ruff": {
+      "command": "uv run ruff check src/crowley/session/driver.py tests/test_session_driver_actions.py",
+      "result": "All checks passed!"
+    },
+    "format": {
+      "command": "uv run ruff format --check src/crowley/session/driver.py tests/test_session_driver_actions.py",
+      "result": "2 files already formatted"
+    },
+    "compileall": {
+      "command": "uv run python -m compileall -q src/crowley/session/driver.py tests/test_session_driver_actions.py",
+      "result": "passed"
+    },
+    "diff_check": {
+      "command": "git diff --check",
+      "result": "passed"
+    },
+    "literal_compileall_note": "The plan's literal python -m compileall was unavailable because this environment has no python executable; the same check passed through uv run python."
+  },
+  "fixture_contract": {
+    "configured_executable": "CrowleyTest.exe",
+    "loader_fixture": "temporary copied /usr/bin/python3 named wine-preloader",
+    "wine_prefix": "temporary per-test directory",
+    "matcher_or_resolver_faked": false,
+    "owned_children_reaped": true,
+    "remaining_matching_fixture_processes": 0
+  },
+  "risks": [
+    "The optimization changes only noncandidate error precedence: unreadable later proc files are no longer consulted for a process already rejected by exact cmdline cardinality.",
+    "The implementation remains Python procfs matching; no performance or Rust qualification claim is made until parent source review and any separately authorized comparison."
+  ]
+}

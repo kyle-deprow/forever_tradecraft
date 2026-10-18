@@ -1,0 +1,37 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792345552-Arthur-7278",
+  "saved_variables_sha256": "ba643febf0a04dd9b9fa2ebfeb4117bb2728675f6fd77c37b923f918f4fac6ac",
+  "logical_digest_matches_database": "a3a69403ed026beb3ba060fad46fd951db4e068cfecbd31b41ae587d5c0f9001",
+  "rows": 2738,
+  "observations": 428,
+  "coverage": {
+    "full": 395,
+    "bounded": 33
+  },
+  "reasons": {
+    "ok": 428
+  },
+  "startedAt": 1792345552,
+  "finishedAt": 1792346046,
+  "prior_start_gap_seconds": 75366,
+  "finish_to_server_receipt_seconds": 31.911236,
+  "server_read_only_verification": {
+    "uid": "beta-normal-alliance-1792345552-Arthur-7278",
+    "build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "observations": 428,
+    "rows": 2738,
+    "received_at": "2026-10-18T17:54:37.911236+00:00",
+    "digest": "a3a69403ed026beb3ba060fad46fd951db4e068cfecbd31b41ae587d5c0f9001"
+  },
+  "loaded_ack": {
+    "boot": "1792346130-193334",
+    "sequence": 81,
+    "png_sha256": "c5b66c91d2346cfd2f2f514b781e186d2549c6e9a5496b12b26bf98d50bbec74",
+    "receipt_sha256": "74ef24aef7c3eef8c5b8eb97ea9a12d1080651bf4630fe639a7dc9a58423e19a",
+    "capture_utc": "2026-10-18T17:56:53.010554+00:00",
+    "verification": "Parent independently decoded the retained PNG through strict production PixelDecoder and compared exact UID/pending0/AHclosed/lastSaved."
+  },
+  "qualification": "First resumed ordinary operator-assisted scan after overnight gap; not autonomous qualification. Static retained-image decoding is not a new live capture or calibration proof."
+}

@@ -1,0 +1,68 @@
+{
+  "base": "3f43d8f",
+  "fixes": [
+    "Native construction remains private: strict frames use the existing armed empty-reason fence, ready/scheduled public status, and private scanner refusal traces.",
+    "The exact no-argument agent recover command owns admission and refreshes the Commands panel; ordinary and restore-pending in-flight states refuse, while post-finalize recovery remains reachable.",
+    "Restore controls project visible/enabled/in-flight state, bind fallback timers to nonce/load/attempt, reject stale timers, and hide after a successful ordinary restore load.",
+    "Construct and restore-load publication are transactional: first publication must succeed, failures detach scripts, hide partial textures, clear bytes, and retain a failed restore path.",
+    "Both controls use UIPanelButtonTemplate and the harness models templates, enabled state, hidden-click refusal, and deterministic partial texture errors.",
+    "Marker and lifecycle matrix, strict frame decode lifecycle, pre-load refusals, release expiry, ordinary publication failures, and restore boundaries are covered by real harness callbacks."
+  ],
+  "limitations": [
+    "Native client button-template availability and live callback/pixel qualification remain future live gates; this round uses the existing offline WoW harness and compiled atlas fixture only.",
+    "No service, daemon/helper, GUI, deployment, or live game changes were made."
+  ],
+  "opus_review_sha256": "39db6006a90339dff76c6a54dc32a4497d3223305fa6164a551055b8b0a6ef11",
+  "plan_sha256": "e03a2d32558d4da8c85ace8dff1eb938131e9d29d7e4c3085a6bd5b416766854",
+  "r2_freeze_sha256": "9a35a7de619d2a9b230877e3b42618a980a1e9582aa7c0dc0d84f03272ae0103",
+  "scope": [
+    "addon/Crowley/Core.lua",
+    "addon/Crowley/Scanner.lua",
+    "addon/Crowley/Agent.lua",
+    "addon/Crowley/Commands.lua",
+    "tests/wow_harness.py",
+    "tests/test_addon.py",
+    "tests/test_companion.py",
+    "tests/fixtures/native-construction-unknown-savedvars.lua"
+  ],
+  "sha256": {
+    "addon/Crowley/Agent.lua": "92e41cf0d644e71d06e27a7f8560ca9a7953162aba9977e7b3c28be6514e99f0",
+    "addon/Crowley/Commands.lua": "c68d2d25cb114b731d4986a6704027e4592bcbe46e385f276895fba23d885da2",
+    "addon/Crowley/Core.lua": "3bf29b1c09f347d60e8fe6a5e8a4a8ef9aba37ff571d900bd9853159112f09b6",
+    "addon/Crowley/Scanner.lua": "ae16a58c870adf564f1bea691d53aea1bc326867affabd98827a5c447ae540f9",
+    "tests/fixtures/native-construction-unknown-savedvars.lua": "5ecd62d324293ad040aa0910754179d988a58f73c3b8f5c38f7fe94c8ac09033",
+    "tests/test_addon.py": "3c6f25ac9e8c63666c01a20cc87e14e90ba7d74befa112f7833b00a03647d497",
+    "tests/test_companion.py": "f0859966ce8afdb11219f7bd7a97e21143de5386e9c3d33ef8bf7de5da0b9793",
+    "tests/wow_harness.py": "c9f7accbd2c629ec256e2f439111d29a4c4f4706ec01ce0b925de1482745342e"
+  },
+  "sol_review_sha256": "40e6ac5502ff555e72e1d4543479066cdec5ccbf8071582f00e38ba5a7093017",
+  "status": "frozen",
+  "task": "native-addon-construction-r3-closure",
+  "verification": [
+    {
+      "command": "uv run pytest -q tests/test_addon.py tests/test_companion.py --maxfail=1",
+      "result": "215 passed in 27.74s"
+    },
+    {
+      "command": "uv run pytest -q tests/test_session.py -k 'lua_frame_roundtrips_through_pixel_packer_and_python_decoder or lua_atlas_rasterizes_the_actual_surface_and_decodes' --maxfail=1",
+      "result": "4 passed, 63 deselected in 1.75s"
+    },
+    {
+      "command": "uv run ruff check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "passed"
+    },
+    {
+      "command": "uv run ruff format --check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "3 files already formatted"
+    },
+    {
+      "command": "python3 -m compileall -q tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-addon-construction-r3-20261018"
+}

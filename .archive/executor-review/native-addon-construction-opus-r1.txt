@@ -1,0 +1,88 @@
+Resolved model: claude-opus-5-5
+Model ID: `claude-opus-5-5`
+
+# Native addon construction slice: read-only review
+
+This candidate isn't ready. In production, the recovery path can't be reached at all, and every Agent frame published while the native fence is armed is rejected by the strict decoder. After Construct the HUD has no 1 Hz publisher, so Finalize can never produce the newer frame its proof needs. The 178 passing tests are consistent with this, because none of the native tests decodes a frame, calls the per-frame update, or reaches recovery through a production entry.
+
+**Scope check:**
+- Both plan hashes match: R3 `cc3892cf…`, closure `4e311081…`.
+- The candidate HEAD is `3f43d8f`.
+- All 8 file hashes equal the freeze record.
+- `git status` shows exactly the 7 modified fenced files plus the new fixture, nothing outside the fence.
+- Per your instructions I ran no tests, edits, builds, git mutations or subagents.
+
+## Must
+
+1. **Recovery can't be reached in production.**
+   - **Where:** `Commands.lua:183` only runs `BeginRecovery` if `Agent.RecoveryAdmitted()` is already true. The only things that set it are `Agent.AdmitRecovery()` (`Agent.lua:524-527`), which nothing in production calls, and Restore's 2-second timer, which itself needs admission (`Agent.lua:569`). The test reaches Restore by calling the bypass directly (`test_addon.py:395`).
+   - **Second defect:** even if admission worked, `recover` never refreshes the panel. In armed/deferred loads Construct stays visible, so the helper's negative Construct template check fails.
+   - **Consequence:** once any marker exists (armed, deferred, constructing, failed, constructed, malformed, or post-Finalize), every later load keeps the scanner blocked. The only way out is a manual SavedVariables edit, which is forbidden.
+   - **Correction:**
+     - Make the fixed `/crowley agent recover` command the admission, owned by Commands.
+     - Accept it only when a marker exists, the decision isn't ordinary, or the lifecycle is `finalized`.
+     - Refuse it in a plain ordinary load with no marker, and in a restore_pending state.
+     - On acceptance: enter recovery mode, revoke any release, generate the nonce, and call `updatePanel()`.
+     - Delete `Agent.AdmitRecovery`, and test every state through `slash("agent recover")` plus a Restore click.
+
+2. **The deferred Construct path has no 1 Hz publisher, and Finalize publishes nothing.**
+   - **Where:** `constructDeferred` (`Agent.lua:547-561`) never calls `attachSurfaceScript()` (`:667`). `Finalize` (`:599-602`) clears the marker and fence but doesn't publish.
+   - **Consequence:** after Construct, the frame only changes on Hold, Measure and Resume. After Finalize, no newer prefixed `normal/0` frame with an unarmed fence ever appears, so the planned finalize hook can only time out. The harness's `update_agent` would raise here because `onUpdate` is nil, and the finalize test (`test_addon.py:416-433`) never looks at a frame.
+   - **Correction:** attach the OnUpdate script right after a successful `createSurface` in `constructDeferred`, and call `safePublish()` at the end of `Finalize`. Test that the sequence advances after Construct, and decode a post-Finalize frame.
+
+3. **The native gating changes the public wire, and the production decoder rejects it.**
+   - **Where:** the fence projection uses reason `native_construction` (`Scanner.lua:58-59`). `Status` adds a `blocked` phase with reasons `native_construction` / `native_construction_unknown` (`Scanner.lua:1159-1161`), which reach `pending.reason` through `Agent.lua:342-343`.
+   - **Why it fails:** `protocol.py:440-441` requires an empty reason on an armed fence. `protocol.py:505-506` accepts only `queue_full` and `plan_invalid` as blocked reasons.
+   - **Consequence:** every frame from `defer` until Finalize or restore-clear fails to decode, including the Construct frame that `hold_required` depends on. This also violates R3's "public status stays within ready|scheduled" and "without adding a wire field".
+   - **Correction:** project the native fence as `{state="armed", reason="", command=…}`. Remove the native branch from `Status` and keep native refusal reasons only in the schedule trace. Run `decode_frame` on Agent frame bytes for every lifecycle state, as the client-contracts skill requires.
+
+4. **A malformed marker that isn't a table crashes the load path.**
+   - **Where:** with `nativeConstruction = 5` or `true`, Core correctly maps it to restore-only. Agent's `ADDON_LOADED` handler then evaluates `current.token` on a number or boolean (`Agent.lua:694-695`) and raises. Core's event dispatch has no pcall, so Commands' `ADDON_LOADED` handler never runs and no panel or Restore exists. `Commands.lua:44-46` and `Agent.lua:516,538-539` read the marker the same unguarded way.
+   - **Consequence:** genuine malformed-marker recovery is impossible for wrong-type markers, which R3 explicitly maps to restore-only.
+   - **Correction:** read marker state only through the validated `ns.NativeDecision()` copy, or guard with `type(...) == "table"`. Add non-table markers to the matrix tests.
+
+## Should
+
+1. **Restore-pending only clears after one specific publication** (`Agent.lua:706-715`).
+   - **Problem:** the marker and fence are cleared only if the single pcall'd `Agent.Publish` during `ADDON_LOADED` succeeds. That failure is silent. Later successful OnUpdate frames keep showing the armed fence for the whole load, so recovery-complete can never pass.
+   - **Fix:** clear on the first successful `safePublish` while in `restore_pending`, and add the missing test for the restore_pending load.
+
+2. **Defer is gated on the frozen per-load decision** (`Commands.lua:90`).
+   - **Problem:** a recovered load (decision `restore_pending`, lifecycle `ordinary`) refuses `defer`. After the preflight's Restore, measure-deferred would fail at its first command unless some unscripted reload happens in between. Meanwhile an ordinary load whose surface failed to build is still admitted.
+   - **Fix:** require lifecycle `ordinary` with a constructed surface, no marker, and both fences clear.
+
+3. **An ordinary-load constructor failure is silently swallowed** (`Agent.lua:688-689`).
+   - **Problem:** previously this failed loudly at file load. Now there's no print, the error is discarded, scanning continues without telemetry, and `defer` is still accepted.
+   - **Fix:** print the reason with `ns.Print` (or re-raise after cleanup) and refuse `defer`.
+
+4. **Resume now requires held/100** (`Agent.lua:645`).
+   - **Problem:** R3 says the existing Hold/Measure/Resume rules are preserved, and only the `measurementCompleted` bit depends on held/100. After an aborted Hold, the HUD now stays frozen until Measure runs its 100 s or the UI reloads. The daemon itself only resumes from held/100, so it isn't affected.
+   - **Fix:** restore the previous rule and set the bit only when the ordinal is 100.
+
+5. **A production change was made to satisfy a vacuous test** (`Scanner.lua:242`, `test_addon.py:374-382`).
+   - **Problem:** the new `PLAYER_LOGOUT` line arms the projection while `LogoutFenceActive()` stays false. The fence-independence test never arms the real logout fence.
+   - **Fix:** revert the line. Test that an armed pre-logout fence makes `defer` refuse. Test that with both fences armed (via Restore), clearing the native fence leaves the logout projection alone and doesn't schedule.
+
+6. **Harness and test gaps:**
+   - `Click()` fires on hidden controls (`wow_harness.py:201`). The duplicate-Construct check at `test_addon.py:349-350` clicks a hidden button.
+   - The buttons are bare Buttons with no template, textures or font object (`Commands.lua:54-80`), while the harness accepts `SetText` on any frame. On the real client the panel may not render. Record this in HANDOFF §6 and use an explicit template or font object.
+   - `ReloadUI` has no continuation modelled.
+   - Missing tests:
+     - the full strict marker matrix;
+     - the 10 s release window boundary;
+     - the 2 s Restore timer;
+     - pre-`ADDON_LOADED` blocking at each scan entry point;
+     - decoder round-trips.
+
+## Nits
+
+- R3 and the closure assign the recovery nonce and the release/recovery admission to Commands; this candidate keeps them in Agent (`Agent.lua:511-533,571-572`).
+- Silent fallbacks against the no-fallbacks rule: `setMarker` writes an unvalidated marker if `SetNativeMarker` is missing (`Agent.lua:65-69`), and `if ReloadUI then` (`:578`) skips the reload silently.
+- The Restore timer doesn't check the token, and its checks are vacuous within one load (`Agent.lua:579-585`). Production never disables the controls (`SetEnabled` is never called), even though the harness models it.
+- `validToken` accepts any 1–64 byte non-space string rather than the existing `time-random` boot grammar (`Core.lua:43-48`).
+- The constructor error text is discarded (`Agent.lua:547-554`).
+
+None of this offline code or harness evidence qualifies native callbacks, ReloadUI, XTEST input, or panel pixels.
+
+STATUS: MAJOR ISSUES
+CLAUDE_EXIT:0

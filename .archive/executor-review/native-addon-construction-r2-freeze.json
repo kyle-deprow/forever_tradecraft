@@ -1,0 +1,73 @@
+{
+  "base": "3f43d8f",
+  "fixes": [
+    "Malformed nativeConstruction scalar values remain restore-only and never receive table-field indexing; Scanner remains fenced and Restore remains reachable.",
+    "The exact agent recover slash command is the addon-owned recovery admission actor; extra arguments are rejected and Restore remains inert before admission.",
+    "Deferred construction installs the normal surface OnUpdate publisher before its first publication, including after Resume and Finalize."
+  ],
+  "limitations": [
+    "Verification is offline WoW harness plus the existing compiled atlas fixture; no live game or deployment was used.",
+    "The daemon/helper admission guard remains a future external boundary; the addon command owns the current explicit admission path."
+  ],
+  "r1_freeze_sha256": "0a196350971140b3f8515bc6c97b49928a5c65d3791e593688d408a76622f705",
+  "r1_unchanged": [
+    "addon/Crowley/Core.lua",
+    "addon/Crowley/Scanner.lua",
+    "tests/wow_harness.py",
+    "tests/test_companion.py",
+    "tests/fixtures/native-construction-unknown-savedvars.lua"
+  ],
+  "scope": [
+    "addon/Crowley/Core.lua",
+    "addon/Crowley/Scanner.lua",
+    "addon/Crowley/Agent.lua",
+    "addon/Crowley/Commands.lua",
+    "tests/wow_harness.py",
+    "tests/test_addon.py",
+    "tests/test_companion.py",
+    "tests/fixtures/native-construction-unknown-savedvars.lua"
+  ],
+  "sha256": {
+    "addon/Crowley/Agent.lua": "7fc4fbf533c83e58275177c1e22ab75153fae2a4e793d0257d6a93afee15be10",
+    "addon/Crowley/Commands.lua": "9ffb2e8648878af229386b3884cf858ffc5100b1e98b31ffa014ff6e396e79c7",
+    "addon/Crowley/Core.lua": "3bf29b1c09f347d60e8fe6a5e8a4a8ef9aba37ff571d900bd9853159112f09b6",
+    "addon/Crowley/Scanner.lua": "af6da7ee577150620616306a30163e87429799524deb70e40c9d672c4423fdf0",
+    "tests/fixtures/native-construction-unknown-savedvars.lua": "5ecd62d324293ad040aa0910754179d988a58f73c3b8f5c38f7fe94c8ac09033",
+    "tests/test_addon.py": "00e9e7140bae7276a48fae241d688a7cfa067bb24af77c224d14031ff767db50",
+    "tests/test_companion.py": "f0859966ce8afdb11219f7bd7a97e21143de5386e9c3d33ef8bf7de5da0b9793",
+    "tests/wow_harness.py": "18ee576d7b4c96ff85f57a76265d7edb0a94c86c4b258b241a62d1a874ce47f9"
+  },
+  "status": "frozen",
+  "task": "native-addon-construction-r2",
+  "verification": [
+    {
+      "command": "uv run pytest -q tests/test_addon.py -k native_ --maxfail=1",
+      "result": "75 passed, 99 deselected in 6.44s"
+    },
+    {
+      "command": "uv run pytest -q tests/test_addon.py tests/test_companion.py --maxfail=1",
+      "result": "179 passed in 21.66s"
+    },
+    {
+      "command": "uv run pytest -q tests/test_session.py -k 'lua_frame_roundtrips_through_pixel_packer_and_python_decoder or lua_atlas_rasterizes_the_actual_surface_and_decodes' --maxfail=1",
+      "result": "4 passed, 63 deselected in 1.72s"
+    },
+    {
+      "command": "uv run ruff check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "passed"
+    },
+    {
+      "command": "uv run ruff format --check tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "3 files already formatted"
+    },
+    {
+      "command": "python3 -m compileall -q tests/wow_harness.py tests/test_addon.py tests/test_companion.py",
+      "result": "passed"
+    },
+    {
+      "command": "git diff --check",
+      "result": "passed"
+    }
+  ],
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-addon-construction-r2-20261018"
+}
