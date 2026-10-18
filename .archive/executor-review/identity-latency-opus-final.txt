@@ -1,0 +1,83 @@
+Resolved model: claude-opus-5-5
+Model ID: **claude-opus-5-5**
+
+# Identity-latency final closure review
+
+**Verdict: READY.** There are no Must-Fix findings. All six findings from the R2 Opus and Sol reviews are closed in the code. Every failure path you listed now has a test that reads the real owner profile, except an owner-side deadline. One Should-Fix remains and it is test-only: the test meant to cover a cleanup error raised inside the `finally` block actually raises earlier, in the main body. The code it was meant to cover is correct when read.
+
+## Scope and hashes
+- **Plan and candidate files:** the plan hashes to `397bcc…685`. All four candidate files match the freeze: daemon `972c74…`, driver `ca0ca1…`, tests `7a234b…`, sidecar `f7c8bb…`.
+- **Read-only pins:** all six match, none differs from `f213e1f`, and the worktree changes are exactly the four files.
+- **Native-memory work:** that code and its `reset5` tests are already in the base, not in this diff.
+- **What changed since R2/R3:**
+  - `driver.py` is byte-identical to R2.
+  - `daemon.py` is identical to R3. Its only identity-latency changes since R2 are reporting `partial` when events are truncated, and the interrupt fix in the final source check.
+  - The sidecar's only change since R3 is comparing the file's metadata when opened against after the read.
+- **Test diff:** it deletes exactly one base line, a fixture loop raised from 60 to 80 payloads.
+- **What I ran:** I edited nothing except my plan file, and ran no tests, builds, network, GUI/input, service or git-mutating actions.
+
+## How the prior findings closed
+- **Opus R2 Must-Fix (failure-path profiles): closed, except deadline.** These tests now read the real owner profile:
+  - **Identity refusal** (`tests/test_session_native.py:2878-2888`): `daemon_pre` is `failed`, the other three barriers and both intervals are `not_reached`, and the original phase, error, lease and cleanup assertions are kept.
+  - **Cancellation** (`2995-3002`): barriers are `ok`, `ok`, `not_reached`, `not_reached`; phase is `region_capture`.
+  - **Post-capture identity drift** (`3371-3412`): phase `owner_post_capture_check`, original error kept.
+  - **Config drift** (`3414-3452`): phase `config_binding`, exact error kept.
+  - **Interrupt in the final source check** (`3454-3512`): the interrupt propagates, the failure receipt is kept, `source_binding_after` is `failed`, the next request succeeds, and the timing sink is empty.
+  - **Interrupt from a cleanup snapshot in the main body** (`3518-3560`).
+- **Opus R2 Nit 3 (swallowed interrupt): closed.** The final source check now sets `interrupted` (`daemon.py:4375-4379`).
+- **Opus R2 Nit 4 and Sol M2 (truncation in the report): closed.**
+  - Each report sample now carries `event_count`, `events_truncated` and the profile's three owner clocks, set to null when the profile is missing or invalid (`sidecar:581-589`, `608-613`).
+  - The daemon reports `partial` when events are truncated (`daemon.py:441-446`).
+  - The reader refuses a profile that says `complete` while truncated (`sidecar:426-427`).
+  - A 257-event test runs through `build_report`.
+- **Sol M1 (config could drift unnoticed): closed.**
+  - The file's full metadata (device, inode, mode, links, size, mtime, ctime) is compared at four points: before opening, after opening, after the read, and on the final path check (`sidecar:218-267`).
+  - The config is hashed again after `load_config` and must match (`296-298`).
+  - Tests cover a same-size change at end of file, a change just before loading, and a timestamp-only change. Each sends no request.
+- **Sol S1 (negative owner-return interval): closed.** The owner's return time must fall between request start and response receipt. Otherwise the derived interval stays null and a fixed reason is recorded (`sidecar:536-550`, `654-663`). A report-level test covers it.
+
+## Invariants that still hold
+- **Identity barriers:** the four fresh `resolve_identity` barriers are unchanged (`daemon.py:4237`, `driver.py:2864`, `driver.py:3164`, `daemon.py:4334`).
+- **CPU and provenance:** owner thread and process CPU are read together for each event, child CPU stays null with its fixed reason, and the profile records a canonical hash of the source files.
+- **Order before the first sample:**
+  1. manifest SHA;
+  2. request config hashes;
+  3. the raw config hash and post-load re-hash, then the semantic and producer hashes;
+  4. the seven source files;
+  5. the strict PAUSED status check;
+  6. then the samples.
+- **Unchanged contract:** the 1 s deadline and 0.25 s grace, the six-key request, and the response, receipt and status key sets.
+- **Sink reset:** the profile is written after the causal receipt, its write errors are swallowed, and the sink is reset in its own `finally` (`daemon.py:4508-4525`). The public wrapper also resets it (`4070-4080`), and `cli.py:71` is its only production caller.
+
+## Must-Fix
+None.
+
+## Should-Fix
+1. **The "error inside `finally`" cleanup test raises in the main body, so the wrapper's reset is never tested** (`tests/test_session_native.py:3617-3653`; `daemon.py:4293`, `4353`, `4368`, `4070-4080`; test `:396`).
+   - **What happens:**
+     - On a successful run the cleanup snapshot is called three times: at `4293` and `4353` in the main body, and at `4368` in `finally`.
+     - `fail_final_cleanup` raises on call 2, which is `4353`. That interrupt is caught at `4360` and handled exactly like `fail_first_cleanup`.
+     - The final-source test is also caught inside the function (`4375`).
+   - **Consequence:**
+     - In no test is the wrapper's reset the only reset. Deleting `4079-4080` would fail nothing, and the test comment claims coverage it doesn't have.
+     - The test at `:396` is named "…restores_owner_sink" but never checks the sink.
+     - Real-world impact is low: a leftover collector is bounded in size and is replaced when the next sample starts.
+   - **Correction:**
+     - Raise on call 3 and assert `final_cleanup_calls[0] == 3`.
+     - Assert the interrupt propagates and the sink is empty.
+     - Assert the new request directory has neither `identity-latency.json` nor `receipt.json`.
+     - Assert the next request succeeds.
+     - **Caveat:** a raise at `4368` also skips the motion-fence release at `4488-4489`. That ordering is the same in the base and outside this change. The next call on the same thread only succeeds because the fence is a reentrant lock, so release it in the test or track the hazard separately.
+     - Rename the test at `:396`, or add a sink assertion to it.
+
+## Nits
+1. **No owner-side deadline profile test.** The plan lists one (plan:164-165). R2 accepted "deadline or config drift" and config drift was chosen, so this doesn't block. No test checks the `deadline` or `cancelled` outcome labels (`daemon.py:345-353`). Fix: add one owner-side deadline case that checks the original phase and error, the barrier outcomes, and the label when the expiry happens inside a timed step.
+2. **The real compiled success-path check is weaker** (`test_session_native.py:2146`). It now accepts `partial` when events are truncated, so a real success run that hit the 256-event limit would pass silently. Fix: assert `events_truncated is False` and status `complete` there.
+3. **Carried from R2, unchanged:**
+   - Outcome labels still come from error text, so a "timed out" X11 query is labelled `failed`, not `deadline`.
+   - `status` still means the four identity lookups finished, not that the request succeeded; `response_ok` tells them apart.
+
+This review makes no live-qualification claim and does not establish a Rust trigger. It is also saved at `/home/dev/.claude/plans/state-exact-model-id-witty-planet.md`.
+
+STATUS: READY
+CLAUDE_EXIT:0

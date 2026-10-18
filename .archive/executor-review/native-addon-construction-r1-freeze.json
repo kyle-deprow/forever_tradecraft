@@ -1,0 +1,44 @@
+{
+  "base": "3f43d8f40aa17035409a87c4718e1f34a888ff65",
+  "checks": {
+    "focused": {
+      "command": "uv run pytest -q tests/test_addon.py tests/test_companion.py --maxfail=1",
+      "result": "178 passed in 15.20s"
+    },
+    "production_boundary_smoke": {
+      "command": "uv run pytest -q tests/test_session.py -k 'lua_frame_roundtrips_through_pixel_packer_and_python_decoder or lua_atlas_rasterizes_the_actual_surface_and_decodes' --maxfail=1",
+      "result": "4 passed, 63 deselected in 2.07s"
+    },
+    "static": {
+      "command": "uv run ruff check tests/wow_harness.py tests/test_addon.py tests/test_companion.py && uv run ruff format --check tests/wow_harness.py tests/test_addon.py tests/test_companion.py && python3 -m compileall -q tests/wow_harness.py tests/test_addon.py tests/test_companion.py && git diff --check",
+      "result": "all checks passed; 3 files already formatted; compileall and diff check passed"
+    }
+  },
+  "implementation": [
+    "Core decides and freezes the strict nativeConstruction marker at the first matching ADDON_LOADED event, preserving malformed records for restore-only handling.",
+    "Agent defers surface creation until an ordinary ADDON_LOADED branch or an admitted deferred Construct callback; construction failures hide partial frames and persist failed/restore-only state.",
+    "Scanner projects independent native and logout fences and blocks unknown/malformed construction state at every scan entry.",
+    "Commands owns the fixed 220x84 TOPRIGHT panel and exact defer/release/recover/finalize grammar; Construct and Restore remain button-owned callbacks.",
+    "The harness models SavedVariables injection, named controls, ReloadUI, and callback/error paths; the fixture retains a legacy format-2 scan beside an unknown marker."
+  ],
+  "kind": "parent-native-addon-construction-r1-freeze",
+  "limitations": [
+    "Offline-only implementation; no game input, GUI, daemon/controller/native helper, service restart, deployment, or live qualification was performed.",
+    "The addon cannot prove the daemon-supplied release/recovery ticket; those boundaries remain for the separate native/helper slices."
+  ],
+  "owned_files": {
+    "addon/Crowley/Agent.lua": "cd75f9acf3bb52c81b38a25bbc627f59ff754b41b5a8b5ffe0897c3e42109800",
+    "addon/Crowley/Commands.lua": "0947985579806a85c6344c6a0bde104202d8c1b18036764144a70df830963f1b",
+    "addon/Crowley/Core.lua": "3bf29b1c09f347d60e8fe6a5e8a4a8ef9aba37ff571d900bd9853159112f09b6",
+    "addon/Crowley/Scanner.lua": "af6da7ee577150620616306a30163e87429799524deb70e40c9d672c4423fdf0",
+    "tests/fixtures/native-construction-unknown-savedvars.lua": "5ecd62d324293ad040aa0910754179d988a58f73c3b8f5c38f7fe94c8ac09033",
+    "tests/test_addon.py": "241e1492e63e20ceb68be2e6b5055ece904d282861e4ae17d87a6d5094b7cb7b",
+    "tests/test_companion.py": "f0859966ce8afdb11219f7bd7a97e21143de5386e9c3d33ef8bf7de5da0b9793",
+    "tests/wow_harness.py": "18ee576d7b4c96ff85f57a76265d7edb0a94c86c4b258b241a62d1a874ce47f9"
+  },
+  "plan_sha256": {
+    "closure": "4e311081990c6ff24f847069112095f2d33228f96ea3ca7b571941e4e525114c",
+    "r3": "cc3892cff429d49ab48398926cf2351cecb20a9460fd5bbcfc23d222fed45784"
+  },
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-addon-construction-20261018"
+}

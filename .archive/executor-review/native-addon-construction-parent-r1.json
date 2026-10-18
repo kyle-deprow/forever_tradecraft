@@ -1,0 +1,18 @@
+{
+  "scope": "independent parent pre-review checks against immutable native-addon-construction-20261018 R1",
+  "findings": [
+    {
+      "case": "raw scalar nativeConstruction=true at actual login",
+      "observed": "Agent.lua:695 attempts to index current boolean; restore UI initialization is interrupted"
+    },
+    {
+      "case": "deferred load then actual slash agent recover",
+      "observed": "refuses recovery_not_admitted; only test calls internal Agent.AdmitRecovery to make path reachable"
+    },
+    {
+      "case": "public release + Construct callback",
+      "observed": "surface exists but no onUpdate callback; constructDeferred omits attachSurfaceScript, so normal periodic HUD publication cannot resume"
+    }
+  ],
+  "qualification": "offline fixture reproduction only; no live input"
+}

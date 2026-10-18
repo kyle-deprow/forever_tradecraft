@@ -15,6 +15,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import asdict, is_dataclass, replace
 from functools import wraps
 from pathlib import Path
@@ -43,6 +44,12 @@ from .driver import (
     NamedStateObservation,
     WindowIdentity,
     X11Backend,
+    _identity_latency_barrier,
+    _identity_latency_instant,
+    _identity_latency_mark,
+    _identity_latency_span,
+    _reset_identity_latency_sink,
+    _set_identity_latency_sink,
 )
 from .evidence import (
     EvidenceError,
@@ -255,6 +262,252 @@ def _runtime_source_hashes() -> dict[str, str]:
     if set(result) != set(_RUNTIME_SOURCE_FILES):
         raise DriverError("runtime source descriptor map is incomplete")
     return result
+
+
+class _IdentityLatencyCollector:
+    """Bounded owner-thread timing evidence for one paused native sample."""
+
+    _EVENT_NAMES = frozenset(
+        {
+            "sample_enter",
+            "source_binding_before",
+            "process_verify",
+            "proc_match",
+            "identity_x11_query",
+            "identity_return",
+            "seal_open",
+            "seal_hash",
+            "lock_acquired",
+            "protocol_wait",
+            "protocol_record",
+            "capture_started",
+            "capture_returned",
+            "png_publication",
+            "identity_after_backend",
+            "identity_after_daemon",
+            "config_check",
+            "source_binding_after",
+            "cleanup",
+            "response_ready",
+            "artifact_write",
+        }
+    )
+    _BARRIERS = ("daemon_pre", "backend_pre", "backend_post", "daemon_post")
+    _OUTCOMES = frozenset({"ok", "failed", "cancelled", "deadline", "not_reached"})
+
+    def __init__(self, *, config_file_sha256: str, config_semantic_sha256: str) -> None:
+        self._owner_thread = threading.get_ident()
+        self._entry = self._clocks()
+        self._bound: Path | None = None
+        self._owner_return: tuple[int, int, int] | None = None
+        self._marks: dict[str, int] = {}
+        self._events: list[dict[str, Any]] = []
+        self._ordinals: dict[tuple[str, str], int] = {}
+        self._barrier_stack: list[str] = []
+        self._barriers = {
+            name: {"start": None, "end": None, "duration": None, "outcome": "not_reached"}
+            for name in self._BARRIERS
+        }
+        self._bindings: dict[str, str | None] = {
+            "source_binding_sha256": None,
+            "producer_sha256": None,
+            "config_file_sha256": config_file_sha256,
+            "config_semantic_sha256": config_semantic_sha256,
+        }
+        self._events_truncated = False
+
+    @staticmethod
+    def _clocks() -> tuple[int, int, int]:
+        return time.monotonic_ns(), time.thread_time_ns(), time.process_time_ns()
+
+    @property
+    def current_barrier(self) -> str:
+        return self._barrier_stack[-1] if self._barrier_stack else "none"
+
+    def bind(self, request_dir: Path) -> None:
+        if self._bound is not None or threading.get_ident() != self._owner_thread:
+            raise DriverError("identity latency collector was bound more than once")
+        self._bound = request_dir
+        self._marks["collector_bound"] = self._clocks()[0]
+
+    def set_bindings(self, source_binding: dict[str, str], producer_sha256: str) -> None:
+        canonical = json.dumps(source_binding, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        self._bindings["source_binding_sha256"] = hashlib.sha256(canonical).hexdigest()
+        self._bindings["producer_sha256"] = producer_sha256
+
+    def set_producer(self, producer_sha256: str) -> None:
+        self._bindings["producer_sha256"] = producer_sha256
+
+    def mark(self, name: str) -> None:
+        if threading.get_ident() == self._owner_thread:
+            self._marks[name] = self._clocks()[0]
+
+    def _outcome(self, error: BaseException | None) -> str:
+        if error is None:
+            return "ok"
+        text = str(error).lower()
+        if "cancel" in text or "revok" in text:
+            return "cancelled"
+        if "deadline" in text or "timeout" in text:
+            return "deadline"
+        return "failed"
+
+    def _append_event(
+        self,
+        name: str,
+        start: tuple[int, int, int],
+        end: tuple[int, int, int],
+        error: BaseException | None,
+    ) -> None:
+        if name not in self._EVENT_NAMES or threading.get_ident() != self._owner_thread:
+            return
+        barrier = self.current_barrier
+        key = (name, barrier)
+        ordinal = self._ordinals.get(key, 0)
+        self._ordinals[key] = ordinal + 1
+        if len(self._events) >= 256 or ordinal > 31:
+            self._events_truncated = True
+            return
+        self._events.append(
+            {
+                "name": name,
+                "barrier": barrier,
+                "ordinal": ordinal,
+                "start_monotonic_ns": start[0],
+                "end_monotonic_ns": end[0],
+                "duration_ns": max(0, end[0] - start[0]),
+                "owner_thread_cpu_ns": max(0, end[1] - start[1]),
+                "owner_process_cpu_ns": max(0, end[2] - start[2]),
+                "child_cpu_ns": None,
+                "child_cpu_reason": "external_child_cpu_unmeasured",
+                "outcome": self._outcome(error),
+            }
+        )
+
+    def instant(self, name: str) -> None:
+        now = self._clocks()
+        self._append_event(name, now, now, None)
+
+    @contextmanager
+    def span(self, name: str):
+        start = self._clocks()
+        error: BaseException | None = None
+        try:
+            yield
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            self._append_event(name, start, self._clocks(), error)
+
+    @contextmanager
+    def barrier(self, name: str):
+        if name not in self._BARRIERS:
+            raise DriverError("identity latency barrier is not recognized")
+        if threading.get_ident() != self._owner_thread:
+            raise DriverError("identity latency barrier crossed its owner thread")
+        start = self._clocks()
+        record = self._barriers[name]
+        record["start"] = start[0]
+        self._barrier_stack.append(name)
+        error: BaseException | None = None
+        try:
+            yield
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            end = self._clocks()
+            self._barrier_stack.pop()
+            record["end"] = end[0]
+            record["duration"] = max(0, end[0] - start[0])
+            record["outcome"] = self._outcome(error)
+
+    def finish(self) -> None:
+        if threading.get_ident() == self._owner_thread:
+            self._owner_return = self._clocks()
+
+    def _interval(self, name: str, start_name: str, end_name: str) -> dict[str, Any]:
+        start = self._entry[0] if start_name == "entry" else self._marks.get(start_name)
+        end = self._marks.get(end_name)
+        return {
+            "name": name,
+            "start_monotonic_ns": start,
+            "end_monotonic_ns": end,
+            "duration_ns": max(0, end - start) if start is not None and end is not None else None,
+            "outcome": "ok" if start is not None and end is not None else "not_reached",
+        }
+
+    def artifact(self) -> dict[str, Any]:
+        status = (
+            "complete"
+            if not self._events_truncated and all(item["outcome"] == "ok" for item in self._barriers.values())
+            else "partial"
+        )
+        return {
+            "schema": "identity-latency-v1",
+            "status": status,
+            **self._bindings,
+            "owner_entry_monotonic_ns": self._entry[0],
+            "owner_bound_monotonic_ns": self._bound and self._marks.get("collector_bound"),
+            "owner_return_monotonic_ns": self._owner_return[0] if self._owner_return else None,
+            "intervals_non_additive": True,
+            "intervals": [
+                self._interval("owner_to_request_started", "entry", "request_started"),
+                self._interval("capture_return_to_response_ready", "capture_returned", "response_ready"),
+            ],
+            "barriers": [
+                {
+                    "barrier": name,
+                    "start_monotonic_ns": record["start"],
+                    "end_monotonic_ns": record["end"],
+                    "duration_ns": record["duration"],
+                    "outcome": record["outcome"],
+                }
+                for name, record in self._barriers.items()
+            ],
+            "event_count": len(self._events),
+            "events_truncated": self._events_truncated,
+            "events": list(self._events),
+        }
+
+    def write(self, path: Path) -> None:
+        encoded = (
+            json.dumps(self.artifact(), sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+        ).encode()
+        if len(encoded) > 524288:
+            raise DriverError("identity latency profile exceeds its size bound")
+        temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        descriptor = os.open(
+            temporary,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        try:
+            with os.fdopen(descriptor, "wb") as stream:
+                os.fchmod(stream.fileno(), 0o600)
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+        finally:
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def write_failure_token(self, directory: Path) -> None:
+        path = directory / "identity-latency-write-failed"
+        descriptor = os.open(
+            path,
+            os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0),
+            0o600,
+        )
+        try:
+            os.fchmod(descriptor, 0o600)
+            os.write(descriptor, b"identity_latency_write_failed\n")
+        finally:
+            os.close(descriptor)
 
 
 def _driver_profile_matches_config(driver: Any, config: SessionConfig) -> bool:
@@ -3812,15 +4065,45 @@ class SessionDaemon:
         config_file_sha256: str,
         config_semantic_sha256: str,
     ) -> dict[str, Any]:
+        """Capture one sample and always restore this thread's timing sink."""
+
+        outer_token = _set_identity_latency_sink(None)
+        try:
+            return self._capture_paused_region_sample_impl(
+                expected_generation=expected_generation,
+                parent_started=parent_started,
+                deadline=deadline,
+                config_file_sha256=config_file_sha256,
+                config_semantic_sha256=config_semantic_sha256,
+            )
+        finally:
+            _reset_identity_latency_sink(outer_token)
+
+    def _capture_paused_region_sample_impl(
+        self,
+        *,
+        expected_generation: int,
+        parent_started: float,
+        deadline: float,
+        config_file_sha256: str,
+        config_semantic_sha256: str,
+    ) -> dict[str, Any]:
         """Capture one bounded, read-only region sample through this owner."""
 
+        latency_collector = _IdentityLatencyCollector(
+            config_file_sha256=config_file_sha256,
+            config_semantic_sha256=config_semantic_sha256,
+        )
+        latency_token = _set_identity_latency_sink(latency_collector)
+        latency_collector.instant("sample_enter")
         owner_entered = time.monotonic()
         request_dir: Path | None = None
         output: Path | None = None
         phase = "request_validation"
         published = False
         sample: dict[str, Any] | None = None
-        failure: Exception | None = None
+        failure: BaseException | None = None
+        interrupted: BaseException | None = None
         failure_record: dict[str, Any] = {}
         capture_returned: float | None = None
         motion_fence = None
@@ -3928,6 +4211,8 @@ class SessionDaemon:
             os.chmod(root, 0o700)
             request_dir = Path(tempfile.mkdtemp(prefix="paused-region-", dir=root))
             os.chmod(request_dir, 0o700)
+            latency_collector.bind(request_dir)
+            latency_collector.set_producer(executable_hash)
             output = request_dir / "capture.png"
             # A request rejected before the native producer starts must not
             # inherit the previous request's protocol-stage timestamps.
@@ -3941,12 +4226,16 @@ class SessionDaemon:
                 "attempt_retired": None,
             }
             phase = "source_binding"
-            source_binding = self._runtime_source_binding_for_diagnostic()
+            with _identity_latency_span("source_binding_before"):
+                source_binding = self._runtime_source_binding_for_diagnostic()
+            latency_collector.set_bindings(source_binding, executable_hash)
+            _identity_latency_mark("source_binding_before")
 
             phase = "identity_before_capture"
             if time.monotonic() >= deadline:
                 raise DriverError("paused region deadline expired before identity resolution")
-            identity = driver.resolve_identity(deadline_monotonic=deadline)
+            with _identity_latency_barrier("daemon_pre"):
+                identity = driver.resolve_identity(deadline_monotonic=deadline)
             identity_record = {
                 "pid": identity.pid,
                 "process_start": identity.process_start,
@@ -4000,7 +4289,8 @@ class SessionDaemon:
             ):
                 phase = "producer_binding"
                 raise DriverError("paused region producer receipt does not bind its published PNG")
-            cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+            with _identity_latency_span("cleanup"):
+                cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
             source = {
                 "api": "org.gnome.Shell.Screenshot.ScreenshotArea",
                 "branch": receipt.owner_branch,
@@ -4041,13 +4331,16 @@ class SessionDaemon:
             if time.monotonic() >= deadline:
                 raise DriverError("paused region deadline expired before response serialization")
             phase = "owner_post_capture_check"
-            identity_after = driver.resolve_identity(deadline_monotonic=deadline)
+            with _identity_latency_barrier("daemon_post"):
+                identity_after = driver.resolve_identity(deadline_monotonic=deadline)
+            _identity_latency_instant("identity_after_daemon")
             if identity_after.fingerprint != identity.fingerprint:
                 raise DriverError("paused region client identity changed during capture")
             try:
-                self._check_paused_region_config_binding(
-                    driver, owner_config_semantic_sha256, config_semantic_sha256
-                )
+                with _identity_latency_span("config_check"):
+                    self._check_paused_region_config_binding(
+                        driver, owner_config_semantic_sha256, config_semantic_sha256
+                    )
             except Exception:
                 phase = "config_binding"
                 raise
@@ -4056,27 +4349,34 @@ class SessionDaemon:
             if guardian.armed or not guardian.lease.held:
                 raise DriverError("paused region capture changed the owning lease or armed state")
             guardian.admission_gate_ready()
-            cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+            with _identity_latency_span("cleanup"):
+                cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
             if cleanup["empty"] is not True:
                 phase = "cleanup"
                 raise DriverError("paused region capture did not retire its owner process and attempts")
             sample["identity_after"] = identity_after.fingerprint
             sample["cleanup"] = cleanup
             phase = "owner_receipt_persist"
-        except Exception as exc:
+        except BaseException as exc:
             failure = exc
+            interrupted = exc if not isinstance(exc, Exception) else None
         finally:
             if request_dir is not None:
                 backend = self.driver.backend
                 guardian = self.driver.guardian
-                cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
+                with _identity_latency_span("cleanup"):
+                    cleanup = self._paused_region_cleanup_snapshot(output, backend, guardian)
                 if failure is None and source_binding is not None:
                     try:
-                        if self._runtime_source_binding_for_diagnostic() != source_binding:
+                        with _identity_latency_span("source_binding_after"):
+                            source_after = self._runtime_source_binding_for_diagnostic()
+                        if source_after != source_binding:
                             raise DriverError("paused region diagnostic source binding drifted")
-                    except Exception as source_error:
+                    except BaseException as source_error:
                         failure = source_error
                         phase = "source_binding"
+                        if interrupted is None and not isinstance(source_error, Exception):
+                            interrupted = source_error
                 # The after snapshot closes the full owner interval, including
                 # the final source check.  A concurrent model call during that
                 # last verification must remain attributable to this sample.
@@ -4087,6 +4387,8 @@ class SessionDaemon:
                         for key in ("started", "succeeded", "failed")
                     }
                 response_ready = time.monotonic()
+                latency_collector.instant("response_ready")
+                latency_collector.mark("response_ready")
                 owner_returned = time.monotonic()
                 producer_attempt = dict(backend.last_region_attempt)
                 if producer_attempt.get("stage") == "not_started" and isinstance(cleanup.get("empty"), bool):
@@ -4203,6 +4505,26 @@ class SessionDaemon:
                     )
                 except Exception:
                     pass
+        # Diagnostic publication is strictly after the causal receipt and
+        # cleanup.  It may fail, but it must never mask that receipt or leave
+        # the owner thread's ContextVar installed for its next request.
+        try:
+            try:
+                latency_collector.finish()
+            except BaseException:
+                pass
+            if request_dir is not None:
+                try:
+                    latency_collector.write(request_dir / "identity-latency.json")
+                except BaseException:
+                    try:
+                        latency_collector.write_failure_token(request_dir)
+                    except BaseException:
+                        pass
+        finally:
+            _reset_identity_latency_sink(latency_token)
+        if interrupted is not None:
+            raise interrupted
         if failure is not None:
             result: dict[str, Any] = {"ok": False, "error": f"{type(failure).__name__}: {failure}"}
             if sample is not None:

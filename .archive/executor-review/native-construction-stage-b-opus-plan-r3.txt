@@ -1,0 +1,125 @@
+Resolved model: claude-opus-5-5
+Model ID: `claude-opus-5-5`
+
+R3 closes most of R2, but one recovery contradiction blocks the first live gate, so it is not ready yet.
+
+I didn't edit anything except my session plan file, and ran no tests, builds, network, GUI/input, service or git actions.
+- The plan's SHA-256 matches `cc3892cf…45784`.
+- On HEAD `f213e1f`, only `docs/HANDOFF.md` is modified, so no Stage B code exists yet.
+- **Helper provenance checks out.** Both snapshots match their full SHAs, and `delta.diff` matches the recorded `7b2f59ca…0cb5`. My own diff shows one hunk (2 lines out, 16 in), only in `handshake()`'s initial admission (d553:414-432). The OCR dispatch, mouse pulse/release, identity and phase guards are byte-identical. I read no other private files.
+
+## R2 closure
+
+| R2 item | Verdict |
+|---|---|
+| MF1: SavedVariables timing | **Closed.** Handlers run Core.lua:110 → Scanner.lua:206 → Agent.lua:524 in `ns.On` order. The harness runs files before the event (wow_harness.py:810-821, 1294). |
+| MF2: who types | **Closed** on the actor. Where the boot comes from is still open (Should-Fix 2). |
+| MF3: Restore outside the native run | **Mostly closed.** Leftovers are Must-Fix 1 and Should-Fix 3. |
+| MF4: sealed post-reset capture | **Closed.** |
+| MF5: exit from the first deferred load | **Closed in design.** The preflight is blocked by Must-Fix 1. |
+| SF1: handshake states | **Partly closed.** The list is incomplete (Should-Fix 1). |
+| SF2, SF3, SF4, SF5 | **Closed.** The fence projection matches protocol.py:433-441 and daemon.py:1852-1856. |
+| SF6: helper version | **Closed** (verified above). |
+| Nit 1: persistent key | **Partly closed.** No slice owns the fixture (Nit 4). |
+| Nit 2: one clock | **Closed.** |
+
+## Must-Fix
+
+**1. Recovery Begin rejects the armed load before the reload, yet the plan routes recovery through it.**
+- **Where:**
+  - Begin admits only "no Agent surface or the exact `native-construction:` boot" (plan:226-229).
+  - Defer leaves the ordinary Agent and its ordinary boot in place before the reload (plan:80-86).
+  - The crash matrix (plan:243), `control-preflight` (plan:293-295) and live gate 2 (plan:369-374) all get a ticket in exactly that load.
+- **Why it fails:**
+  - Completion proves only "the resulting ordinary boot" (plan:237-238). Here the frame was already ordinary before Restore, so that proves nothing.
+  - The preflight reservation (plan:166-168) is an input reservation, but Begin requires "no active native/input operation" (plan:224-225). No handoff is defined.
+  - After a daemon restart, a reservation held only in memory is gone.
+- **Consequence:** the first live gate can't get a ticket, and the "armed" matrix row is unreachable.
+- **Fix:**
+  - Add a third Begin case: a fresh ordinary frame whose boot equals the boot `B0` captured by the reservation.
+  - Store `B0` durably until recovery completes, and require the reservation to be closed before Begin.
+  - Completion must require a newer frame, an ordinary boot different from the one Begin saw, and the fence projected unarmed (like the Finalize proof, plan:107-109).
+  - Add a test for each of these.
+
+## Should-Fix
+
+**1. The "exact order" leaves out states the daemon publishes, and has no state before bootstrap.**
+- **Missing states:**
+  - `updates_reset_archived` (daemon.py:852, from calibration.py:4686-4691) comes before `measure_ready` (daemon.py:792).
+  - `resume_required` (daemon.py:892) also comes between `hold_required` and `resume_ready`.
+  - Plan:174-186 lists neither, yet says skipped states fail closed. The reviewed helper has the same latent race (d553:16-22, 278-279).
+- **No state before bootstrap:**
+  - Defer and `/reload` are typed before `running` exists (plan:291-293).
+  - The guard pattern checks a published phase before every key (d553:390, 400, 403), but prepare publishes none.
+  - Prepare's admission against the earlier error boundary (d553:418-429) is also undefined.
+- **Fix:**
+  - Publish the full sequence, starting with `construction_prepared` (generation, reservation, expected boot, expiry) and including the three missing states.
+  - Keep one table of expected previous states in the tool.
+  - Admit prepare only when this generation has had no calibration operation, no bootstrap is pending and no ticket exists.
+  - Test every transition.
+
+**2. Where the expected boot comes from, and proving the reload finished.**
+- **Where:**
+  - The tool "gets the boot from a fresh strict ordinary frame" (plan:289), but its dependency list has no decoder (plan:280-282).
+  - The request also takes `expected_constructor_boot` from the caller (plan:168-170), which gives two sources of truth.
+  - Nothing proves the deferred load is up before bootstrap. A loading-screen capture still passes the absence check (daemon.py:679-716), so the baseline would be taken mid-reload. That is safe but defeats the purpose of Stage B.
+- **Fix:**
+  - Prepare captures and decodes on the daemon side and holds `native-construction:<B0>`; the request must equal it.
+  - After `/reload`, the tool requires fresh positive Construct and Restore matches before bootstrap.
+
+**3. Recovery after a completed run ends BLOCKED.**
+- **Source behaviour:**
+  - Only `start()` clears `_frame_boot` (controller.py:1343).
+  - `resume()` keeps it, then arms and enters RECONCILE (controller.py:1856-1879).
+  - RECONCILE frames reach `observe_frame` (daemon.py:5194), which blocks any boot change outside a reload (controller.py:1234-1247, 1272-1273).
+- **How it fails:** the plan:248-249 row plus "existing explicit owner resume" (plan:239) ends in "unexpected client boot change". The main path does the same if NATIVE_CALIBRATION was entered by `resume` with an old `frameBoot`.
+- **Consequence:** it fails closed, but contradicts the stated success path and leaves R2 MF3's controller point open.
+- **Fix:** either way, test both rows through `observe_frame`.
+  - **Option A:** add one narrow `controller.py` method to the native slice that durably rebinds the boot. Only recovery-complete and the Finalize handoff may call it.
+  - **Option B:** state "entered via `start`" as a precondition.
+
+**4. Nothing releases the Construct/Restore press if the tool dies.**
+- The helper releases the button only in an in-process `finally` (d553:363-375), so a kill during the hold leaves button 1 pressed.
+- The repo already has an owner-death watchdog with a sealed release image (guardian.py:176-189, 287-294; input_tool.py:105-138), but plan:280-282 leaves it out.
+- The "canonical lease" guard the plan claims (plan:283-285) also has no source.
+- **Fix:**
+  - Allow the watchdog for the one owned button and add SIGTERM, SIGHUP and SIGINT handlers.
+  - Make the lease check a field in the reservation or ticket status.
+  - Test a kill during the hold.
+
+**5. The recovery token can't be checked, and Restore before admission is undefined.**
+- **The token has no reader:** it reaches only the addon marker (plan:70-71, 135-140). The marker is never in public frames (plan:94-96), so the daemon can't read the token back.
+- **It costs reliability:** it means a 56-character typed command against an 8-second timeout (d553:390), with exact OCR of random hex (d553:13, 394-396).
+- **Undefined Restore before admission:** a Restore click before `recover` isn't specified, including after Finalize (plan:89-91, 133-134, 147-148).
+- **Fix:**
+  - Use a fixed `/crowley agent recover` with no argument, and let the addon generate the token.
+  - Before admission, a Restore click is a visible local refusal that changes nothing. Test it.
+
+## Nits
+1. **Click margin.** The deadline is the provider deadline minus 2 s (plan:201), but construction may take up to 5 s (calibration.py:4743). A late click can only time out, so use at least 5 s plus a capture margin.
+2. **"Retained evidence"** (plan:377-378). The runner deletes the sealed capture file after the seal check (calibration.py:4498-4507), so only the path, hash and time survive. Say so.
+3. **Interaction mode.** It auto-starts the old native calibration every tick, and a failed run clears any pending bootstrap (daemon.py:4778-4780, 4993-5013). The new prepare, bootstrap and Begin requests should refuse in that mode.
+4. **Ownership and placement.**
+   - Pick one owner for the Construct/Restore panel (plan:113).
+   - Pin its position clear of the Agent crop and the chat OCR box.
+   - The unknown-key fixture (plan:94-96) isn't in any slice's owned files.
+
+## Ready offline vs. live gates
+
+**Offline, once the fixes are in the plan:**
+- **Addon slice:** ready once the command grammar in Should-Fix 5 is settled.
+- **Native slice:** needs Must-Fix 1 and Should-Fix 1-3.
+- **Helper slice:** needs Must-Fix 1 and Should-Fix 1, 2, 4 and 5, then Sol and actual Opus source review and a SHA pin.
+
+**Live, only after accepted code** (plan:365-382, unchanged):
+- `ADDON_LOADED` timing and handler order on the real client.
+- A pinned XTEST click reaching the button's `OnClick`.
+- `ReloadUI` working from a click.
+- Templates captured in the preflight, plus review.
+- The new ordinary-boot proof.
+- Installed hashes and the sole-operator gate, then a separate later native generation.
+
+Nothing is qualified yet, and this review makes no production automatic-input or physical calibration claim. The full review is in `/home/dev/.claude/plans/state-exact-model-id-keen-wigderson.md`.
+
+STATUS: NEEDS WORK
+CLAUDE_EXIT:0

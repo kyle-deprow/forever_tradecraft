@@ -137,6 +137,592 @@ def _evaluate_persisted_live_receipt(receipt: dict[str, object], path: Path, bin
     return run, run["completed_pairs"] or [], report
 
 
+def _load_identity_latency_sidecar(root: Path):
+    sidecar_path = root / "tools/gnome-telemetry-region/identity_latency_sidecar.py"
+    spec = importlib.util.spec_from_file_location("identity_latency_sidecar", sidecar_path)
+    assert spec is not None and spec.loader is not None
+    sidecar = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(sidecar)
+    return sidecar
+
+
+def _write_sidecar_binding_config(tmp_path: Path) -> tuple[Path, str, str, str]:
+    producer = tmp_path / "producer"
+    producer.write_bytes(b"#!/bin/sh\nexit 0\n")
+    producer.chmod(0o700)
+    producer_sha256 = hashlib.sha256(producer.read_bytes()).hexdigest()
+    config_path = _write_region_config(
+        tmp_path,
+        telemetry=(
+            f"telemetry_region_executable = {json.dumps(str(producer))}\n"
+            f"telemetry_region_executable_sha256 = '{producer_sha256}'\n"
+        ),
+    )
+    config = load_config(config_path)
+    return (
+        config_path,
+        hashlib.sha256(config_path.read_bytes()).hexdigest(),
+        session_config_semantic_sha256(config),
+        producer_sha256,
+    )
+
+
+def test_identity_latency_sidecar_rejects_untrusted_descriptors_and_manifest(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    source_binding = {
+        name: "a" * 64
+        for name in (
+            "daemon.py",
+            "driver.py",
+            "cli.py",
+            "decoder.py",
+            "protocol.py",
+            "offline_harness.py",
+            "session_performance.py",
+        )
+    }
+    collector = daemon_module._IdentityLatencyCollector(
+        config_file_sha256="b" * 64,
+        config_semantic_sha256="c" * 64,
+    )
+    collector.bind(tmp_path)
+    collector.set_bindings(source_binding, "d" * 64)
+    collector.finish()
+    artifact_path = tmp_path / "identity-latency.json"
+    collector.write(artifact_path)
+    data, digest = sidecar.read_private_file(artifact_path)
+    assert digest == hashlib.sha256(data).hexdigest()
+    assert sidecar.validate_artifact(json.loads(data))["status"] == "partial"
+
+    artifact_path.chmod(0o644)
+    with pytest.raises(sidecar.IdentityLatencyError, match="private regular file"):
+        sidecar.read_private_file(artifact_path)
+    artifact_path.chmod(0o600)
+    symlink_path = tmp_path / "identity-latency-link.json"
+    symlink_path.symlink_to(artifact_path)
+    with pytest.raises(sidecar.IdentityLatencyError, match="private regular file"):
+        sidecar.read_private_file(symlink_path)
+    oversized_path = tmp_path / "identity-latency-oversized.json"
+    oversized_path.write_bytes(b"x" * (sidecar._MAX_BYTES + 1))
+    oversized_path.chmod(0o600)
+    with pytest.raises(sidecar.IdentityLatencyError, match="private regular file"):
+        sidecar.read_private_file(oversized_path)
+    monkeypatch.setattr(sidecar, "_same_descriptor", lambda *_args: False)
+    with pytest.raises(sidecar.IdentityLatencyError, match="changed before read"):
+        sidecar.read_private_file(artifact_path)
+    monkeypatch.undo()
+
+    manifest = {
+        "schema": "identity-latency-binding-v1",
+        "source_binding": source_binding,
+        "config_file_sha256": "b" * 64,
+        "config_semantic_sha256": "c" * 64,
+        "producer_sha256": "d" * 64,
+    }
+    manifest_path = tmp_path / "identity-latency-binding.json"
+    manifest_data = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    manifest_path.write_bytes(manifest_data)
+    manifest_path.chmod(0o600)
+    with pytest.raises(sidecar.IdentityLatencyError, match="does not match"):
+        sidecar.load_expected_binding(manifest_path, "e" * 64)
+
+
+def test_identity_latency_report_rejects_nonexact_persisted_barriers(tmp_path: Path) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    source_binding = {name: "a" * 64 for name in sidecar._SOURCE_NAMES}
+    expected = {
+        "schema": "identity-latency-binding-v1",
+        "source_binding": source_binding,
+        "config_file_sha256": "b" * 64,
+        "config_semantic_sha256": "c" * 64,
+        "producer_sha256": "d" * 64,
+    }
+
+    def write_profile(directory: Path, *, partial: bool) -> Path:
+        directory.mkdir()
+        collector = daemon_module._IdentityLatencyCollector(
+            config_file_sha256=expected["config_file_sha256"],
+            config_semantic_sha256=expected["config_semantic_sha256"],
+        )
+        collector.bind(directory)
+        collector.set_bindings(source_binding, expected["producer_sha256"])
+        for barrier in daemon_module._IdentityLatencyCollector._BARRIERS:
+            try:
+                with collector.barrier(barrier):
+                    if partial and barrier == "backend_pre":
+                        raise RuntimeError("fixture barrier failure")
+            except RuntimeError:
+                pass
+        collector.finish()
+        path = directory / "identity-latency.json"
+        collector.write(path)
+        return path
+
+    complete_path = write_profile(tmp_path / "complete", partial=False)
+    partial_path = write_profile(tmp_path / "partial", partial=True)
+    complete_response = {"ok": True, "sample": {"artifact_directory": str(complete_path.parent)}}
+    partial_response = {"ok": True, "sample": {"artifact_directory": str(partial_path.parent)}}
+    complete_profile = sidecar.read_response_profile(complete_response, expected)
+    partial_profile = sidecar.read_response_profile(partial_response, expected)
+    assert complete_profile["reason"] == "ok"
+    assert complete_profile["artifact_status"] == "complete"
+    assert partial_profile["reason"] == "ok"
+    assert partial_profile["artifact_status"] == "partial"
+    valid_report = sidecar.build_report([complete_response, partial_response], expected, "e" * 64)
+    assert [sample["reason"] for sample in valid_report["samples"]] == ["ok", "ok"]
+    assert [sample["artifact_status"] for sample in valid_report["samples"]] == [
+        "complete",
+        "partial",
+    ]
+
+    artifact = json.loads(complete_path.read_text(encoding="utf-8"))
+    required_barrier_keys = (
+        "barrier",
+        "start_monotonic_ns",
+        "end_monotonic_ns",
+        "duration_ns",
+        "outcome",
+    )
+    for field in ("path", "error"):
+        invalid = copy.deepcopy(artifact)
+        invalid["barriers"][0][field] = f"raw {field} must not leak"
+        with pytest.raises(sidecar.IdentityLatencyError, match="barrier shape"):
+            sidecar.validate_artifact(invalid)
+        complete_path.write_text(
+            json.dumps(invalid, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8"
+        )
+        profile = sidecar.read_response_profile(complete_response, expected)
+        assert profile["reason"] == "artifact_invalid"
+        assert profile["barriers"] is None
+        assert f"raw {field} must not leak" not in json.dumps(profile, sort_keys=True)
+        report = sidecar.build_report([complete_response], expected, "e" * 64)
+        assert report["samples"][0]["reason"] == "artifact_invalid"
+        assert report["samples"][0]["barriers"] is None
+        assert f"raw {field} must not leak" not in json.dumps(report, sort_keys=True)
+
+    for missing in required_barrier_keys:
+        invalid = copy.deepcopy(artifact)
+        del invalid["barriers"][0][missing]
+        with pytest.raises(sidecar.IdentityLatencyError, match="barrier shape"):
+            sidecar.validate_artifact(invalid)
+        complete_path.write_text(
+            json.dumps(invalid, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8"
+        )
+        profile = sidecar.read_response_profile(complete_response, expected)
+        assert profile["reason"] == "artifact_invalid"
+        assert profile["barriers"] is None
+        report = sidecar.build_report([complete_response], expected, "e" * 64)
+        assert report["samples"][0]["reason"] == "artifact_invalid"
+        assert report["samples"][0]["barriers"] is None
+
+
+def test_identity_latency_descriptor_rejects_same_size_metadata_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    path = tmp_path / "mutable-input"
+    path.write_bytes(b"stable bytes\n")
+    original_fstat = sidecar.os.fstat
+    calls = 0
+
+    def mutate_after_read(descriptor: int) -> os.stat_result:
+        nonlocal calls
+        result = original_fstat(descriptor)
+        calls += 1
+        if calls == 2:
+            current = path.stat()
+            os.utime(path, ns=(current.st_atime_ns, current.st_mtime_ns + 1))
+        return result
+
+    monkeypatch.setattr(sidecar.os, "fstat", mutate_after_read)
+    with pytest.raises(sidecar.IdentityLatencyError, match="changed during read"):
+        sidecar._hash_local_descriptor(path, "mutable input")
+
+
+def test_identity_latency_profile_roundtrips_full_event_cap_and_rejects_after_read_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    collector = daemon_module._IdentityLatencyCollector(
+        config_file_sha256="b" * 64,
+        config_semantic_sha256="c" * 64,
+    )
+    collector.bind(tmp_path)
+    event_names = (
+        "sample_enter",
+        "proc_match",
+        "identity_x11_query",
+        "identity_return",
+        "seal_open",
+        "seal_hash",
+        "protocol_wait",
+        "protocol_record",
+    )
+    for _ in range(32):
+        for name in event_names:
+            collector.instant(name)
+    collector.finish()
+    artifact_path = tmp_path / "identity-latency.json"
+    collector.write(artifact_path)
+    data, _digest = sidecar.read_private_file(artifact_path)
+    artifact = sidecar.validate_artifact(json.loads(data))
+    assert artifact["event_count"] == 256
+    assert artifact["events_truncated"] is False
+    assert len(data) < sidecar._MAX_BYTES
+
+    original_same_descriptor = sidecar._same_descriptor
+    calls = 0
+
+    def change_after_read(left: os.stat_result, right: os.stat_result) -> bool:
+        nonlocal calls
+        calls += 1
+        return calls < 3 and original_same_descriptor(left, right)
+
+    monkeypatch.setattr(sidecar, "_same_descriptor", change_after_read)
+    with pytest.raises(sidecar.IdentityLatencyError, match="changed during read"):
+        sidecar.read_private_file(artifact_path)
+
+
+def test_identity_latency_profile_preserves_truncation_in_sanitized_report(tmp_path: Path) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    collector = daemon_module._IdentityLatencyCollector(
+        config_file_sha256="b" * 64,
+        config_semantic_sha256="c" * 64,
+    )
+    collector.bind(tmp_path)
+    event_names = tuple(sorted(daemon_module._IdentityLatencyCollector._EVENT_NAMES))
+    for index in range(257):
+        collector.instant(event_names[index % len(event_names)])
+    collector.finish()
+    artifact_path = tmp_path / "identity-latency.json"
+    collector.write(artifact_path)
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact["event_count"] == 256
+    assert artifact["events_truncated"] is True
+    assert artifact["status"] == "partial"
+    invalid_complete = dict(artifact)
+    invalid_complete["status"] = "complete"
+    with pytest.raises(sidecar.IdentityLatencyError, match="truncated trace"):
+        sidecar.validate_artifact(invalid_complete)
+
+    source_binding = {name: "a" * 64 for name in sidecar._SOURCE_NAMES}
+    expected = {
+        "schema": "identity-latency-binding-v1",
+        "source_binding": source_binding,
+        "config_file_sha256": "b" * 64,
+        "config_semantic_sha256": "c" * 64,
+        "producer_sha256": "d" * 64,
+    }
+    report = sidecar.build_report(
+        [{"ok": True, "sample": {"artifact_directory": str(tmp_path)}}],
+        expected,
+        "e" * 64,
+    )
+    sanitized = report["samples"][0]
+    assert sanitized["event_count"] == 256
+    assert sanitized["events_truncated"] is True
+
+
+def test_identity_latency_report_rejects_invalid_owner_return_tail_without_negative_value() -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    expected = {
+        "schema": "identity-latency-binding-v1",
+        "source_binding": {name: "a" * 64 for name in sidecar._SOURCE_NAMES},
+        "config_file_sha256": "b" * 64,
+        "config_semantic_sha256": "c" * 64,
+        "producer_sha256": "d" * 64,
+    }
+    response = {"ok": True, "sample": {"owner_returned": 0.5}}
+    report = sidecar.build_report(
+        [response],
+        expected,
+        "e" * 64,
+        [
+            {
+                "request_started_monotonic_ns": 1_000_000_000,
+                "response_received_monotonic_ns": 2_000_000_000,
+                "transport_duration_ns": 1_000_000_000,
+            }
+        ],
+    )
+    sample = report["samples"][0]
+    assert sample["owner_returned_monotonic_ns"] is None
+    assert sample["owner_return_to_response_received_ns"] is None
+    assert sample["owner_return_reason"] == "owner_return_clock_invalid"
+    malformed_report = sidecar.build_report(
+        [{"ok": True, "sample": {"owner_returned": "malformed"}}],
+        expected,
+        "e" * 64,
+        [
+            {
+                "request_started_monotonic_ns": 1_000_000_000,
+                "response_received_monotonic_ns": 2_000_000_000,
+                "transport_duration_ns": 1_000_000_000,
+            }
+        ],
+    )
+    assert malformed_report["samples"][0]["owner_return_reason"] == "owner_return_clock_invalid"
+    valid_report = sidecar.build_report(
+        [{"ok": True, "sample": {"owner_returned": 1.5}}],
+        expected,
+        "e" * 64,
+        [
+            {
+                "request_started_monotonic_ns": 1_000_000_000,
+                "response_received_monotonic_ns": 2_000_000_000,
+                "transport_duration_ns": 1_000_000_000,
+            }
+        ],
+    )
+    valid_sample = valid_report["samples"][0]
+    assert valid_sample["owner_returned_monotonic_ns"] == 1_500_000_000
+    assert valid_sample["owner_return_to_response_received_ns"] == 500_000_000
+    assert valid_sample["owner_return_reason"] is None
+
+
+def test_identity_latency_collector_rejects_cross_thread_append_and_restores_owner_sink(
+    tmp_path: Path,
+) -> None:
+    collector = daemon_module._IdentityLatencyCollector(
+        config_file_sha256="b" * 64,
+        config_semantic_sha256="c" * 64,
+    )
+    collector.bind(tmp_path)
+    errors: list[BaseException] = []
+
+    def append_from_other_thread() -> None:
+        try:
+            collector.instant("identity_x11_query")
+            with collector.barrier("daemon_pre"):
+                pass
+        except BaseException as exc:
+            errors.append(exc)
+
+    worker = threading.Thread(target=append_from_other_thread)
+    worker.start()
+    worker.join(timeout=1.0)
+    assert not worker.is_alive()
+    assert len(errors) == 1
+    assert "owner thread" in str(errors[0])
+    assert collector.artifact()["event_count"] == 0
+
+
+def test_identity_latency_live_preflight_rejects_binding_or_owner_before_samples(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    source_binding = sidecar.current_source_binding()
+    config_path, config_file_sha256, config_semantic_sha256, producer_sha256 = _write_sidecar_binding_config(
+        tmp_path
+    )
+    manifest = {
+        "schema": "identity-latency-binding-v1",
+        "source_binding": source_binding,
+        "config_file_sha256": config_file_sha256,
+        "config_semantic_sha256": config_semantic_sha256,
+        "producer_sha256": producer_sha256,
+    }
+    manifest_path = tmp_path / "binding.json"
+    manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_path.write_bytes(manifest_bytes)
+    manifest_path.chmod(0o600)
+    raw_dir = tmp_path / "raw"
+    args = SimpleNamespace(
+        manifest=manifest_path,
+        manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        socket=tmp_path / "session.sock",
+        raw_dir=raw_dir,
+        config_file=config_path,
+        generation=7,
+        config_file_sha256="e" * 64,
+        config_semantic_sha256=config_semantic_sha256,
+    )
+    requests: list[dict[str, object]] = []
+
+    def request(_path: Path, payload: dict[str, object], **_kwargs: object) -> dict[str, object]:
+        requests.append(payload)
+        return {"ok": True, "status": {}}
+
+    monkeypatch.setattr(sidecar, "_socket_request", request)
+    with pytest.raises(sidecar.IdentityLatencyError, match="request config binding"):
+        sidecar._run_live(args)
+    assert requests == []
+    assert not raw_dir.exists()
+
+    args.config_file_sha256 = config_file_sha256
+    with pytest.raises(sidecar.IdentityLatencyError, match="paused diagnostic boundary"):
+        sidecar._run_live(args)
+    assert requests == [{"command": "status"}]
+    assert not raw_dir.exists()
+
+    original_load_config = sidecar.load_config
+    original_config = config_path.read_bytes()
+    assert original_config.endswith(b"\n")
+
+    def mutate_config_before_load(path: Path):  # type: ignore[no-untyped-def]
+        path.write_bytes(original_config[:-1] + b" ")
+        return original_load_config(path)
+
+    monkeypatch.setattr(sidecar, "load_config", mutate_config_before_load)
+    try:
+        with pytest.raises(sidecar.IdentityLatencyError, match="changed while it was being loaded"):
+            sidecar._run_live(args)
+    finally:
+        config_path.write_bytes(original_config)
+    assert requests == [{"command": "status"}]
+    monkeypatch.setattr(sidecar, "load_config", original_load_config)
+
+    config_path.write_bytes(original_config + b"\n")
+    try:
+        with pytest.raises(sidecar.IdentityLatencyError, match="current config or producer binding"):
+            sidecar._run_live(args)
+    finally:
+        config_path.write_bytes(original_config)
+    assert requests == [{"command": "status"}]
+    producer_path = config_path.parent / "producer"
+    original_producer = producer_path.read_bytes()
+    producer_path.write_bytes(original_producer + b"\n")
+    try:
+        with pytest.raises(sidecar.IdentityLatencyError, match="current config or producer binding"):
+            sidecar._run_live(args)
+    finally:
+        producer_path.write_bytes(original_producer)
+    assert requests == [{"command": "status"}]
+    assert not raw_dir.exists()
+
+
+def test_identity_latency_live_preflight_accepts_binding_then_uses_absolute_sample_deadline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    source_binding = sidecar.current_source_binding()
+    config_path, config_file_sha256, config_semantic_sha256, producer_sha256 = _write_sidecar_binding_config(
+        tmp_path
+    )
+    manifest = {
+        "schema": "identity-latency-binding-v1",
+        "source_binding": source_binding,
+        "config_file_sha256": config_file_sha256,
+        "config_semantic_sha256": config_semantic_sha256,
+        "producer_sha256": producer_sha256,
+    }
+    manifest_path = tmp_path / "binding.json"
+    manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_path.write_bytes(manifest_bytes)
+    manifest_path.chmod(0o600)
+    requests: list[tuple[dict[str, object], dict[str, object]]] = []
+
+    def request(_path: Path, payload: dict[str, object], **kwargs: object) -> dict[str, object]:
+        requests.append((payload, kwargs))
+        if payload == {"command": "status"}:
+            return {
+                "ok": True,
+                "status": {
+                    "state": "PAUSED",
+                    "generation": 7,
+                    "stopRequested": False,
+                    "closeoutRequested": False,
+                    "actionIntent": "",
+                    "reconciliationRequired": False,
+                    "nativeBootstrapPending": False,
+                    "nativeBootstrapReady": False,
+                    "calibrationOperation": {"state": "idle"},
+                },
+            }
+        return {"ok": False, "error": "fixture refusal"}
+
+    monkeypatch.setattr(sidecar, "_socket_request", request)
+    args = SimpleNamespace(
+        manifest=manifest_path,
+        manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        socket=tmp_path / "session.sock",
+        raw_dir=tmp_path / "raw",
+        config_file=config_path,
+        output=tmp_path / "report.json",
+        generation=7,
+        config_file_sha256=config_file_sha256,
+        config_semantic_sha256=config_semantic_sha256,
+    )
+    report = sidecar._run_live(args)
+    assert report["sample_count"] == 3
+    assert len(requests) == 4
+    assert requests[0][0] == {"command": "status"}
+    for payload, kwargs in requests[1:]:
+        assert payload["command"] == "paused_region_sample"
+        assert payload["deadline"] == payload["parent_started"] + 1.0
+        assert kwargs["response_deadline"] == payload["deadline"]
+        assert kwargs["failure_evidence_grace"] == 0.25
+    assert (args.raw_dir / "response-00.json").stat().st_mode & 0o777 == 0o600
+    assert not args.output.exists()
+
+
+def test_identity_latency_live_preflight_rejects_same_size_eof_mutation_before_ipc(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    sidecar = _load_identity_latency_sidecar(Path(__file__).resolve().parents[1])
+    source_binding = sidecar.current_source_binding()
+    config_path, config_file_sha256, config_semantic_sha256, producer_sha256 = _write_sidecar_binding_config(
+        tmp_path
+    )
+    manifest = {
+        "schema": "identity-latency-binding-v1",
+        "source_binding": source_binding,
+        "config_file_sha256": config_file_sha256,
+        "config_semantic_sha256": config_semantic_sha256,
+        "producer_sha256": producer_sha256,
+    }
+    manifest_path = tmp_path / "binding.json"
+    manifest_bytes = json.dumps(manifest, sort_keys=True, separators=(",", ":")).encode()
+    manifest_path.write_bytes(manifest_bytes)
+    manifest_path.chmod(0o600)
+    raw_dir = tmp_path / "raw"
+    args = SimpleNamespace(
+        manifest=manifest_path,
+        manifest_sha256=hashlib.sha256(manifest_bytes).hexdigest(),
+        socket=tmp_path / "session.sock",
+        raw_dir=raw_dir,
+        config_file=config_path,
+        output=tmp_path / "report.json",
+        generation=7,
+        config_file_sha256=config_file_sha256,
+        config_semantic_sha256=config_semantic_sha256,
+    )
+    requests: list[dict[str, object]] = []
+
+    def request(_path: Path, payload: dict[str, object], **_kwargs: object) -> dict[str, object]:
+        requests.append(payload)
+        return {"ok": True, "status": {}}
+
+    original_read = sidecar.os.read
+    original_config = config_path.read_bytes()
+    mutated = [False]
+
+    def mutate_config_at_eof(fd: int, count: int) -> bytes:
+        data = original_read(fd, count)
+        try:
+            is_config = Path(os.readlink(f"/proc/self/fd/{fd}")) == config_path
+        except OSError:
+            is_config = False
+        if data and is_config and not mutated[0]:
+            mutated[0] = True
+            assert original_config.endswith(b"\n")
+            config_path.write_bytes(original_config[:-1] + b" ")
+        return data
+
+    monkeypatch.setattr(sidecar, "_socket_request", request)
+    monkeypatch.setattr(sidecar.os, "read", mutate_config_at_eof)
+    try:
+        with pytest.raises(sidecar.IdentityLatencyError, match="descriptor changed during read"):
+            sidecar._run_live(args)
+    finally:
+        config_path.write_bytes(original_config)
+    assert mutated[0] is True
+    assert requests == []
+    assert not raw_dir.exists()
+
+
 def test_native_region_profile_is_default_off_and_hash_pinned(tmp_path: Path) -> None:
     profile = DriverProfile(xauthority=str(tmp_path / "Xauthority"))
     profile.validate()
@@ -1142,7 +1728,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
     # The composed coverage below includes the late-refusal regression and a
     # second real eight-sample model-counter run; retain enough independent
     # compiled payloads for every actual ScreenshotArea call.
-    for index in range(60):
+    for index in range(80):
         client.update_agent(1.0)
         target = BytesIO()
         client.render_agent_capture().save(target, format="PNG")
@@ -1618,6 +2204,67 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert evaluated["attempts_begun"] == 8
             success_publications = [value for _path, value in receipt_publications if value.get("ok") is True]
             assert len(success_publications) == 8
+            sidecar = _load_identity_latency_sidecar(root)
+            expected_latency_binding = {
+                "schema": "identity-latency-binding-v1",
+                "source_binding": live_binding["accepted_source_hashes"],
+                "config_file_sha256": live_binding["config_binding"]["raw_file_sha256"],
+                "config_semantic_sha256": live_binding["config_binding"]["semantic_sha256"],
+                "producer_sha256": live_binding["producer_binding"]["binary_sha256"],
+            }
+            manifest_path = tmp_path / "identity-latency-binding.json"
+            manifest_bytes = json.dumps(
+                expected_latency_binding, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+            manifest_path.write_bytes(manifest_bytes)
+            manifest_path.chmod(0o600)
+            manifest, manifest_sha256 = sidecar.load_expected_binding(
+                manifest_path, hashlib.sha256(manifest_bytes).hexdigest()
+            )
+            assert manifest == expected_latency_binding
+            latency_profiles = [
+                Path(value["artifact_directory"]) / "identity-latency.json" for value in success_publications
+            ]
+            assert len({path.parent for path in latency_profiles}) == 8
+            for profile_path, response in zip(latency_profiles, success_publications, strict=True):
+                assert profile_path.is_file() and not profile_path.is_symlink()
+                assert profile_path.stat().st_mode & 0o777 == 0o600
+                profile_data, profile_digest = sidecar.read_private_file(profile_path)
+                profile = sidecar.validate_artifact(json.loads(profile_data))
+                assert profile_digest == hashlib.sha256(profile_data).hexdigest()
+                assert profile["status"] == ("partial" if profile["events_truncated"] else "complete")
+                process_verify = [event for event in profile["events"] if event["name"] == "process_verify"]
+                assert len(process_verify) == 2
+                assert all(event["duration_ns"] > 0 for event in process_verify)
+                assert profile["owner_entry_monotonic_ns"] <= profile["owner_bound_monotonic_ns"]
+                assert profile["owner_bound_monotonic_ns"] <= profile["owner_return_monotonic_ns"]
+                assert profile["intervals_non_additive"] is True
+                assert [item["barrier"] for item in profile["barriers"]] == [
+                    "daemon_pre",
+                    "backend_pre",
+                    "backend_post",
+                    "daemon_post",
+                ]
+                ipc_response = {"ok": True, "sample": response}
+                diagnostic = sidecar.read_response_profile(ipc_response, manifest)
+                assert diagnostic["artifact_sha256"] == profile_digest
+                assert diagnostic["artifact_status"] == profile["status"]
+                assert diagnostic["binding_consistent"] is True
+                assert diagnostic["reason"] == "ok"
+                assert diagnostic["event_count"] == profile["event_count"]
+                assert diagnostic["events_truncated"] == profile["events_truncated"]
+                assert diagnostic["events"] == profile["events"]
+                assert diagnostic["owner_entry_monotonic_ns"] == profile["owner_entry_monotonic_ns"]
+                assert diagnostic["owner_bound_monotonic_ns"] == profile["owner_bound_monotonic_ns"]
+                assert diagnostic["owner_return_monotonic_ns"] == profile["owner_return_monotonic_ns"]
+            report = sidecar.build_report(
+                [{"ok": True, "sample": response} for response in success_publications],
+                manifest,
+                manifest_sha256,
+            )
+            assert report["diagnostic_only"] is True
+            assert report["sample_count"] == 8
+            assert all(sample["binding_consistent"] is True for sample in report["samples"])
             assert all("owner_returned" in value for value in success_publications)
             assert all(
                 set(value)
@@ -1698,6 +2345,27 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             def area_count() -> int:
                 return len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
 
+            def validate_owner_latency_profile(owner_dir: Path) -> dict[str, object]:
+                profile_path = owner_dir / "identity-latency.json"
+                assert profile_path.is_file() and not profile_path.is_symlink()
+                assert profile_path.stat().st_mode & 0o777 == 0o600
+                profile_data, profile_digest = sidecar.read_private_file(profile_path)
+                profile = sidecar.validate_artifact(json.loads(profile_data))
+                assert profile_digest == hashlib.sha256(profile_data).hexdigest()
+                assert profile["status"] in {"complete", "partial"}
+                assert profile["owner_return_monotonic_ns"] is not None
+                assert all(
+                    event["child_cpu_ns"] is None
+                    and event["child_cpu_reason"] == "external_child_cpu_unmeasured"
+                    for event in profile["events"]
+                )
+                # Profile publication never carries owner exception text or
+                # filesystem paths; the causal receipt remains authoritative.
+                assert b'"error"' not in profile_data
+                assert b"artifact_directory" not in profile_data
+                assert b"receipt_path" not in profile_data
+                return profile
+
             def run_runner_failure(mode: str, directory: Path) -> dict[str, object]:
                 before_samples = sample_count[0]
                 before_area = area_count()
@@ -1727,6 +2395,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                 assert failed_receipt["attempts"][0]["owner"] is None or isinstance(
                     failed_receipt["attempts"][0]["owner"], dict
                 )
+                validate_owner_latency_profile(owner_directories[-1])
                 assert not list(directory.glob("paused-*.png"))
                 return failed_receipt
 
@@ -1751,6 +2420,8 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert changed_identity_receipt["attempts"][0]["failure"]["phase"] == "owner_capture"
             assert len(list(changed_identity_dir.glob("paused-*.png"))) == 1
             assert (changed_identity_dir / "paused-00.png").is_file()
+            changed_identity_owner_dirs = sorted(Path(config.capture_dir).glob("paused-region-*"))
+            validate_owner_latency_profile(changed_identity_owner_dirs[-1])
 
             late_before_samples = sample_count[0]
             late_before_area = area_count()
@@ -1795,6 +2466,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert len(late_refusal_new_owner_dirs) == 1
             late_refusal_private = next(iter(late_refusal_new_owner_dirs)) / "receipt.json"
             assert late_refusal_private.is_file()
+            validate_owner_latency_profile(late_refusal_private.parent)
             assert json.loads(late_refusal_private.read_text(encoding="utf-8"))["ok"] is False
             late_refusal_record = late_refusal_dir / "owner-refusal-00.json"
             assert late_refusal_record.is_file()
@@ -1968,6 +2640,8 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert len(partial_pairs) == 1
             assert len(list(partial_dir.glob("paused-*.png"))) == 1
             assert next(partial_dir.glob("paused-*.png")).is_file()
+            partial_owner_dirs = sorted(Path(config.capture_dir).glob("paused-region-*"))
+            validate_owner_latency_profile(partial_owner_dirs[-1])
             assert area_count() == 8 + 2 + 6 + 1 + 1 + 1 + 2 + 2 + 1
 
             # A success receipt write failure leaves only a durable failure
@@ -2003,6 +2677,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                 if path == Path(persist_failure["receipt_path"]) and value.get("ok") is True
             ]
             assert len(attempted_success) == 1 and "owner_returned" in attempted_success[0]
+            validate_owner_latency_profile(Path(persist_failure["receipt_path"]).parent)
             assert sample_count[0] == before_receipt_failure_samples + 1
             assert area_count() == before_receipt_failure_area + 1
             assert not fail_success_persist[0]
@@ -2289,6 +2964,17 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert persisted_identity_failure["lease_held"] is True
             assert persisted_identity_failure["armed"] is False
             assert persisted_identity_failure["cleanup"]["empty"] is True
+            identity_profile = validate_owner_latency_profile(
+                Path(persisted_identity_failure["receipt_path"]).parent
+            )
+            assert [item["outcome"] for item in identity_profile["barriers"]] == [
+                "failed",
+                "not_reached",
+                "not_reached",
+                "not_reached",
+            ]
+            assert identity_profile["intervals"][0]["outcome"] == "not_reached"
+            assert identity_profile["intervals"][1]["outcome"] == "not_reached"
             identity_evaluated, identity_pairs, identity_report = _evaluate_persisted_live_receipt(
                 identity_runner_receipt, identity_failure_dir / "receipt.json", live_binding
             )
@@ -2395,6 +3081,14 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             )
             assert persisted_owner_failure["ok"] is False
             assert persisted_owner_failure["failure"]["phase"] == "region_capture"
+            cancellation_profile = validate_owner_latency_profile(Path(owner_failure["receipt_path"]).parent)
+            assert [item["outcome"] for item in cancellation_profile["barriers"]] == [
+                "ok",
+                "ok",
+                "not_reached",
+                "not_reached",
+            ]
+            assert cancellation_profile["intervals"][1]["outcome"] == "not_reached"
             assert owner_failure["cleanup"]["empty"] is True
             assert owner_failure["lease_held"] is True
             assert owner_failure["armed"] is False
@@ -2766,6 +3460,194 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert "model_call_delta_nonzero" in model_evaluated["reason_codes"]
             assert len(model_pairs) == 7
 
+            # Owner-side post-capture identity drift must retain its causal
+            # phase/error while the private profile records the failed daemon
+            # post barrier.
+            original_owner_resolve = backend.resolve_identity
+            owner_resolve_calls = [0]
+
+            def drift_after_capture(**kwargs):  # type: ignore[no-untyped-def]
+                owner_resolve_calls[0] += 1
+                observed = original_owner_resolve(**kwargs)
+                if owner_resolve_calls[0] == 4:
+                    return replace(observed, fingerprint="fixture-owner-drift")
+                return observed
+
+            backend.resolve_identity = drift_after_capture  # type: ignore[method-assign]
+            drift_started = time.monotonic()
+            drift_request = {
+                "command": "paused_region_sample",
+                "generation": daemon.controller.status().generation,
+                "parent_started": drift_started,
+                "deadline": drift_started + 1.0,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            try:
+                drift_response = ipc.dispatch(drift_request)
+            finally:
+                backend.resolve_identity = original_owner_resolve  # type: ignore[method-assign]
+            assert drift_response["ok"] is False
+            drift_failure = drift_response["failure"]
+            assert isinstance(drift_failure, dict)
+            assert drift_failure["phase"] == "owner_post_capture_check"
+            assert "client identity changed during capture" in drift_failure["error"]
+            drift_profile = validate_owner_latency_profile(Path(drift_failure["receipt_path"]).parent)
+            assert [item["outcome"] for item in drift_profile["barriers"]] == [
+                "ok",
+                "ok",
+                "ok",
+                "ok",
+            ]
+
+            # A real owner config check after capture fails before the response
+            # is published, retaining the config-binding phase and profile.
+            original_config_check = daemon._check_paused_region_config_binding
+            config_check_calls = [0]
+
+            def fail_owner_config_check(*args: object, **kwargs: object) -> None:
+                config_check_calls[0] += 1
+                if config_check_calls[0] == 2:
+                    raise DriverError("fixture owner config drift")
+                original_config_check(*args, **kwargs)  # type: ignore[arg-type]
+
+            daemon._check_paused_region_config_binding = fail_owner_config_check  # type: ignore[method-assign]
+            config_drift_started = time.monotonic()
+            config_drift_request = {
+                "command": "paused_region_sample",
+                "generation": daemon.controller.status().generation,
+                "parent_started": config_drift_started,
+                "deadline": config_drift_started + 1.0,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            try:
+                config_drift_response = ipc.dispatch(config_drift_request)
+            finally:
+                daemon._check_paused_region_config_binding = original_config_check  # type: ignore[method-assign]
+            assert config_drift_response["ok"] is False
+            config_drift_failure = config_drift_response["failure"]
+            assert isinstance(config_drift_failure, dict)
+            assert config_drift_failure["phase"] == "config_binding"
+            assert config_drift_failure["error"] == "DriverError: fixture owner config drift"
+            config_drift_profile = validate_owner_latency_profile(
+                Path(config_drift_failure["receipt_path"]).parent
+            )
+            assert [item["outcome"] for item in config_drift_profile["barriers"]] == [
+                "ok",
+                "ok",
+                "ok",
+                "ok",
+            ]
+
+            # A final source check interruption must retain the original
+            # BaseException and still publish the private profile.  The
+            # public wrapper's outer finally then clears the thread-local sink
+            # before the next owner request.
+            final_source_calls = [0]
+            original_final_source_binding = daemon._runtime_source_binding_for_diagnostic
+            final_source_owner_dirs_before = set(Path(config.capture_dir).glob("paused-region-*"))
+
+            def interrupt_final_source_binding() -> dict[str, str]:
+                final_source_calls[0] += 1
+                if final_source_calls[0] == 2:
+                    raise KeyboardInterrupt("fixture final source check interruption")
+                return original_final_source_binding()
+
+            daemon._runtime_source_binding_for_diagnostic = interrupt_final_source_binding  # type: ignore[method-assign]
+            final_source_started = time.monotonic()
+            try:
+                with pytest.raises(KeyboardInterrupt, match="fixture final source check interruption"):
+                    daemon.capture_paused_region_sample(
+                        expected_generation=daemon.controller.status().generation,
+                        parent_started=final_source_started,
+                        deadline=final_source_started + 1.0,
+                        config_file_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                        config_semantic_sha256=session_config_semantic_sha256(config),
+                    )
+            finally:
+                daemon._runtime_source_binding_for_diagnostic = original_final_source_binding  # type: ignore[method-assign]
+            assert final_source_calls[0] >= 2
+            assert driver_module._IDENTITY_LATENCY_SINK.get() is None
+            final_source_owner_dirs = (
+                set(Path(config.capture_dir).glob("paused-region-*")) - final_source_owner_dirs_before
+            )
+            assert len(final_source_owner_dirs) == 1
+            final_source_owner_dir = next(iter(final_source_owner_dirs))
+            final_source_profile = validate_owner_latency_profile(final_source_owner_dir)
+            assert final_source_profile["status"] in {"complete", "partial"}
+            assert any(
+                event["name"] == "source_binding_after" and event["outcome"] == "failed"
+                for event in final_source_profile["events"]
+            )
+            final_source_receipt = json.loads(
+                (final_source_owner_dir / "receipt.json").read_text(encoding="utf-8")
+            )
+            assert final_source_receipt["ok"] is False
+            assert final_source_receipt["failure"]["phase"] == "source_binding"
+            assert final_source_receipt["failure"]["error"] == (
+                "KeyboardInterrupt: fixture final source check interruption"
+            )
+
+            final_source_next_started = time.monotonic()
+            final_source_next = daemon.capture_paused_region_sample(
+                expected_generation=daemon.controller.status().generation,
+                parent_started=final_source_next_started,
+                deadline=final_source_next_started + 1.0,
+                config_file_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                config_semantic_sha256=session_config_semantic_sha256(config),
+            )
+            assert final_source_next["ok"] is True
+            assert driver_module._IDENTITY_LATENCY_SINK.get() is None
+
+            # A cleanup failure is a real owner exception, not an ordinary
+            # response refusal.  The public wrapper must restore its timing
+            # ContextVar even while propagating the original BaseException;
+            # the next actual owner request must then be able to collect.
+            cleanup_failure_calls = [0]
+            original_cleanup_snapshot = daemon._paused_region_cleanup_snapshot
+
+            def fail_first_cleanup(*args: object) -> dict[str, object]:
+                cleanup_failure_calls[0] += 1
+                if cleanup_failure_calls[0] == 1:
+                    raise KeyboardInterrupt("fixture cleanup interruption")
+                return original_cleanup_snapshot(*args)  # type: ignore[arg-type]
+
+            daemon._paused_region_cleanup_snapshot = fail_first_cleanup  # type: ignore[method-assign]
+            exception_started = time.monotonic()
+            exception_owner_dirs_before = set(Path(config.capture_dir).glob("paused-region-*"))
+            exception_request = {
+                "expected_generation": daemon.controller.status().generation,
+                "parent_started": exception_started,
+                "deadline": exception_started + 1.0,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            try:
+                with pytest.raises(KeyboardInterrupt, match="fixture cleanup interruption"):
+                    daemon.capture_paused_region_sample(**exception_request)
+            finally:
+                daemon._paused_region_cleanup_snapshot = original_cleanup_snapshot  # type: ignore[method-assign]
+            assert cleanup_failure_calls[0] >= 2
+            exception_owner_dirs = (
+                set(Path(config.capture_dir).glob("paused-region-*")) - exception_owner_dirs_before
+            )
+            assert len(exception_owner_dirs) == 1
+            exception_profile = validate_owner_latency_profile(next(iter(exception_owner_dirs)))
+            assert exception_profile["owner_return_monotonic_ns"] is not None
+            assert driver_module._IDENTITY_LATENCY_SINK.get() is None
+
+            next_started = time.monotonic()
+            next_result = daemon.capture_paused_region_sample(
+                expected_generation=daemon.controller.status().generation,
+                parent_started=next_started,
+                deadline=next_started + 1.0,
+                config_file_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                config_semantic_sha256=session_config_semantic_sha256(config),
+            )
+            assert next_result["ok"] is True
+            assert driver_module._IDENTITY_LATENCY_SINK.get() is None
+
             # The same unchanged evaluator independently rejects an observer
             # after-map replacement, retaining the source drift reason.
             source_drift_dir = session_dir / "evidence-owner-source-drift"
@@ -2785,6 +3667,79 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert source_drift_evaluated["eligible"] is False
             assert source_drift_evaluated["reason_codes"] == ["source_binding_drift"]
             assert len(source_drift_pairs) == 8
+
+            # A diagnostic publication failure must preserve the real owner
+            # receipt and success response while leaving only the fixed token.
+            write_failure_started = time.monotonic()
+            write_failure_request = {
+                "command": "paused_region_sample",
+                "generation": daemon.controller.status().generation,
+                "parent_started": write_failure_started,
+                "deadline": write_failure_started + 0.95,
+                "config_file_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                "config_semantic_sha256": session_config_semantic_sha256(config),
+            }
+            original_latency_write = daemon_module._IdentityLatencyCollector.write
+
+            def fail_latency_write(_collector: object, _path: Path) -> None:
+                raise OSError("injected diagnostic publication failure")
+
+            monkeypatch.setattr(daemon_module._IdentityLatencyCollector, "write", fail_latency_write)
+            try:
+                write_failure_response = ipc.dispatch(write_failure_request)
+            finally:
+                monkeypatch.setattr(
+                    daemon_module._IdentityLatencyCollector,
+                    "write",
+                    original_latency_write,
+                )
+            assert write_failure_response["ok"] is True
+            write_failure_sample = write_failure_response["sample"]
+            write_failure_owner_dir = Path(write_failure_sample["artifact_directory"])
+            assert json.loads((write_failure_owner_dir / "receipt.json").read_text()) == {
+                "ok": True,
+                **write_failure_sample,
+            }
+            assert not (write_failure_owner_dir / "identity-latency.json").exists()
+            assert (write_failure_owner_dir / "identity-latency-write-failed").is_file()
+
+            # Raise from the cleanup snapshot in the implementation's own
+            # finally block.  The outer public wrapper still has to reset its
+            # ContextVar so a subsequent real request can collect normally.
+            final_cleanup_calls = [0]
+            final_cleanup_original = daemon._paused_region_cleanup_snapshot
+
+            def fail_final_cleanup(*args: object) -> dict[str, object]:
+                final_cleanup_calls[0] += 1
+                if final_cleanup_calls[0] == 2:
+                    raise KeyboardInterrupt("fixture final cleanup interruption")
+                return final_cleanup_original(*args)  # type: ignore[arg-type]
+
+            daemon._paused_region_cleanup_snapshot = fail_final_cleanup  # type: ignore[method-assign]
+            final_cleanup_started = time.monotonic()
+            try:
+                with pytest.raises(KeyboardInterrupt, match="fixture final cleanup interruption"):
+                    daemon.capture_paused_region_sample(
+                        expected_generation=daemon.controller.status().generation,
+                        parent_started=final_cleanup_started,
+                        deadline=final_cleanup_started + 1.0,
+                        config_file_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                        config_semantic_sha256=session_config_semantic_sha256(config),
+                    )
+            finally:
+                daemon._paused_region_cleanup_snapshot = final_cleanup_original  # type: ignore[method-assign]
+            assert final_cleanup_calls[0] >= 2
+            assert driver_module._IDENTITY_LATENCY_SINK.get() is None
+            final_cleanup_next_started = time.monotonic()
+            final_cleanup_next = daemon.capture_paused_region_sample(
+                expected_generation=daemon.controller.status().generation,
+                parent_started=final_cleanup_next_started,
+                deadline=final_cleanup_next_started + 1.0,
+                config_file_sha256=hashlib.sha256(config_path.read_bytes()).hexdigest(),
+                config_semantic_sha256=session_config_semantic_sha256(config),
+            )
+            assert final_cleanup_next["ok"] is True
+            assert driver_module._IDENTITY_LATENCY_SINK.get() is None
         finally:
             late_response_release.set()
             late_refusal_release.set()

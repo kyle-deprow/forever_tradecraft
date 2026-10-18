@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextvars
 import ctypes
 import errno
 import fcntl
@@ -22,8 +23,9 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
+from functools import wraps
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -62,6 +64,57 @@ _F_SEAL_GROW = getattr(fcntl, "F_SEAL_GROW", 0x0004)
 _F_SEAL_WRITE = getattr(fcntl, "F_SEAL_WRITE", 0x0008)
 
 
+_IDENTITY_LATENCY_SINK: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
+    "identity_latency_sink", default=None
+)
+
+
+def _set_identity_latency_sink(sink: Any) -> contextvars.Token[Any | None]:
+    return _IDENTITY_LATENCY_SINK.set(sink)
+
+
+def _reset_identity_latency_sink(token: contextvars.Token[Any | None]) -> None:
+    _IDENTITY_LATENCY_SINK.reset(token)
+
+
+def _identity_latency_span(name: str):
+    sink = _IDENTITY_LATENCY_SINK.get()
+    if sink is None:
+        return nullcontext()
+    return sink.span(name)
+
+
+def _identity_latency_barrier(name: str):
+    sink = _IDENTITY_LATENCY_SINK.get()
+    if sink is None:
+        return nullcontext()
+    return sink.barrier(name)
+
+
+def _identity_latency_instant(name: str) -> None:
+    sink = _IDENTITY_LATENCY_SINK.get()
+    if sink is not None:
+        sink.instant(name)
+
+
+def _identity_latency_mark(name: str) -> None:
+    sink = _IDENTITY_LATENCY_SINK.get()
+    if sink is not None:
+        sink.mark(name)
+
+
+def _identity_latency_decorator(name: str):
+    def decorate(function: Callable[..., Any]) -> Callable[..., Any]:
+        @wraps(function)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            with _identity_latency_span(name):
+                return function(*args, **kwargs)
+
+        return wrapped
+
+    return decorate
+
+
 class DriverError(RuntimeError):
     """A precondition, identity, lease, or postcondition failed."""
 
@@ -91,6 +144,7 @@ class TelemetryRegionReceipt:
     attempt_retired: bool
 
 
+@_identity_latency_decorator("seal_open")
 def _open_sealed_executable(path: Path, expected_sha256: str) -> tuple[int, str]:
     """Copy a verified executable into an immutable memfd before admission."""
 
@@ -120,7 +174,10 @@ def _open_sealed_executable(path: Path, expected_sha256: str) -> tuple[int, str]
             os.close(source_fd)
         except (NameError, OSError):
             pass
-    digest = hashlib.sha256(data).hexdigest()
+    # ``seal_open`` is the complete open/read interval. Keep hashing as a real
+    # nested span instead of reporting a zero-duration marker after the work.
+    with _identity_latency_span("seal_hash"):
+        digest = hashlib.sha256(data).hexdigest()
     if digest != expected_sha256:
         raise DriverError("telemetry executable hash does not match the pinned capability")
     try:
@@ -346,6 +403,7 @@ def _sha256_proc_object(path: Path) -> str:
     return digest.hexdigest()
 
 
+@_identity_latency_decorator("process_verify")
 def _verify_admitted_process(
     process: subprocess.Popen[str], image_fd: int, expected_digest: str, expected_ppid: int
 ) -> tuple[str, int, int]:
@@ -402,6 +460,7 @@ def _protocol_rectangle(value: Any) -> tuple[int, int, int, int] | None:
     return tuple(value)  # type: ignore[return-value]
 
 
+@_identity_latency_decorator("protocol_record")
 def _json_record(
     sock: socket.socket,
     deadline: float,
@@ -418,7 +477,8 @@ def _json_record(
         remaining = deadline - time.monotonic()
         if remaining <= 0:
             raise DriverError("telemetry owner protocol deadline expired")
-        readable, _writable, _exceptional = select.select([sock], [], [], min(0.1, remaining))
+        with _identity_latency_span("protocol_wait"):
+            readable, _writable, _exceptional = select.select([sock], [], [], min(0.1, remaining))
         if not readable:
             if process is not None and process.poll() is not None:
                 raise _producer_failure(process, "telemetry producer exited before protocol completion")
@@ -462,6 +522,7 @@ def _producer_failure(process: subprocess.Popen[str], context: str) -> DriverErr
     return DriverError(f"{context}: exit={return_code}{suffix}")
 
 
+@_identity_latency_decorator("png_publication")
 def _wait_for_complete_png(
     path: Path,
     minimum_size: tuple[int, int],
@@ -1224,6 +1285,7 @@ class X11Backend:
             )
         return self._cancel_active.is_set()
 
+    @_identity_latency_decorator("identity_x11_query")
     def _run(
         self,
         args: list[str],
@@ -2168,6 +2230,7 @@ class X11Backend:
                 raise DriverError("game PID is outside the configured Wine prefix")
         return matches[0], start
 
+    @_identity_latency_decorator("proc_match")
     def _matching_game_pids(self) -> set[int]:
         matches: set[int] = set()
         for entry in Path("/proc").iterdir():
@@ -2230,6 +2293,7 @@ class X11Backend:
             raise DriverError("game outer has an unexpected helper or sibling child")
         return root, frozenset({outer_xid, child_xid})
 
+    @_identity_latency_decorator("identity_return")
     def resolve_identity(
         self,
         *,
@@ -2797,7 +2861,8 @@ class X11Backend:
         deadline = _capture_deadline(deadline_monotonic)
         capture_epoch = self._capture_epoch_snapshot()
         self._check_capture_epoch(capture_epoch)
-        before = self.resolve_identity(deadline_monotonic=deadline)
+        with _identity_latency_barrier("backend_pre"):
+            before = self.resolve_identity(deadline_monotonic=deadline)
         if before.fingerprint != identity.fingerprint:
             raise DriverError("telemetry region identity changed before capture")
         path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
@@ -2815,6 +2880,7 @@ class X11Backend:
         nonce = uuid.uuid4().hex
         output_path_digest = ""
         request_started = time.monotonic()
+        _identity_latency_mark("request_started")
         # A validation or admission failure retains the entry timestamp while
         # every later boundary remains explicitly unreached.
         lock_acquired: float | None = None
@@ -2841,6 +2907,7 @@ class X11Backend:
         try:
             with _capture_lock(deadline, check=lambda: self._check_capture_epoch(capture_epoch)):
                 lock_acquired = time.monotonic()
+                _identity_latency_instant("lock_acquired")
                 update_protocol_stage("attempt_setup")
                 self._check_capture_epoch(capture_epoch)
                 attempt_dir = Path(tempfile.mkdtemp(prefix=f".{path.name}.telemetry-", dir=path.parent))
@@ -3035,6 +3102,7 @@ class X11Backend:
                 ):
                     raise DriverError("telemetry capture-start proof is malformed")
                 capture_started = float(started["capture_started"])
+                _identity_latency_instant("capture_started")
                 update_protocol_stage("capture_complete")
                 _wait_for_complete_png(
                     stage,
@@ -3090,8 +3158,12 @@ class X11Backend:
                 if return_code != 0:
                     raise _producer_failure(process, "telemetry producer failed after capture completion")
                 capture_returned = time.monotonic()
+                _identity_latency_instant("capture_returned")
+                _identity_latency_mark("capture_returned")
                 update_protocol_stage("identity_postcheck")
-                after = self.resolve_identity(deadline_monotonic=deadline)
+                with _identity_latency_barrier("backend_post"):
+                    after = self.resolve_identity(deadline_monotonic=deadline)
+                _identity_latency_instant("identity_after_backend")
                 self._check_capture_epoch(capture_epoch)
                 if after.fingerprint != before.fingerprint:
                     raise DriverError("telemetry region identity changed during capture")
@@ -3196,6 +3268,7 @@ class X11Backend:
                     self.last_region_receipt,
                     attempt_retired=attempt_retired,
                 )
+            _identity_latency_instant("cleanup")
             # This snapshot is also the durable failure evidence.  It is
             # written after process reap and attempt retirement, so a late
             # failure cannot erase an earlier boundary or claim provisional

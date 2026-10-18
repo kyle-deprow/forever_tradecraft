@@ -1,0 +1,52 @@
+Resolved model: claude-opus-5-5
+**Model: claude-opus-5-5**
+
+# Opus schema-closure review: identity-latency barrier keys
+
+**Verdict: the finding is closed.** Unknown barrier fields no longer reach the report, and a missing barrier field no longer raises `KeyError`. Valid artifacts are handled as before, and the change adds no new errors or leaks.
+
+This review was read-only: I made no edits and ran no tests, builds, network calls, GUI, input, services or git changes. A copy is saved at `/home/dev/.claude/plans/state-exact-model-id-frolicking-pony.md`.
+
+## Identity and scope
+- **Plan and inputs:** the plan's SHA-256 is `2c5c3e3a…187f` and the Sol final review's is `056d5744…a403`; both match the freeze file.
+- **Candidate files:** the sidecar (`e14233b0…056e`) and test file (`f7870571…b9ae`) match `identity-latency-schema-freeze.json`.
+- **Driver and daemon:** `driver.py` (`ca0ca123…a166`) and `daemon.py` (`972c7405…bb23ae`) are byte-identical to `identity-latency-final-20261017`.
+- **Other differences:** compared with the final worktree, the only code changes are in the sidecar and the test file. `SKILL.md`, `HANDOFF.md` and the extra `.archive/*` files differ only because the base commit moved from `f213e1f` to `3f43d8f`.
+
+## How the finding is closed
+**Code: `identity_latency_sidecar.py:401-421`**
+- The validator first requires each barrier to be a dictionary with exactly the five keys (`barrier`, `start_monotonic_ns`, `end_monotonic_ns`, `duration_ns`, `outcome`). Only then does it read `item["barrier"]` or build the `_duration_record` input.
+- **Unknown fields:** a barrier with an extra field is rejected. So the report copy at `:614` (`record["barriers"] = artifact["barriers"]`) can only ever contain those five keys. Raw `path` or `error` values cannot leak.
+- **Missing fields:** each missing key now raises `IdentityLatencyError` before anything is read. `read_response_profile` (`:605`) already turns that error into `artifact_invalid`, so the `KeyError` path is gone.
+- **No new failure types:**
+  - Building a set from a JSON dictionary's keys cannot fail, because JSON keys are always strings.
+  - `item["barrier"] != name` returns a boolean for any JSON value.
+  - By the time `_duration_record` checks `names={name}`, the name is known to be a string.
+  - The error message is fixed text that includes no raw values, and the report does not copy error messages anyway.
+- **Valid artifacts unchanged:** the daemon's writer (`daemon.py:459-468`) emits exactly the same five keys. So every real artifact passes the new check, and `validate_artifact` returns the same object as before.
+- **Order of checks:** a non-dictionary barrier now fails with "shape" instead of "order". No existing test matched on "barrier order".
+
+**Test: `test_identity_latency_report_rejects_nonexact_persisted_barriers` (`tests/test_session_native.py:232-318`)**
+- It builds real artifacts with the daemon's own collector and checks them through both `read_response_profile` and `build_report`:
+  - **Valid:** the complete artifact reads as `ok`/`complete`; the partial one is produced by a `backend_pre` failure and reads as `ok`/`partial`.
+  - **Unknown fields:** for `path` and `error`, a direct `validate_artifact` call fails with "barrier shape". After the change is persisted, both readers return `artifact_invalid` with `barriers is None`, and the injected text appears nowhere in the output.
+  - **Missing fields:** each of the five keys is tested. Removing `barrier` alone confirms the new check runs before the old order check, because the old code would have reported "order" for it.
+- The file is overwritten in place, which keeps its 0600 mode and single hard link. So the persisted `artifact_invalid` comes from validation, not from the file-permission checks.
+
+## Must-Fix
+None.
+
+## Should-Fix
+None.
+
+## Nits
+1. **No positive control after the mutations** (`tests/test_session_native.py:294-317`). After the two loops, the test never writes the original valid bytes back and checks for `"ok"`. The persisted `artifact_invalid` assertions therefore don't prove which error caused it on their own; the direct `validate_artifact` match covers that today. Optional fix: restore the valid artifact at the end and assert `reason == "ok"`.
+2. **Valid barrier values aren't checked for equality** (`:267-278`). The plan says report values stay unchanged. That holds by construction, since the copy code didn't change, but one line would lock it in: `assert complete_profile["barriers"] == json.loads(complete_path.read_text())["barriers"]` before the mutations.
+
+## Out of scope (existing behaviour, not caused by this change; track separately)
+The same kind of failure Sol found can still happen through values, not keys. A JSON list or object in barrier or interval `outcome`, `status`, or an event's `name` or `barrier` triggers a set-membership check that raises `TypeError` (`sidecar.py:331`, `:367`, `:453-454`, `:470`). `TypeError` is not caught by `except IdentityLatencyError` (`:605`), so it would stop `build_report`. You'd only hit this with a corrupted or hand-edited private artifact. It does not affect this closure.
+
+The earlier non-blocking suggestion about the cleanup-wrapper test is unchanged and still tracked separately. I make no live-qualification claim and no Rust decision.
+
+STATUS: READY
+CLAUDE_EXIT:0

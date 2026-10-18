@@ -1,0 +1,8 @@
+{
+  "snapshot_id": "beta-20261018T172635Z-16c49c1df814",
+  "manifest_sha256": "9696836ff586dd6eb1726004c73dd190b2ee9aac33c474d03a85ae53d8bf6436",
+  "snapshot_validation": "passed",
+  "independent_parent_validation": "passed",
+  "restore_drill_this_snapshot": "not run; prior accepted isolated restore drill remains separate evidence",
+  "note": "Private database/raw archive remain outside source control."
+}

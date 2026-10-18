@@ -1,0 +1,46 @@
+{
+  "base": "f213e1fdfb19621d0b5c267307b34eab8c6d22bf",
+  "checks": {
+    "compiled_owner_composition": {
+      "command": "uv run pytest -q tests/test_session_native.py::test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples --maxfail=1",
+      "result": "1 passed in 57.59s"
+    },
+    "identity_latency_tests": {
+      "command": "uv run pytest -q tests/test_session_native.py -k identity_latency --maxfail=1",
+      "result": "9 passed, 138 deselected in 1.10s"
+    },
+    "prior_r3_full_suite": {
+      "command": "uv run pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_performance.py",
+      "result": "297 passed in 246.58s in the immutable R3 worktree before this final sidecar/test-only closure"
+    },
+    "static": {
+      "command": "uv run ruff check src/crowley/session/driver.py src/crowley/session/daemon.py tests/test_session_native.py tools/gnome-telemetry-region/identity_latency_sidecar.py && uv run ruff format --check src/crowley/session/driver.py src/crowley/session/daemon.py tests/test_session_native.py tools/gnome-telemetry-region/identity_latency_sidecar.py && python3 -m compileall -q src/crowley/session tools/gnome-telemetry-region/identity_latency_sidecar.py && git diff --check",
+      "result": "all checks passed; 4 files already formatted; compileall passed; diff check passed"
+    }
+  },
+  "final_delta": {
+    "regression": "A real same-size EOF mutation during config hashing now raises descriptor changed during read before any diagnostic IPC or sample dispatch.",
+    "sidecar": "Compared the opened descriptor metadata with the post-read descriptor metadata, then compared that result with the final path metadata. The tuple covers dev, ino, mode, nlink, size, mtime_ns, and ctime_ns."
+  },
+  "kind": "parent-identity-latency-final-freeze",
+  "limitations": [
+    "The final closure reran focused identity-latency tests and the actual compiled owner composition; the immutable R3 full suite remains the recorded broad regression result.",
+    "The sidecar digest is descriptor-safe provenance for the reviewed local files, not an external authenticity mechanism."
+  ],
+  "owned_files": {
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "src/crowley/session/driver.py": "ca0ca123d0fa09d8361c8632d9cc1c2c501d87adf99cb3cc268688dd4291a166",
+    "tests/test_session_native.py": "7a234b2f0ba4a2cd0ce9d155b3265dc91df6537c8fa914f87abcd1cea634cc37",
+    "tools/gnome-telemetry-region/identity_latency_sidecar.py": "f7c8bbf52884d94f230878ac90efe0a29d798ec6ca7c30331c0402976b1fc30c"
+  },
+  "plan_sha256": "397bccaa859a7e39c31eef7555aa5f10764dd63329f118478e4004ac5ca2d685",
+  "readonly_reference": {
+    "docs/RUNTIME_PERFORMANCE.md": "54237c344ef0faa3392cca6fe82b75f1f986bbf697c81d3f34493b2f00e1caca",
+    "src/crowley/session/calibration.py": "e87e844bc0428f76f2d2c8053e58017651e5ea7e285164bac56ba33bbb39630c",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_performance.py": "c998aa4a9ff67ba67ddeab05a0e5a0cfa5273a296909e0b07cb79a3d06dd313a",
+    "tools/gnome-telemetry-region/offline_harness.py": "f682d85636b0073a8fd7e8330a6ae06ba7542d2cb9b7ccc74a1304ea856d7716",
+    "tools/session_performance.py": "c46cae849058005e9b7387ef95c34f40f376afb5477739efaf6f40f6a36ebd8c"
+  },
+  "worktree": "/home/dev/.cache/crowley/worktrees/identity-latency-final-20261017"
+}

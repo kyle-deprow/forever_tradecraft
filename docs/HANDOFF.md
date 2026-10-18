@@ -29,6 +29,47 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Resumption Oct18 at17:22UTC:** root incorrectly ended after status replies,
+leaving coordination idle. Luna continued through sweep40, then stopped after
+three OCR failures reopening the AH. Database independently checked:48 total
+sweeps/107541 rows, last receipt `2026-10-17T20:59:04.880992Z`, UID
+`beta-normal-alliance-1792270186-Arthur-2435` (428 observations/2708 rows).
+No overnight collection occurred. User service is still enabled/active PID1620243,
+PAUSED/repeat/gen20, native/input false, calibration operation idle.
+Sole GUI Luna resumed; current client disconnect/reconnect failed with expired
+session. Use the existing skill's cached launcher recovery before concluding
+that user credentials are required; no blind repeated reconnects.
+
+Sol completed `.archive/PLAN-native-construction-stage-b-closure.md`; root accepts
+the addon decisions and released ONLY its offline first slice to Luna in
+`native-addon-construction-20261018`. No Stage B source is deployed. Final timing
+candidate hashes/parent9focused checks/Ruff passed, but Sol found a barrier-record
+exact-shape validation defect in the sidecar. A NEW narrow schema repair plan
+and `identity-latency-schema-20261018` tree preserve the prior final freeze;
+Luna owns only sidecar/tests there. Actual Opus final review remains attached.
+Parent independently prepared the expected manifest from frozen candidate and
+accepted git blobs; Sol accepted its hashes/permissions. No live samples yet.
+Fresh backup `beta-20261018T172635Z-16c49c1df814` passed snapshot and independent
+validation, manifest SHA `9696836ff586dd6eb1726004c73dd190b2ee9aac33c474d03a85ae53d8bf6436`.
+No restore drill was repeated for this snapshot.
+
+**Oct18 at17:35UTC:** exact profiler candidate from the schema repair tree is
+integrated after Sol final/schema reviews and actual Opus final/schema READY
+(`claude-opus-5-5`, both CLI exit0). Parent10focused checks passed0.28s, scoped
+Ruff/hash/pin checks passed. Sole Luna acknowledged a quiet window before source
+promotion and service restart. New MainPID620825, active/running since17:35:04UTC;
+public status PAUSED/repeat/gen21, native/input false, operation idle. No game
+client existed at restart; Luna resumes one cached launcher Play. The independent
+parent manifest remains accepted; three paused diagnostic samples await a fresh
+world/quiet window. Opus's nonblocking cleanup-test injection-count gap and corrupt
+enum-value typed-refusal followups remain tracked in its reports, not claimed closed.
+
+Addon R1 passed parent's178checks but remains undeployed/NEEDS WORK: parent
+reproduced scalar-marker login crash, unreachable public recover admission, and
+missing OnUpdate attachment after deferred Construct. See parent-r1.json. R1 is
+frozen for Sol/Opus; Luna fixes actual slash/button/event paths in a NEW
+`native-addon-construction-r2-20261018` tree. Native/helper slices remain unreleased.
+
 **Checkpoint at19:18UTC:** source HEAD remains pushed `f213e1f`; the enabled
 service remains PAUSED/unarmed pending qualification. Parent independently
 verified sweep33 (`beta-normal-alliance-1792263886-Arthur-6051`): 428 queried,
