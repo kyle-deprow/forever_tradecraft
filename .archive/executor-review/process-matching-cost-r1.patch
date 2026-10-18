@@ -1,0 +1,525 @@
+diff --git a/src/crowley/session/driver.py b/src/crowley/session/driver.py
+index afe9162..5afae66 100644
+--- a/src/crowley/session/driver.py
++++ b/src/crowley/session/driver.py
+@@ -2198,9 +2198,6 @@ class X11Backend:
+     def _process_executable(self, pid: int) -> tuple[str, str]:
+         try:
+             cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace").split("\0")
+-            start = Path(f"/proc/{pid}/stat").read_text(encoding="ascii").split()[21]
+-            status = Path(f"/proc/{pid}/status").read_text(encoding="ascii")
+-            linux_executable = os.path.realpath(os.readlink(f"/proc/{pid}/exe"))
+         except (OSError, IndexError) as exc:
+             raise DriverError(f"cannot inspect game process {pid}") from exc
+         expected = self.profile.executable
+@@ -2208,6 +2205,12 @@ class X11Backend:
+         matches = [value for value in candidates if value == expected]
+         if len(matches) != 1:
+             raise DriverError("game PID does not expose the configured Windows executable")
++        try:
++            start = Path(f"/proc/{pid}/stat").read_text(encoding="ascii").split()[21]
++            status = Path(f"/proc/{pid}/status").read_text(encoding="ascii")
++            linux_executable = os.path.realpath(os.readlink(f"/proc/{pid}/exe"))
++        except (OSError, IndexError) as exc:
++            raise DriverError(f"cannot inspect game process {pid}") from exc
+         process_name = next(
+             (line.split(":", 1)[1].strip() for line in status.splitlines() if line.startswith("Name:")),
+             "",
+diff --git a/tests/test_session_driver_actions.py b/tests/test_session_driver_actions.py
+index 86867a7..59abb98 100644
+--- a/tests/test_session_driver_actions.py
++++ b/tests/test_session_driver_actions.py
+@@ -1,9 +1,11 @@
+ from __future__ import annotations
+ 
+ import os
++import shutil
+ import subprocess
+ import threading
+ import time
++from contextlib import contextmanager
+ from dataclasses import replace
+ from pathlib import Path
+ from types import SimpleNamespace
+@@ -198,6 +200,481 @@ def _driver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, executable_sourc
+     return driver
+ 
+ 
++_FIXTURE_EXECUTABLE = "CrowleyTest.exe"
++_FIXTURE_CODE = (
++    "import ctypes, os, time\n"
++    "comm = os.environ['FIXTURE_COMM'].encode()\n"
++    "ctypes.CDLL(None).prctl(15, comm, 0, 0, 0)\n"
++    "os.write(1, comm + b'\\n')\n"
++    "control = os.environ.get('FIXTURE_CONTROL_FD')\n"
++    "if control:\n"
++    "    while True:\n"
++    "        command = os.read(int(control), 128).strip().decode()\n"
++    "        if command:\n"
++    "            environment = dict(os.environ)\n"
++    "            environment['FIXTURE_COMM'] = environment['FIXTURE_NEXT_COMM']\n"
++    "            os.execve(environment['FIXTURE_LOADER'], [environment['FIXTURE_NEXT_ARGV0'], '-c', environment['FIXTURE_CODE']], environment)\n"
++    "else:\n"
++    "    while True:\n"
++    "        time.sleep(1)\n"
++)
++
++
++def _fixture_loader(tmp_path: Path, name: str = "wine-preloader") -> Path:
++    loader = tmp_path / name
++    shutil.copyfile("/usr/bin/python3", loader)
++    loader.chmod(0o700)
++    return loader
++
++
++@contextmanager
++def _fixture_process(
++    tmp_path: Path,
++    loader: Path,
++    *,
++    argv0: str,
++    comm: str,
++    wine_prefix: Path,
++    duplicate: bool = False,
++    transition: tuple[str, str] | None = None,
++):
++    read_fd: int | None = None
++    write_fd: int | None = None
++    process: subprocess.Popen[bytes] | None = None
++    try:
++        environment = os.environ.copy()
++        environment.update(
++            {
++                "FIXTURE_CODE": _FIXTURE_CODE,
++                "FIXTURE_COMM": comm,
++                "FIXTURE_EXPECTED": _FIXTURE_EXECUTABLE,
++                "FIXTURE_LOADER": str(loader),
++                "WINEPREFIX": str(wine_prefix),
++            }
++        )
++        if transition is not None:
++            read_fd, write_fd = os.pipe()
++            os.set_inheritable(read_fd, True)
++            environment.update(
++                {
++                    "FIXTURE_CONTROL_FD": str(read_fd),
++                    "FIXTURE_NEXT_ARGV0": transition[0],
++                    "FIXTURE_NEXT_COMM": transition[1],
++                }
++            )
++        args = [argv0, "-c", _FIXTURE_CODE]
++        if duplicate:
++            args.append(_FIXTURE_EXECUTABLE)
++        process = subprocess.Popen(
++            args,
++            executable=str(loader),
++            env=environment,
++            stdout=subprocess.PIPE,
++            stderr=subprocess.PIPE,
++            start_new_session=True,
++            pass_fds=(read_fd,) if read_fd is not None else (),
++        )
++        if read_fd is not None:
++            os.close(read_fd)
++            read_fd = None
++        assert process.stdout is not None
++        ready = process.stdout.readline()
++        if ready != f"{comm}\n".encode():
++            assert process.stderr is not None
++            raise AssertionError((process.poll(), process.stderr.read().decode(errors="replace")))
++        yield process, write_fd
++    finally:
++        if read_fd is not None:
++            os.close(read_fd)
++        if write_fd is not None:
++            os.close(write_fd)
++        if process is not None:
++            if process.poll() is None:
++                process.terminate()
++            try:
++                process.wait(timeout=3)
++            except subprocess.TimeoutExpired:
++                process.kill()
++                process.wait(timeout=3)
++            if process.stdout is not None:
++                process.stdout.close()
++            if process.stderr is not None:
++                process.stderr.close()
++
++
++def _process_backend(tmp_path: Path, wine_prefix: Path, *, loader_name: str = "wine-preloader") -> X11Backend:
++    return X11Backend(
++        DriverProfile(
++            display=":actions",
++            xauthority=str(tmp_path / "Xauthority"),
++            wine_prefix=str(wine_prefix),
++            executable=_FIXTURE_EXECUTABLE,
++        ),
++        input_tool=fixture_input_tool(tmp_path / "tool"),
++    )
++
++
++def _record_process_reads(monkeypatch: pytest.MonkeyPatch, pid: int) -> list[str]:
++    prefix = f"/proc/{pid}/"
++    reads: list[str] = []
++    original_read_bytes = Path.read_bytes
++    original_read_text = Path.read_text
++    original_readlink = os.readlink
++
++    def read_bytes(path: Path, *args: object, **kwargs: object) -> bytes:
++        if str(path).startswith(prefix):
++            reads.append(Path(path).name)
++        return original_read_bytes(path, *args, **kwargs)
++
++    def read_text(path: Path, *args: object, **kwargs: object) -> str:
++        if str(path).startswith(prefix):
++            reads.append(Path(path).name)
++        return original_read_text(path, *args, **kwargs)
++
++    def readlink(path: str | bytes, *args: object) -> str | bytes:
++        if str(path).startswith(prefix):
++            reads.append(Path(path).name)
++        return original_readlink(path, *args)
++
++    monkeypatch.setattr(Path, "read_bytes", read_bytes)
++    monkeypatch.setattr(Path, "read_text", read_text)
++    monkeypatch.setattr(os, "readlink", readlink)
++    return reads
++
++
++def test_process_executable_rejects_noncandidates_before_identity_proc_reads(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    prefix = tmp_path / "wine-prefix"
++    prefix.mkdir()
++    loader = _fixture_loader(tmp_path)
++    backend = _process_backend(tmp_path, prefix)
++
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0="OtherFixture.bin",
++        comm="OtherFixture",
++        wine_prefix=prefix,
++    ) as (process, _control):
++        reads = _record_process_reads(monkeypatch, process.pid)
++        with pytest.raises(DriverError, match="configured Windows executable"):
++            backend._process_executable(process.pid)
++        assert reads == ["cmdline"]
++        assert process.pid not in backend._matching_game_pids()
++
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=prefix,
++        duplicate=True,
++    ) as (process, _control):
++        reads = _record_process_reads(monkeypatch, process.pid)
++        with pytest.raises(DriverError, match="configured Windows executable"):
++            backend._process_executable(process.pid)
++        assert reads == ["cmdline"]
++        assert process.pid not in backend._matching_game_pids()
++
++
++def test_process_executable_candidates_keep_full_check_order_and_refusals(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    prefix = tmp_path / "wine-prefix"
++    prefix.mkdir()
++    loader = _fixture_loader(tmp_path)
++    backend = _process_backend(tmp_path, prefix)
++
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=prefix,
++    ) as (process, _control):
++        reads = _record_process_reads(monkeypatch, process.pid)
++        executable, start = backend._process_executable(process.pid)
++        assert executable == _FIXTURE_EXECUTABLE
++        assert start.isdigit()
++        assert reads == ["cmdline", "stat", "status", "exe", "environ"]
++
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm="WrongFixture",
++        wine_prefix=prefix,
++    ) as (process, _control):
++        with pytest.raises(DriverError, match="unexpected Linux process identity"):
++            backend._process_executable(process.pid)
++
++    wrong_loader = _fixture_loader(tmp_path, "other-loader")
++    with _fixture_process(
++        tmp_path,
++        wrong_loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=prefix,
++    ) as (process, _control):
++        with pytest.raises(DriverError, match="configured Wine loader"):
++            backend._process_executable(process.pid)
++
++    wrong_prefix = tmp_path / "wrong-prefix"
++    wrong_prefix.mkdir()
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=wrong_prefix,
++    ) as (process, _control):
++        with pytest.raises(DriverError, match="outside the configured Wine prefix"):
++            backend._process_executable(process.pid)
++
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=prefix,
++    ) as (process, _control):
++        original_read_text = Path.read_text
++        stat_path = f"/proc/{process.pid}/stat"
++
++        def malformed_stat(path: Path, *args: object, **kwargs: object) -> str:
++            if str(path) == stat_path:
++                return "malformed stat"
++            return original_read_text(path, *args, **kwargs)
++
++        monkeypatch.setattr(Path, "read_text", malformed_stat)
++        with pytest.raises(DriverError, match=f"cannot inspect game process {process.pid}"):
++            backend._process_executable(process.pid)
++
++
++def test_process_executable_candidate_exit_after_cmdline_is_rejected_and_omitted(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    prefix = tmp_path / "wine-prefix"
++    prefix.mkdir()
++    loader = _fixture_loader(tmp_path)
++    backend = _process_backend(tmp_path, prefix)
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=prefix,
++    ) as (process, _control):
++        original_read_bytes = Path.read_bytes
++        cmdline_path = f"/proc/{process.pid}/cmdline"
++        cmdline_read = threading.Event()
++        release_read = threading.Event()
++
++        def stop_after_cmdline(path: Path, *args: object, **kwargs: object) -> bytes:
++            data = original_read_bytes(path, *args, **kwargs)
++            if str(path) == cmdline_path:
++                cmdline_read.set()
++                assert release_read.wait(timeout=3)
++            return data
++
++        monkeypatch.setattr(Path, "read_bytes", stop_after_cmdline)
++        errors: list[BaseException] = []
++
++        def inspect() -> None:
++            try:
++                backend._process_executable(process.pid)
++            except BaseException as exc:
++                errors.append(exc)
++
++        worker = threading.Thread(target=inspect)
++        worker.start()
++        assert cmdline_read.wait(timeout=3)
++        process.terminate()
++        process.wait(timeout=3)
++        release_read.set()
++        worker.join(timeout=3)
++        assert not worker.is_alive()
++        assert len(errors) == 1
++        assert isinstance(errors[0], DriverError)
++        assert str(errors[0]) == f"cannot inspect game process {process.pid}"
++        assert process.pid not in backend._matching_game_pids()
++
++
++@pytest.mark.parametrize(
++    ("start_argv0", "start_comm", "next_argv0", "next_comm", "initial_error"),
++    [
++        (
++            "OtherFixture.bin",
++            "OtherFixture",
++            _FIXTURE_EXECUTABLE,
++            _FIXTURE_EXECUTABLE,
++            "game PID does not expose the configured Windows executable",
++        ),
++        (
++            _FIXTURE_EXECUTABLE,
++            _FIXTURE_EXECUTABLE,
++            "OtherFixture.bin",
++            "OtherFixture",
++            "game PID has an unexpected Linux process identity",
++        ),
++    ],
++)
++def test_process_executable_exec_transition_never_accepts_mixed_generation(
++    start_argv0: str,
++    start_comm: str,
++    next_argv0: str,
++    next_comm: str,
++    initial_error: str,
++    tmp_path: Path,
++    monkeypatch: pytest.MonkeyPatch,
++) -> None:
++    prefix = tmp_path / "wine-prefix"
++    prefix.mkdir()
++    loader = _fixture_loader(tmp_path)
++    backend = _process_backend(tmp_path, prefix)
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=start_argv0,
++        comm=start_comm,
++        wine_prefix=prefix,
++        transition=(next_argv0, next_comm),
++    ) as (process, control):
++        assert control is not None
++        original_read_bytes = Path.read_bytes
++        cmdline_path = f"/proc/{process.pid}/cmdline"
++        cmdline_read = threading.Event()
++        release_read = threading.Event()
++
++        def stop_after_cmdline(path: Path, *args: object, **kwargs: object) -> bytes:
++            data = original_read_bytes(path, *args, **kwargs)
++            if str(path) == cmdline_path:
++                cmdline_read.set()
++                assert release_read.wait(timeout=3)
++            return data
++
++        monkeypatch.setattr(Path, "read_bytes", stop_after_cmdline)
++        errors: list[BaseException] = []
++
++        def inspect() -> None:
++            try:
++                backend._process_executable(process.pid)
++            except BaseException as exc:
++                errors.append(exc)
++
++        worker = threading.Thread(target=inspect)
++        worker.start()
++        assert cmdline_read.wait(timeout=3)
++        os.write(control, b"transition\n")
++        assert process.stdout is not None
++        assert process.stdout.readline() == f"{next_comm}\n".encode()
++        release_read.set()
++        worker.join(timeout=3)
++        assert not worker.is_alive()
++        assert len(errors) == 1
++        assert isinstance(errors[0], DriverError)
++        assert str(errors[0]) == initial_error
++
++        if next_argv0 == _FIXTURE_EXECUTABLE:
++            assert backend._process_executable(process.pid)[0] == _FIXTURE_EXECUTABLE
++        else:
++            with pytest.raises(DriverError, match="configured Windows executable"):
++                backend._process_executable(process.pid)
++
++
++def test_matching_game_pids_multiple_candidates_keep_exactly_one_refusal(
++    tmp_path: Path,
++) -> None:
++    prefix = tmp_path / "wine-prefix"
++    prefix.mkdir()
++    loader = _fixture_loader(tmp_path)
++    backend = _process_backend(tmp_path, prefix)
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=prefix,
++    ) as (first, _control):
++        with _fixture_process(
++            tmp_path,
++            loader,
++            argv0=_FIXTURE_EXECUTABLE,
++            comm=_FIXTURE_EXECUTABLE,
++            wine_prefix=prefix,
++        ) as (second, _control):
++            assert backend._matching_game_pids() == {first.pid, second.pid}
++            with pytest.raises(DriverError, match="expected one verified game process, found 2"):
++                backend.resolve_identity()
++
++
++def test_native_resolver_binds_window_pid_to_real_matching_process(
++    tmp_path: Path,
++) -> None:
++    prefix = tmp_path / "wine-prefix"
++    prefix.mkdir()
++    loader = _fixture_loader(tmp_path)
++    backend = _process_backend(tmp_path, prefix)
++    outer = 0x700100
++    client = 0x700101
++    with _fixture_process(
++        tmp_path,
++        loader,
++        argv0=_FIXTURE_EXECUTABLE,
++        comm=_FIXTURE_EXECUTABLE,
++        wine_prefix=prefix,
++    ) as (process, _control):
++        tree = (
++            "xwininfo: Window id: 0x374 (the root window)\n"
++            f'  {hex(outer)} "World of Warcraft": ("wowb.exe" "wowb.exe") '
++            "1928x1092+0+0  +0+0\n"
++            f'    {hex(client)} "World of Warcraft": ("wowb.exe" "wowb.exe") '
++            "1920x1080+0+0  +0+0\n"
++        )
++        outer_tree = (
++            f'xwininfo: Window id: {hex(outer)} "World of Warcraft"\n'
++            f'  {hex(client)} "World of Warcraft": ("wowb.exe" "wowb.exe") '
++            "1920x1080+0+0  +0+0\n"
++        )
++
++        def command(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
++            if args == ["xdotool", "search", "--name", "World of Warcraft"]:
++                return subprocess.CompletedProcess(args, 0, f"{hex(outer)}\n", "")
++            if args == ["xdotool", "getwindowgeometry", "--shell", hex(outer)]:
++                return subprocess.CompletedProcess(
++                    args,
++                    0,
++                    "WINDOW=7340288\nX=0\nY=0\nWIDTH=1928\nHEIGHT=1092\nSCREEN=0\n",
++                    "",
++                )
++            if args == ["xprop", "-id", hex(outer), "WM_NAME", "_NET_WM_PID", "WM_CLASS"]:
++                return subprocess.CompletedProcess(
++                    args,
++                    0,
++                    f'WM_NAME(STRING) = "World of Warcraft"\n_NET_WM_PID(CARDINAL) = {process.pid}\n'
++                    'WM_CLASS(STRING) = "wowb.exe", "wowb.exe"\n',
++                    "",
++                )
++            if args == ["xwininfo", "-id", hex(outer), "-tree"]:
++                return subprocess.CompletedProcess(args, 0, outer_tree, "")
++            if args == ["xwininfo", "-root", "-tree"]:
++                return subprocess.CompletedProcess(args, 0, tree, "")
++            if args == ["xdotool", "getwindowfocus"]:
++                return subprocess.CompletedProcess(args, 0, f"{hex(client)}\n", "")
++            if args == ["xprop", "-root", "_NET_ACTIVE_WINDOW"]:
++                return subprocess.CompletedProcess(
++                    args, 0, f"_NET_ACTIVE_WINDOW(WINDOW): window id # {hex(client)}\n", ""
++                )
++            raise AssertionError(args)
++
++        backend._run = command  # type: ignore[method-assign]
++        identity = backend.resolve_identity()
++        assert identity.pid == process.pid
++        assert identity.executable == _FIXTURE_EXECUTABLE
++        assert identity.target_event_xids == frozenset({outer, client})
++
++
+ def test_run_motion_key_hold_uses_real_driver_entrypoint_and_sealed_level_zero_key(
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:

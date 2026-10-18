@@ -33,6 +33,8 @@ and ordinal and verify the final resumed state. A valid schema or callback that
 only checks arguments does not prove the production side effect.
 Bind rolling metrics to the exact measurement window: a later valid frame may
 have dropped measured samples. Verify boundary sequence and update count too.
+Derive a native run's outer bound from actual provider invocations, including
+per-update calls and finalization; four phase labels do not imply four waits.
 Test archive recovery at every durable write boundary with a fresh owner; the same outcome ID
 must retain the exact complete payload and resulting controller state.
 Include a later pause/stop checkpoint in replay tests. Repairing an old outcome

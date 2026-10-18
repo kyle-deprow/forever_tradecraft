@@ -29,6 +29,30 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
+**Current Oct18 at19:21UTC:** native candidate remains UNACCEPTED/UNDEPLOYED.
+Main/pushed19308c7 still uses accepted addon+profiler, servicePAUSEDgen23PID882745.
+Luna continues ordinary operator-assisted scans;45/46parentverified (900s starts,
+2751/2752rows;46has1query_timeout).47startednaturally19:15:52. Fresh privatebackup
+beta-20261018T190004Z-350a683aca42 passed canonical parentvalidation, manifestSHA
+07153b02b9a75629f6dde37016cdfe46197d5f22e29060e38147fbccacae02ff.
+No restore drill repeated.
+
+Native R1 froze at native-construction-native-20261018; parent rejected its127s
+outer bound and one63hex metadata hash (actual unchanged testfileverified).
+R2 native-construction-native-r2-20261018 corrects finite envelope3130s from103
+provider calls and preserves innerlimits. Parent7focusedcases passed38.84s,
+Ruff/format/hash/fence pass; worker91regressions63.54s. Parent uses authentic
+private0.162.1 in subprocess PATH only. Full3suite is NOTgreen: compiledforeign-
+command guard count failed once, then samecandidateisolatedtestpassed6.12s;
+pauseddiagnostic hit sample_deadline_missed. Remaining suites excluding these
+2cases are running with both failures retained. Parent source inspection found
+workflow/ownership/evidence/finalize gaps; see R2-parent-findings. IndependentSol
+and actualOpus native R1 reviews are running against FROZEN R2; do not edit it.
+Opus session81455/PID1244150; parentremainingtest session1322. Parent/helper plan
+prepared; helper implementation blocked until accepted native. No new live native
+attempt or human calibration released. Continue coordination; do not end merely
+because source/tests reportDONE or a status answer was delivered.
+
 **Live Oct18 at18:42UTC:** accepted addon ordinary load verified independently.
 Sweep44 flush/ACK loaded the promoted source; all4Lua hashes match before/after.
 Parent strictly decoded retained PNGs: fresh ordinaryboot, native normal/0,

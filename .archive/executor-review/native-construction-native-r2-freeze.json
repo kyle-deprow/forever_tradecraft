@@ -1,0 +1,61 @@
+{
+  "schema": 1,
+  "status": "r2_bound_corrected_pending_parent_verification",
+  "baseCommit": "e6e17bb42474b0251365590e61b87c9307b447fe",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-construction-native-r2-20261018",
+  "operationEnvelope": {
+    "seconds": 3130.0,
+    "formula": "10 + (103 * 30) + 30",
+    "providerInvocations": 103,
+    "entrySeconds": 10.0,
+    "perInvocationSeconds": 30.0,
+    "finalizeSeconds": 30.0,
+    "constructorReserveSeconds": 7.0,
+    "constructorReserveAccounting": "inside the construct provider deadline; not added to the outer envelope"
+  },
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "finalSha256": {
+    "src/crowley/session/controller.py": "88a1f807efd0fb5a1da9ccac213dae87137497bd2e454e401a6981e966075f60",
+    "src/crowley/session/daemon.py": "f4fa1335a26bb9550f1cd2875ddeaf065df39bd15bea27772cfc76394694306f",
+    "src/crowley/session/cli.py": "963f2920dda3fee13b11d31a1eb0757376ae5ff5237ed45430969d3eb04561cc",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "7d2f87f14bcd9480ea0d5d32c982340d984ff916d5229e729d44bfda47943517",
+    "tests/test_session_transitions.py": "f5a79fe28f2f96592ef15c2b4d7c6db6a6836ec67352ff94392f07b47b589252"
+  },
+  "readonlyBaselineSha256": {
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "changedFiles": [
+    "src/crowley/session/daemon.py",
+    "tests/test_session_native_regressions.py"
+  ],
+  "unchangedR1FenceFiles": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_transitions.py"
+  ],
+  "checks": {
+    "nativeConstructionFocused": "5 passed, 86 deselected in 39.82s",
+    "nativeRegressionsFull": "91 passed in 63.54s",
+    "ruffCheckSixFiles": "passed",
+    "ruffFormatCheckSixFiles": "6 files already formatted",
+    "compileallSixFiles": "passed",
+    "diffCheck": "passed",
+    "virtualClockCoverage": "complete strict PNG runner advanced beyond 127 seconds through legitimate 15-second held/resume waits while each inner provider deadline remained unchanged",
+    "boundaryCoverage": "operation deadline at exactly 3130 seconds refused recheck and preserved recovery_required checkpoint"
+  },
+  "parentVerification": "complete six-file and three-suite verification, pinned CLI subprocess environment, compiled cases, Sol, and actual Opus review remain parent-owned"
+}

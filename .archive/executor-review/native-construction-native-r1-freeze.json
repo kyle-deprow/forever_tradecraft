@@ -1,0 +1,49 @@
+{
+  "schema": 1,
+  "status": "bounded_offline_slice_complete_pending_parent_review",
+  "baseCommit": "e6e17bb42474b0251365590e61b87c9307b447fe",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-construction-native-20261018",
+  "operationBoundSeconds": 127.0,
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "finalSha256": {
+    "src/crowley/session/controller.py": "88a1f807efd0fb5a1da9ccac213dae87137497bd2e454e401a6981e966075f60",
+    "src/crowley/session/daemon.py": "4ba54c0d0d65a65e4974876afcec65c9578911359526950b89b172e877a7bd43",
+    "src/crowley/session/cli.py": "963f2920dda3fee13b11d31a1eb0757376ae5ff5237ed45430969d3eb04561cc",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac179c9fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "8a44ff968e2e15549f39ad3408a065c8cce8a1277b387ba7248984fedbb4f614",
+    "tests/test_session_transitions.py": "f5a79fe28f2f96592ef15c2b4d7c6db6a6836ec67352ff94392f07b47b589252"
+  },
+  "readonlyBaselineSha256": {
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffe6b77a802689814c4aa7c35b46c01bb23ae",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac179c9fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "checks": {
+    "nativeConstructionFocused": "4 passed, 86 deselected in 33.02s",
+    "nativeTransitionsFocused": "2 passed, 60 deselected in 0.26s",
+    "nativeRegressionsFull": "90 passed in 51.07s",
+    "ruffCheck": "passed",
+    "ruffFormatCheck": "6 files already formatted",
+    "compileall": "passed",
+    "diffCheck": "passed",
+    "composedProof": "production run_native_calibration with decoded PNG captures, fresh injected clock, real reset5 meter, callbacks, finalize admission, and durable checkpoint preservation passed"
+  },
+  "fullSuiteEvidence": {
+    "command": "uv run pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py --maxfail=1",
+    "result": "not clean in this worktree environment; parent independently reruns accepted compiled cases",
+    "failures": [
+      "test_runtime_durable_empty_scan_facts_reject_without_format2_proof failed at SessionDaemon model startup because installed codex-cli reported 0.163.0 while pinned config requires 0.162.1",
+      "earlier unique-runtime full run also hit compiled-region/paused-diagnostic owner deadline failures under host load; those exact cases passed in parent baseline on authentic pinned 0.162.1"
+    ]
+  }
+}
