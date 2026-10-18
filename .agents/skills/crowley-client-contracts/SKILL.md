@@ -16,6 +16,9 @@ session. Exercise captured native file/event fixtures before requesting live inp
 Cover default service construction and its public calibration entrypoint.
 Required meters and providers must be wired without manual fixture assignment.
 For restart checks, create a fresh driver and owner without process-local evidence.
+For owner-death tests, signal the actual helper owner PID, not its emitter child.
+Prove independent release and reservation cancellation while that owner is dead;
+a surviving test parent calling cleanup only proves child-failure handling.
 Reconstructing only the controller around the same driver cannot establish which
 calibration proof survives an actual process restart.
 Start restart tests from the actual daemon dispatch/observation order. A journal

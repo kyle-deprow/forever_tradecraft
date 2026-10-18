@@ -1,0 +1,8 @@
+{
+  "kind": "parent-market-backup-verification",
+  "snapshot": "beta-20261018T211340Z-a980f318635d",
+  "manifest_sha256": "da908bf65578e8be5a7302992abb745193b14c573f5c7cb609bbb1851297b526",
+  "validation": "canonical tools.market_backup.validate_snapshot passed",
+  "directory_mode": "0700",
+  "coverage_note": "Snapshot began before sweep54 ingestion; sweep53 is already independently verified. No restore-drill claim for this snapshot."
+}

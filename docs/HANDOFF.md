@@ -29,7 +29,35 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at21:04UTC:** root resumed active coordination after the user
+**Current Oct18 at21:22UTC:** ordinary scan54 is parent-verified:2757rows,
+402full/25bounded/1incomplete,427ok plus item8153 actual30squery_timeout,
+900s start interval22.502567s finish-to-server. Scan55 naturally started21:20:53,
+again900s; soleGUI Luna continues watch/flush/ACK/reopen. Fresh backup
+beta-20261018T211340Z-a980f318635d passed canonical parent validation; manifestSHA
+da908bf65578e8be5a7302992abb745193b14c573f5c7cb609bbb1851297b526.
+
+NativeR5 is frozen with six files; parent exactbase/fence/hash/log/static checks,
+2focusedcheckpoint/IPC tests, and FULL316tests339.07s PASS. Parent source/imports
+stayed exact during run; authenticCLI0.162.1/private0700XDG. Private runner50661
+is CLOSED0. Sol source review is active with preliminary reachable concurrency/
+durable-write/context/terminal findings; actual Opus review is ACTIVE attached
+session33484PID1909798/modelclaude-opus-5-5. Poll at most30s; rawJSONL0600 never
+commit. No source promotion, service restart, or live native attempt.
+
+HelperR3 partial freeze is rejected as ownership-stage completion: its alleged
+owner-kill test kills emitter, keeps owner alive, then explicitly calls cleanup.
+Read R3-parent-adjudication.md. Root RESCOPED a bounded ownership closure R4,
+plan PLAN-native-operator-ownership-closure-r4.md, in separate native-calibration-
+operator-ownership-r4-20261018 tree, exact two R3 files + exact six R5 DEVELOPMENT
+deps copied/hashverified. Luna repairs actual helper PID death during confirmed
+key/button hold, independent bound-ID IPC cancellation and surviving release actor
+with bounded helper exit. No broad native/performance retest. Existing contract
+skill records the distinction. NativeR5 still unaccepted; helper development copy
+is not acceptance. Runtime unchangedPAUSEDgen23PID882745. Last pushedca5f706.
+Continue through combined review arbitration/necessary scoped fixes; do not stop
+at another status or commit checkpoint.
+
+**Prior Oct18 at21:04UTC:** root resumed active coordination after the user
 asked why work stopped; do not end after another status checkpoint. Parent verified
 scan53 against original SavedVariables, database digest and retained-PNG loadedACK:
 2744rows,428ok,404full/24bounded,28.240862s finish-to-server. Its actual start
