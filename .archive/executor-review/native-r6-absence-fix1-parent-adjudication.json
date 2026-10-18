@@ -1,0 +1,65 @@
+{
+  "kind": "parent-native-r6-absence-fix1-adjudication",
+  "status": "rejected_header_only_classifier",
+  "source_hashes": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "3b4ed8be595ed21452b60e178ec1a5a815a9452ed181830036a588317747bc8e",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "a879622240b7fa02a752b8f12b63a823fd10aa70e5d6b9bbe84dae83713c34d5",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "base_fence_log_hash_verification": "passed",
+  "images": [
+    {
+      "file": "black-loading.png",
+      "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c",
+      "expected_absence": false,
+      "actual_absence": false
+    },
+    {
+      "file": "encoded-header-and-payload-occlusion.png",
+      "sha256": "d28917c2061dfb5f28ac28275d1e3a05c2f318e252e9d121d264c233408054ed",
+      "expected_absence": false,
+      "actual_absence": false
+    },
+    {
+      "file": "encoded-entire-magic-and-payload-occlusion.png",
+      "sha256": "f28413cf71925638edda9f45ab2f775b84a94a8c33210af0bcd47f8af5e01e06",
+      "expected_absence": false,
+      "actual_absence": false
+    },
+    {
+      "file": "encoded-whole-first-row-and-payload-occlusion.png",
+      "sha256": "87d321bbe2e04c99da66c238c58405de3f16b75f33eb0e98f82d9bcda25d0b6e",
+      "expected_absence": false,
+      "actual_absence": true
+    },
+    {
+      "file": "ordinary-game-region-1.png",
+      "sha256": "e6a047dd6817af06aef7b803370ea2a73433bbb0bf1eb51e42e5c94445eed9b6",
+      "expected_absence": true,
+      "actual_absence": true
+    },
+    {
+      "file": "ordinary-game-region-2.png",
+      "sha256": "7e92d021419f1548e77ba13dd29384b89d7557d4cb317a199dc92b5c7cd8ac6e",
+      "expected_absence": true,
+      "actual_absence": true
+    },
+    {
+      "file": "ordinary-game-region-3.png",
+      "sha256": "73bb8d6700dbc9c86629cedf992833458ebe16c6f144f8c1312000af82a2f64b",
+      "expected_absence": true,
+      "actual_absence": true
+    },
+    {
+      "file": "ordinary-game-region-4.png",
+      "sha256": "8af8b29fde3237066cb936d87766bf9e0b93dd0c4161af0a76a68c2c2091e801",
+      "expected_absence": true,
+      "actual_absence": true
+    }
+  ],
+  "parent_full_suites": "Not run after concrete counterexample; worker329passes retained as worker evidence only.",
+  "next_component": "PLAN-native-absence-fragments-r7.md"
+}

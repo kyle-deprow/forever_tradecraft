@@ -29,7 +29,28 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct 18, 22:35 UTC:** Sol's final helper composition prescription is
+**Current Oct 18, 22:38 UTC:** native R6 fix1 froze 329 worker passes (411.78s),
+but parent REJECTED its header-only classifier before another full suite/review.
+All-four-magic-byte damage is fixed; erasing the whole first physical row plus
+payload still incorrectly returns absence. Parent verified exact six-file fence,
+base/source hashes and worker logs, and all four negatives/four real ordinary
+game-region positives. See native-r6-absence-fix1-parent-adjudication.json.
+
+Root narrowed R7 to ONLY the pure classifier and directly related regression
+tests in daemon.py/test_session_native_regressions.py. New tree
+native-absence-fragments-r7-20261018 from eb2c69e contains exact six frozen fix1
+files; other four native files and daemon lifecycle methods are read-only.
+PLAN-native-absence-fragments-r7.md prescribes actual aligned 8-cell wire-byte
+fragments anywhere in the crop, independent of header survival, plus retained
+ordinary availability checks. Luna is active on this bounded component; no
+more known-header-byte patch. Full parent native suites/reviews await final source.
+
+Helper Luna is independently implementing the four final composition closures
+under the approved Sol plan. Sole GUI Luna observed scan60 start22:35:53,
+exactly900s after59. No root exec running; push7901closed0, lastpushed eb2c69e.
+No native/source promotion, service restart, or user calibration request.
+
+**Prior Oct 18, 22:35 UTC:** Sol's final helper composition prescription is
 complete and root-approved: native-operator-final-composition-plan-sol.md, no
 interface blocker. Luna now owns only the helper and its test file in the prepared
 native-operator-final-composition-20261018 tree, implementing all four closures

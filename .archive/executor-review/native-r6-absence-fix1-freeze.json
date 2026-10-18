@@ -1,0 +1,142 @@
+{
+  "absenceCounterexamples": [
+    {
+      "classifier": false,
+      "decoder": "ProtocolError",
+      "file": "black-loading.png",
+      "sha256": "3b93f26267630963185ee67d8020972faee108a7bca80db725817e4680c9955c"
+    },
+    {
+      "classifier": false,
+      "decoder": "ProtocolError",
+      "file": "encoded-header-and-payload-occlusion.png",
+      "sha256": "d28917c2061dfb5f28ac28275d1e3a05c2f318e252e9d121d264c233408054ed"
+    },
+    {
+      "classifier": false,
+      "decoder": "ProtocolError",
+      "file": "encoded-entire-magic-and-payload-occlusion.png",
+      "sha256": "f28413cf71925638edda9f45ab2f775b84a94a8c33210af0bcd47f8af5e01e06"
+    }
+  ],
+  "authenticCodex": {
+    "path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "version": "0.162.1"
+  },
+  "baseCommit": "2fcdedd595b3349f4fdb3e3b23ef0153a9b72203",
+  "baseCommitSha256": {
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "changedFiles": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "checks": {
+    "combinedCounterexampleCoverage": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k combined_header_payload --maxfail=1",
+      "result": "1 passed, 113 deselected in 0.83s; exit_code=0"
+    },
+    "finalThreeNativeSuites": {
+      "invocation": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=<candidate>/src /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r6-absence-fix1-final-20261018/native-three-suites-final-source-plus-real-predecessors.log",
+      "logSha256": "49edc41140ce5e97cef44efa0aef8e9a38ed6ffb3a1910c5c140b58f8f3351cf",
+      "result": "329 passed in 411.78s (0:06:51); exit_code=0"
+    },
+    "focusedAbsence": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k absence_classifier --maxfail=1",
+      "result": "3 passed, 111 deselected in 2.09s; exit_code=0"
+    },
+    "focusedNativeIpcRecovery": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k 'native_recovery or native_construction' tests/test_session_transitions.py -k native_construction --maxfail=1",
+      "result": "11 passed, 169 deselected in 22.85s; exit_code=0"
+    },
+    "nativeCaptureDecoderNegative": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k native_capture_decoder_rejects_damaged_encoded_png_as_absence --maxfail=1",
+      "result": "1 passed, 113 deselected in 0.53s; exit_code=0"
+    },
+    "postFormatFocusedTransitions": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_transitions.py -k native_construction --maxfail=1",
+      "result": "5 passed, 61 deselected in 0.43s; exit_code=0"
+    },
+    "realPredecessors": {
+      "invocation": "PYTHONPATH=<candidate>/src .venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k real_predecessors --maxfail=1",
+      "result": "1 passed, 114 deselected in 3.40s; exit_code=0"
+    },
+    "scopedStatic": {
+      "invocation": "ruff format/check, python -m py_compile, git diff --check over exact six-file fence",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r6-absence-fix1-final-20261018/scoped-statics-final.log",
+      "logSha256": "ef52491033e141c3155544a71cb5d144d629277dadeb632909fbdd17ec1cbde8",
+      "result": "ruff format --check passed; ruff check passed; py_compile passed; git diff --check passed; exit_code=0"
+    }
+  },
+  "coverage": [
+    "All eight native SessionIPC request shapes reject unknown fields and route exact kwargs.",
+    "All eight native CLI argparse commands round-trip command names and required IDs.",
+    "Twelve predecessor request edges are asserted through SessionIPC with typed errors; real daemon regressions cover missing reservation/checkpoint, wrong state/kind, expiry, cancelled/completed ticket, and competing capture paths.",
+    "Real barriers cover pause during poll, deferred start/pause sealing, recovery in-flight cancellation/epoch revocation, competing recovery admission, completion/cancel linearization, fast finalize, and slot cleanup.",
+    "Durable recovery commit failure keeps the checkpoint for a fresh DesktopDriver/Controller owner.",
+    "Configured compiled public PAUSED producer/PNG/decoder path is exercised by the existing native composition regression in the final suites.",
+    "Absence tests cover the three retained production counterexamples, combined header/payload damage, all-magic plus payload damage, >10% payload occlusion, binary loading/ambiguous surfaces, malformed mode, and ordinary retained color crops."
+  ],
+  "finalSha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "3b4ed8be595ed21452b60e178ec1a5a815a9452ed181830036a588317747bc8e",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "a879622240b7fa02a752b8f12b63a823fd10aa70e5d6b9bbe84dae83713c34d5",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "incompleteItems": [
+    "Parent independent verification and source fence comparison remain pending.",
+    "Sol review and actual Opus review remain pending.",
+    "No deployment, live qualification, promotion, or helper integration claim is made."
+  ],
+  "operationEnvelope": {
+    "formula": "10 + (103 * 30) + 30; 103 actual provider invocations; individual provider deadlines unchanged",
+    "seconds": 3130.0
+  },
+  "privateEvidence": {
+    "directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r6-absence-fix1-final-20261018",
+    "directoryMode": "0700",
+    "logModes": "0600",
+    "logs": {
+      "native-three-suites-final-source-plus-real-predecessors.log": {
+        "mode": "0o600",
+        "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r6-absence-fix1-final-20261018/native-three-suites-final-source-plus-real-predecessors.log",
+        "sha256": "49edc41140ce5e97cef44efa0aef8e9a38ed6ffb3a1910c5c140b58f8f3351cf"
+      },
+      "native-three-suites-final-source.log": {
+        "mode": "0o600",
+        "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r6-absence-fix1-final-20261018/native-three-suites-final-source.log",
+        "sha256": "a388d797e6450c2fb2d253b40367a43d1d4750e2b5b6a6330f1869517b3d9658"
+      },
+      "scoped-statics-final.log": {
+        "mode": "0o600",
+        "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r6-absence-fix1-final-20261018/scoped-statics-final.log",
+        "sha256": "ef52491033e141c3155544a71cb5d144d629277dadeb632909fbdd17ec1cbde8"
+      }
+    },
+    "runtimeMode": "0700"
+  },
+  "schema": 1,
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "status": "r6_absence_fix1_candidate_pending_parent_verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-r6-absence-fix1-20261018"
+}
