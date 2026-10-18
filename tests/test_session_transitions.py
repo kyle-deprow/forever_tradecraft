@@ -11,7 +11,9 @@ from types import SimpleNamespace
 
 import pytest
 
+import crowley.session.cli as cli_module
 from crowley.session import Controller, ControllerState
+from crowley.session.cli import SessionIPC
 from crowley.session.controller import ActionKind, ControllerStatus
 from crowley.session.evidence import SweepEvidence
 from crowley.session.journal import DEFAULT_STATE, Journal, JournalError
@@ -118,6 +120,331 @@ def _complete_cycle(controller: Controller, value: SweepEvidence, index: int) ->
         boot=f"new-ack-{index}",
         sequence=2,
     )
+
+
+def test_native_construction_checkpoint_is_strict_and_rebinds_frame(tmp_path: Path) -> None:
+    malformed = {
+        "schema": 1,
+        "B0": "old",
+        "expectedConstructorBoot": "native-construction:old",
+        "ownerGeneration": 7,
+        "kind": "preflight",
+        "phase": "prepared",
+        "unexpected": "must be preserved",
+    }
+    journal = _journal(
+        tmp_path / "session.json",
+        state=ControllerState.PAUSED.value,
+        generation=7,
+        current={"frameBoot": "old", "frameSequence": 1, "frameCrc32": 2},
+        nativeConstruction=malformed,
+    )
+    controller = Controller(journal, driver=_Driver(), recover_on_restart=False)
+
+    assert controller.native_construction_checkpoint_valid() is False
+    assert controller.native_construction_checkpoint() is None
+    controller.tick(expected_generation=7, expected_state=ControllerState.PAUSED)
+    assert journal.read()["nativeConstruction"] == malformed
+    with pytest.raises(RuntimeError, match="requires recovery"):
+        controller.clear_native_construction_checkpoint(
+            expected_generation=7, expected_state=ControllerState.PAUSED
+        )
+    assert journal.read()["nativeConstruction"] == malformed
+
+    valid = {
+        "schema": 1,
+        "B0": "old",
+        "expectedConstructorBoot": "native-construction:old",
+        "ownerGeneration": 7,
+        "kind": "preflight",
+        "phase": "prepared",
+    }
+    with pytest.raises(ValueError, match="malformed"):
+        controller.set_native_construction_checkpoint({**valid, "extra": True})
+    controller.set_native_construction_checkpoint(
+        valid, expected_generation=7, expected_state=ControllerState.PAUSED
+    )
+    controller.rebind_native_construction_frame(
+        boot="ordinary-new",
+        sequence=4,
+        crc32=9,
+        reason="native_construction_recovery",
+        expected_generation=7,
+        expected_state=ControllerState.PAUSED,
+    )
+    assert journal.read()["current"]["frameBoot"] == "ordinary-new"
+    assert journal.read()["current"]["frameSequence"] == 4
+    assert journal.read()["current"]["frameCrc32"] == 9
+
+
+def test_present_null_native_checkpoint_remains_invalid_after_restart(tmp_path: Path) -> None:
+    journal = _journal(
+        tmp_path / "session.json",
+        state=ControllerState.PAUSED.value,
+        generation=7,
+        nativeConstruction=None,
+    )
+    controller = Controller(journal, driver=_Driver(), recover_on_restart=False)
+    assert controller.native_construction_checkpoint_valid() is False
+    assert controller.native_construction_checkpoint() is None
+    controller.tick(expected_generation=7, expected_state=ControllerState.PAUSED)
+    assert "nativeConstruction" in journal.read()
+    assert journal.read()["nativeConstruction"] is None
+
+
+def test_native_construction_ipc_has_exact_request_shapes(tmp_path: Path) -> None:
+    journal = _journal(
+        tmp_path / "session.json",
+        state=ControllerState.PAUSED.value,
+        generation=7,
+    )
+    controller = Controller(journal, driver=_Driver(), recover_on_restart=False)
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class Owner:
+        def native_construction_prepare(self, **kwargs: object) -> dict[str, object]:
+            calls.append(("prepare", kwargs))
+            return {"handshake": {"state": "construction_prepared"}}
+
+        def native_construction_recovery_begin(self, **kwargs: object) -> dict[str, object]:
+            calls.append(("recovery", kwargs))
+            return {"handshake": {"state": "recovery_required"}}
+
+    ipc = SessionIPC(controller, Owner())
+    malformed = ipc.dispatch({"command": "native_construction_prepare", "generation": 7, "unknown": "reject"})
+    assert malformed == {"ok": False, "error": "native construction request fields are malformed"}
+    accepted = ipc.dispatch({"command": "native_construction_prepare", "generation": 7})
+    assert accepted == {"ok": True, "handshake": {"state": "construction_prepared"}}
+    restart = ipc.dispatch(
+        {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""}
+    )
+    assert restart == {"ok": True, "handshake": {"state": "recovery_required"}}
+    assert calls == [
+        ("prepare", {"expected_generation": 7}),
+        ("recovery", {"expected_generation": 7, "reservation_id": ""}),
+    ]
+
+
+def test_native_construction_ipc_routes_all_eight_shapes(tmp_path: Path) -> None:
+    journal = _journal(tmp_path / "session-all-shapes.json", state=ControllerState.PAUSED.value, generation=7)
+    controller = Controller(journal, driver=_Driver(), recover_on_restart=False)
+    calls: list[tuple[str, dict[str, object]]] = []
+
+    class Owner:
+        def _reply(self, name: str, **kwargs: object) -> dict[str, object]:
+            calls.append((name, kwargs))
+            return {"handshake": {"state": name}}
+
+        def native_construction_prepare(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("prepare", **kwargs)
+
+        def native_construction_control_preflight(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("control_preflight", **kwargs)
+
+        def native_construction_bootstrap(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("bootstrap", **kwargs)
+
+        def native_construction_recheck(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("recheck", **kwargs)
+
+        def native_construction_finalize_admit(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("finalize_admit", **kwargs)
+
+        def native_construction_recovery_begin(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("recovery_begin", **kwargs)
+
+        def native_construction_recovery_complete(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("recovery_complete", **kwargs)
+
+        def native_construction_recovery_cancel(self, **kwargs: object) -> dict[str, object]:
+            return self._reply("recovery_cancel", **kwargs)
+
+    ipc = SessionIPC(controller, Owner())
+    requests = [
+        ({"command": "native_construction_prepare", "generation": 7}, "prepare"),
+        ({"command": "native_construction_control_preflight", "generation": 7}, "control_preflight"),
+        (
+            {
+                "command": "native_construction_bootstrap",
+                "generation": 7,
+                "reservationId": "reservation",
+                "expectedConstructorBoot": "native-construction:boot",
+            },
+            "bootstrap",
+        ),
+        (
+            {"command": "native_construction_recheck", "generation": 7, "reservationId": "reservation"},
+            "recheck",
+        ),
+        (
+            {
+                "command": "native_construction_finalize_admit",
+                "generation": 7,
+                "reservationId": "reservation",
+            },
+            "finalize_admit",
+        ),
+        (
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""},
+            "recovery_begin",
+        ),
+        (
+            {
+                "command": "native_construction_recovery_complete",
+                "generation": 7,
+                "reservationId": "reservation",
+            },
+            "recovery_complete",
+        ),
+        (
+            {
+                "command": "native_construction_recovery_cancel",
+                "generation": 7,
+                "reservationId": "reservation",
+            },
+            "recovery_cancel",
+        ),
+    ]
+    for request, expected in requests:
+        malformed = ipc.dispatch({**request, "unexpected": True})
+        assert malformed == {"ok": False, "error": "native construction request fields are malformed"}
+        response = ipc.dispatch(request)
+        assert response == {"ok": True, "handshake": {"state": expected}}
+    assert [name for name, _kwargs in calls] == [expected for _request, expected in requests]
+
+
+def test_native_construction_cli_argparse_roundtrips_all_eight_commands(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    captured: list[dict[str, object]] = []
+    config = SimpleNamespace(reload_deadline_seconds=45.0, socket=tmp_path / "session.sock")
+    monkeypatch.setattr(cli_module, "load_config", lambda _path: config)
+
+    def request(_socket: Path, value: dict[str, object], *, timeout: float) -> dict[str, object]:
+        captured.append({**value, "_timeout": timeout})
+        return {"ok": True, "accepted": value["command"]}
+
+    monkeypatch.setattr(cli_module, "_socket_request", request)
+    argv = [
+        ["native-construction-prepare", "--generation", "7"],
+        ["native-construction-control-preflight", "--generation", "7"],
+        [
+            "native-construction-bootstrap",
+            "--generation",
+            "7",
+            "--reservation-id",
+            "r",
+            "--expected-constructor-boot",
+            "native-construction:b",
+        ],
+        ["native-construction-recheck", "--generation", "7", "--reservation-id", "r"],
+        ["native-construction-finalize-admit", "--generation", "7", "--reservation-id", "r"],
+        ["native-construction-recovery-begin", "--generation", "7", "--reservation-id", ""],
+        ["native-construction-recovery-complete", "--generation", "7", "--reservation-id", "r"],
+        ["native-construction-recovery-cancel", "--generation", "7", "--reservation-id", "r"],
+    ]
+    for command in argv:
+        assert cli_module.main(["--config", str(tmp_path / "session.toml"), *command]) == 0
+        capsys.readouterr()
+    assert [item["command"] for item in captured] == [
+        "native_construction_prepare",
+        "native_construction_control_preflight",
+        "native_construction_bootstrap",
+        "native_construction_recheck",
+        "native_construction_finalize_admit",
+        "native_construction_recovery_begin",
+        "native_construction_recovery_complete",
+        "native_construction_recovery_cancel",
+    ]
+    assert captured[2]["expectedConstructorBoot"] == "native-construction:b"
+    assert captured[5]["reservationId"] == ""
+
+
+def test_native_construction_ipc_rejects_all_twelve_predecessor_edges(tmp_path: Path) -> None:
+    journal = _journal(
+        tmp_path / "session-predecessors.json", state=ControllerState.PAUSED.value, generation=7
+    )
+    controller = Controller(journal, driver=_Driver(), recover_on_restart=False)
+
+    class Owner:
+        def __init__(self, message: str) -> None:
+            self.message = message
+
+        def _reject(self, **_kwargs: object) -> dict[str, object]:
+            raise RuntimeError(self.message)
+
+        native_construction_prepare = _reject
+        native_construction_control_preflight = _reject
+        native_construction_bootstrap = _reject
+        native_construction_recheck = _reject
+        native_construction_finalize_admit = _reject
+        native_construction_recovery_begin = _reject
+        native_construction_recovery_complete = _reject
+        native_construction_recovery_cancel = _reject
+
+    predecessor_cases = [
+        (
+            {
+                "command": "native_construction_bootstrap",
+                "generation": 7,
+                "reservationId": "r",
+                "expectedConstructorBoot": "native-construction:b",
+            },
+            "bootstrap requires a prepared reservation",
+        ),
+        (
+            {
+                "command": "native_construction_bootstrap",
+                "generation": 7,
+                "reservationId": "preflight",
+                "expectedConstructorBoot": "native-construction:b",
+            },
+            "control preflight cannot bootstrap",
+        ),
+        (
+            {"command": "native_construction_recheck", "generation": 7, "reservationId": "r"},
+            "recheck requires an active reservation",
+        ),
+        (
+            {"command": "native_construction_finalize_admit", "generation": 7, "reservationId": "r"},
+            "finalize requires resume_ready",
+        ),
+        (
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""},
+            "recovery requires a durable checkpoint",
+        ),
+        (
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": "r"},
+            "recovery admission is already in flight",
+        ),
+        (
+            {"command": "native_construction_recovery_complete", "generation": 7, "reservationId": "r"},
+            "recovery complete requires a ticket",
+        ),
+        (
+            {"command": "native_construction_recovery_cancel", "generation": 7, "reservationId": "r"},
+            "recovery cancel requires a ticket",
+        ),
+        (
+            {"command": "native_construction_recovery_complete", "generation": 7, "reservationId": "r"},
+            "recovery ticket was already cancelled",
+        ),
+        (
+            {"command": "native_construction_recovery_cancel", "generation": 7, "reservationId": "r"},
+            "recovery ticket was already completed",
+        ),
+        (
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": "measure"},
+            "only a control preflight reservation can hand off to recovery",
+        ),
+        (
+            {"command": "native_construction_prepare", "generation": 7},
+            "native construction checkpoint already exists",
+        ),
+    ]
+    for request, message in predecessor_cases:
+        response = SessionIPC(controller, Owner(message)).dispatch(request)
+        assert response == {"ok": False, "error": message}
 
 
 def test_stale_saved_observation_cannot_overwrite_pause(tmp_path: Path) -> None:
@@ -971,10 +1298,28 @@ def test_ready_empty_dispatched_scan_is_a_truthful_rejected_attempt(tmp_path: Pa
     assert run["evidence"]["attemptObservation"] == "ready_empty_stable_queues"
 
 
-def test_runtime_durable_empty_scan_facts_reject_without_format2_proof(tmp_path: Path) -> None:
+def test_runtime_durable_empty_scan_facts_reject_without_format2_proof(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import tests.test_session_runtime as runtime_fixtures
     from crowley.core.luawriter import render_assignment
     from crowley.core.watchlist import load_catalog
     from tests.test_session_runtime import _runtime_daemon, _snapshot
+
+    # Keep the real adapter/version guard while giving this fixture the
+    # authentic private pinned CLI.  The helper's default intentionally
+    # models the host config and may point at a newer development binary.
+    pinned_cli = Path(
+        "/home/dev/.cache/crowley/codex/0.162.1/node_modules/"
+        "@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
+    )
+    assert pinned_cli.is_file()
+    config_type = runtime_fixtures.SessionConfig
+
+    def pinned_config(**kwargs: object):
+        return config_type(**kwargs, codex_path=str(pinned_cli))
+
+    monkeypatch.setattr(runtime_fixtures, "SessionConfig", pinned_config)
 
     daemon, _backend, driver, controller, config, _clock = _runtime_daemon(
         tmp_path,

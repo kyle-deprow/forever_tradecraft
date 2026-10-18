@@ -10,6 +10,7 @@ import re
 import subprocess
 import threading
 import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -1812,6 +1813,7 @@ def test_default_native_meter_binds_real_child_and_closes_on_retry(
         socket=tmp_path / "session.sock",
         plan_hash=plan["planHash"],
         plan_json=plan["planJSON"],
+        codex_path="/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
     )
     journal = Journal(config.journal)
     journal.write(
@@ -1839,7 +1841,20 @@ def test_default_native_meter_binds_real_child_and_closes_on_retry(
             return SimpleNamespace()
 
     monkeypatch.setattr("crowley.session.daemon.NativeCalibrationRunner", ProbeRunner)
-    controller.native_calibrated = lambda _evidence, *, preconstruction_proof: controller.status()  # type: ignore[method-assign]
+
+    def native_calibrated(
+        _evidence: object,
+        *,
+        preconstruction_proof: dict[str, object] | None = None,
+        expected_generation: int | None = None,
+        expected_state: ControllerState | None = None,
+    ) -> object:
+        del preconstruction_proof
+        assert expected_generation == 4
+        assert expected_state is ControllerState.NATIVE_CALIBRATION
+        return replace(controller.status(), state=ControllerState.INPUT_CALIBRATION)
+
+    controller.native_calibrated = native_calibrated  # type: ignore[method-assign]
     try:
         with pytest.raises(DriverError, match="default meter probe failure"):
             daemon.run_native_calibration(expected_generation=4)

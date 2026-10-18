@@ -54,6 +54,7 @@ from crowley.session.calibration import (
     _xwininfo_single_map_state,
 )
 from crowley.session.config import SessionConfig, load_config
+from crowley.session.controller import ControllerState
 from crowley.session.daemon import SessionDaemon, session_config_semantic_sha256
 from crowley.session.decoder import PixelDecoder
 from crowley.session.driver import (
@@ -85,7 +86,7 @@ from crowley.session.input_events import (
 )
 from crowley.session.model import CLI_VERSION
 from crowley.session.motion import MotionError, MotionFrame
-from crowley.session.protocol import decode_frame, pack_cells
+from crowley.session.protocol import decode_frame, encode_frame, pack_cells
 from tests.test_session_input_tool import fixture_input_tool
 
 from .wow_harness import WowClient
@@ -817,6 +818,14 @@ def test_daemon_native_region_route_is_opt_in_and_identity_bound() -> None:
 
     daemon.driver = Driver()
     daemon.config = SimpleNamespace(profile=SimpleNamespace())
+    daemon.controller = SimpleNamespace(
+        lock=threading.RLock(),
+        status=lambda: SimpleNamespace(
+            generation=0,
+            state=ControllerState.NATIVE_CALIBRATION,
+            stop_requested=False,
+        ),
+    )
     assert daemon._native_region_enabled() is False
     assert daemon._capture_native_region_for_identity(identity) == "stock.png"
 
@@ -1003,6 +1012,35 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
     assert first_decoded is not None and second_decoded is not None
     assert second_decoded.sequence > first_decoded.sequence
 
+    def snapshot_png(snapshot: dict[str, object]) -> Image.Image:
+        frame = encode_frame(snapshot)
+        image = Image.new("RGB", (256, 256), (0, 0, 0))
+        for row, cells in enumerate(pack_cells(frame)):
+            for column, bit in enumerate(cells):
+                color = (255, 255, 255) if bit else (0, 0, 0)
+                for dy in (0, 1):
+                    for dx in (0, 1):
+                        image.putpixel((column * 2 + dx, row * 2 + dy), color)
+        return image
+
+    base_snapshot = second_decoded.snapshot.value
+    constructor_snapshot = copy.deepcopy(base_snapshot)
+    constructor_snapshot["boot"] = f"native-construction:{first_decoded.boot}"
+    constructor_snapshot["sequence"] = second_decoded.sequence + 1
+    constructor_snapshot["wallTime"] = base_snapshot["wallTime"] + 1
+    constructor_snapshot["uptimeMs"] = base_snapshot["uptimeMs"] + 1
+    constructor_snapshot["render"]["nativePhase"] = "held"
+    constructor_snapshot["render"]["nativeOrdinal"] = 100
+    constructor_frame = snapshot_png(constructor_snapshot)
+    ordinary_snapshot = copy.deepcopy(base_snapshot)
+    ordinary_snapshot["boot"] = "ordinary-public-recovery"
+    ordinary_snapshot["sequence"] = second_decoded.sequence + 2
+    ordinary_snapshot["wallTime"] = base_snapshot["wallTime"] + 2
+    ordinary_snapshot["uptimeMs"] = base_snapshot["uptimeMs"] + 2
+    ordinary_snapshot["render"]["nativePhase"] = "normal"
+    ordinary_snapshot["render"]["nativeOrdinal"] = 0
+    ordinary_frame = snapshot_png(ordinary_snapshot)
+
     rectangle = (123, 77, 256, 256)
     full_desktop = Image.new("RGB", (1920, 1080), (31, 37, 41))
     full_bytes = png_bytes(full_desktop)
@@ -1023,6 +1061,10 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
 
     with harness.private_shell_compositor(
         payloads=[
+            png_bytes(native_frame),
+            png_bytes(first_status),
+            png_bytes(constructor_frame),
+            png_bytes(ordinary_frame),
             png_bytes(absent_surface),
             png_bytes(first_status),
             png_bytes(native_frame),
@@ -1179,6 +1221,75 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
         try:
             status = daemon.controller.start()
             assert status.state.value == "NATIVE_CALIBRATION"
+            # The configured compiled producer is also admitted while PAUSED
+            # through the narrow provisional construction capability.  This
+            # is the real X11/Shell/decoder path; no observation provider is
+            # substituted for the producer boundary.
+            daemon.controller.pause("native construction recovery")
+            paused_generation = daemon.controller.status().generation
+            with daemon._native_construction_lock:
+                daemon._native_construction_epoch += 1
+                provisional_epoch = daemon._native_construction_epoch
+                daemon._native_construction_inflight = {
+                    "epoch": provisional_epoch,
+                    "generation": paused_generation,
+                    "kind": "preflight",
+                }
+                provisional_capability = daemon._native_construction_capability_locked()
+            provisional_capture: Path | None = None
+            try:
+                provisional_capture = daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=paused_generation,
+                    expected_state=ControllerState.PAUSED,
+                    deadline=time.monotonic() + 10.0,
+                    native_capability=provisional_capability,
+                )
+                assert provisional_capture.is_file()
+                with Image.open(provisional_capture) as image:
+                    image.load()
+                    assert image.size == (256, 256)
+            finally:
+                if provisional_capture is not None:
+                    daemon._remove_native_capture(provisional_capture)
+                with daemon._native_construction_lock:
+                    if (
+                        daemon._native_construction_inflight is not None
+                        and daemon._native_construction_inflight.get("epoch") == provisional_epoch
+                    ):
+                        daemon._native_construction_inflight = None
+            resumed = daemon.controller.resume(expected_generation=paused_generation)
+            assert resumed.state.value == "NATIVE_CALIBRATION"
+            daemon.controller.pause("public native construction recovery")
+            public_paused_generation = daemon.controller.status().generation
+            from crowley.session.cli import SessionIPC
+
+            ipc = SessionIPC(daemon.controller, owner=daemon)
+            preflight = ipc.dispatch(
+                {"command": "native_construction_control_preflight", "generation": public_paused_generation}
+            )
+            assert preflight["ok"] is True
+            preflight_id = preflight["reservation"]["reservationId"]
+            begun = ipc.dispatch(
+                {
+                    "command": "native_construction_recovery_begin",
+                    "generation": public_paused_generation,
+                    "reservationId": preflight_id,
+                }
+            )
+            assert begun["ok"] is True
+            recovered = ipc.dispatch(
+                {
+                    "command": "native_construction_recovery_complete",
+                    "generation": public_paused_generation,
+                    "reservationId": begun["reservation"]["reservationId"],
+                }
+            )
+            assert recovered["ok"] is True
+            assert recovered["handshake"]["state"] == "recovered"
+            resumed = daemon.controller.resume(expected_generation=public_paused_generation)
+            assert resumed.state.value == "NATIVE_CALIBRATION"
+            status = resumed
             bootstrapped = daemon.native_bootstrap(expected_generation=status.generation)
             assert bootstrapped["nativeBootstrapPending"] is True
             bootstrap = daemon._native_bootstrap_observation
@@ -1225,20 +1336,20 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
             assert backend.last_region_receipt is not None
             assert backend.last_region_receipt.nonce == before_model_nonce
             area_calls = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
-            assert len(area_calls) == 3
-            assert [call["index"] for call in area_calls] == [1, 2, 3]
+            assert len(area_calls) == 7
+            assert [call["index"] for call in area_calls] == [1, 2, 3, 4, 5, 6, 7]
             assert all(
                 (call["x"], call["y"], call["width"], call["height"], call["flash"]) == (*rectangle, False)
                 for call in area_calls
             )
             assert not backend._active_processes
             assert not backend.active_process_groups
-            assert [event[0] for event in admission_events[:6]] == [
-                name for _ in range(3) for name in ("admission_enter", "gate_released")
+            assert [event[0] for event in admission_events[:14]] == [
+                name for _ in range(7) for name in ("admission_enter", "gate_released")
             ]
             assert all(
                 admission_events[index * 2 + 1][1] * 1_000_000 <= area_calls[index]["monotonic_us"]
-                for index in range(3)
+                for index in range(6)
             )
 
             # A regular stock invocation is forwarded to the active primary
@@ -2147,6 +2258,26 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
                 "config_semantic_sha256": session_config_semantic_sha256(config),
             }
 
+            # Warm the real configured producer and private Shell/D-Bus path
+            # once before starting the fixed eight-target cadence.  This is a
+            # production IPC/capture operation, and its one consumed payload
+            # is accounted for explicitly in the sequence and area assertions
+            # below.  It removes only cold-start ACK skew; harness deadlines
+            # and the 0.75..1.25s cadence bounds remain unchanged.
+            warmup_publication_count = len(receipt_publications)
+            warmup_started = time.monotonic()
+            warmup_response = ipc.dispatch(
+                {
+                    **valid_sample_request,
+                    "parent_started": warmup_started,
+                    "deadline": warmup_started + 0.9,
+                }
+            )
+            assert warmup_response["ok"] is True, warmup_response
+            assert isinstance(warmup_response.get("sample"), dict)
+            warmup_publication_count = len(receipt_publications)
+            admission_events.clear()
+
             result = harness.run_paused_diagnostic(config_path, output_dir)
             assert result["run_state"] == "passed"
             expected_generation = daemon.controller.status().generation
@@ -2154,7 +2285,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert len(result["attempts"]) == 8
             samples = result["attempts"]
             assert isinstance(samples, list)
-            assert [sample["identity"]["sequence"] for sample in samples] == decoded_sequences[:8]
+            assert [sample["identity"]["sequence"] for sample in samples] == decoded_sequences[1:9]
             assert all(sample["identity"]["fingerprint"] == identity.fingerprint for sample in samples)
             assert all(
                 sample["owner"]["producer_binding"]["protocol_branch"] == "ScreenshotArea"
@@ -2202,7 +2333,11 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert evaluated["eligible"] is True
             assert len(completed_pairs) == 8
             assert evaluated["attempts_begun"] == 8
-            success_publications = [value for _path, value in receipt_publications if value.get("ok") is True]
+            success_publications = [
+                value
+                for _path, value in receipt_publications[warmup_publication_count:]
+                if value.get("ok") is True
+            ]
             assert len(success_publications) == 8
             sidecar = _load_identity_latency_sidecar(root)
             expected_latency_binding = {
@@ -2298,17 +2433,17 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             )
             assert all(sample["owner"]["cleanup"]["lease_held"] for sample in samples)
             assert all(sample["owner"]["cleanup"]["watchdog_healthy"] for sample in samples)
-            assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == 8
+            assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == 9
             assert request_count[0] == 17  # eight status/sample pairs plus final status
             successful_gate_events = admission_events[:16]
             successful_shell_events = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
             assert [event[0] for event in successful_gate_events] == [
                 name for _ in range(8) for name in ("admission_enter", "gate_released")
             ]
-            assert len(successful_shell_events) == 8
+            assert len(successful_shell_events) == 9
             assert all(
                 successful_gate_events[index * 2 + 1][1] * 1_000_000
-                <= successful_shell_events[index]["monotonic_us"]
+                <= successful_shell_events[index + 1]["monotonic_us"]
                 for index in range(8)
             )
 
@@ -2316,7 +2451,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             # sample 1 while retaining both client images.
             payload_paths = compositor["payload_paths"]
             assert isinstance(payload_paths, tuple)
-            payload_paths[9].write_text(
+            payload_paths[10].write_text(
                 base64.b64encode(alternate_png.getvalue()).decode("ascii"), encoding="ascii"
             )
             boot_change_samples = sample_count[0]
@@ -2618,7 +2753,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             )
             assert "status_failed" in failed_evaluated["reason_codes"]
             assert failed_pairs == []
-            assert area_count() == 8 + 2 + 6 + 1 + 1 + 1 + 2 + 2
+            assert area_count() == 1 + 8 + 2 + 6 + 1 + 1 + 1 + 2 + 2
 
             # A generation change after sample 0 is observed before sample 1.
             # The runner must stop without another Shell request and keep the
@@ -2642,7 +2777,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
             assert next(partial_dir.glob("paused-*.png")).is_file()
             partial_owner_dirs = sorted(Path(config.capture_dir).glob("paused-region-*"))
             validate_owner_latency_profile(partial_owner_dirs[-1])
-            assert area_count() == 8 + 2 + 6 + 1 + 1 + 1 + 2 + 2 + 1
+            assert area_count() == 1 + 8 + 2 + 6 + 1 + 1 + 1 + 2 + 2 + 1
 
             # A success receipt write failure leaves only a durable failure
             # receipt while retaining the actual producer PNG and receipt
