@@ -2,7 +2,21 @@
 
 Status: prepared offline slice3. Start only after native controller/daemon/CLI source is independently tested and accepted by Sol and actual Opus. Root owns git, promotion, service and live release. This plan alone releases no input.
 
+Sequencing amendment: PLAN-native-calibration-operator-parallel-preparation.md
+permits a private offline candidate against frozen read-only development
+dependencies. Final integration, acceptance and live release still require
+accepted native source. All behavior and safety constraints below still apply.
+
 Read frozen Stage B R3 and closure helper sections in full, accepted native implementation plan and its final concrete IPC source, plus executor-review/native-construction-helper-preparation.md. The closure overrides older token-bearing recovery and two-second click reserve. Existing private d553/bf79 scripts remain immutable provenance, never the new executable.
+
+The later PLAN-native-construction-recovery-ordinary.md amendment also applies.
+In the existing recover mode, use only the daemon's admitted recoveryKind:
+restore emits the fixed /crowley agent recover command and one verified Restore
+click; ordinary_reload emits only the fixed OCR-confirmed /reload command.
+Neither branch invents an addon marker or resumes the owner. Both require the
+daemon's independent genuinely new ordinary-boot completion proof. Cover both
+ordinary begin variants (unchanged B0 before defer, and a later ordinary boot),
+all three restore begin cases, and old/same/prefixed/fenced completion refusal.
 
 Own exactly tools/native_calibration_operator.py and tests/test_native_calibration_operator.py in a new isolated worktree based on accepted native source. All dependencies, addon, driver/guardian/input_tool/config/CLI, private scripts, services and GUI are read-only. Do not commit/reset/stash/revert others. Implement whole three-mode bounded task without per-action permission requests. No generic automation surface or new runtime dependency.
 

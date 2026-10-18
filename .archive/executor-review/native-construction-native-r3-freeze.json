@@ -1,0 +1,55 @@
+{
+  "baseCommit": "e6e17bb42474b0251365590e61b87c9307b447fe",
+  "baseCommitSha256": {
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "checks": {
+    "compileallSixFiles": "passed",
+    "diffCheck": "passed",
+    "focusedR3": "strict absence classifier and null checkpoint passed; composed runner + terminal recheck passed in 30.70s",
+    "nativeRegressionsFull": "91 passed in 63.54s before final terminal/negative additions; final three-suite run included all additions",
+    "nativeSuite": "148 passed in 234.53s",
+    "ruffCheckSixFiles": "passed",
+    "ruffFormatCheckSixFiles": "6 files already formatted",
+    "threeNativeSuites": "301 passed, 2 failed in 472.81s; failures are paused diagnostic sample deadline and transition fixture startup Codex 0.163.0 vs required 0.162.1"
+  },
+  "finalSha256": {
+    "src/crowley/session/cli.py": "f3156eb78a6cf20f88275b08b7fb105cd7466c59bde77097e949690bafcee8ab",
+    "src/crowley/session/controller.py": "f40ee4d3c4c7682a6d361eb90fc4e7cc54245ff4753f81ce8eeaa19af3b21839",
+    "src/crowley/session/daemon.py": "6dfb65acea2d91096c8b37a5292a28dcc40e14782960277f3c94f32206df88d9",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "fbe07b6ac65e448514a68ee9c0ce99191b2de4daff61401747ef6371c558e178",
+    "tests/test_session_transitions.py": "99e15af5eed69c1cc58b77cdc255f92e961c4c1b20b4d6684e94ef6100d07742"
+  },
+  "incompleteItems": [
+    "Parent must rerun transitions and paused diagnostic with authentic private codex-cli 0.162.1 and private 0700 XDG_RUNTIME_DIR; current host path reports 0.163.0.",
+    "The paused diagnostic fixture missed its one-second sample deadline under the final full-suite host run; no production deadline was relaxed."
+  ],
+  "operationEnvelope": {
+    "constructorReserveAccounting": "inside construct provider deadline",
+    "constructorReserveSeconds": 7.0,
+    "entrySeconds": 10.0,
+    "finalizeSeconds": 30.0,
+    "formula": "10 + (103 * 30) + 30",
+    "perInvocationSeconds": 30.0,
+    "providerInvocations": 103,
+    "seconds": 3130.0
+  },
+  "parentVerification": "Root owns independent verification, Sol review, and actual Opus review; no live/promotion claim.",
+  "schema": 1,
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "status": "r3_candidate_pending_parent_verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-construction-native-r3-20261018"
+}

@@ -134,6 +134,9 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   retain its hash, exact command, isolated writable cache/config paths and logs.
   Never fake version output or weaken the pin. Report host and isolated results
   separately, and exercise the real configured production adapter too.
+  PATH does not override an explicit configured executable: inject the authentic
+  pin through the fixture's configuration. Give fake desktop fixtures a private
+  0700 XDG_RUNTIME_DIR so their leases cannot contend with the live daemon.
 
 Update the relevant existing skill when live evidence disproves guidance; keep
 incident dumps and transient client facts in the handoff/evidence files.

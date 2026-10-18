@@ -29,7 +29,30 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at19:40UTC:** ordinary operator-assisted collection continues;
+**Current Oct18 at20:13UTC:** ordinary scans49/50 are parent-verified, including
+original SavedVariables, database digest and independent retained-PNG loadedACK.
+Both start intervals are900s, all428 reasons ok; rows2679/2620, coverage402full /
+26bounded each. AH reopened after50; next natural due20:15:52. Fresh backup
+beta-20261018T201146Z-085d48cfc4d5 passed canonical parent validation, manifestSHA
+d2e8e99db91f6c1041f9c8e9c0968c230bdcaa263e91e0001852b2f60531e661.
+
+Native R3 is frozen and REJECTED before another external review. Worker reports
+301passed/2failed; parent hash/fence/Ruff/303-test collection pass, but required
+lock/admission/recovery/context/default-path gaps remain. See R3-parent-verification
+and PLAN-native-construction-native-r4-closure.md. Luna repairs in separate R4,
+same six-file fence. No candidate native source is deployed. Real private0.162.1
+CLI was independently invoked/hashed; R3 incorrectly injected host0.163 path.
+
+To shorten the critical path, root explicitly amended helper DEVELOPMENT sequencing:
+Luna now builds the independent two-file offline helper candidate in
+native-calibration-operator-preparation-20261018 against read-only frozen R3
+dependencies. See PLAN-native-calibration-operator-parallel-preparation.md. Native
+acceptance remains REQUIRED before final integration/helper acceptance/live input;
+known rejected dependency behavior must not be mocked into qualification. GUI
+ownership remains solely luna_live_continuation; runtime stillPAUSEDgen23PID882745.
+Continue work through tests/reviews/integration; do not stop at another status turn.
+
+**Prior Oct18 at19:40UTC:** ordinary operator-assisted collection continues;
 the repeating daemon is still PAUSED/unqualified. Parent independently verified
 sweep47: 428 observations, 2759 rows, 400 full/28 bounded, all reasons ok,
 900-second start interval, database digest, and retained PNG exact loaded ACK /

@@ -1,0 +1,9 @@
+{
+  "kind": "parent-market-backup-snapshot-verification",
+  "snapshot": "beta-20261018T201146Z-085d48cfc4d5",
+  "manifest_sha256": "d2e8e99db91f6c1041f9c8e9c0968c230bdcaa263e91e0001852b2f60531e661",
+  "snapshot_validated": true,
+  "directory_mode": "0700",
+  "restore_drill_repeated": false,
+  "qualification": "Fresh snapshot plus canonical checksum/reference validation; prior accepted restore drill remains separate evidence."
+}
