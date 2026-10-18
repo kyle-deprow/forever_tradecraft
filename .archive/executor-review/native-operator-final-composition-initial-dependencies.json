@@ -1,0 +1,15 @@
+{
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-operator-final-composition-20261018",
+  "base": "03258f3",
+  "development_only": true,
+  "source_hashes": {
+    "tools/native_calibration_operator.py": "44acb08dd44f3974819937b3874abf6809381cbc18505a9fa02b3ec728a5e6b8",
+    "tests/test_native_calibration_operator.py": "9c1c5043dceab6b0f18a4620c60e2b1e31bb904f2b01a0945c9c8c8dee784575",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "8a483475f3963e1b007e3762b8395f14fb8c4b0b4d9f02a110f823d0b40b2ef1",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "09c980f99739283b9c86219293bce3d6db236d84b49213022f1ac83f0d689592",
+    "tests/test_session_transitions.py": "cdb4384f3408bb5b21a18445a2c5df8a74dcd271c812ba9b39f9eb171dfce331"
+  }
+}

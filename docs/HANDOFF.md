@@ -29,7 +29,38 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at22:17UTC:** scan58 parentverified, UID
+**Current Oct 18, 22:32 UTC:** scan 59 independently verified: UID
+`beta-normal-alliance-1792362053-Arthur-5913`, 428 observations, 2,741 rows,
+403 full / 25 bounded / no incomplete items. Start interval exactly 900 seconds;
+server receipt 45.736669 seconds after finish. Parent decoded the retained PNG
+with production PixelDecoder and verified the exact loaded ACK. Luna reopened
+the AH at 22:30:27; next start due 22:35:53. Collection remains operator-assisted.
+
+Closed-admission helper now really performs requests in its independent actor;
+SO_PEERCRED and held-reply owner-death tests demonstrate this. Parent independently
+passed all 48 tests (31.80s), scoped statics, source/dependency hashes and fence.
+However, parent also reproduced a remaining defect: a lost bootstrap reply after
+the server extends the SAME KNOWN ID to 3130 seconds leaves the actor using the
+old short prepare expiry; it exits without attempting exact cancellation.
+The frozen component is therefore unaccepted. Both test results and the local
+socket counterexample are in native-operator-closed-admission-parent-verification.json.
+Root test sessions 40081 and 94815 are closed successfully; no root exec remains.
+
+Root created `native-operator-final-composition-20261018` from 03258f3 with exact
+two frozen helper files and six frozen R6 DEVELOPMENT dependencies, hash-recorded
+in native-operator-final-composition-initial-dependencies.json. These dependencies
+are known unaccepted. Authoritative PLAN-native-operator-final-composition.md
+consolidates the bootstrap loss fix, actual production reload-boundary stub,
+phase deadline propagation and fresh empty-ID recovery (also currently rejected
+by the actor's private call validator). Final verification requires exact accepted
+native source later. Sol planning review is active; helper implementation NOT
+yet assigned in this new tree. Native absence/coverage Luna remains active in
+native-r6-absence-fix1-20261018; parent sent an actual all-four-magic-bytes plus
+payload occlusion counterexample, beyond the earlier one-byte case. No promotion,
+native100, service restart or human calibration request. Last pushed 03258f3.
+Keep coordinating after checkpoints; user explicitly said not to stop.
+
+**Prior Oct18 at22:17UTC:** scan58 parentverified, UID
 beta-normal-alliance-1792361153-Arthur-9602:2727rows402full25bounded1incomplete,
 querytimeout10548unknown,900sinterval39.406151sfinish-to-server, independent
 productionPNG exactloadedACK. Luna reopenedAH22:15:46; nextdue22:20:53.
