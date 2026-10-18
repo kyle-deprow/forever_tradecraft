@@ -1,0 +1,84 @@
+Resolved model: claude-opus-5-5
+Model ID: `claude-opus-5-5`.
+
+The R2 candidate has major issues. The deferred finalize step cannot succeed live, preflight and every recovery path are blocked under the production config, and a pause can deadlock the daemon. This was a read-only review with no subagents. I made no edits and ran no tests, builds, GUI, input, services, network or git changes. The review is also saved in `/home/dev/.claude/plans/state-exact-model-id-jaunty-hoare.md`.
+
+**Hashes:** all six candidate SHA-256 values match the R2 freeze. All six base-commit and current-main files match `readonlyBaselineSha256`. Main's newer commit `19308c7` touches none of the six files. The actual diff is five files; `test_session_native.py` is unchanged.
+
+## Must
+1. **The finalize step cannot succeed live, and its 30 s bound is gone.**
+   - **Defect:** after finalize-admit, the worker takes one capture right away (`daemon.py:5921-5951`). That is before the helper can perform Finalize, so the frame still shows the native fence armed and the run fails.
+   - **Missing bound:** nothing enforces the 30 s finalize window. The wait and `finalizeDeadline` (`daemon.py:1365`) use the 3130 s operation deadline, so R2 widens finalize from at most 127 s to about 52 minutes.
+   - **Pause ignored:** the wait loop only checks the deadline and shutdown. A pause leaves the worker "running" and holding the calibration lock. When it finally fails (`daemon.py:6009-6021`), it wipes whatever reservation is current, including a later recovery ticket.
+   - **Why tests pass:** every test frame has the fence inactive.
+   - **Fix:** poll for a newer strict frame until `min(resume_ready + 30 s, now + 10 s)`, abort on generation or state change, and clear only the run's own reservation.
+2. **A pause can deadlock the daemon.**
+   - **Pause order:** `Controller.pause` holds the controller mutex while revoking (`controller.py:2070-2080`). The revoke callback then needs the native-construction lock (`daemon.py:814`).
+   - **Reverse order:** several paths hold the native lock and then need the controller mutex:
+     - prepare, across its capture (`daemon.py:1216`, `1248`);
+     - recovery begin and complete (`1378`, `1466`);
+     - the validation helper (`1169`);
+     - the poll check (`2549-2560`);
+     - region capture (`3160`).
+   - **Consequence:** IPC requests run on concurrent threads, so a pause during prepare or recovery wedges every controller-locked request.
+   - **Fix:** never hold the native lock across captures or controller calls, or always take the controller lock first.
+3. **Preflight and recovery are refused in the production config.**
+   - **Defect:** construction captures go through region capture, which refuses PAUSED (`daemon.py:3160-3167`). The live `session.toml` enables region capture.
+   - **Affected:** control preflight (`1248`), recovery-begin (`1407`) and recovery-complete (`1486`) all fail, so durable B0 can never be cleared through the closed API.
+   - **Why tests pass:** they bypass the real capture through the private `_native_construction_observation_provider` hook (`1081`).
+4. **The post-reset sealed absence capture is missing.**
+   - **Defect:** the deferred path's only absence capture is at provider entry (`daemon.py:2124-2129`), before the reset. The comment there calls it post-reset, which is wrong.
+   - **Consequences:**
+     - `baseline_bound` reuses that pre-reset capture's metadata (`1694`).
+     - `construction_released` is published (`2199-2211`) before the runner checks the seal and deletes the PNG.
+     - The 10 s entry bound checks nothing, because the entry capture is taken at entry.
+5. **The 12-state predecessor table is incomplete.**
+   - **Bootstrap replay:** bootstrap (`1304-1333`) does not check that the reservation is still prepared. A replay resets a live run to `running` and refreshes the 3130 s deadline.
+   - **Skipped edges:** an early finalize-admit only raises; it does not revoke. The test at `test_session_native_regressions.py:4080` asserts that behaviour.
+   - **Construct boot:** the boot of the Construct frame is never checked against the expected prefixed boot.
+6. **Recovery-begin is missing required admission checks** (`daemon.py:1375-1460`). It does not check:
+   - interaction mode;
+   - an idle calibration operation;
+   - a Guardian calibration ticket;
+   - the desktop lease in the restart case. Prepare doesn't check the lease either.
+
+   Combined with Must 1, a ticket can be issued while a stale worker is still alive, and that worker later destroys it.
+7. **Most of the required acceptance coverage is absent.** Missing tests:
+   - CLI argparse;
+   - a composed flow through IPC dispatch;
+   - wrong edges for each predecessor;
+   - post-reset absence with the PNG deleted;
+   - the 5 s, 30 s and 7 s boundaries;
+   - the no-attempt-per-generation rule;
+   - preflight-to-recovery handoff, drift, cancel and shutdown;
+   - restart with a fresh daemon and controller;
+   - terminal-error pause;
+   - recovery-begin cases 2 and 3;
+   - rebind guards;
+   - refusal of an unrelated boot after reconstruction.
+
+## Should
+1. **Competing entry points are not atomically fenced.** Legacy `native_bootstrap` IPC isn't blocked by a live reservation (`cli.py:197`). The other admissions check first and act later, outside the construction lock.
+2. **Cancel can stop a running measurement and silently switch the run to legacy behaviour.** Cancel (`daemon.py:1535`) accepts a reservation that a running measurement has already consumed. Because each callback re-decides deferred versus legacy from mutable state, the rest of that run takes the legacy branches and skips the deferred checks. It only fails at the end.
+3. **Expiry is lazy.** A dead reservation keeps blocking other entry points until some construction IPC arrives (`daemon.py:831`).
+4. **The first failure reason is lost.** The except path overwrites it (`daemon.py:6018`).
+5. **The finalize check is weak.** It requires neither a newer sequence than the resumed frame nor an armed-to-unarmed fence change.
+6. **"No Agent surface" is too loose in recovery-begin.** Any decode error counts as absent (`daemon.py:1096`), which is weaker than the legacy absence check.
+7. **Two clocks are mixed.** The absence capture is stamped with `time.monotonic()` (`daemon.py:1584`) while freshness uses the native clock. The composed test hides this by syncing its fake clock to the real one (`test_session_native_regressions.py:4346`).
+8. **Each deferred poll resolves the window identity twice.** One of those runs xdotool/xprop subprocesses while holding the native lock (`daemon.py:2549-2560`).
+9. **Controller mutators silently do nothing when not admitted, and the daemon ignores that.** Recovery-complete can report "recovered" without rebinding or clearing (`daemon.py:1507-1533`).
+
+## Nits
+- Two unused helpers at `daemon.py:964` and `968`.
+- The 60 s CLI timeout isn't derived from the reload deadline, which can be up to 600 s.
+- `finalized` is published even when the controller blocks.
+- B0 may be up to 76 bytes, while the addon's limit is 64.
+- `getattr` fallbacks and a missing `crc32` upper bound.
+
+## Full compatibility run
+It is still open and not green. The failing test at `test_session_native.py:1474` is in an unchanged file, and every function it calls is effectively unchanged; the diff only adds native-lock bookkeeping to `release_native_capture`. I see no causal link, but I can't call it environment-only without a trace.
+
+**Plan gap (not counted against the candidate):** after any ordinary reload, the client shows a new ordinary boot. That matches none of the three recovery-begin cases, so B0 can no longer be cleared.
+
+STATUS: MAJOR ISSUES
+CLAUDE_EXIT:0

@@ -29,7 +29,34 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at19:21UTC:** native candidate remains UNACCEPTED/UNDEPLOYED.
+**Current Oct18 at19:40UTC:** ordinary operator-assisted collection continues;
+the repeating daemon is still PAUSED/unqualified. Parent independently verified
+sweep47: 428 observations, 2759 rows, 400 full/28 bounded, all reasons ok,
+900-second start interval, database digest, and retained PNG exact loaded ACK /
+pending0 / AH closed / ordinary normal0 / inactive fence. Sweep48 is also
+parent-verified: 2690 rows, 402 full/26 bounded, all428 ok, 900-second interval,
+23.807798s finish-to-server receipt and independent retained-PNG loadedACK proof.
+Luna reopened AH; next natural start is due19:45:52. No native source is live.
+
+Frozen native R2 received MAJOR ISSUES from both Sol and actual CLI Opus
+(claude-opus-5-5, exit0). Both reports are retained. Parent consolidated the
+production PAUSED-capture, lock/admission, two-absence-proof, finalize, recovery
+and terminal-receipt repairs in PLAN-native-construction-native-review-fix.md;
+PLAN-native-construction-recovery-ordinary.md closes the ordinary-reload recovery
+gap. Luna is implementing that complete round in the separate
+native-construction-native-r3-20261018 tree, base e6e17bb with the exact six R2
+files copied. R1/R2 remain frozen. Do not deploy or start helper implementation
+until parent verification plus Sol and actual Opus accept the native source.
+
+The R2 private-runtime transition rerun ended 38 passed / 1 failed in137.20s:
+the imported runtime fixture has an explicit host Codex path (0.163.0), so its
+startup guard rejects before the behavior under test. PATH-only pinning does not
+override that configured path. Supply the authentic private0.162.1 executable
+through test configuration and retain private XDG_RUNTIME_DIR for lease isolation;
+do not weaken version checks or change the host executable. Full compatibility
+is still NOT green. Previous independent source findings remain valid.
+
+**Prior Oct18 at19:21UTC:** native candidate remains UNACCEPTED/UNDEPLOYED.
 Main/pushed19308c7 still uses accepted addon+profiler, servicePAUSEDgen23PID882745.
 Luna continues ordinary operator-assisted scans;45/46parentverified (900s starts,
 2751/2752rows;46has1query_timeout).47startednaturally19:15:52. Fresh privatebackup

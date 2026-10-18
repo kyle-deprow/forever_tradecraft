@@ -1,0 +1,11 @@
+# Native recovery amendment: ordinary reload gap
+
+Root resolves the plan gap identified by actual Opus native R1: a checkpoint can survive an ordinary reload after Finalize, or prepare can return before any defer input. The existing three begin cases cannot recover an ordinary unarmed load with no addon marker; the addon correctly refuses recover there. Do not weaken addon admission or edit SavedVariables.
+
+Add a fourth exact recovery-begin case: a fresh strict ordinary normal/0 frame, unarmed projected schedule fence, boot not native-construction-prefixed (including B0 if defer never occurred). All existing current-PAUSED, unarmed, idle, non-interaction, no-worker/no-ticket, identity/profile/lease and durable-checkpoint checks still apply. The daemon returns private handshake recoveryKind=ordinary_reload. Existing absence/prefixed/B0-armed cases return recoveryKind=restore. Canonical fourteen-field reservation and fixed request keysets are unchanged.
+
+In the future helper recover mode, ordinary_reload emits ONLY the fixed OCR-confirmed /reload through its reviewed chat path, under the same fresh ticket/identity/focus/lease guards. It sends no recover slash and no button click. The restore branch keeps fixed /crowley agent recover plus one Restore click. This adds no generic input interface, mode, arbitrary command or template role.
+
+Both kinds complete only after an independently captured, genuinely new ordinary normal/0 boot different from begin boot AND B0, no native-construction prefix, unarmed fence, capture newer than begin/admission, same identity/current generation/lease. Recovery commit atomically writes frame trio and removes checkpoint, then observe_frame verifies the accepted trio. Any failure stays paused/checkpointed. Existing explicit owner resume remains separate.
+
+This closes both post-Finalize ordinary reload and pre-first-input cancellation without relaxing the genuinely-new-boot proof. Prefer admitted Restore after successful native measurement before routine scanning, but an incidental ordinary reload cannot strand B0. Add public-IPC/default-adapter tests for both new ordinary begin variants, fixed future-helper branch, and refusal of old/same/prefixed/fenced completion. No addon change or live action is released by this amendment.
