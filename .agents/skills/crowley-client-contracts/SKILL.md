@@ -65,6 +65,11 @@ reasons and use distinct simultaneous failures when testing precedence.
 Decide SavedVariables-dependent startup in `ADDON_LOADED`, with initialization
 order covered by the harness: load files, inject saved values, then emit the event.
 File execution alone does not establish that saved values have been restored.
+When fence release also rearms a scheduler, test the real lifecycle through its
+publication and commit, with the triggering event present. A setter-only test in
+an already-ordinary load misses a release refused before lifecycle commit. Keep
+failure cases free of live timers; label simulated event order separately from
+client-reachable behavior.
 For reviewed-source hashing, compare descriptor identity and metadata before and
 after the entire read as well as the final path. Two matching late snapshots miss
 an in-place change after bytes were read; test a real same-size mutation at EOF.
