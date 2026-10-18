@@ -44,6 +44,9 @@ lease. Preserve the closed actor architecture and previous real typing proofs.
    and retain independent owned release on timeout. Preserve authentic tool
    per-character duration, existing 30s provider / 5s freshness / 7s click reserve
    and independent addon release window. Do not invent new timing allowances.
+   When bootstrap canonically extends expiry, update the local reservation
+   deadline from that ACK before taking the minimum of reservation/operation/phase;
+   otherwise the old short prepare expiry incorrectly caps the admitted long run.
 3. After terminal MEASURE failure and confirmed newer PAUSED with old reservation
    closed, start fresh recovery with empty reservationId. A nonempty old measure ID
    is not a preflight handoff. Preserve native admission semantics. Verify actor
@@ -52,6 +55,14 @@ lease. Preserve the closed actor architecture and previous real typing proofs.
    its private dispatch currently rejects it even though actor perform permits it.
 
 ## Verification and acceptance
+
+Root accepts the complete Sol prescription in
+executor-review/native-operator-final-composition-plan-sol.md. Read it in full;
+it specifies exact private readiness selectors, wait/dispatch budget propagation,
+canonical recovery, and actual compiled producer/SessionIPC fixture reuse. It
+adds no public protocol. Implement all four closures as one bounded final helper
+candidate and preserve the prior trees. Only final accepted native source can
+establish composed acceptance; frozen R6 here is an offline development input.
 
 Compose all three actual helper modes with the final SessionDaemon/SessionIPC
 parser and real current canonical replies; cover ordinary_reload and restore,

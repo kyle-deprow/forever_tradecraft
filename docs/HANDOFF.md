@@ -29,7 +29,18 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct 18, 22:32 UTC:** scan 59 independently verified: UID
+**Current Oct 18, 22:35 UTC:** Sol's final helper composition prescription is
+complete and root-approved: native-operator-final-composition-plan-sol.md, no
+interface blocker. Luna now owns only the helper and its test file in the prepared
+native-operator-final-composition-20261018 tree, implementing all four closures
+and actual daemon/IPC composition. Exact frozen R6 dependencies remain development
+inputs only. Root also explicitly requires updating the local reservation deadline
+on canonical bootstrap extension before taking the minimum of active deadlines.
+Native absence/coverage Luna is still active in its own six-file tree; a milestone
+was requested without pausing it. Sole GUI Luna continues collection; no live
+qualification/source promotion. Root exec 73104 push CLOSED0; last pushed b5ff604.
+
+**Prior Oct 18, 22:32 UTC:** scan 59 independently verified: UID
 `beta-normal-alliance-1792362053-Arthur-5913`, 428 observations, 2,741 rows,
 403 full / 25 bounded / no incomplete items. Start interval exactly 900 seconds;
 server receipt 45.736669 seconds after finish. Parent decoded the retained PNG
