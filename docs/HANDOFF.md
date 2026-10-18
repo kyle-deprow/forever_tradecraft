@@ -29,7 +29,38 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at21:22UTC:** ordinary scan54 is parent-verified:2757rows,
+**Current Oct18 at21:35UTC:** scan55 is parent-verified:UID
+beta-normal-alliance-1792358453-Arthur-9807,2788rows403full25bounded,428ok,
+900s interval14.655808s finish-to-server, independent PNG exactloadedACK.
+Luna reopenedAH; next due21:35:53. Ordinary collection remains operator-assisted.
+
+NativeR5 Sol full source review is MAJOR9Must/1Should, retained in
+native-construction-native-r5-sol-review.md. Parent316passes are real but do not
+close the actual public configured capture, lock/admission/context/finalize/
+durable-write/terminal defects or missing race tests. Root accepted and RESCOPED
+into PLAN-native-admission-outcomes-r6.md, separate native-admission-outcomes-r6-
+20261018 tree(base68e4236/exact6frozenR5files). Luna owns same6files, two stages:
+A immutableadmission/exactPAUSEDcapability/lockorder/publiccaptureproof; B closed
+durableoutcomes/fastfinalize/boundedterminalallpaths. Focusedstages thenfull3suites
+oncefinalsource. No new feature / no source promotion.
+
+Helper ownershipR4 froze33workerpasses, but parentfull32pass1fail15.07s.
+Exactbuttonrelease and emittertermination succeeded; immediatewatchdogPIDgone
+racedexit. Sourceinspection also found EOF-zombie cancellation loss, unprotected
+actorhandoff, and missing realinterpreterexit/productionmain proof. R4 preserved;
+PLAN-native-operator-ownership-r4-fix1.md and separate native-calibration-operator-
+ownership-r4-fix1-20261018 nowactive, exact2R4+6R5developmenthashescopied. Same
+2filefence; Luna fixes whole boundedownershipstage; no unrelatednative/perftests.
+Private parent84854 CLOSED1, evidence native-operator-ownership-r4-parent-20261018.
+
+ActualnativeR5Opus review STILLACTIVE attachedsession33484PID1909798,
+claude-opus-5-5; fresh tool-events verified, rawJSONL0600 excludedgit. Pollatmost30s.
+Only this root execsession remainsactive; parentnative50661 CLOSED0, backup37985
+CLOSED0, push22018CLOSED0. Runtime unchangedPAUSEDgen23PID882745/no nativeattempt.
+Lastpushed68e4236. Continue through sourcefixes/reviews/livegates, not anotherfinal
+status turn. User needs no input now.
+
+**Prior Oct18 at21:22UTC:** ordinary scan54 is parent-verified:2757rows,
 402full/25bounded/1incomplete,427ok plus item8153 actual30squery_timeout,
 900s start interval22.502567s finish-to-server. Scan55 naturally started21:20:53,
 again900s; soleGUI Luna continues watch/flush/ACK/reopen. Fresh backup
