@@ -19,6 +19,8 @@ For restart checks, create a fresh driver and owner without process-local eviden
 For owner-death tests, signal the actual helper owner PID, not its emitter child.
 Prove independent release and reservation cancellation while that owner is dead;
 a surviving test parent calling cleanup only proves child-failure handling.
+SIGKILL bypasses Python finalizers, so it cannot prove bounded normal cleanup.
+Exercise real owner return/exception through main while failed release stays pending.
 Reconstructing only the controller around the same driver cannot establish which
 calibration proof survives an actual process restart.
 Start restart tests from the actual daemon dispatch/observation order. A journal

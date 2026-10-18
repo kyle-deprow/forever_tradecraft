@@ -29,7 +29,36 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at21:35UTC:** scan55 is parent-verified:UID
+**Current Oct18 at21:44UTC:** actual nativeR5 Opus review33484 CLOSED0,
+claude-opus-5-5 STATUS NEEDS WORK (3Must/10Should+nits), report retained.
+Root appended concrete deduplicated arbitration to PLAN-native-admission-outcomes-
+r6.md and sent Luna. Important unique block: expected construction held/100
+must restore after measurement-gate failure (old recoverybegin wronglyrequires
+normal/0). Additional accepted fixes: allcontrolleradmissionstatuses, cancel
+inflight/epoch, conservative damaged/occludedimageabsence, actual second capture
+rather than restampingentry. No unrelated deadcode/hosttestportability scope.
+NativeR6 remainsactive in its own tree, same6files, StageA/B focusedproduction
+proof thenfullthree suite oncefinalsource. No promotion/live nativeattempt.
+
+Helper ownershipR4fix1 froze twofiles, worker38pass; parentexact2+6hash/fence,
+Ruff/format/full38tests19.98s PASS withprivate0700XDG. See parentverificationJSON.
+An explicit sourcecoverage limitation remains: 'real_owner_exit' still SIGKILLs
+owner, which does not prove normal interpretercleanup/atexit. Existing skill now
+records this distinction. Source is frozen pending independent Sol ownership
+review (reused sol_native_r5_review task) and actual Opus helperreview ACTIVE
+session51795PID2017663, verifiedclaude-opus-5-5; rawJSONL0600
+excludedgit. Pollattachedexecatmost30s. R5native deps knownunaccepted; ownership
+stage is not finalnativecomposition. Parenthelper79099 CLOSED0; parentR4
+84854 CLOSED1 retained. Onlyrootexec51795 stillactive.
+
+Scan56parentverified:2777rows403full25bounded428ok,+900s,21.940041sfinish-to-server,
+exactretainedPNGloadedACK. Luna reopenedAH; nextdue21:50:53. DB read-only totals
+at21:43:63sweeps/26964observations/148427pricerows; latestreceipt21:29:06.655808.
+RuntimePID882745 systemdactive checked21:37; stillPAUSEDgen23/unqualified.
+Latestpushed850a01f; upcomingcuratedcheckpointmustexcludeallrawprivateartifacts.
+Continuecoordination through realcompletion/humanrequiredgate, notanotherstatusfinal.
+
+**Prior Oct18 at21:35UTC:** scan55 is parent-verified:UID
 beta-normal-alliance-1792358453-Arthur-9807,2788rows403full25bounded,428ok,
 900s interval14.655808s finish-to-server, independent PNG exactloadedACK.
 Luna reopenedAH; next due21:35:53. Ordinary collection remains operator-assisted.

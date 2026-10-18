@@ -1,0 +1,121 @@
+Resolved model: claude-opus-5-5
+Model ID: **claude-opus-5-5**
+
+# Native deferred construction R5: independent read-only review
+
+**What I checked.**
+- **Hashes:** the candidate's HEAD is the base commit `e6e17bb`, and exactly the six fenced files are modified. All six SHA-256 values match `finalSha256` in the freeze JSON: controller `f40ee4d3…`, daemon `7a3f100a…`, cli `df59d15c…`, test_native `7994ab96…`, regressions `e82e8e29…`, transitions `cdb4384f…`.
+- **Documents:** I read the skill, the current HANDOFF sections, the five plans, and the freeze and closure files.
+- **Scope:** I reviewed the whole diff from base (about 3.3k added lines), not just the R4 delta.
+- **Not done:** I edited nothing and ran no tests. I didn't assume the result of the parent's full-suite run, which is still in flight.
+
+## Must-Fix
+
+**1. Pausing during a deferred run can deadlock the daemon (lock-order inversion).** `daemon.py:3294-3309`
+- **Cause:** `_check_native_poll_identity` takes `_native_construction_lock`. It then calls `_native_construction_validate_current_locked`, which calls `self.controller.status()` (the controller lock, `daemon.py:1501`) plus `resolve_identity()`/X11 work, all while holding the construction lock.
+- **The other direction:** an IPC `pause` holds the controller lock (`cli.py:408`). It then calls `Controller.pause` → `guardian.revoke` → driver `_on_guardian_revoke` → `_on_native_construction_revocation` (`daemon.py:866`), which needs the construction lock.
+- **Effect:**
+  - A pause that lands while the runner is polling a deferred provider deadlocks both threads permanently. This happens every ~50 ms poll for the whole 103-call run.
+  - Physical input is still released, because Guardian releases before running callbacks. But the controller lock is never freed, so every IPC call (status, pause, stop) and the main loop hang. The only recovery is killing the process.
+  - This repeats the lock inversion R4 was required to remove, and no test pauses during a deferred run.
+- **Fix:** take a snapshot under the construction lock, validate outside every lock, then re-check epoch/run under the lock. Never take the controller lock, or do identity/X11 work, while holding the construction lock.
+- **A second, rarer cycle to close:**
+  - construction → calibration-state: `daemon.py:1043-1054`, `1102-1105`, `1572`;
+  - the existing worker path calibration-state → controller: `daemon.py:1125-1129`;
+  - controller → construction: the pause callback.
+
+**2. Recovery can't begin after a measurement-gate rejection.** `daemon.py:1919-1921`
+- **Cause:** recovery-begin runs `_native_construction_frame_facts`, which requires a `normal/0` frame, on every present frame.
+- **When it bites:**
+  - The runner rejects on p99, construction seconds or memory at `held/100`, before resume.
+  - The addon then stays at `held/100`: it doesn't publish in non-normal phases and no Resume is sent (`Agent.lua:663-700`).
+  - A provider timeout during updates ends in the same state.
+  - So the main class of terminal native errors can never pass recovery-begin, and the helper's pause-then-recover path is stuck without human input.
+- **Contract:** the stage-B closure's case 2 needs only a strict `native-construction:<B0>` boot. The addon's `BeginRecovery` accepts any phase.
+- **Fix:** classify a strictly decoded `expectedConstructorBoot` frame in `held`/`updates`/`normal` as restore. Add a test that runs a real held/100 PNG through the decoder.
+
+**3. Required production-path, race and failure coverage is missing.** The R5 plan (item 5) and the R3/R4 acceptance criteria require this.
+- **No pause race:** there's no thread-barrier test that pauses during a deferred run. That test would have exposed #1.
+- **No commit-failure test:** nothing injects a journal write failure into `commit_native_construction_recovery`. That leaves the rollback, the failing owner staying alive through its handler, and a fresh daemon+controller retry all untested.
+- **No real-adapter end-to-end path:**
+  - The only compiled-producer PAUSED test (`test_session_native.py:1184-1221`) hand-injects `_native_construction_inflight` and calls the private capture directly. It doesn't decode the frame, and no generic-PAUSED refusal case exists.
+  - Prepare, preflight, recovery begin/complete and finalize never run through the configured adapter.
+  - Every recovery and callback test returns raw dicts through the `_native_construction_observation_provider` seam. That seam skips region admission, decode, absence classification and the PAUSED capability check.
+  - The composed runner test overrides both capture methods.
+- **IPC and CLI gaps:**
+  - The request-shape test covers 2 of the 8 commands, against a fake Owner (`test_session_transitions.py:194-224`).
+  - The CLI argparse for the 8 subcommands isn't tested.
+  - Only 2 wrong-predecessor edges out of the 12-state table are tested.
+  - Nothing restarts with a durable B0 checkpoint.
+  - `…_blocks_competing_input_race` is sequential, not a race.
+
+## Should-Fix
+
+4. **Recovery-complete doesn't recheck the live ticket while polling.** `daemon.py:2055-2128`
+   - Each poll validates `reservation_snapshot`, not the live reservation/ticket/epoch. A same-generation cancel isn't noticed until commit, so up to 45 s of captures continue.
+   - A lease or identity drift raises without revoking the ticket, so a later retry can still commit with it. The closure claims the ticket and epoch are rechecked on every poll.
+
+5. **The finalize wait doesn't unwind on pause.** `daemon.py:6693-6699`
+   - The event-wait loop checks only the hook/operation deadline and shutdown. On pause the worker stays "running" for up to 30 s.
+   - During that time recovery-begin refuses ("overlaps a live calibration worker"), and the helper has no auto-retry.
+   - The capture loop after it (6715-6755) also never rechecks the owner.
+
+6. **A fast finalize admission fails the run.** `daemon.py:6688-6690`
+   - If `finalize_admit` lands between the resume-ready publication and the runner returning, the state is `finalize_required` and the run fails.
+   - The plan explicitly requires tolerating this, and there's no test.
+
+7. **"finalized" is published without checking that calibration succeeded.** `daemon.py:6788-6805`
+   - `native_calibrated` returns a BLOCKED or non-admitted status instead of raising, and "finalized" plus its terminal record are published anyway.
+   - The results of `rebind_native_construction_frame`/`observe_frame` (6767-6781) and `set_native_construction_checkpoint` (1630) are also ignored. For example, a resume landing between 1612 and 1630 during a PAUSED preflight hands out a reservation with no durable checkpoint.
+   - Fix: check every returned status, or make these mutators raise.
+
+8. **The absence classifier is a 90%-majority heuristic.** `daemon.py:133-172`
+   - An encoded crop with more than about 10% of its cells disturbed (roughly an 82×82 px occlusion) is classified as ordinary absence.
+   - That bad result feeds recovery-begin ("absent" → restore) and both the entry and post-reset absence proofs. R4 forbade widening this classification.
+   - Fix: positively prove absence instead of requiring 90% intact cells, and add tests with partial-damage PNGs.
+
+9. **Test-only branches are in production code.** `daemon.py:1332-1337`, `1351-1369`, `2851-2856`
+   - The last one (`_native_preconstruction_provider`) re-stamps the entry observation as the post-reset proof — exactly the relabelling R3 forbids.
+   - Live code doesn't set these attributes, but they are why #3's tests aren't production proof. Inject fixtures at the driver/backend boundary instead.
+
+10. **The public `native_bootstrap` is still callable during an open deferred run.** `daemon.py:2263-2272`
+    - An external call is admitted once a deferred run's context is open.
+    - The runner then reuses that externally timed entry capture instead of taking its own (`daemon.py:2826-2830`). R4 flagged this bypass.
+
+11. **Recovery-cancel doesn't bump the epoch or clear the in-flight slot.** `daemon.py:2211-2245`
+    - A preflight cancelled while a recovery-begin handoff is mid-capture still turns into a recovery ticket.
+
+12. **The freeze JSON and closure list the wrong 12-state order.**
+    - Both put `finalize_required` third. The code, `test_session_native_regressions.py:4873-4886` and the stage-B table put it eleventh.
+    - The helper checks the exact prefix, so this metadata must be corrected before helper integration.
+
+13. **A raise outside the `try` can leak the calibration lock.** `daemon.py:6649-6651`
+    - If a revoke lands just after `_begin_calibration`, the raise skips `_finish_calibration`.
+    - `_calibration_lock` and the "running" state then stick until restart, which blocks every later calibration, prepare and recovery. The window is narrow.
+
+## Nits
+
+- **Dead code:** `_native_construction_terminal_reply`, `_positive_generation`, `_reservation_id`, `clear_native_construction_checkpoint`, and the recovery reason in `rebind_native_construction_frame`.
+- **Misleading name:** `_validate_current_locked` is mostly called without the lock, which hid #1.
+- **Unbounded terminals:** `_native_construction_terminals` is never pruned, though the plan says bounded.
+- **Stale public status:** the public `nativeHandshake.state` stays "running" after a successful deferred run (6656).
+- **Swallowed journal errors:** `except RuntimeError: pass` also hides `JournalError`.
+- **Uncaught `IndexError`:** the classifier raises it for crops smaller than 256 px.
+- **Host-bound tests:** the authentic CLI path is hard-coded in the tests.
+- **Legacy change:** the legacy preconstruction path now also takes the second absence capture and binds its evidence to it. Confirm that's intended.
+- **B0 validation:** prepare accepts a B0 that is already prefixed or is 65–76 bytes; the latter fails later with a ValueError.
+- **Lease not required:** prepare and begin record the lease but don't require it.
+
+## Coverage: real paths vs fixtures
+
+- **Real:**
+  - Decoder rejection of a damaged PNG.
+  - The pure classifier on real PNGs.
+  - Runner callbacks driven by encoded PNGs (with capture overridden).
+  - Recovery begin/complete/expiry through the real `SessionIPC`, but fed raw dicts.
+  - The competing-begin and cancel barriers.
+- **Fixture or source-only:** everything touching the configured PAUSED adapter, pause races, write-failure recovery and restart.
+- **Not done yet:** no live qualification, helper acceptance or live native100. The diagnostic warmup only stabilizes the test; the live harness still has the cold-start cadence sensitivity.
+
+STATUS: NEEDS WORK
+CLAUDE_EXIT:0

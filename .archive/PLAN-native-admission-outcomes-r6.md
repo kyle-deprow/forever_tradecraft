@@ -95,3 +95,49 @@ pass counts with a broad pre-final run or report absent coverage as completed.
 Write exact candidate/base6hashes and literal actual coverage/remaining limits
 in MAIN R6 closure/freeze. DONE only if this bounded source scope complete.
 Parent independently verifies then Sol+actual Opus re-review before any promotion.
+
+## Actual Opus R5 arbitration (completed21:37UTC)
+
+Actual claude-opus-5-5 exit0, STATUS NEEDS WORK; full report is
+executor-review/native-construction-native-r5-opus-review.txt. Root accepts its
+3Must and these concrete Should corrections, deduplicated into existing stages:
+
+- Must1/3 and Should4/5/6/10/12/13 duplicate accepted Sol/stage requirements.
+- Must2: recovery-begin must strictly decode expectedConstructorBoot held/100
+  (also held/updates allowed by actual addon recovery), then classify restore.
+  Do not apply ordinary normal/0-only facts to construction lifecycle recovery.
+  Ordinary B0/new ordinary branches retain normal/0+inactive-fence validation.
+  Add actual encoded held/100 PNG+decoder rejection/recovery tests.
+- Should7: check EVERY controller mutation admission/status result (checkpoint,
+  rebind/observe/native_calibrated), under correct owner linearization. Never
+  hand out a reservation lacking durable checkpoint or publish finalized after
+  BLOCKED/nonadmitted calibration. Add real pause/resume/raced mutation negatives.
+- Should11: cancel increments/revokes epoch AND clears exact inflight admission;
+  cancelling while recovery-begin captures must prevent later ticket creation.
+- Should8 accepted as conservative absence hardening: 90% intact-cell threshold
+  alone is insufficient; reject damaged/partially occluded encoded fragments,
+  black/loading/ambiguous surfaces. Keep same pure interface/no second decoder/
+  guessed fallback. Add >10% damage/occlusion of actual encoded PNGs (including
+  header and payload), ordinary retained images, malformed size/mode/corruption.
+  Do not merely swap one arbitrary percentage to make tests pass or claim that
+  a heuristic mathematically proves absence. Parent will inspect actual classifier
+  and native ordinary/damaged fixtures before acceptance.
+- Should9 partially accepted: NEVER re-stamp/relabel entry capture as a new
+  post-reset proof. Both captures must actually occur/seal/delete. Remove the
+  new capture-override identity-detection branch; driver/backend injection can
+  supply fixtures through the same normal route. Existing explicit test-provider
+  injection may supplement unit negatives, but is not default-path proof and
+  cannot skip a required production capture. Full public configured capture
+  acceptance remains mandatory as in stages A/B; do not delete unrelated legacy
+  injection APIs solely because they support tests.
+
+Reachable minor validity points while changing admissions: require held desktop
+lease before issuing reservation, reject already-prefixed or >64byte B0 early,
+make malformed expected image size/mode fail typed/closed rather than IndexError.
+Do not add unrelated dead-code cleanup or host-CLI fixture portability refactor.
+Freeze-history metadata correction applies to NEW R6 artifacts; historical R5
+is preserved. Confirm old legacy behavior outside deferred admission; retain its
+existing contract instead of accidentally imposing deferred proof changes.
+
+Opus was prompted while parent suite was inflight; it is now conclusively green
+316tests339.07s. That result does not resolve any above source/coverage findings.
