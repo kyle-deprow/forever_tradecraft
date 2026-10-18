@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "status": "r6_candidate_pending_parent_verification",
+  "baseCommit": "68e42361d4d5dc3e0a08562e3904570690782ec0",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-admission-outcomes-r6-20261018",
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "baseCommitSha256": {
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "finalSha256": {
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "8a483475f3963e1b007e3762b8395f14fb8c4b0b4d9f02a110f823d0b40b2ef1",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "09c980f99739283b9c86219293bce3d6db236d84b49213022f1ac83f0d689592",
+    "tests/test_session_transitions.py": "cdb4384f3408bb5b21a18445a2c5df8a74dcd271c812ba9b39f9eb171dfce331"
+  },
+  "changedFiles": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py"
+  ],
+  "checks": {
+    "fullThreeNativeSuites": {
+      "result": "324 passed in 347.31s (0:05:47); exit_code=0",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-admission-outcomes-r6-final-20261018/final-three-suite.log",
+      "logSha256": "a3793b3ba00af86096d6410c8c2b902f8d027b8252347ce77ca7e825c75df073",
+      "invocation": "XDG_RUNTIME_DIR=<private-0700> ./.venv/bin/python -m pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py"
+    },
+    "focusedStageA": {
+      "result": "26 passed, 87 deselected in 29.40s; exit_code=0",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-admission-outcomes-r6-final-20261018/focused-stage-a.log",
+      "logSha256": "3da6dd8f447b451b718c7dae485f46e3d3e02d6094b31830642e8c4046b9614d",
+      "invocation": "XDG_RUNTIME_DIR=<private-0700> ./.venv/bin/python -m pytest -q tests/test_session_native_regressions.py -k 'native_construction or native_recovery or public_paused or absence or native_poll or deferred_start or terminal' --maxfail=1"
+    },
+    "compiledPublicPaused": {
+      "result": "1 passed, 147 deselected in 5.38s; exit_code=0",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-admission-outcomes-r6-final-20261018/compiled-public-paused.log",
+      "logSha256": "f50bdfe88688f95dbbc9cff3f675fd419ed67d414e6f04635fda4e0eee16ebdc",
+      "invocation": "XDG_RUNTIME_DIR=<private-0700> ./.venv/bin/python -m pytest -q tests/test_session_native.py -k compiled_region_composes_through_default_daemon_and_stock_model --maxfail=1"
+    },
+    "scopedStatic": {
+      "result": "ruff format --check passed; ruff check passed; compileall passed; git diff --check passed; exit_code=0",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-admission-outcomes-r6-final-20261018/static-final.log",
+      "logSha256": "3d80d6aaba119f281f32e1d628268ab7002a23f60b795ff835f8b724b695f6d7"
+    }
+  },
+  "authenticCodex": {
+    "path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "version": "0.162.1"
+  },
+  "privateEvidence": {
+    "directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-admission-outcomes-r6-final-20261018",
+    "directoryMode": "0700",
+    "logModes": "0600",
+    "runtimeMode": "0700"
+  },
+  "admissionCoverage": [
+    "Controller-first construction owner and capability validation across poll, prepare, deferred finalize, recovery completion, and cancellation.",
+    "Public configured PAUSED SessionIPC control-preflight, recovery-begin, and recovery-complete with real compiled producer, Shell gate, PNG decoder, held/100 constructor frame, and new ordinary frame.",
+    "In-flight recovery cancellation increments the epoch and prevents later ticket creation.",
+    "Checkpoint, rebind, observe, and native-calibrated controller statuses are checked before reservation or terminal publication.",
+    "Pure absence classifier rejects CRS1 header/payload damage, malformed size/mode, and fully binary malformed grids while accepting ordinary retained crops."
+  ],
+  "operationEnvelope": {
+    "seconds": 3130.0,
+    "formula": "10 + (103 * 30) + 30",
+    "inheritedFromR5": true
+  },
+  "incompleteItems": [
+    "Parent independent verification and complete source review remain pending.",
+    "Sol review and actual Opus review remain pending.",
+    "No deployment, live qualification, promotion, or helper integration claim is made."
+  ],
+  "parentVerification": "Root owns independent verification and acceptance; this is an R6 candidate freeze only."
+}

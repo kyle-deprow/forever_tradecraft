@@ -1,0 +1,96 @@
+Resolved model: claude-opus-5-5
+**Model ID: claude-opus-5-5**
+
+# Independent review: Forever Tradecraft helper ownership R4 fix1
+
+I made no edits and ran no tests, builds, git mutations, services or input. The only file I wrote is the plan-mode notes file.
+
+**What I checked myself**
+- Both candidate SHAs are exact: helper `94d1ad21…` and test `164db34c…`.
+- The worktree HEAD is `68e4236`.
+- All six native R5 dependency hashes match the report.
+- `guardian.py`, `input_tool.py` and `driver.py` are unchanged from HEAD.
+
+**What holds up**
+- **Zombie EOF:** EOF now cancels even while the killed owner is still a zombie (`:1384-1389`). The cancellation test doesn't reap the owner until the cancel arrives.
+- **Handoff:** the actor is updated in place with an acknowledged `U` frame (`:2323-2333`), so the stop-then-start window is gone.
+- **Stale cancels:** an old generation or ID cannot cancel a newer reservation. The daemon refuses on either mismatch (`daemon.py:2217-2222`).
+- **Publish before press:** every key, type, move and button action publishes its owned state to the watchdog and gets an ACK before `GO` is sent.
+- **Exact release:** the watchdog reuses the sealed `NativeReleaseSpec` and the real `_watchdog_entry`, with no second Guardian or lease.
+- **Unchanged surface:** the three modes and the public IPC are unchanged.
+- **Interpreter exit:** removing the watchdog from multiprocessing's child list (`_children.discard`) should keep exit bounded. That is my reading of the code; no test proves it.
+
+## Must-Fix
+
+**1. The new reservation expiry from bootstrap never reaches the cancellation actor** (`tools/native_calibration_operator.py:2525-2528`)
+- At bootstrap, R5 resets `expiresMonotonic` to now + 3130 s (`daemon.py:1723-1726`). The helper accepts this at `running` (`:366`) but never calls `_arm_cancellation_actor`.
+- The actor keeps the prepare-time expiry: now + min(reload deadline, 600 s), and the reload deadline defaults to 45 s. When that passes, the actor exits silently (`:1374-1376`).
+- **Effect:** for most of the measure phase (release, click, hold, measure, resume, finalize, up to about 52 minutes), helper death leaves the consumed reservation with no one to cancel it. The helper never notices the actor is gone.
+- **Fix:** after the bootstrap adoption, send an acknowledged `update()` before `_start_native_calibration` or any further input. Treat any update failure as fatal. The fix1 plan explicitly names this "new-expiry" boundary.
+
+**2. Failure paths disarm the death-cancellation actor**
+- `_cancel_active_reservation` sends the stop frame `S` *before* the helper's own cancel (`:2418`).
+- The signal handler keeps raising until `_cleanup_started` is set in `finally` (`:2581`). So a second TERM/INT during the except-branch cancel IPC is swallowed by `except Exception` (`:2435`). The reservation stays admitted and no actor is left.
+- In the recovered branch, a failed `_recover` never cancels the recovery reservation (`:2569-2577`).
+- The `finally` block sends `S` unconditionally (`:2584`).
+- A signal raised while `actor.close()` is running escapes the except block and replaces the first failure.
+- **Fix:**
+  - Send `S` only once the binding is confirmed terminal (finalized, recovered or cancelled).
+  - Otherwise close the control pipe without `S`, so EOF makes the actor cancel the exact ID, and wait a bounded time for it.
+  - Make the helper's own cancel run before the stop, and protect it from handler raises.
+
+**3. The release and cancellation actors aren't independent of signals sent to the whole process group** (`:1182-1206`, `:1483-1501`)
+- The emitter calls `setsid` (`:841`); the watchdog and actor don't. They share the helper's process group and controlling terminal. `_watchdog_entry` has no signal handling, so SIGINT becomes a KeyboardInterrupt and the process exits with code 1 without releasing.
+- `release_now()` and `close()` count any exit as confirmed release, because `_bounded_process_join` ignores the exit code (`:903-913`, `:1270`, `:1300`).
+- **Scenario:** Ctrl-C, a terminal hangup or `timeout(1)` during a button hold kills the watchdog. The helper's `release_now()` then "confirms" release, and `abort()` lets the emitter exit without `mouseup 1`. Button 1 stays held and nothing reports an error.
+- **Fix:**
+  - Spawn through a small wrapper in the helper that calls `os.setsid()` and then calls `_watchdog_entry` or `_cancellation_entry`.
+  - Require `exitcode == 0` before treating release as confirmed.
+  - Add a test that sends signals to the helper's whole process group (`killpg`).
+
+**4. The owned `type` emitter is bounded more tightly than the action it runs** (`:1085`, `:847-855`, `:974`)
+- In the vendored xdotool (`xdo.c:986+`), each character costs a 50 ms press plus an 80 ms release, so 130 ms per character.
+- Every `/crowley agent …` command (19–23 characters) therefore takes 2.47–2.99 s. That exceeds both the emitter's own `subprocess.run(timeout=2.0)` and the owner's 2.0 s PRESSED read. Only `/reload` (0.91 s) fits.
+- **Effect:** production typing always fails, and xdotool is killed mid-keystroke. A character key is held about 38% of the time, and `type` publishes `keys=set()` (`:1092`), so nothing releases it. The game chat is left half-typed with possibly a stuck, autorepeating key.
+- This is unchanged since the original R4, so it isn't a fix1 regression. The tests can't see it because the recorder exits instantly and the measure-sequence test uses FakeInput.
+- **Fix:** derive the bounds from the fixed command length plus margin, capped by the operation deadline. Publish the exact keysyms the fixed text can hold, or use per-character owned key emitters.
+
+**5. Coverage the fix1 plan requires is missing**
+- **Bounded exit with a failed release:** "normal interpreter exit with the failed-release actor retained" is only shown with `owner.kill()` SIGKILL (`tests/…:1136`). The other test calls `close()` inside the test process (`:1001-1075`). Neither runs `main` to return code 2, then SystemExit and atexit.
+- **Production main:** the production-main test (`:1352-1465`) covers only a button hold and SIGKILL. It has no key hold, no handled TERM/HUP/INT, no repeated signals during real cleanup, and no emitter reap or watchdog exit assertion.
+- **Repeated signals:** the repeated-signal test (`:1587-1609`) only sets `_cleanup_started` by hand and checks the handler.
+- **Handoff boundaries:** there are no death tests at the bootstrap, new-expiry or recovery-generation/ID boundaries. The handoff tests (`:1526-1585`) involve no death.
+
+## Should-Fix
+- **File descriptors leak on readiness failure:**
+  - The Watchdog except block (`:1226-1235`) never closes `_write`, `_ack_read` or the sealed release-spec fd.
+  - `duplicate_release_spec` (`:1181`) runs outside the `try`, so a failure there leaks all six pipe fds.
+  - The CancellationActor except block (`:1510-1522`) misses `_control_write`.
+  - The plan requires these to be closed, and the readiness test (`:1612`) only checks that the process died.
+- **A failing `release_now()` skips cleanup** (`:1069-1074`, `:1096-1101`, `:1134-1143`). It skips `emitter.abort()`, so emitter fds leak and processes go unjoined, and it replaces the original failure. Put the abort in `try/finally` and keep the first failure.
+- **Unconfirmed release goes unrecorded** (`:2588-2594`). When the run already failed, a cleanup error such as "could not confirm release" is recorded neither in `_first_failure` nor in the receipt's `failureCode`. The operator never sees that an actor was retained. Add a receipt event for it.
+
+## Nits
+- **Fallbacks against the repo's "No fallbacks" rule:**
+  - `_children.discard` is wrapped in `try/except: pass` around a private API (`:1211-1216`). If it fails, bounded exit regresses silently.
+  - A missing `socket_path` silently skips arming the actor (`:2320-2322`).
+  - The `getattr(..., "release_now")` checks exist only for test doubles.
+- **Dead code:** `_new_emitter` has two identical branches (`:1043-1049`), and the `FixedInput(run=…)` parameter is unused.
+- **Small leak:** `OwnedEmitter.start` leaks `_gate_read` and `_status_write` if `process.start()` raises.
+- **Integration note:** a retained watchdog keeps fds 0–2 open. A caller that captures the helper's output will wait on pipe EOF until the release succeeds.
+
+## Limits of the evidence
+- **Helper death vs emitter death:**
+  - Real helper-PID SIGKILL is covered for key and button by the raw-component fixture (`_owner_hold_fixture`; its `keydown` action is fixture-only), and for button only through real `main`.
+  - The tests that kill the emitter's group (`killpg`) prove only child-failure handling.
+- **SIGKILL vs normal cleanup:** every death test uses SIGKILL. No test sends a handled TERM/HUP/INT to a real helper, and no test covers normal interpreter exit with a retained actor.
+- **Real vs fake:**
+  - **Real:** spawn, `_watchdog_entry`, the sealed memfd compiled recorder, and the cancel IPC over a real local socket.
+  - **Faked in production-main:** X11Screen, DaemonClient replies and `press`.
+  - **Fake everywhere else:** the receipt, signal, handoff and measure tests use FakeInput, FakeClient or FakeWatchdog. Real xdotool timing is never exercised.
+- **What I did not run:** I ran no tests and rely on the parent's 38/38 result. Nothing here is live, native-composition or acceptance evidence. Known-unaccepted R5 dependencies and final-integration absence are not counted as findings. I used the R5 code only to confirm the bootstrap expiry contract the helper already consumes.
+
+The design is sound — pipes, acknowledged handoff, reuse of `_watchdog_entry`, removal from the child list. But Must-Fix 1–4 break the stage's core invariants (independent cancel, independent release, bounded owned input), and the required evidence in 5 is missing. The fixes stay inside the two owned files.
+
+STATUS: NEEDS WORK
+CLAUDE_EXIT:0

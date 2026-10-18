@@ -29,7 +29,66 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at21:44UTC:** actual nativeR5 Opus review33484 CLOSED0,
+**Current Oct18 at22:12UTC:** collection continues; scan58 started22:05:53 on
+the exact900s cadence. Latest completed scan57 parentverified; ordinary sweeps
+remain operator-assisted, runtime PAUSEDgen23, no native attempt/sourcepromotion.
+
+NativeR6 froze324workerpasses. Parent independently passed the real compiled
+public PAUSED path (1pass5.35s) but REJECTED absence: allblack/loading and combined
+header+payloaddamagedAgent image incorrectly accepted. See parent-adjudication
+report with hashes. New native-r6-absence-fix1-20261018 from2fcdedd has exact6R6
+files; Luna fixes strictabsence and missing original public/race/durableproofs.
+OldR6 remainsfrozen; fullparentR6suite NOTrun. Only six native files writable.
+
+Helperfix2 froze42workerpasses but did NOT implement approved actorownedRPC:
+parentstill issues prepare/bootstrap/recoverybegin, actoronlycancel. Rootrescope
+PLAN-native-operator-closed-admission-actor.md, newtree same name20261018 from
+2fcdedd with exact2fix2+6R5DEVELOPMENTdeps. Luna owns onlyhelper+helpertest; require
+real AF_UNIX SO_PEERCRED admissionpeerPID=actorPID!=helperPID and deathwhile
+replypending then canonicalIDcancel. No expensive source review until this
+component is actually implemented and independently tested. Preservefix2 frozen.
+
+SoleGUI luna_live_continuation continues ordinarycollection. NativeLuna and
+helperLuna active; no rootexecsession running at22:12. Lastpushed2fcdedd.
+Do not end after a status update: user explicitly instructed continuing through
+repeating system. No user calibration needed now. Backupdue~22:13UTC.
+
+**Prior Oct18 at22:00UTC:** scan57parentverified:UID
+beta-normal-alliance-1792360253-Arthur-0393,2781rows404full24bounded428ok,
+900s startinterval22.14037sfinish-to-server/exactretainedPNGloadedACK.
+Luna reopenedAH; nextdue22:05:53. SoleGUIordinarycollectioncontinues.
+
+Both helperR4fix1 source reviews nowcomplete:SolMAJOR5Must2Should; actualOpus
+claude-opus-5-5 exit0 NEEDSWORK5Must3Should, session51795CLOSED0. Bothreports
+retained. Rootapproved Sol's bounded closed-actorproposal and wrote authoritative
+PLAN-native-operator-ownership-fix2.md; exacttwoR4fix1+sixR5DEVELOPMENTfiles copied
+hashverified into native-operator-ownership-fix2-20261018(base2fcdedd). Luna owns
+same2files, noGUI/sourceoutsidefence. Fix actor-ownedadmission/expiry/handoffACK,
+terminal-before-disarm/protectedcleanup, actorsetsid/stdio/nonzeroexitrefusal,
+actual fixedtexttyping duration+ownedkeysets, stagedresource rollback, realNORMAL
+mainreturn/atexit while releaseactorretained, actualownerPGsignals/input/receipt.
+KnownlostnewIDreplylimit honest/no guessedcancel/retry; no newpublicIPC/Guardian.
+Read source reports and approved Solproposal for precise interfaces. No false
+SIGKILL-as-normalexit proof; no instantrecorder-as-typingduration proof. Existing
+local-game-control skill+3lines records typing timing/keys lesson, validated.
+
+NativeR6 same6file repairremainsactive; latestparentprefreezecheckfound newpublic
+regressioncase used a literal fakeproducerfile+Pythonbackend/fakeprocess. It is
+supplemental publicdispatch/decoder proof, NOT actualcompiledproducerqualification.
+Root sent concrete existing test_compiled_region_composes_through_default_daemon_
+and_stock_model / private_shell_compositor fixture to extend with PUBLIC preflight/
+recoverybegin/completion, instead of only manualinflight injection. Worker must
+close realcompiledpublicPAUSED and barrier/failure proofs before finalfreeze.
+ActualR5Opusfindings alreadyarbitrated in R6plan (held/100restore/statuschecks/
+partialdamageabsence/cancelinflight/realpostresetcapture). No source promotion.
+
+NO rootexecsession remainsrunning (51795/33484/79099/41749allclosed0). Runtime
+unchangedPAUSEDgen23PID882745, no nativeattempt. Lastpushed2fcdedd. Continuework
+through actualsourcecompletion/tests/reviews/native100/humanrequiredgate, notanother
+statusfinal. Nativeintegration stillpending; afterterminalmeasureerror/newPAUSED,
+recoverybeginmustuseemptyID, notoldmeasureID(preflighthandoffonly).
+
+**Prior Oct18 at21:44UTC:** actual nativeR5 Opus review33484 CLOSED0,
 claude-opus-5-5 STATUS NEEDS WORK (3Must/10Should+nits), report retained.
 Root appended concrete deduplicated arbitration to PLAN-native-admission-outcomes-
 r6.md and sent Luna. Important unique block: expected construction held/100

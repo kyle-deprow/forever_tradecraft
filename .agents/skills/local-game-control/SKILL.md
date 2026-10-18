@@ -212,6 +212,9 @@ within existing authorization; respect any current movement limits.
   read-only preflight can pass while receipt initialization still prevents the
   first production command from being reached.
   Bound diagnostic slash commands to both client and telemetry readback limits.
+  Derive emitter and acknowledgement bounds from the pinned tool's actual
+  per-character timing and fixed command length; an instant recorder does not
+  prove real typing fits. Track the keysyms typing can hold before dispatch.
   Crowley's current `Agent.activeEdit` rejects text over 128 bytes by returning an
   inactive projection, even when the EditBox is visible; shorten the probe rather
   than diagnosing focus loss or weakening the proof. Desktop selection shortcuts
