@@ -29,7 +29,28 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at22:12UTC:** collection continues; scan58 started22:05:53 on
+**Current Oct18 at22:17UTC:** scan58 parentverified, UID
+beta-normal-alliance-1792361153-Arthur-9602:2727rows402full25bounded1incomplete,
+querytimeout10548unknown,900sinterval39.406151sfinish-to-server, independent
+productionPNG exactloadedACK. Luna reopenedAH22:15:46; nextdue22:20:53.
+
+Parent independently exercised frozenhelperfix2 real FixedInput+OwnedEmitter+
+Watchdog with authenticpinnedtool2b789272 on fresh isolatedXvfb (NOgameinput).
+Longestfixedcommand23chars actual3.279453s vs3.99sbudget, exact23press/releases
+andfullreadback PASS. ActualhelperSIGKILL during XQueryKeymap-confirmedheldkey:
+allkeysreleased/actorstopped/no latepress0.2s, cleanup0.498333s PASS. Curated
+typing and type-interruption parentverificationJSON retained. First interruption
+diagnostic had missingPID queryerror, corrected fixture only; original retained.
+These prove actualtyping timing and abruptdeath release, not overallhelper
+acceptance/phasebudgetpropagation/closedactor. Both Luna sourcefixes stillactive.
+
+Freshprivate backup beta-20261018T221224Z-0cf148875f56 independently validates
+0700/manifest0857f73d6ae578302088f501cba47542fd7642f42ebe275dc4295ef99015c131.
+Snapshotbefore58ingestion; earlierisolatedrestoredrill accepted, notrerun.
+Lastpushedbb2e691. Rootexec44529/65990 CLOSED0,81667 CLOSED1fixtureerror;
+53032backup/1551push CLOSED0. No rootsession left running.
+
+**Prior Oct18 at22:12UTC:** collection continues; scan58 started22:05:53 on
 the exact900s cadence. Latest completed scan57 parentverified; ordinary sweeps
 remain operator-assisted, runtime PAUSEDgen23, no native attempt/sourcepromotion.
 

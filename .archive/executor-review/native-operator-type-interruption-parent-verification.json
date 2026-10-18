@@ -1,0 +1,17 @@
+{
+  "kind": "parent-isolated-real-typing-owner-death",
+  "status": "passed",
+  "helper_owner_pid": 2153630,
+  "helper_exit_code": -9,
+  "watchdog_pid": 2153633,
+  "watchdog_no_longer_live": true,
+  "actual_held_key_before_kill": true,
+  "actual_all_keys_released": true,
+  "no_late_keypress_window_seconds": 0.2,
+  "cleanup_elapsed_seconds": 0.498333,
+  "tool_sha256": "2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155",
+  "helper_sha256": "d589ac388aab6869d5a16f2bea037a3f08bc2ec502265a22c568adab264d9bfc",
+  "isolation": "Fresh Xvfb display and XQueryKeymap on its explicit connection; no host desktop input",
+  "limits": "Actual success timing and abrupt owner death are verified separately; phase-deadline propagation, handled signals and admission actor are separate requirements.",
+  "parent_fixture_correction": "Initial diagnostic queried an already-exited PID without handling DriverError; original script and first-attempt.json retained privately. Corrected diagnostic passed without production source changes."
+}

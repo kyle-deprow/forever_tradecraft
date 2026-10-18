@@ -1,0 +1,15 @@
+{
+  "kind": "parent-isolated-real-typing-check",
+  "status": "passed",
+  "command": "/crowley agent finalize",
+  "characters": 23,
+  "total_elapsed_seconds": 3.279453,
+  "action_timeout_seconds": 3.99,
+  "presses": 23,
+  "releases": 23,
+  "readback": "/crowley agent finalize",
+  "tool_sha256": "2b789272e0c1a8f2b1303c3cb48a1753741dbedf9e9d597b7a85421f50821155",
+  "helper_sha256": "d589ac388aab6869d5a16f2bea037a3f08bc2ec502265a22c568adab264d9bfc",
+  "isolation": "Fresh Xvfb display chosen by -displayfd; no host game/desktop input",
+  "limits": "Success-path timing and exact key events only; kill-mid-typing, phase-deadline propagation and closed admission actor remain separate requirements."
+}
