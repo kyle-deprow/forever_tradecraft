@@ -1,0 +1,134 @@
+Resolved model: claude-opus-5-5
+claude-opus-5-5
+
+# Independent review: native calibration operator R2 (offline candidate)
+
+**Verdict: MAJOR ISSUES.** There are 11 must-fix problems. Three of them alone stop measure-deferred from finishing against the real daemon, and recovery can't succeed either. Several more are cleanup or safety gaps that the closure plan explicitly calls out, and the tests don't exercise the paths those requirements target.
+
+**What I checked.** Both file hashes match: helper `8958a8ef…` and test `3d8d0a3a…`. The eight dependency hashes listed in the R2 report also match the worktree. I read both files in full, the four plans, the Stage B closure, the R3 helper sections, the R2 report and the helper-preparation note. I also read the frozen R3 `daemon.py`, `cli.py`, `guardian.py`, `driver.py` and `input_tool.py`, plus `addon/Crowley/Commands.lua`. I did not run tests or edit anything.
+
+**What I did not count as defects.** The R3 daemon doesn't publish `stateHistory` yet, and live template and geometry evidence doesn't exist yet. Both are known boundaries.
+
+**What looks correct.**
+- The CLI accepts only the three modes, and the IPC request keysets exactly match R3 `cli.py`.
+- Commands are restricted to the fixed allowlist.
+- There is no second InputGuardian, no desktop lease, no `prepare_command`, and no PATH fallback for input.
+- The watchdog publishes and gets an ACK before the press gate opens, and `S` kills the emitter group before `mouseup 1`.
+- `_chat` presses Return first and only then waits for the next state.
+- `native_calibrate` is sent once, after bootstrap.
+- The `ordinary_reload` branch is fixed, and there is no retry or resume.
+
+## Must-Fix
+
+**1. The deadline handling makes measure-deferred impossible to complete.**
+- **Where:** `tools/native_calibration_operator.py:1654`, `:1383-1411`, `:1618-1642`.
+- **What happens:**
+  - `_prepare` starts the operation deadline at the prepare reservation's expiry. R3 sets that to prepare time + `min(reload_deadline_seconds, 600)`, which is 45 s by default.
+  - `_record_operation_deadline` can only ever lower the deadline. So bootstrap's `operationDeadline` (about 3130 s later, `daemon.py:1536-1546`) gets clamped back to prepare + 45 s.
+  - Every later recheck, `_await_state` and `_await_calibration_terminal` therefore expires long before the 100 one-per-second updates finish.
+  - The daemon keeps `constructorClickDeadline` and `providerDeadline` in the handshake through hold, measure and resume, because it uses `.update(...)` (`daemon.py:2034`, `:2133`, `:2237`). Once the click deadline passes, every recheck fails with "native operation deadline expired" (line 1407).
+  - In the other direction, the construct press doesn't require a published `constructorClickDeadline` at all. There is also no helper-side 10 s limit counted from the recorded release dispatch, which R3 requires ("refuses at or after either the daemon deadline or the addon's ten-second window").
+  - Subprocess timeouts are fixed values (8 s for key/type at 929-950; 2 s for the emitter at 760-783 and OCR at 1256). They are not capped by the remaining phase deadline, which closure item 5 requires.
+- **Correct behaviour:**
+  - Take the new reservation expiry and `operationDeadline` only from the bootstrap reply.
+  - Apply each published deadline only to its own phase: the click deadline and release + 10 s apply only to the construct press, `finalizeDeadline` only to the finalize chat, and `operationDeadline` overall.
+  - Require the click deadline to be present and not yet reached before sending GO.
+  - Cap every subprocess and ACK wait at the remaining phase time.
+
+**2. Successful finalization is rejected.**
+- **Where:** `tools/native_calibration_operator.py:137`, `:258`, `:1816-1819`.
+- **What happens:** R3 publishes `finalized` only together with a terminal record whose `reservationState` is `"finalized"` (`daemon.py:6387-6399`). `RESERVATION_STATES` doesn't include `finalized`. So the recheck inside `_await_state("finalized")` always raises "kind or state is malformed" at the moment of success, and the helper then pauses and cancels.
+- **Correct behaviour:** Closure item 3 requires validating the finalized, recovered and cancelled terminal shapes. Accept `finalized` only as a terminal state, with the same reservation id and kind and a `finalized` handshake.
+
+**3. The helper waits for a transient state as if it were stable.**
+- **Where:** `tools/native_calibration_operator.py:1801-1806`, `:1413-1426`.
+- **What happens:** After `/crowley agent hold`, the helper waits for `updates_reset_archived`. The daemon advances from that state to `measure_ready` on its own (`daemon.py:2115` then `:2030-2036`). The stateHistory amendment says this kind of state can be missed between polls. If it is missed, `_await_state` never sees a match and fails at the deadline.
+- **Correct behaviour:** Wait for the next state that needs action (`measure_ready`) and require `updates_reset_archived` to appear in the validated history. Check every other `post_state` for the same pattern.
+
+**4. Nothing proves the reload actually happened.**
+- **Where:** `tools/native_calibration_operator.py:1791-1792`, `:1759-1765`.
+- **Measure mode:** As soon as `defer` succeeds, the addon sets marker state `armed` and shows the panel with both Construct and Restore, before any reload (`Commands.lua:44-57`, `:107-110`). The `post-reload-controls` capture runs immediately after the `/reload` Return, so it matches the old pre-reload frame. Bootstrap and the memory baseline can then start while the client is still reloading. That is exactly the gap the dual-positive proof was meant to close.
+- **Recovery:** `recovery_complete` is called immediately after the Restore click or the `/reload` Return. The daemon takes a single capture (`daemon.py:1771-1789`), which will see the old boot or a loading screen with no surface, and fails. The helper then cancels the ticket, so recovery cannot succeed in the real composition.
+- **Correct behaviour:** Before accepting the dual-positive proof, and before the single completion call, wait (with a bound) for a plan-defined post-reload boundary that is newer than the reload dispatch. The `ordinary_reload` branch needs a signal defined in the plan, because the panel doesn't change in that case.
+
+**5. Template matching won't work on the live layout.**
+- **Where:** `tools/native_calibration_operator.py:1581-1590`, `:489-504`, `:572`.
+- **Wrong search region:** `_control_region` returns `(w-244, h-108, 220, 84)`, which is the bottom-right corner. The panel is anchored TOPRIGHT at (-24, -24), and its 220×84 size is in UI units, not 1080p pixels. The real buttons fall outside the region.
+- **Silent fallback:** If the geometry is small or missing, it returns `None` and the matcher crops every pixel position of the full image in Python (about 1.9 million candidates). That can't meet any deadline, and it breaks the no-fallbacks rule.
+- **Ambiguity check is ineffective:** It only compares the overall best score with the overall second-best within 0.01. The second-best is almost always the overlapping candidate 1 px away. A separate, non-overlapping rival at or under the threshold is never detected.
+- **Overlap check is incomplete:** The dual-positive check only tests `box ==`, not actual overlap.
+- **No test coverage:** The tests use 64×64 geometry, so the region code never runs.
+- **Correct behaviour:** Use a measured pixel region and fail if it isn't available. Treat any non-overlapping candidate at or under the threshold as ambiguous. Test real intersection for the two positives. Add a full-size fixture with both buttons visible.
+
+**6. The submit Return isn't guarded, and the opening Return is blind.**
+- **Where:** `tools/native_calibration_operator.py:1597-1612`.
+- **What happens:**
+  - The daemon recheck and identity check run before the opening Return.
+  - After that come typing (about 3 s), the capture, OCR (up to 2 s) and the submit Return, with no fresh recheck or focus check in between. A revocation, expiry or focus change in that window still submits the command, or sends Return to whichever window now has focus.
+  - Nothing checks that the chat box is closed and empty before the opening Return. Leftover text, for example from a killed run whose `xdotool type` kept running (see 7), would be submitted unverified.
+- **Correct behaviour:** Take a fresh crop proving the chat box is closed and empty before opening it. Then, immediately before the submit Return, run a daemon recheck, an identity/foreground check and a remaining-deadline check.
+
+**7. Keyboard input has no ownership or cleanup.**
+- **Where:** `tools/native_calibration_operator.py:921-950`.
+- **What happens:**
+  - Return, Escape and `type --clearmodifiers` run as plain `subprocess.run` children, and none of them are published to the watchdog.
+  - If the helper is SIGKILLed during `type`, the child keeps typing after the owner is gone.
+  - A handled signal SIGKILLs the child mid-key, with no exact keyup.
+  - `--clearmodifiers` releases and re-presses modifiers the helper doesn't own.
+- **Correct behaviour:** Closure item 6 requires keys to get the same owned-emitter cleanup as the button. Use an owned emitter group published with the exact keys before the gate, drop `--clearmodifiers`, and release only owned keys.
+
+**8. Input and release don't use the profile's display and Xauthority.**
+- **Where:** `tools/native_calibration_operator.py:929-950`, `:965-970`, `:764-783`, `:1023`.
+- **What happens:** Every xdotool and emitter child inherits the helper's ambient environment, and the watchdog gets `dict(os.environ)`. Identity, capture and pointer checks use the profile's `DISPLAY` and `XAUTHORITY` instead (`driver.py:1303-1307`; the guardian pattern is at `driver.py:3912-3914`). If the helper starts with a missing or different `DISPLAY`, keys go to another X server or fail, and the owner-death release targets the wrong server.
+- **Correct behaviour:** Closure item 7 requires this binding. Build the environment once from the profile and pass it to every input child, the emitter, and `release_env`.
+
+**9. The watchdog can be killed before the release is confirmed.**
+- **Where:** `tools/native_calibration_operator.py:1075-1078`, `:1106-1109`.
+- **What happens:** `release_now()` and `close()` send `S`, then SIGTERM the watchdog if it is still alive after 3 s. The watchdog keeps retrying release until it succeeds (`guardian.py:352-355`, `:414-418`), so its exit is the only confirmation. Terminating it can leave button 1 held.
+- **Correct behaviour:** Closure item 6 says never kill the watchdog before the release is confirmed. Never terminate it; report the failure and leave it running.
+
+**10. Receipt-write and setup failures skip cleanup and can hang the process.**
+- **Where:** `tools/native_calibration_operator.py:1776`, `:1831-1848`, `:1966-1984`, `:1035-1043`.
+- **(a)** If writing the "terminal" receipt event fails inside the `except` block, the pause and the reservation cancel are skipped. If `_flush_poll()` fails at the top of `finally`, `input.close()` is skipped.
+- **(b)** If `receipt.begin()` fails after `attempt` has been assigned (directory creation, chmod, or the first write), the error escapes outside `run()`'s try. `main()` then skips closing because `attempt` is set.
+- **(c)** If the watchdog's READY read times out after 2 s, `watchdog` stays `None` and only `screen.close()` runs.
+- **Result:** In each case the non-daemon watchdog keeps its command pipe open. Python's multiprocessing joins non-daemon children at exit with no timeout, and the watchdog only exits when that same pipe hits EOF, so the process hangs at exit. In (a) the reservation is also left uncancelled.
+- **Correct behaviour:** One owner for screen, tool and watchdog, with unconditional close. Receipt failures get recorded but never block pause, cancel or close.
+
+**11. The tests don't exercise the paths the closure plan requires.**
+- **Where:** `tests/test_native_calibration_operator.py:108-180`, `:157-170`, `:200-204`, `:235-236`, `:430-450`, `:520`, `:532-556`, `:547`, `:26`.
+- **What's wrong:**
+  - **Scripted fake daemon:** FakeClient still pops a scripted state on every recheck, independent of what FakeInput sends. That is the early-advancing iterator closure item 1 says hides causality bugs. `recovery_complete` succeeds whether or not a click or reload happened.
+  - **No death, signal or watchdog tests:** Nothing starts `Watchdog` or `_watchdog_entry`, kills the helper mid-hold, sends SIGTERM/HUP/INT, drops ACKs, tests a late emitter, fails a receipt write inside `run()`, or exercises `main()` setup and teardown. The R2 report says signal and ACK-loss behaviour is covered by offline emitter tests; that isn't accurate.
+  - **Wrong process model:** The emitter tests use `fork`, but production uses spawn. A forked child also holds a copy of the owner's gate writer, so owner EOF can't be tested that way.
+  - **EOF test doesn't test EOF:** The EOF test sets `_gate_write = -1`, so `press()` raises "not open" (lines 853-854) without ever reaching the emitter's EOF handling.
+  - **Untested branches:** Control-preflight mode and the restore recovery branch never run end to end, and the test named for control-preflight actually runs `MODE_RECOVER`. Pause, handoff and deadlines are untested (the fixture expiry is 1e12 and no deadline fields are sent). The `calibration_status` fake returns complete on the first call, so polling never runs.
+  - **Misleading fake:** FakeWatchdog's `clear()` empties the process groups, which the real `R` message does not do (see S2).
+- **Correct behaviour:** A fake daemon that advances only after the injected input dispatch; a real spawned emitter and `_watchdog_entry` with a sealed fixture image under a private `XDG_RUNTIME_DIR`; subprocess tests for helper death, each signal, ACK loss and EOF at every gate; a `main()` test with fake transports; both recovery kinds and control-preflight end to end; deadline edge cases.
+
+## Should-Fix
+
+- **S1. Pause is used outside its closed contract.** `tools/native_calibration_operator.py:1730-1748`, `:1834`.
+  - The pause is sent after any helper failure once calibration has started, without requiring `calibrationOperation.state == "error"`.
+  - Afterwards it only checks that the state is PAUSED. The pause reply has no operation field, so the worker check does nothing, and nothing checks for a newer generation or an unarmed Guardian. It still records `paused_for_recovery`.
+  - It reuses the operation deadline. On a deadline failure that deadline has already passed, so the pause request is refused locally in exactly that case.
+- **S2. The watchdog's process-group list is never cleared.** `tools/native_calibration_operator.py:989-990`, `:1080-1087`. `R` clears held input but not the group list (`guardian.py:388-393`). When the watchdog closes, minutes later, it sends SIGTERM and SIGKILL to the old emitter's process group; if that id has been reused, an unrelated group gets killed. After confirmed release and reaping, send an acknowledged empty `T` instead.
+- **S3. A second signal can abort cleanup.** `tools/native_calibration_operator.py:1263-1277`. Every SIGTERM/HUP/INT raises, including during the `except` and `finally` blocks, so a second signal aborts the pause, cancel or `receipt.finish`. Off the main thread, the handlers are silently not installed.
+- **S4. Unexplained reservation changes are accepted.** `tools/native_calibration_operator.py:1347-1373`. Any recheck can change `reservationState` (for example prepared→consumed without a bootstrap, or a terminal reservation state alongside an active handshake) or `expiresMonotonic`. The plan says such changes are adopted only from the specific daemon reply that legitimately makes them.
+- **S5. Polling at 20 Hz loads the daemon.** `tools/native_calibration_operator.py:1425`, `:1711`. Each recheck runs `resolve_identity` in the daemon, which spawns at least six X11 subprocesses, plus a `calibration_status` call. This goes on for minutes during the memory and latency measurement. With stateHistory, a slower bounded rate is enough.
+- **S6. A runtime branch exists only for tests.** `tools/native_calibration_operator.py:630-631`. `response_deadline` is passed only to the real socket transport, so fake transports never exercise absolute response deadlines.
+- **S7. The input ledger is incomplete.** `tools/native_calibration_operator.py:1599-1613`, `:1642-1649`.
+  - It doesn't record the opening Return, typing, Escape, mousemove, press or release, or when each was sent. The release time is needed for the 10 s limit.
+  - In the mismatch branch, a `raise` inside `finally` discards any Escape failure (lines 1607-1611).
+
+## Nits
+
+- **Implicit coordinate transform** (`tools/native_calibration_operator.py:961-964`): the image-to-screen transform relies on the driver enforcing a (0,0) client origin; assert it here. The target-window check is skipped when the set of window ids is empty (lines 1639 and 1645); require it to be non-empty.
+- **Template size mismatch** (`tools/native_calibration_operator.py:546`): scoring the rival requires both templates to be the same size, so enforce that when the manifest loads.
+- **Template check-then-use gap** (`tools/native_calibration_operator.py:465-467`, `:543`): the template is checked by hash and then reopened by path; decode it from the bytes that were hashed.
+- **Config loaded twice** (`tools/native_calibration_operator.py:595`, `:725`): this can disagree between loads. `config_path` is stored but never used (line 1222).
+- **Short writes** (`tools/native_calibration_operator.py:1181`): there is a single `os.write` with no loop for partial writes.
+- **Misnamed test** (`tests/test_native_calibration_operator.py:430`): the name says control-preflight but the test runs recover.
+
+STATUS: MAJOR ISSUES
+CLAUDE_EXIT:0

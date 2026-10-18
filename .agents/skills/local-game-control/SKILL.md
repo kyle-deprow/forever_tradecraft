@@ -248,6 +248,12 @@ within existing authorization; respect any current movement limits.
   outer-minus-backend time can include identity checks as well as crop/decode.
 - If an action has no visible effect, diagnose foreground, coordinates, and input
   delivery before repeating it. Repeated Play clicks can create duplicate clients.
+  Another player's bar can physically hide an NPC label; OCR filtering cannot
+  restore those pixels. For a stationary NPC interaction, a fixed `/targetexact`
+  command with fresh exact chat readback can establish a target-frame name/level
+  channel. Verify that fresh target frame plus the exact hover tooltip, and test
+  positive/unrelated-target negatives before adopting it as the label alternative.
+  Keep final identity/focus/pointer checks and owned button release unchanged.
 
 ## Recover without widening the task
 

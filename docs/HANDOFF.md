@@ -29,7 +29,34 @@ The detailed prior continuation is retained in
 `.archive/executor-review/handoff-postcrash-before-throughput-summary-20261017.md`.
 Treat the older sections below as history, not current runtime instructions.
 
-**Current Oct18 at20:49UTC:** parentverified scans51/52 (2681/2727rows,
+**Current Oct18 at21:04UTC:** root resumed active coordination after the user
+asked why work stopped; do not end after another status checkpoint. Parent verified
+scan53 against original SavedVariables, database digest and retained-PNG loadedACK:
+2744rows,428ok,404full/24bounded,28.240862s finish-to-server. Its actual start
+interval1201s records the301s AH recovery delay. Luna reopened using fresh exact
+target-frame+tooltip proof; next natural due21:05:53. Runtime remains unchanged
+PAUSEDgen23; ordinary collection is operator-assisted, not autonomous qualification.
+NativeR5 and helperR3 remain active in separate worktrees. Native R5 parent spot
+check raised expected-old-constructor polling and per-poll owner revalidation for
+worker correction before freeze. Full plans/rejected-helper actual Opus report
+are preserved; no candidate native/helper code promoted.
+
+**Prior Oct18 at20:59UTC:** AH recovery succeeded with exact target-frame +
+tooltip proof after one fixed targetexact command. Corrected private helper
+53f00d78 uses the existing final same-point reposition/pointer assertion after
+capture warp; first attempt refused before click. Luna reports scan53 naturally
+started20:50:53,301s overdue /1201s since52. Parent53data verification waits for
+completion. Subsequent reopens may reuse fresh target-frame+tooltip proof;
+no repeat target command unless lost. Existing local-game-control skill updated
+and validated; no new skill. Both helper reviews now MAJOR ISSUES (actual Opus
+claude-opus-5-5, exit0); helperR3 comprehensive repair is running in a separate
+tree under PLAN-native-calibration-operator-review-fix-r3.md, actual spawned
+ownership/cleanup tests first. NativeR5 remains active; its consolidated contract
+is PLAN-native-construction-native-r5-implementation.md. No exec session remains
+running at this checkpoint; Opus64207 finished0. Last pushed3d99972, runtime
+unchangedPAUSEDgen23PID882745. Continue through independent checks and reviews.
+
+**Prior Oct18 at20:49UTC:** parentverified scans51/52 (2681/2727rows,
 402full26bounded /403full25bounded, all428ok,900s intervals, exact server digests
 and independently decoded retained-PNG ACKs). After52, another player's health
 bar physically occluded the auctioneer overhead label. Two reopen attempts
