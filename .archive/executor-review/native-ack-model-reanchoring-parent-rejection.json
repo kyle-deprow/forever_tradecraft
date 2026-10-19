@@ -1,0 +1,16 @@
+{
+  "status": "REJECTED_MODEL_EVIDENCE",
+  "inspected_at_utc": "2026-10-19T13:58:00+00:00",
+  "source_state": "Unfrozen worker source inspected during implementation; parent refused a later snapshot because the fixture had already changed. No frozen source hash claimed.",
+  "findings": [
+    "The inspected fixture disabled the publisher timer for high initial phase cases, then reanchored its next tick to the first sampled screenshot. This violates independent Measure-based scheduling.",
+    "The inspected phase951 negative could pass solely because measured phase age exceeded900ms, without runner refusal or active budget failure.",
+    "Named phase ages were not asserted exactly; worker-reported phase951 was approximately947ms."
+  ],
+  "impact": "Earlier seven-case passing summary is partial, nonqualifying evidence. No source installation or native/autonomous qualification.",
+  "required_correction": [
+    "Keep publisher armed independently from actual Measure publication; never move its schedule after a sample.",
+    "Assert pinned initial phase ages and passing envelope exactly.",
+    "Require actual runner/protocol refusal or visible budget overrun for boundary negatives."
+  ]
+}

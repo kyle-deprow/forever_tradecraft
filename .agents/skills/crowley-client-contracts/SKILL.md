@@ -186,6 +186,11 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   cadence proofs, publish the external scene on a real monotonic schedule and
   allow repeated captures of the current frame; never restamp captures to pass
   or add timing delays to production provider/admission wrappers in the fixture.
+  Once Measure arms a modeled publisher, keep every tick on that independent
+  schedule. Never disable or reanchor its next tick from a sampled screenshot.
+  Assert actual initial phase age against the pinned case. A boundary negative
+  must cause real refusal or visible budget overrun; merely being outside the
+  declared input envelope cannot make a successful runner count as failure.
 
 Update the relevant existing skill when live evidence disproves guidance; keep
 incident dumps and transient client facts in the handoff/evidence files.

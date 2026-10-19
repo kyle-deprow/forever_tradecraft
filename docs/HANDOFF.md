@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 13:47 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:00 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -168,6 +168,13 @@ fence to six files, including the private driver ACK hook and compiled-producer
 protocol tests. Luna owns implementation in the isolated worktree; no candidate
 has been installed. Native calibration, physical input calibration and all three
 autonomous cycles remain unqualified. Ordinary assisted collection continues.
+
+Parent rejected the first new seven-case model summary: the fixture reanchored
+the publisher after its first screenshot and permitted the phase951 negative
+without actual runner refusal or budget failure. [Parent inspection findings](../.archive/executor-review/native-ack-model-reanchoring-parent-rejection.json).
+Preserve those results as partial evidence only. Luna is correcting the fixture;
+no source freeze, installation or live qualification has occurred. Assisted110
+started1792417911 on its exact deadline; fullchain verification remains pending.
 
 ## Accepted installed release
 
