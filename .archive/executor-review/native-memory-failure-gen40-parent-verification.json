@@ -1,0 +1,72 @@
+{
+  "status": "VERIFIED_FAILURE",
+  "qualification": "Live native40 reached held100 but failed process memory gate. Input/native qualification false; zero autonomous qualification cycles.",
+  "failure": "native updates memory growth exceeds its limit",
+  "sourceDrift": false,
+  "boundedTrace": {
+    "retainedAttempts": 16,
+    "acceptedUpdateOrdinals": [
+      85,
+      86,
+      87,
+      88,
+      89,
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99
+    ],
+    "acceptedHeldOrdinal": 100,
+    "fullHundredInferredFrom": "Runner reached held100 and the complete bound memory workload ordinals1..100; diagnostic intentionally retains only final16 attempts."
+  },
+  "memory": {
+    "method": "linux_proc_status_vmhwm_reset5",
+    "pid": 644491,
+    "process_start": "15495385",
+    "phase": "updates",
+    "workload_start_ordinal": 1,
+    "workload_end_ordinal": 100,
+    "reset_completed_monotonic": 239456.235441696,
+    "workload_start_monotonic": 239456.235441696,
+    "workload_end_monotonic": 239564.367666851,
+    "post_reset_hwm_bytes": 3850637312,
+    "final_hwm_bytes": 3899281408,
+    "growth_bytes": 48644096,
+    "limit_bytes": 16777216,
+    "rss_after_reset_bytes": 3850637312,
+    "final_rss_bytes": 3808673792
+  },
+  "causalAttribution": "Peak growth in the whole Wine game process; no addon-specific leak attribution. Final RSS lower than baseline.",
+  "automaticRecovery": {
+    "completed": true,
+    "generation": 41,
+    "checkpointAbsentConfirmedByLaterPublicRefusal": true
+  },
+  "ordinaryReopen": {
+    "parentIndependentProductionDecode": true,
+    "boot": "1792429685-715289",
+    "sequence": 247,
+    "imageSha256": "58d6698f17ddcc8cd6146e12b1ea6529fd314616999d085e11d15bfd3794da42",
+    "ahOpen": true,
+    "pending": 0,
+    "nativePhase": "normal",
+    "nativeOrdinal": 0,
+    "fence": "inactive",
+    "speed": 0,
+    "controlsReleased": true,
+    "dueAt": 1792430827
+  },
+  "rawHashes": {
+    "diagnostic": "438d682789efbc57fd359c87e7aa1599becaa1de42120c76237085d313d6c99c",
+    "operatorReceipt": "ebf798bdcfc351cabcbad7532aa64173cf50ed221d1d46313b398cb6b8777d8f",
+    "memoryArchive": "ab6df883d2b785e1ee57238bc55c1eec76cec42ff94043a3c4b46bb905790244",
+    "ordinaryReopenReceipt": "03888de70b8df32e0f650cf02c6564acdf6db5246d7719a0fd75e71a75a7395f"
+  },
+  "next": "Continue assisted collection. Passive ordinary memory context before any new native attempt; keep16MiB limit and GC semantics unchanged."
+}

@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 17:02 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 17:14 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -48,10 +48,11 @@ and controller generation before mutation. Last native recovery was PAUSED38,
 nativefalse/inputfalse; do not treat this historical generation as fresh.
 
 Daemon service `crowley-session` is active, NEW PID1566769 after reviewed release
-installation at17:02UTC. Fresh status PAUSED39/nativefalse/inputfalse. Exact final
-identity-budget/ACK-alignment correction is installed; sole operator is beginning
-canonical recovery/preflight/native100. Assisted collection deliberately paused
-after full122 for qualification.
+installation at17:02UTC. Latest status PAUSED41/nativefalse/inputfalse. Exact final
+identity-budget/ACK-alignment correction is installed and committed/pushedbe71895.
+Live40 reached held100, then failed process-memory gate; automatic recovery
+completed and cleared checkpoint. Ordinary AH reopened; assisted123 began
+1792429927 after the deliberate qualification pause. No physical-input gate yet.
 
 Latest fully parent-verified cycle **#122**:
 
@@ -64,8 +65,9 @@ Latest fully parent-verified cycle **#122**:
 - [scan proof](../.archive/executor-review/build-70450-onehundredtwentysecond-scan-parent-verification.json)
   and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentysecond-ah-reopen-parent-verification.json).
 
-Scans108..122 have full-chain proofs and exact900s starts. Scan123 is deliberately
-held for qualification. After122, parent decoded fresh closedAH/pending0/ordinary
+Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
+1792429927 after the qualification pause (1216s after122,316s late). Its full
+chain is pending; next actual ordinary deadline1792430827 (17:27:07UTC). After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
 MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
@@ -212,12 +214,49 @@ reject/post-notification failure and receipt propagation regressions remain.
 Modeled receipt substitution uses the real provider with an external capture
 fixture; it is not a concurrent real-C producer race proof.
 
+## Live40 result and current blocker
+
+[Parent failure proof](../.archive/executor-review/native-memory-failure-gen40-parent-verification.json).
+Gen39 control preflight succeeded; resume advanced40. Real native measurement
+ran133s and reached accepted held100. The diagnostic is intentionally bounded
+last16: accepted updates85..99 and held100, no source drift. This resolves the
+previous ordinal/capture-timing failure for this run, but native qualification
+FAILED at final updates-memory accounting before resume/finalization.
+
+Exact reset5 whole-game process measurement, pinned PID644491/start15495385:
+post-reset HWM3,850,637,312 bytes; final HWM3,899,281,408;
+growth48,644,096 bytes (46.390625MiB), limit16,777,216 bytes (16MiB).
+Final RSS3,808,673,792 is below baseline: a genuine peak breach, not proof of a
+persistent addon leak. Bound workload1..100 lasted108.132225155s. Full durable
+archive SHAab6df883d2b785e1ee57238bc55c1eec76cec42ff94043a3c4b46bb905790244;
+private `.session.json.archives/native_memory_failures/00000000000000000001.json`.
+Diagnostic SHA438d682789efbc57fd359c87e7aa1599becaa1de42120c76237085d313d6c99c,
+private `native-observation-diagnostics/4bb6255b9ee247cdacc9a8de268e304c/failure.json`.
+
+Original measure helper automatically paused to41, restored/reloaded ordinary
+and committed recovery. Standalone recover39/41 subsequently refused before GUI
+because no checkpoint remained; coarse actor_admission_invalid wraps the exact
+public refusal `native construction recovery checkpoint is missing`. Sol
+confirmed no accepted-response mismatch and no recovery source fix is needed.
+Do not retry unchanged recover or native measurement. Historical handshake
+restored=false is not current-scene proof: parent decoded fresh ordinary state
+[ordinary proof](../.archive/executor-review/native-memory-failure-gen40-ordinary-parent-verification.json)
+and independently decoded reopenedAH normal0/inactive/pending0/speed0/released.
+
+Current work: sole operator maintains123+assisted900s chains and runs one110s
+passive ordinary /proc RSS/HWM comparison (no reset/GC/input). Implementation
+worker read-only audits Agent allocation/render path; root will define the
+smallest evidence-backed diagnostic or correction before another native run.
+Keep16MiB gate and GC behavior unchanged. No user physical input requested yet.
+
 ## Next live gates, in order
 
 1. COMPLETE: Parent offline gates, Sol/actual Opus approval, full122 chain,
    fresh quiescence, exact accepted six-file promotion and service restart.
-2. Canonically recover any existing checkpoint before new calibration. Run fresh
-   native control preflight, resume and measured native100 with full evidence.
+2. Diagnose the live40 memory peak with passive ordinary context and source
+   audit. Current ordinary recovery is complete/checkpoint absent. After an
+   evidence-backed correction or controlled diagnostic, run fresh native control
+   preflight, resume and measured native100 with full evidence.
    Verify operation/finalization and native true. Failure requires preserved
    trace/frame, fresh pause, ordinary recovery/reopen; no unchanged blind rerun.
 3. Public pause then canonical ordinary recovery: PAUSED/native true/inputfalse,
@@ -242,11 +281,11 @@ Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use exact returned generations and canonical ownership/fence/recovery protocol.
 
-Latest validated private backup: `beta-20261019T161201Z-50bfce1be0f0`, through118
+Latest validated private backup: `beta-20261019T171150Z-e88de89d746e`, through122
 ingestion; directory0700, manifestSHA
-`0a1e4826c881f637453a2a444567f2bc2ac1f996104c72b0024bd960e5d6195c`.
-[Backup verification](../.archive/executor-review/market-backup-20261019T1612Z-parent-verification.json).
-Next hourly backup about17:12UTC. Prior isolated restore drill remains accepted.
+`1eb9bec4528f707be1d07bf2d3113386a12820d8cad54a08ac4599c7bd6982bd`.
+[Backup verification](../.archive/executor-review/market-backup-20261019T1712Z-parent-verification.json).
+Next hourly backup about18:12UTC. Prior isolated restore drill remains accepted.
 API: `tools.market_backup.snapshot` then `validate_snapshot`; retain full
 invocation output privately and publish only sanitized hash/coverage/mode proof.
 

@@ -1,0 +1,22 @@
+{
+  "status": "PASS",
+  "qualification": "Ordinary state after automatically recovered native-memory failure; native/input/autonomous qualification failed or pending.",
+  "rawReceiptSha256": "ad9384a4b93d76e77737abafd3a0b01aee8ee0907b22b7844e3a64b0db4794d9",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "ef0816debec2324936599f25e949ca52453e83e20d13af796835835cd1153986",
+  "boot": "1792429685-715289",
+  "sequence": 219,
+  "ahOpen": false,
+  "pending": 0,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "characterSpeed": 0,
+  "luaHeap": {
+    "method": "collectgarbage_count",
+    "available": true,
+    "beforeKiB": 124259.328125,
+    "afterKiB": 124320.8623046875,
+    "netKiB": 61.5341796875
+  }
+}
