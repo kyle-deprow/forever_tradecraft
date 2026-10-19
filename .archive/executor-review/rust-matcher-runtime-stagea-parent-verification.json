@@ -1,0 +1,16 @@
+{
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/pytest",
+    "-q",
+    "tests/test_template_matcher_runtime.py"
+  ],
+  "returncode": 0,
+  "sourceHashes": {
+    "tools/template_matcher_runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "tests/test_template_matcher_runtime.py": "e2775104d0974b158f8bff8838a8a64bda80007bf1347ab2df61edf6de1151ca"
+  },
+  "artifactRoot": "/home/dev/.cache/crowley/template-matcher/v1",
+  "logSha256": "262580c5e037e8815b6a70715e1cfc30ddadf8ce333329553931eb64eb0fb9ac",
+  "output": "................                                                         [100%]\n16 passed in 0.68s\n",
+  "scope": "Standalone adapter only, final Sol READY; no helper integration/live qualification yet"
+}

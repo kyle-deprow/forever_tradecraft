@@ -1,0 +1,15 @@
+{
+  "pid": 4039335,
+  "started_wall": 1792382551.8573074,
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-helper-final-integration-20261019",
+  "requested_model": "opus",
+  "status": "completed",
+  "returncode": 0,
+  "resolved_models": [
+    "claude-opus-5-5"
+  ],
+  "finished_wall": 1792383567.3834777,
+  "raw_sha256": "a0f55cf5a061cf120ff268c9dc476f9b62f58b198ee5f89ae27bbd5846db417e",
+  "has_verdict": true,
+  "source_unchanged": true
+}

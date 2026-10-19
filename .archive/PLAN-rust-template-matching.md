@@ -102,3 +102,38 @@ ambiguous earlier prose. This remains a plan, no production helper integration.
   SCORE_AT, and both composed exclusivity and dual-positive call shapes. Count
   actual data conversion/transfer and binary startup, never compile in matching
   timing. Retained real frame proves computation only, not live input readiness.
+
+## Final Opus correction arbitration
+
+Actual claude-opus-5-5 final review completed0, unchanged seven source hashes,
+no Musts, four concrete Shoulds accepted. This bounded correction owns the same
+seven files; Rust scoring body and three Rust source files stay unchanged.
+
+1. Make build workspaces under an owned private canonical cache directory rather
+   than inherited TMPDIR. Before each cargo invocation refuse any Cargo.toml or
+   .cargo/config(.toml) in workspace/snapshot ancestors, with a clear exact error.
+   This both prevents parent workspace discovery and rejects inherited config;
+   adding [workspace] is redundant once all ancestors are checked, so preserve
+   current Cargo.toml/source pins. Test unoverridden linker/profile injections
+   with expected exact refusal and no executed marker. Separately prove poisoned
+   wrapper/encodedflag env is ignored via clean then contaminated republication
+   into the same output; require byte equality. Do not edit system/home configs.
+2. Malformed protocol negatives must assert exact intended stderr guard, so a
+   short/truncated body cannot pass a dimension/operation/region test accidentally.
+3. Benchmark binary path becomes absolute without following symlinks; rehash it
+   after timing. Decode PNG from the exact hashed bytes (BytesIO); record argv,
+   Python/Pillow versions and runner SHA. Rename timing fields to state explicitly
+   that subprocess startup+IPC includes native scoring. Test relative path and
+   symlink refusal with owned actual publication; no GUI input.
+4. Runtime docs use final public runner values and exact samples/warmups/binary
+   hash, and label own/rival SCORE_AT. Existing parent r2 record is authoritative:
+   prep63.30ms, SEARCH40.55/40.58ms, self7.53/7.56ms, rival8.33/7.39ms,
+   exclusive49.39ms, dual81.89ms, samples3/warmups1. Do not relabel earlier ad-hoc
+   request-serialization timings as public-runner results.
+
+Useful small nits in scope: rustc-vV in manifest, cargo verbose retained output,
+clean test temporary targets, two-overlapping-acceptable candidates regression.
+No requirement for cosmetic env duplication/hash duplication, extra global gitignore,
+or unrelated rustfmt/PATH policy refactor in this round. Do not grow scope.
+Parent reproduces final component tests/build/retained public runner once; review
+only correction delta, no reopening already correct scorer arithmetic.

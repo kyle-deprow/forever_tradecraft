@@ -1,0 +1,15 @@
+{
+  "pid": 4096177,
+  "started_wall": 1792383121.8903959,
+  "worktree": "/home/dev/.cache/crowley/worktrees/rust-template-matcher-20261019",
+  "requested_model": "opus",
+  "status": "completed",
+  "returncode": 0,
+  "resolved_models": [
+    "claude-opus-5-5"
+  ],
+  "finished_wall": 1792383605.145099,
+  "raw_sha256": "ccb29cd0503dc1e7504067a006bc728dc94f24ef2c24730f6c6b2c49844ffa2e",
+  "has_verdict": true,
+  "source_unchanged": true
+}

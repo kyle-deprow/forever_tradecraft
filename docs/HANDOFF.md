@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 04:05 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 04:35 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -36,22 +36,38 @@ Seven accepted native files are installed; helper remains uninstalled.
 See native-paused-install-parent-verification.json for hashes/pins/process proof.
 Collection is still **operator-assisted**; GUI Luna keeps it flowing.
 
-Latest parent independently verified **73**, UID
-`beta-normal-alliance-1792378010-Arthur-5824`, start02:46:50UTC:
-428obs/2156rows/408full/20bounded/0incomplete, exact900s start interval.
-Original SavedVariables/DB logical digest/production-decoded exact loaded ACK
-verified in build-70450-seventythird-scan-parent-verification.json.
-Finish→server14.394454s. Starts64–73 were900s.
+Latest parent independently verified **74**, UID
+`beta-normal-alliance-1792383034-Arthur-7115`, start04:10:34UTC:
+428obs/2144rows/410full/16bounded/2incomplete (query_timeout, unknown notempty).
+Actual start interval5024s after73, duration534s, finish→server70.117346s.
+Parent preserved actual ACK-reload SavedVariables SHA
+3ac50317ffae92a008b6af5f36d786bf506ff24423488a758bb53031851bcedc;
+DBlogicaldigest matches, exact ACK production-decoded from retained freshPNG.
+Public build-70450-seventyfourth-scan-parent-verification.json. Earlier preflush
+copy3e498 was the OLD scan and is not mislabeled as74; firstsaveSHAafe differs
+from actual lateroriginalpreservedbytes, allpartialfailedhelperreceipts retained.
+GUI curatedfullcycle5a4b284b references actualsave/upload/ACK/AHphase receipts.
+Privatehelpers fixeddecoderrebind+postsaveoriginalcopy forfuturecycles.
 
-**Current live blocker after actual panel preflight:** generation24 preflight
-succeeded; agent defer produced actual visible Construct/Restore controls. The
-handoff expired during operator proof. Fresh empty-ID recovery admitted; one
-fresh exclusive-template-verified Restore click at03:00:37UTC reached the Lua
-handler and saved restore_pending. New load has no telemetry surface and Restore
-remains visible; completion expired. #74 due03:01:50 was MISSED while fenced.
-Do not report continuous cadence or a decoded ordinary boot.
-Installed Agent/Commands/Core/Scanner were exact main before this diagnostic.
+**75** started1792383934 exactly900s after74 and completed1792384411
+(04:33:31), 428attempted/2113rows/0failures; save/upload/ACK/reopen underway.
+GUI owns75 AND76 wholecycles, not just observations; keepdataflowing while
+calibration is fixed. #76due1792384834 (04:40:34). These are operator-assisted.
+No autonomousqualification. Nextparentverifier75prior_start1792383034.
 
+**Recovery now succeeded in the live client (04:09 UTC).** Parent independently
+production-decoded actual retained PNG: boot1792382956-926241, normal/0,
+valid facing1.4647572040557861, speed0, inactive scanner fence. Public recovery
+complete returned recovered for fresh exact reservation; Guardian unarmed,
+checkpoint cleared, controller remains PAUSEDgen24/nativefalse/inputfalse.
+Separate AH-reopen receipt independently decoded AHopen true, phaseitem and
+nextdue1792383934. Recovery scan74 completed and was independentlyverified above;75activecollection
+followed exactly900s later. UID is empty during active collection.
+Actual start gap from73 is5024s; #74 due03:01:50 and subsequent intervals were
+MISSED during fenced recovery. SoleGUI continues fullsave/upload/ACK/reopen;
+never midscanreload or claim autonomous900s. Public recovery/AH proof reports.
+
+**Historical startup failure, fixed below:**
 **LIVE CAUSE CONFIRMED by flushed original bytes:**
 `first publication: Interface/AddOns/Crowley/Agent.lua:501:
 Interface/AddOns/Crowley/Agent.lua:158: Crowley movement telemetry has invalid facing`.
@@ -63,13 +79,13 @@ Exact invalid native value unknown, don't assert nil. Parent model unavailable
 facing reproduces guard/permanent failure after later validworldevent too.
 Actual savedmarker is valid and modeled ready-load restores ordinary normally.
 
-Diagnostic retention Agentb46e679f/testaf761acb is installed+loaded and committed
+Diagnostic retention Agentb46e679f/testaf761acb was installed+loaded and committed
 c8498ce (pushed). Worker9/parent9(1.84s)/SolREADY. It retains optional private
 CrowleyDB.agentRestoreFailure after existing failurecleanup, clears only fresh
 restore_pending initialization, no lifecycle/admission change. New soleGUI Luna
 finished normal /reload flush (no moreRestore needed), GameMenu closed, Arthur
 stationary/world/identity unchanged, allinputsclosed. Old actor is inactive.
-No more live inputs until reviewed behavioralfix is installed.
+That diagnostic-only version is superseded by the accepted behavioral fix below.
 
 BEHAVIORAL FIX accepted and installed at04:04UTC. Final Agent SHA
 79aa0d6853d4122d0a968cc7b1cd8cead8cccff349afb8c698e5aee983ed9edb;
@@ -83,29 +99,45 @@ claude-opus-5-5 DELTA r2 READY/rc0, unchanged frozen sources. Optional extra
 recovery-path test nit is nonblocking. Public parent/install/review reports retained.
 SoleGUI luna_live_recovery received CODE-INSTALLED signal and owns full live
 reload→publicrecovery→Restore→ordinary/checkpointclear→AHreopen outcome.
-No live success inferred until actual receipts. No native100/input qualification
-or autonomous cycles yet.
+Actual recovery/AH reopen independently verified above. No native100/input
+qualification or autonomous cycles yet.
 
 | Client assumption | Required handling / evidence |
 | --- | --- |
-| Native movement can be invalid at ADDON_LOADED during reload. | Restore waits for actual PLAYER_ENTERING_WORLD and exact valid movementTelemetry; may retry after world entry for at most30s. This bound is a refusal, not an assumption that world entry guarantees readiness. Live correction validation pending. |
+| Native movement can be invalid at ADDON_LOADED during reload. | Restore waits for actual PLAYER_ENTERING_WORLD and exact valid movementTelemetry; may retry after world entry for at most30s. This bound is a refusal, not an assumption that world entry guarantees readiness. Actual correction passed live04:09; telemetry facing valid in independently decoded frame. |
 
 Actual private controls manifest:
 `~/.local/state/crowley/executor-evidence/native-live-controls-20261019/templates.json`.
 Retained actual WoW panel source SHA bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2.
 98x27 templates; actual fresh Restore match score0.00063. Fixed Python matcher
 on retained real frame costs2.5531s Construct/2.5208s Restore in region220x84.
-Standalone Rust scorer implementation passes parent21tests and two independently
+Standalone Rust scorer final fixes complete, sevenfiles frozen in
+rust-template-matcher-20261019. Parent28testsPASS5.62s + two independently
 reproduced byte-identical release builds SHA75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c.
-Parent actual retained-frame benchmark: prep62.74ms, ConstructSEARCH43.55ms,
-Restore42.61ms, SCORE9.45/8.64ms, exclusive52.38ms, dual86.45ms. Includes
-serialization/startup/IPC/parse per call; not fresh live qualification.
-Sol implementation NEEDSWORK: accepted build env/config isolation, private stable
-source snapshot, stale binary test binding, stronger tie/ambiguity cases and
-retained benchmark runner. Same Luna owns6files + new benchmarktool. Scoring
-itself reviewed correct. Unfinished Opus r1 superseded/terminated143 without
-verdict BEFORE source edits; preserve record, no acceptance claim. Final review
-required after corrections. No helper/runtime integration yet.
+Hermetic build env/config, stable private source snapshot, EXACT official versions,
+source-bound artifact test fixture, stronger tie/ambiguity and public benchmark
+runner implemented. Parent actual retained-frame publicrunner/reference parity
+PASS9.87s; full invocation/hash/log proof rust-template-matcher-parent-r2-20261019.
+Final standalone Rust COMPONENT ACCEPTED: parent31PASS7.01s, two independent
+reproducible builds75b18..., final actualpublicrunner/referenceparity9.86s;
+Sol finaldeltaREADY and actualclaude-opus-5-5 finaldeltaREADY0 on exact7hashes.
+NoMust/Shouldremaining. Optionalverbose-log/cache-symlink/extra-fixture nits
+nonblocking onverifiedhost; rawverdict preserved. Source7copiedMAIN and canonical
+artifact independently rebuilt fromMAIN into~/.cache/crowley/template-matcher/v1,
+SHA75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c.
+Helper notinstalled, scorerdoesnotemitinput/acquirelease. No live qualification.
+
+Standalone runtime StageA FINAL SolREADY/parent16PASS0.68s, source
+edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d,
+teste2775104d0974b158f8bff8838a8a64bda80007bf1347ab2df61edf6de1151ca.
+OnlyclosedenvLC_ALL=C/cwd=/, verifiedFD/codeownedpins, strictprotocol, deadline/
+actualkillreap+FDtests. In private rust-matcher-runtime-integration-20261019.
+Lunaworkerrust_matcher NOW prepareshelpermatching/CLI/sourcebindings wiring there,
+leaving _record_operation_deadline andoldhelpertestfileuntouched. Parentwillmerge
+finalproofworker's phase-minmethod+actualcausaltestbaseline beforefullintegration
+checks/review/deploy. ReviewedPLAN-rust-matcher-helper-integration.md includes
+parallelpreparation. FinalintegrationOpus reviewsallcombinedchanges once; no early
+helperpromotion. PriorstageA10/15passes historical, final16authoritative.
 Private official Rust/Cargo1.85.1+rustfmt installed under
 ~/.cache/crowley/rust-toolchain-1.85.1/toolchain; global PATH/game/services unchanged.
 
@@ -113,7 +145,7 @@ Private receipts/images/original payloads:
 `~/.local/state/crowley/executor-evidence/runtime-relink`.
 Parent verifier `.archive/executor-review/verify_preserved_sweep.py` is private,
 not committed. Public exact evidence records are build-70450-<ordinal>-scan-parent-
-verification.json. For next completed sweep verifier prior_start1792378010; record actual missed
+verification.json. For next completed sweep75 verifier prior_start1792383034; record actual missed
 interval, never invent900s after this recovery.
 
 Earlier GNOME keyring modal blocked AH reopen/dimmed HUD. One owned installed
@@ -193,9 +225,25 @@ PASSED367.61s (session60695 completed0) in fresh `helper-addon-parent-compositio
 canonical accepted seven native files plus initial d8addon (exact pins retained).
 Private helper-addon-parent-composition-20261019/input.json,tests.log,result.json.
 Addon follow-up test changes/timeout nit are separate; do not relabel tested bytes.
-Sol+actualOpus final helper review now RUNNING after parent pass, then accepted helper/Rust
-integration separate round. Helper is NOT main/installed; never run rejected old
-ffc8/d483 or failing3cb57/c0221 candidates. InitialR8 and66pass are historical.
+Sol final helper review NEEDSWORK on TEST PROOF ONLY: directcontrollerpause
+bypasses required publicAF_UNIX; budgetnegative fails beforeREADY and afteran
+openingReturn; focusednewbranches/provenance assertions missing. Parent accepts
+these concrete gaps; productionhelpercoherent. ActualOpus priorcandidate review completed0/NEEDSWORK onimmutableoldWT.
+Additional accepted realproductionbug: phase deadline recheck widensrelease+10s
+constructor bound; NEWworker ownshelperonlythatmethod tokeepminallphasekeys.
+FixtureMusts: initialpayloads falselyselectordinary forrecover-restore; wrong
+clickrole/controlpreflight swaps despiteLua refusal; post-success uncausedordinary
+swap; recoverypre-deferSavedVars. MustservetrueLua state/fromactualaccepted
+action/reload andpersistedSavedVars, including finalizedclient→restorekind.
+ReadactualOpusreport+planappendix, no claimsold73provedthesebranches. Test-onlyfixNOW in NEW native-helper-proof-closure-
+20261019 at59046b1, samehelper6f8 +canonicalnative7+FINALaddon79. Worker
+luna_profiler_schema_fix owns testfile plus narrowlyhelperdeadline method,
+MAIN plan-native-helper-proof-closure.md.
+Must actualpublicpause→freshrecovery; firstkeyREADY→watchdogACK→expirybeforeGO
+withzeroactualactions/reap/emptyownership; narrowdeadline/allocation/inheritedFD
+branches; exact independently knownbytes vsallreceiptdependencydigests. Fullonce
+stable, parent changedbranches+successcase meaningfulrepro, deltaSol/actualOpus.
+Helper NOT main/installed; never run rejected old candidates. R8/66pass historical.
 
 ## Remaining live gates
 
@@ -219,9 +267,9 @@ ffc8/d483 or failing3cb57/c0221 candidates. InitialR8 and66pass are historical.
 
 ## Preservation and working rules
 
-Latest hourly backup `beta-20261019T031301Z-0fa0a2c4a55c`, parentvalidate PASS,
-manifest SHA71025454b869771ea221a9d7bc1e97437dd48736aca05bb7826b1ee3d4eb5bea,
-0700 directory, data through73. Next hourly04:13UTC. Run
+Latest hourly backup `beta-20261019T041237Z-bf0631a88c00`, parentvalidate PASS,
+manifest SHA7ce5a0fe3ea4ff3701287f8e6fa0129fc6f71b7d45f49ae6c702873b7a7892ff,
+0700 directory, data through73 (current74stillinmemory). Next hourly05:13UTC. Run
 `uv run python tools/market_backup.py snapshot`; independentlyvalidate_snapshot.
 Prior isolated restore drill passed; no repeat without reason. Raw/private files
 stay out of git. Historical handoff: handoff-history-before-consolidation-

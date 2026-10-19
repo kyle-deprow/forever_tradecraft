@@ -1,0 +1,327 @@
+{
+  "artifact": {
+    "name": "template_matcher-v1",
+    "sha256": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+    "sha256_after": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+    "sha256_before": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+    "source_hashes": {
+      "Cargo.lock": "ea23646a59c8a3956ede087e8fea60643cbd016771f435fe84c24c467861a9b2",
+      "Cargo.toml": "3307fd9c7503479a443bbd23554958cda94343596985f9772ceba4187aeb7cd8",
+      "src/main.rs": "bb3647dc12804670d391170563284799fce7b931a07f663726767e95402b47a3"
+    },
+    "source_sha256": "2d9cb05b6a27fdfa79ab05e184c724f115b29661769b7c1b057a71bd7abedd56"
+  },
+  "composed": {
+    "dual_positive_ms": {
+      "median": 81.1516,
+      "samples": [
+        80.9802,
+        83.5887,
+        81.1516
+      ],
+      "shape": "SEARCH construct + SEARCH restore"
+    },
+    "exclusive_ms": {
+      "median": 49.1398,
+      "samples": [
+        48.3884,
+        50.3207,
+        49.1398
+      ],
+      "shape": "SEARCH construct + SCORE_AT restore at construct box"
+    }
+  },
+  "inputs": {
+    "construct_sha256": "ffc07d9457c31306f35673b315d9974a06ead0d9a7fc816cd32acece325c2034",
+    "frame_sha256": "bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2",
+    "restore_sha256": "2fdbc43134b55fb2e3900cd210fae819d12f7a60d42941b7f84142ad944f7862"
+  },
+  "interval_scope": "SEARCH/SCORE_AT/composed include process startup + full stdin/stdout IPC + native scoring + JSON parse",
+  "preparation_ms": {
+    "median": 60.1386,
+    "samples": [
+      61.7195,
+      60.1386,
+      58.9812
+    ],
+    "scope": "PNG decode + RGB conversion + framing and serialization"
+  },
+  "protocol": {
+    "frame": [
+      1920,
+      1080
+    ],
+    "header_bytes": 48,
+    "magic": "CRWTM001",
+    "region": [
+      1676,
+      24,
+      220,
+      84
+    ],
+    "template": [
+      98,
+      27
+    ]
+  },
+  "qualification": "caller-supplied image artifacts; computation evidence only",
+  "roles": {
+    "construct": {
+      "box": [
+        1685,
+        33,
+        98,
+        27
+      ],
+      "score_at_rival_ms": {
+        "json_parse_ms": {
+          "median": 0.0146,
+          "samples": [
+            0.0146,
+            0.0122,
+            0.0154
+          ]
+        },
+        "median": 7.5972,
+        "samples": [
+          7.4747,
+          7.5972,
+          8.0048
+        ],
+        "startup_ipc_native_scoring_ms": {
+          "median": 7.585,
+          "samples": [
+            7.4601,
+            7.585,
+            7.9894
+          ]
+        }
+      },
+      "score_at_rival_result": {
+        "box": [
+          1685,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 78466,
+        "status": "rejected"
+      },
+      "score_at_self_ms": {
+        "json_parse_ms": {
+          "median": 0.0151,
+          "samples": [
+            0.0158,
+            0.0137,
+            0.0151
+          ]
+        },
+        "median": 7.5347,
+        "samples": [
+          7.6715,
+          7.0197,
+          7.5347
+        ],
+        "startup_ipc_native_scoring_ms": {
+          "median": 7.5196,
+          "samples": [
+            7.6557,
+            7.0061,
+            7.5196
+          ]
+        }
+      },
+      "score_at_self_result": {
+        "box": [
+          1685,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      },
+      "search_ms": {
+        "json_parse_ms": {
+          "median": 0.0177,
+          "samples": [
+            0.0176,
+            0.0181,
+            0.0177
+          ]
+        },
+        "median": 41.5883,
+        "samples": [
+          41.5883,
+          40.8979,
+          42.1415
+        ],
+        "startup_ipc_native_scoring_ms": {
+          "median": 41.5707,
+          "samples": [
+            41.5707,
+            40.8798,
+            42.1237
+          ]
+        }
+      },
+      "search_result": {
+        "box": [
+          1685,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      }
+    },
+    "restore": {
+      "box": [
+        1789,
+        33,
+        98,
+        27
+      ],
+      "score_at_rival_ms": {
+        "json_parse_ms": {
+          "median": 0.0155,
+          "samples": [
+            0.0154,
+            0.0155,
+            0.0161
+          ]
+        },
+        "median": 7.5909,
+        "samples": [
+          7.5372,
+          8.1657,
+          7.5909
+        ],
+        "startup_ipc_native_scoring_ms": {
+          "median": 7.5748,
+          "samples": [
+            7.5218,
+            8.1502,
+            7.5748
+          ]
+        }
+      },
+      "score_at_rival_result": {
+        "box": [
+          1789,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 78466,
+        "status": "rejected"
+      },
+      "score_at_self_ms": {
+        "json_parse_ms": {
+          "median": 0.0152,
+          "samples": [
+            0.0155,
+            0.0135,
+            0.0152
+          ]
+        },
+        "median": 7.0685,
+        "samples": [
+          7.5936,
+          7.0223,
+          7.0685
+        ],
+        "startup_ipc_native_scoring_ms": {
+          "median": 7.0533,
+          "samples": [
+            7.5781,
+            7.0088,
+            7.0533
+          ]
+        }
+      },
+      "score_at_self_result": {
+        "box": [
+          1789,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      },
+      "search_ms": {
+        "json_parse_ms": {
+          "median": 0.0184,
+          "samples": [
+            0.0233,
+            0.0184,
+            0.0177
+          ]
+        },
+        "median": 41.6306,
+        "samples": [
+          41.8621,
+          41.0695,
+          41.6306
+        ],
+        "startup_ipc_native_scoring_ms": {
+          "median": 41.6129,
+          "samples": [
+            41.8387,
+            41.0511,
+            41.6129
+          ]
+        }
+      },
+      "search_result": {
+        "box": [
+          1789,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      }
+    }
+  },
+  "runner": {
+    "argv": [
+      "tools/benchmark_template_matcher.py",
+      "--binary",
+      "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/release/template_matcher-v1",
+      "--frame",
+      "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-panel-command-20261019T025601909100Z/post-targetexact.png",
+      "--construct",
+      "/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/construct.png",
+      "--restore",
+      "/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/restore.png",
+      "--region",
+      "1676",
+      "24",
+      "220",
+      "84",
+      "--samples",
+      "3",
+      "--warmups",
+      "1",
+      "--output",
+      "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/benchmark.json"
+    ],
+    "pillow": "12.3.0",
+    "python": "3.12.12",
+    "sha256": "06a4ae429700dbbf061f71c193e9da616cc7e17e431e49c357a56fab61b53527"
+  },
+  "samples": 3,
+  "schema": "crowley.template-matcher-benchmark",
+  "schema_version": 1,
+  "warmups": 1
+}

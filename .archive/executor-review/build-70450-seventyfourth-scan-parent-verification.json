@@ -1,0 +1,183 @@
+{
+  "kind": "parent-live-scan-verification",
+  "uid": "beta-normal-alliance-1792383034-Arthur-7115",
+  "saved_variables_sha256": "3ac50317ffae92a008b6af5f36d786bf506ff24423488a758bb53031851bcedc",
+  "logical_digest_matches_database": "a600a44280847ac77757498e1464a33f6dbeaf5b62188d4cfb5053a122e6e702",
+  "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+  "build": "70450",
+  "observations": 428,
+  "rows": 2144,
+  "coverage": {
+    "full": 410,
+    "bounded": 16,
+    "incomplete": 2
+  },
+  "reasons": {
+    "ok": 426,
+    "query_timeout": 2
+  },
+  "startedAt": 1792383034,
+  "finishedAt": 1792383568,
+  "duration_seconds": 534,
+  "prior_start_interval_seconds": 5024,
+  "server_read_only_verification": {
+    "sweep_uid": "beta-normal-alliance-1792383034-Arthur-7115",
+    "client_build": "70450",
+    "plan_hash": "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4",
+    "num_observations": 428,
+    "num_rows": 2144,
+    "received_at": "2026-10-19T04:20:38.117346+00:00",
+    "raw_path": "/data/raw/format2/a6/a600a44280847ac77757498e1464a33f6dbeaf5b62188d4cfb5053a122e6e702.json.gz",
+    "content_digest": "a600a44280847ac77757498e1464a33f6dbeaf5b62188d4cfb5053a122e6e702"
+  },
+  "finish_to_server_receipt_seconds": 70.117346,
+  "loaded_ack": {
+    "uid": "beta-normal-alliance-1792383034-Arthur-7115",
+    "boot": "1792383740-616045",
+    "capture_utc": "2026-10-19T04:24:06.685432+00:00",
+    "receipt_sha256": "cb34204574dbd9704b02817b975efa8f5a482663c2404adc0b4d5c49a632a808",
+    "independent_png_sha256": "aae32b77f3da0eb858edd7bd2f75418cb55701c1e622182d020018163a1a2cf5",
+    "sequence": 105,
+    "verification": "Parent independently decoded retained PNG with production PixelDecoder: exact loadedACK/pending0/AHclosed, fresh ordinary boot, normal0/inactive fence."
+  },
+  "schedule_trace_summary": {
+    "full_trace_sha256": "a408868dd52028fb2f994726bfe905e2ebe1812ee00aa9cd1eef0d9af7e3c077",
+    "overflow": 632,
+    "loadSequence": 140,
+    "sequence": 696,
+    "retained_events": [
+      {
+        "type": "request",
+        "sequence": 687,
+        "reason": "",
+        "token": 0,
+        "currentToken": 0,
+        "uptime": 192929.386,
+        "load": "load-1792382956-139",
+        "due": 0,
+        "source": "ah_show",
+        "delay": 0,
+        "wall": 1792383034
+      },
+      {
+        "type": "timer_create",
+        "sequence": 688,
+        "reason": "",
+        "token": 1,
+        "currentToken": 1,
+        "uptime": 192929.386,
+        "load": "load-1792382956-139",
+        "due": 1792383034,
+        "source": "ah_show",
+        "delay": 0,
+        "wall": 1792383034
+      },
+      {
+        "type": "timer_callback",
+        "sequence": 689,
+        "reason": "",
+        "token": 1,
+        "currentToken": 1,
+        "uptime": 192929.504,
+        "load": "load-1792382956-139",
+        "due": 0,
+        "source": "timer",
+        "delay": 0,
+        "wall": 1792383034
+      },
+      {
+        "type": "start_commit",
+        "sequence": 690,
+        "reason": "",
+        "token": 2,
+        "currentToken": 2,
+        "uptime": 192929.504,
+        "load": "load-1792382956-139",
+        "due": 1792383934,
+        "source": "timer_callback",
+        "delay": 0,
+        "wall": 1792383034
+      },
+      {
+        "type": "request",
+        "sequence": 691,
+        "reason": "",
+        "token": 2,
+        "currentToken": 2,
+        "uptime": 193463.17,
+        "load": "load-1792382956-139",
+        "due": 0,
+        "source": "finish",
+        "delay": 0,
+        "wall": 1792383568
+      },
+      {
+        "type": "timer_create",
+        "sequence": 692,
+        "reason": "",
+        "token": 3,
+        "currentToken": 3,
+        "uptime": 193463.17,
+        "load": "load-1792382956-139",
+        "due": 1792383934,
+        "source": "finish",
+        "delay": 366,
+        "wall": 1792383568
+      },
+      {
+        "type": "cancel",
+        "sequence": 693,
+        "reason": "ah_closed",
+        "token": 3,
+        "currentToken": 4,
+        "uptime": 193529.05,
+        "load": "load-1792382956-139",
+        "due": 0,
+        "source": "event",
+        "delay": 0,
+        "wall": 1792383634
+      },
+      {
+        "type": "cancel",
+        "sequence": 694,
+        "reason": "ah_closed",
+        "token": 4,
+        "currentToken": 5,
+        "uptime": 193529.05,
+        "load": "load-1792382956-139",
+        "due": 0,
+        "source": "event",
+        "delay": 0,
+        "wall": 1792383634
+      },
+      {
+        "type": "cancel",
+        "sequence": 695,
+        "reason": "logout",
+        "token": 5,
+        "currentToken": 6,
+        "uptime": 193529.05,
+        "load": "load-1792382956-139",
+        "due": 0,
+        "source": "event",
+        "delay": 0,
+        "wall": 1792383634
+      },
+      {
+        "type": "cancel",
+        "sequence": 696,
+        "reason": "logout",
+        "delay": 0,
+        "currentToken": 1,
+        "uptime": 193633.189,
+        "due": 0,
+        "wall": 1792383738,
+        "source": "event",
+        "load": "load-1792383636-140",
+        "token": 0
+      }
+    ],
+    "note": "Full trace in hash-bound original SavedVariables; only current sweep events in public record."
+  },
+  "qualification": "Ordinary operator-assisted scan. Autonomous engine qualification remains pending."
+}

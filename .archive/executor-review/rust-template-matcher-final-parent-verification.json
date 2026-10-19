@@ -1,0 +1,77 @@
+{
+  "sourceHashes": {
+    "native/template_matcher/Cargo.toml": "3307fd9c7503479a443bbd23554958cda94343596985f9772ceba4187aeb7cd8",
+    "native/template_matcher/Cargo.lock": "ea23646a59c8a3956ede087e8fea60643cbd016771f435fe84c24c467861a9b2",
+    "native/template_matcher/src/main.rs": "bb3647dc12804670d391170563284799fce7b931a07f663726767e95402b47a3",
+    "tools/build_template_matcher.py": "009e4f2795f37662dc875f66e796a7e536b93ec113069ad854e088601bbffd69",
+    "tools/benchmark_template_matcher.py": "06a4ae429700dbbf061f71c193e9da616cc7e17e431e49c357a56fab61b53527",
+    "tests/test_template_matcher.py": "c71966bc7f4ecec33298ee079291894f62472ccca6536fa296324957f1946b67",
+    "docs/RUNTIME_PERFORMANCE.md": "1a49c44ee8e29ed9a5a905a32ef2fb36eb102ce26a2a3123d53843b830901720"
+  },
+  "binarySha256": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+  "results": [
+    {
+      "label": "build",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        "tools/build_template_matcher.py",
+        "--toolchain-dir",
+        "/home/dev/.cache/crowley/rust-toolchain-1.85.1/toolchain/bin",
+        "--output-dir",
+        "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/release"
+      ],
+      "returncode": 0,
+      "seconds": 0.7256784439086914,
+      "logSha256": "bc957f65981d6240ab1c3cee8a5430458012f12f91eaa81890915f63fdcca139",
+      "tail": "{\"artifact\":\"/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/release/template_matcher-v1\",\"artifact_sha256\":\"75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c\",\"byte_identical\":true,\"independent_builds\":2,\"manifest\":\"/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/release/template_matcher-v1.manifest.json\",\"source_sha256\":\"2d9cb05b6a27fdfa79ab05e184c724f115b29661769b7c1b057a71bd7abedd56\",\"target\":\"x86_64-unknown-linux-gnu\",\"toolchain\":{\"cargo\":\"cargo 1.85.1 (d73d2caf9 2024-12-31)\",\"rustc\":\"rustc 1.85.1 (4eb161250 2025-03-15)\",\"rustc_verbose\":\"rustc 1.85.1 (4eb161250 2025-03-15)\\nbinary: rustc\\ncommit-hash: 4eb161250e340c8f48f66e2b929ef4a5bed7c181\\ncommit-date: 2025-03-15\\nhost: x86_64-unknown-linux-gnu\\nrelease: 1.85.1\\nLLVM version: 19.1.7\",\"rustfmt\":\"rustfmt 1.8.0-stable (4eb161250e 2025-03-15)\"}}\n"
+    },
+    {
+      "label": "tests",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_template_matcher.py"
+      ],
+      "returncode": 0,
+      "seconds": 7.223790884017944,
+      "logSha256": "2fc262ddf8dbd713d03830f362466202721434288e9345d0939b6c1e4b19a6ae",
+      "tail": "...............................                                          [100%]\n31 passed in 7.01s\n"
+    },
+    {
+      "label": "benchmark",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        "tools/benchmark_template_matcher.py",
+        "--binary",
+        "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/release/template_matcher-v1",
+        "--frame",
+        "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-panel-command-20261019T025601909100Z/post-targetexact.png",
+        "--construct",
+        "/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/construct.png",
+        "--restore",
+        "/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/restore.png",
+        "--region",
+        "1676",
+        "24",
+        "220",
+        "84",
+        "--samples",
+        "3",
+        "--warmups",
+        "1",
+        "--output",
+        "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/benchmark.json"
+      ],
+      "returncode": 0,
+      "seconds": 9.859488487243652,
+      "logSha256": "6c14e22b2c8c0faf7b10a339b0830cfdca7359a164568818852c5d6db4f5c8ed",
+      "tail": "\"score_at_self_result\": {\n        \"box\": [\n          1789,\n          33,\n          98,\n          27\n        ],\n        \"count\": 7938,\n        \"sad\": 0,\n        \"status\": \"matched\"\n      },\n      \"search_ms\": {\n        \"json_parse_ms\": {\n          \"median\": 0.0184,\n          \"samples\": [\n            0.0233,\n            0.0184,\n            0.0177\n          ]\n        },\n        \"median\": 41.6306,\n        \"samples\": [\n          41.8621,\n          41.0695,\n          41.6306\n        ],\n        \"startup_ipc_native_scoring_ms\": {\n          \"median\": 41.6129,\n          \"samples\": [\n            41.8387,\n            41.0511,\n            41.6129\n          ]\n        }\n      },\n      \"search_result\": {\n        \"box\": [\n          1789,\n          33,\n          98,\n          27\n        ],\n        \"count\": 7938,\n        \"sad\": 0,\n        \"status\": \"matched\"\n      }\n    }\n  },\n  \"runner\": {\n    \"argv\": [\n      \"tools/benchmark_template_matcher.py\",\n      \"--binary\",\n      \"/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/release/template_matcher-v1\",\n      \"--frame\",\n      \"/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-panel-command-20261019T025601909100Z/post-targetexact.png\",\n      \"--construct\",\n      \"/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/construct.png\",\n      \"--restore\",\n      \"/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/restore.png\",\n      \"--region\",\n      \"1676\",\n      \"24\",\n      \"220\",\n      \"84\",\n      \"--samples\",\n      \"3\",\n      \"--warmups\",\n      \"1\",\n      \"--output\",\n      \"/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-final-20261019/benchmark.json\"\n    ],\n    \"pillow\": \"12.3.0\",\n    \"python\": \"3.12.12\",\n    \"sha256\": \"06a4ae429700dbbf061f71c193e9da616cc7e17e431e49c357a56fab61b53527\"\n  },\n  \"samples\": 3,\n  \"schema\": \"crowley.template-matcher-benchmark\",\n  \"schema_version\": 1,\n  \"warmups\": 1\n}\n"
+    }
+  ]
+}

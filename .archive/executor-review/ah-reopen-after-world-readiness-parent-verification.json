@@ -1,0 +1,14 @@
+{
+  "receiptSha256": "090b03b19803e03095115de4cb33f404b8426f5e255277a5f286c57fa96bef8d",
+  "pngSha256": "379c37a57426b9e46c62d2cee607d585e59870f8e60eaaf8540e8fea782da35c",
+  "boot": "1792382956-926241",
+  "sequence": 84,
+  "ahOpen": true,
+  "phase": "normal",
+  "ordinal": 0,
+  "scannerPhase": "item",
+  "dueAt": 1792383934,
+  "fence": "inactive",
+  "speed": 0,
+  "qualification": "Parent independently decoded retained real WoW PNG with production PixelDecoder. Auction house reopened and scanner active; completed sweep and autonomous qualification remain separate."
+}

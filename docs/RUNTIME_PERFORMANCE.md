@@ -258,3 +258,55 @@ That hash does not prove a human reviewed the source, and receipt JSON is not
 independently authenticated as live capture. No qualifying real schema-2 inputs
 are currently available, so fixture-based threshold decisions are tests only.
 This report cannot establish a live bottleneck or authorize a Rust rewrite.
+
+## Bounded Rust template matcher preparation
+
+The retained WoW control benchmark measured the pure Python matcher at about
+2.55 seconds for Construct and 2.52 seconds for Restore on a 220x84 region
+with 98x27 RGB templates. The independent native preparation lives under
+native/template_matcher and is not integrated into the calibration helper. It
+preserves the existing acceptance rule (SAD <= 5 * RGB byte count), the best
+(SAD, x, y) ordering, and ambiguity relative to the best candidate.
+
+The executable accepts one complete binary request on stdin and emits one JSON
+object on stdout. Its 48-byte little-endian header is the ASCII magic
+CRWTM001, followed by operation (1 for bounded SEARCH, 2 for exact SCORE_AT),
+a zero reserved field, frame and template dimensions, and an absolute region
+(x, y, width, height). Full row-major RGB8 frame bytes then template bytes
+follow, with no trailing bytes. Dimensions, input size, comparison count,
+region geometry, and all arithmetic are bounded before allocation or scoring;
+malformed requests exit nonzero without a JSON result. SEARCH can return
+matched, rejected, or ambiguous; SCORE_AT returns matched or rejected. Results
+contain exact integer sad, byte count, and absolute [x, y, width, height] box
+values.
+
+tools/build_template_matcher.py performs two independent offline release
+builds with the pinned x86_64 toolchain, fixed release flags, and remapped
+source paths. It requires byte-identical outputs before atomically publishing
+the versioned executable and digest manifest into a caller-supplied private
+directory. Existing publications are rebuilt and compared independently; an
+adjacent manifest cannot authenticate a changed executable. Python remains
+responsible for image identity, template and input verification, ownership,
+receipts, and any later helper integration.
+
+The public runner's retained-frame reproduction used `samples=3` and
+`warmups=1` with binary
+`75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c`. Median
+preparation and serialization was 63.30 ms. Construct and Restore SEARCH were
+40.55 ms and 40.58 ms. The corresponding own-box SCORE_AT calls were 7.53 ms
+and 7.56 ms; the rival-box SCORE_AT checks were 8.33 ms and 7.39 ms. The
+exclusive composed shape was 49.39 ms and the dual-positive composed shape was
+81.89 ms. SEARCH, SCORE_AT, and composed intervals include process startup,
+full stdin/stdout transfer, native scoring, and JSON parsing; preparation is
+reported separately. These retained-frame timings are computation evidence
+only and do not qualify fresh desktop capture, input ownership, scan cadence,
+or helper integration.
+
+The public tools/benchmark_template_matcher.py runner takes explicit
+--binary, --frame, --construct, --restore, and --region arguments. It verifies
+the private publication's binary digest and current native source pins, retains
+only source and input digests in its JSON report, checks exact Python reference
+parity for every status/SAD/count/box and composed call, and separates image
+preparation from complete native invocation intervals. Its invocation timing
+fields explicitly include native scoring alongside process startup, IPC, and
+JSON parsing.

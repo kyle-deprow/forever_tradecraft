@@ -1,0 +1,77 @@
+{
+  "sourceHashes": {
+    "native/template_matcher/Cargo.toml": "3307fd9c7503479a443bbd23554958cda94343596985f9772ceba4187aeb7cd8",
+    "native/template_matcher/Cargo.lock": "ea23646a59c8a3956ede087e8fea60643cbd016771f435fe84c24c467861a9b2",
+    "native/template_matcher/src/main.rs": "bb3647dc12804670d391170563284799fce7b931a07f663726767e95402b47a3",
+    "tools/build_template_matcher.py": "938716b3dd6c96d171ee6e781d774045b14a577b7af410f3430f1bff4218a876",
+    "tools/benchmark_template_matcher.py": "ed4d6333b5a6cf87bb24cd247b2281d4d6ff5e3100b2f3574d3ac3c39452c62e",
+    "tests/test_template_matcher.py": "a49bb91c8bcaf8e68f26b96a75ace857c878c9c8123619eac36faa04e99eb434",
+    "docs/RUNTIME_PERFORMANCE.md": "af424a7657a258941b93a34fa64f6792f4736f721302a6a32cf36835ae36b3b1"
+  },
+  "binarySha256": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+  "results": [
+    {
+      "label": "build",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        "tools/build_template_matcher.py",
+        "--toolchain-dir",
+        "/home/dev/.cache/crowley/rust-toolchain-1.85.1/toolchain/bin",
+        "--output-dir",
+        "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-r2-20261019/release"
+      ],
+      "returncode": 0,
+      "seconds": 0.718250036239624,
+      "logSha256": "ad309934b446f1fcd6b5f3e41f67d51e6af1f7cf2dc19b00691226181118b599",
+      "tail": "{\"artifact\":\"/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-r2-20261019/release/template_matcher-v1\",\"artifact_sha256\":\"75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c\",\"byte_identical\":true,\"independent_builds\":2,\"manifest\":\"/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-r2-20261019/release/template_matcher-v1.manifest.json\",\"source_sha256\":\"2d9cb05b6a27fdfa79ab05e184c724f115b29661769b7c1b057a71bd7abedd56\",\"target\":\"x86_64-unknown-linux-gnu\",\"toolchain\":{\"cargo\":\"cargo 1.85.1 (d73d2caf9 2024-12-31)\",\"rustc\":\"rustc 1.85.1 (4eb161250 2025-03-15)\",\"rustfmt\":\"rustfmt 1.8.0-stable (4eb161250e 2025-03-15)\"}}\n"
+    },
+    {
+      "label": "tests",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_template_matcher.py"
+      ],
+      "returncode": 0,
+      "seconds": 5.824780702590942,
+      "logSha256": "59c35cdaa294197f0e5536aaac84a8bc94bf96af61a0078644f814093119d7c3",
+      "tail": "............................                                             [100%]\n28 passed in 5.62s\n"
+    },
+    {
+      "label": "benchmark",
+      "command": [
+        "uv",
+        "run",
+        "python",
+        "tools/benchmark_template_matcher.py",
+        "--binary",
+        "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-r2-20261019/release/template_matcher-v1",
+        "--frame",
+        "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-panel-command-20261019T025601909100Z/post-targetexact.png",
+        "--construct",
+        "/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/construct.png",
+        "--restore",
+        "/home/dev/.local/state/crowley/executor-evidence/native-live-controls-20261019/restore.png",
+        "--region",
+        "1676",
+        "24",
+        "220",
+        "84",
+        "--samples",
+        "3",
+        "--warmups",
+        "1",
+        "--output",
+        "/home/dev/.local/state/crowley/executor-evidence/rust-template-matcher-parent-r2-20261019/benchmark.json"
+      ],
+      "returncode": 0,
+      "seconds": 9.872262716293335,
+      "logSha256": "56ae3bdf932f79025fb179084261955d8d441220461d89a9f2eef85581c24bd8",
+      "tail": "[\n            0.0145,\n            0.0244,\n            0.0124\n          ]\n        },\n        \"median\": 7.3933,\n        \"samples\": [\n          7.3506,\n          7.7151,\n          7.3933\n        ],\n        \"startup_ipc_ms\": {\n          \"median\": 7.3809,\n          \"samples\": [\n            7.3361,\n            7.6907,\n            7.3809\n          ]\n        }\n      },\n      \"score_at_rival_result\": {\n        \"box\": [\n          1789,\n          33,\n          98,\n          27\n        ],\n        \"count\": 7938,\n        \"sad\": 78466,\n        \"status\": \"rejected\"\n      },\n      \"score_at_self_ms\": {\n        \"json_parse_ms\": {\n          \"median\": 0.0136,\n          \"samples\": [\n            0.0134,\n            0.0136,\n            0.0141\n          ]\n        },\n        \"median\": 7.5631,\n        \"samples\": [\n          7.4768,\n          7.5631,\n          7.637\n        ],\n        \"startup_ipc_ms\": {\n          \"median\": 7.5495,\n          \"samples\": [\n            7.4634,\n            7.5495,\n            7.6229\n          ]\n        }\n      },\n      \"score_at_self_result\": {\n        \"box\": [\n          1789,\n          33,\n          98,\n          27\n        ],\n        \"count\": 7938,\n        \"sad\": 0,\n        \"status\": \"matched\"\n      },\n      \"search_ms\": {\n        \"json_parse_ms\": {\n          \"median\": 0.0161,\n          \"samples\": [\n            0.0159,\n            0.0193,\n            0.0161\n          ]\n        },\n        \"median\": 40.5825,\n        \"samples\": [\n          41.6345,\n          40.4732,\n          40.5825\n        ],\n        \"startup_ipc_ms\": {\n          \"median\": 40.5664,\n          \"samples\": [\n            41.6186,\n            40.4539,\n            40.5664\n          ]\n        }\n      },\n      \"search_result\": {\n        \"box\": [\n          1789,\n          33,\n          98,\n          27\n        ],\n        \"count\": 7938,\n        \"sad\": 0,\n        \"status\": \"matched\"\n      }\n    }\n  },\n  \"samples\": 3,\n  \"schema\": \"crowley.template-matcher-benchmark\",\n  \"schema_version\": 1,\n  \"warmups\": 1\n}\n"
+    }
+  ]
+}

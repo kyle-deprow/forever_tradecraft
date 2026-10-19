@@ -1,0 +1,7 @@
+{
+  "snapshot": "beta-20261019T041237Z-bf0631a88c00",
+  "valid": true,
+  "directoryMode": "0o700",
+  "manifestSha256": "7ce5a0fe3ea4ff3701287f8e6fa0129fc6f71b7d45f49ae6c702873b7a7892ff",
+  "scope": "Independently validated hourly snapshot. Next live sweep still in memory and not included until its normal completion/flush."
+}

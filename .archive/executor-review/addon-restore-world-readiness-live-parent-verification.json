@@ -1,0 +1,21 @@
+{
+  "kind": "parent-live-restore-readiness-verification",
+  "receiptSha256": "768b1bff5c39e09937e9205a9e385c5d8eb9594ac312696782672f6eee92397e",
+  "pngSha256": "4b5286d9f50580c01dd11b045a6be97ee923cf2be93e0f67f2bf176e18049347",
+  "boot": "1792382956-926241",
+  "sequence": 6,
+  "phase": "normal",
+  "ordinal": 0,
+  "fence": "inactive",
+  "facing": 1.4647572040557861,
+  "speed": 0,
+  "reservationId": "9a91eeda5406411564c4743b706c8235",
+  "recoveryComplete": "recovered",
+  "guardianArmed": false,
+  "controllerState": "PAUSED",
+  "controllerGeneration": 24,
+  "nativeCalibration": false,
+  "inputCalibration": false,
+  "scope": "Parent independently decoded retained PNG with production PixelDecoder and checked actual public recovery completion. Overall worker receipt marked failed_closed_after_bounded_phase because later auctioneer nameplate validation refused; recovery itself passed. AH reopen and next scan remain separate proof.",
+  "installedAgentSha256": "79aa0d6853d4122d0a968cc7b1cd8cead8cccff349afb8c698e5aee983ed9edb"
+}

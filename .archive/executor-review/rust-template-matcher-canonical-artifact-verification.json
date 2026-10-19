@@ -1,0 +1,7 @@
+{
+  "binarySha256": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+  "manifestSha256": "c3abf3d53f13e0f87165d93eaa20ebdf85133058cb2846e3a6be1c6480463085",
+  "source": "Parent rebuilt from accepted canonical MAIN source twice, byte-identical; standalone computation only",
+  "mode": "0o700",
+  "liveQualification": false
+}

@@ -1,0 +1,298 @@
+{
+  "artifact": {
+    "name": "template_matcher-v1",
+    "sha256": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+    "source_hashes": {
+      "Cargo.lock": "ea23646a59c8a3956ede087e8fea60643cbd016771f435fe84c24c467861a9b2",
+      "Cargo.toml": "3307fd9c7503479a443bbd23554958cda94343596985f9772ceba4187aeb7cd8",
+      "src/main.rs": "bb3647dc12804670d391170563284799fce7b931a07f663726767e95402b47a3"
+    },
+    "source_sha256": "2d9cb05b6a27fdfa79ab05e184c724f115b29661769b7c1b057a71bd7abedd56"
+  },
+  "composed": {
+    "dual_positive_ms": {
+      "median": 81.8904,
+      "samples": [
+        85.285,
+        81.8904,
+        81.1483
+      ],
+      "shape": "SEARCH construct + SEARCH restore"
+    },
+    "exclusive_ms": {
+      "median": 49.3854,
+      "samples": [
+        49.3854,
+        50.5428,
+        48.6469
+      ],
+      "shape": "SEARCH construct + SCORE_AT restore at construct box"
+    }
+  },
+  "inputs": {
+    "construct_sha256": "ffc07d9457c31306f35673b315d9974a06ead0d9a7fc816cd32acece325c2034",
+    "frame_sha256": "bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2",
+    "restore_sha256": "2fdbc43134b55fb2e3900cd210fae819d12f7a60d42941b7f84142ad944f7862"
+  },
+  "interval_scope": "SEARCH/SCORE_AT/composed include process startup + full stdin/stdout IPC + JSON parse",
+  "preparation_ms": {
+    "median": 63.2956,
+    "samples": [
+      64.0024,
+      63.2956,
+      62.3838
+    ],
+    "scope": "PNG decode + RGB conversion + framing and serialization"
+  },
+  "protocol": {
+    "frame": [
+      1920,
+      1080
+    ],
+    "header_bytes": 48,
+    "magic": "CRWTM001",
+    "region": [
+      1676,
+      24,
+      220,
+      84
+    ],
+    "template": [
+      98,
+      27
+    ]
+  },
+  "qualification": "caller-supplied image artifacts; computation evidence only",
+  "roles": {
+    "construct": {
+      "box": [
+        1685,
+        33,
+        98,
+        27
+      ],
+      "score_at_rival_ms": {
+        "json_parse_ms": {
+          "median": 0.0184,
+          "samples": [
+            0.0127,
+            0.0194,
+            0.0184
+          ]
+        },
+        "median": 8.332,
+        "samples": [
+          8.332,
+          8.0921,
+          9.3047
+        ],
+        "startup_ipc_ms": {
+          "median": 8.3193,
+          "samples": [
+            8.3193,
+            8.0727,
+            9.2862
+          ]
+        }
+      },
+      "score_at_rival_result": {
+        "box": [
+          1685,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 78466,
+        "status": "rejected"
+      },
+      "score_at_self_ms": {
+        "json_parse_ms": {
+          "median": 0.0139,
+          "samples": [
+            0.0116,
+            0.0139,
+            0.0269
+          ]
+        },
+        "median": 7.5325,
+        "samples": [
+          7.5107,
+          7.5325,
+          9.3632
+        ],
+        "startup_ipc_ms": {
+          "median": 7.5186,
+          "samples": [
+            7.4992,
+            7.5186,
+            9.3362
+          ]
+        }
+      },
+      "score_at_self_result": {
+        "box": [
+          1685,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      },
+      "search_ms": {
+        "json_parse_ms": {
+          "median": 0.0184,
+          "samples": [
+            0.0218,
+            0.0184,
+            0.0182
+          ]
+        },
+        "median": 40.5486,
+        "samples": [
+          39.8108,
+          42.2376,
+          40.5486
+        ],
+        "startup_ipc_ms": {
+          "median": 40.5304,
+          "samples": [
+            39.789,
+            42.2192,
+            40.5304
+          ]
+        }
+      },
+      "search_result": {
+        "box": [
+          1685,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      }
+    },
+    "restore": {
+      "box": [
+        1789,
+        33,
+        98,
+        27
+      ],
+      "score_at_rival_ms": {
+        "json_parse_ms": {
+          "median": 0.0145,
+          "samples": [
+            0.0145,
+            0.0244,
+            0.0124
+          ]
+        },
+        "median": 7.3933,
+        "samples": [
+          7.3506,
+          7.7151,
+          7.3933
+        ],
+        "startup_ipc_ms": {
+          "median": 7.3809,
+          "samples": [
+            7.3361,
+            7.6907,
+            7.3809
+          ]
+        }
+      },
+      "score_at_rival_result": {
+        "box": [
+          1789,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 78466,
+        "status": "rejected"
+      },
+      "score_at_self_ms": {
+        "json_parse_ms": {
+          "median": 0.0136,
+          "samples": [
+            0.0134,
+            0.0136,
+            0.0141
+          ]
+        },
+        "median": 7.5631,
+        "samples": [
+          7.4768,
+          7.5631,
+          7.637
+        ],
+        "startup_ipc_ms": {
+          "median": 7.5495,
+          "samples": [
+            7.4634,
+            7.5495,
+            7.6229
+          ]
+        }
+      },
+      "score_at_self_result": {
+        "box": [
+          1789,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      },
+      "search_ms": {
+        "json_parse_ms": {
+          "median": 0.0161,
+          "samples": [
+            0.0159,
+            0.0193,
+            0.0161
+          ]
+        },
+        "median": 40.5825,
+        "samples": [
+          41.6345,
+          40.4732,
+          40.5825
+        ],
+        "startup_ipc_ms": {
+          "median": 40.5664,
+          "samples": [
+            41.6186,
+            40.4539,
+            40.5664
+          ]
+        }
+      },
+      "search_result": {
+        "box": [
+          1789,
+          33,
+          98,
+          27
+        ],
+        "count": 7938,
+        "sad": 0,
+        "status": "matched"
+      }
+    }
+  },
+  "samples": 3,
+  "schema": "crowley.template-matcher-benchmark",
+  "schema_version": 1,
+  "warmups": 1
+}

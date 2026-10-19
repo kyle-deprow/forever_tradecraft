@@ -21,6 +21,10 @@ Pinned development dependencies permit offline composition before live acceptanc
 finish assigned composition tests instead of deferring them as parent verification.
 Before claiming completion, map each assigned race/deadline requirement to its
 actual regression and result; a broad green total does not cover an omitted case.
+In composed Lua/desktop fixtures, derive every served frame from the current
+client, including initial captures. Change clients only after the actual accepted
+reload action, using its written SavedVariables; assert deliberate inactive-control
+refusals separately. Fixed frame indexes or uncaused scene swaps can hide broken modes.
 Derive phase deadlines and terminal controller states from the real producer's
 lifecycle, not field names or scripted replies that preserve an earlier state.
 Trace integration failures to the actual guard before blaming development inputs;
@@ -129,6 +133,11 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   A successful probe or zero-row ingestion proves only the stages it exercised.
   A typed `/reload` and logged Enter dispatch do not establish a reload: require
   its actual boot transition and stable SavedVariables containing the exact UID.
+  Preserve the new payload after that save flush; a copy made before it contains
+  the previous scan. Bind the copy's own hash rather than a later file's hash.
+  Rebind decoder boot state only at the verified owned reload boundary, then
+  require the new boot, exact identity and expected ordinary state. Retaining the
+  old decoder can reject a healthy reload; arbitrary resets can hide boot drift.
   Reload writes the previous session before the new session consumes acknowledgements;
   a cleared in-memory queue can still appear in the saved file. Verify the written
   queue after a subsequent normal flush rather than claiming disk cleanup from chat.

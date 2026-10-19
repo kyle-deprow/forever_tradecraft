@@ -52,3 +52,68 @@ retained-frame whole-call benchmark improvement, actual helper lifecycle green,
 no unresolved concrete review finding. No live or autonomous qualification is
 inferred from offline tests. User physical GTK key/click only after native100
 and ordinary recovery complete; then three autonomous 900-second scan loops.
+
+## Sol plan arbitration: exact integration contract
+
+Parent accepts all three concrete plan findings; these details supersede earlier
+ambiguity. Source implementation waits for final component and helper-proof gates.
+
+- Add `deadline_monotonic` to match, require_exclusive, _match_at and
+  require_dual_positive. Thread the existing _capture absolute deadline through
+  every scoring call for the proof. SEARCH and SCORE_AT share it; never reset a
+  timeout between subprocesses. Refuse before spawn if expired/remaining work
+  cannot fit; kill and reap on actual expiry, including cancellation.
+- Canonical default artifact root is Path.home()/'.cache/crowley/template-matcher/v1'.
+  Production CLI `--matcher-artifact-root` wires it to the adapter injected into
+  TemplateMatcher and NativeCalibrationOperator. Parent installs the adjacent
+  runtime adapter and accepted artifact before live use. No Python fallback.
+- Code-owned immutable executable SHA256 is
+  75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c.
+  Reviewed Rust source pins are Cargo.toml3307fd9c7503479a443bbd23554958cda94343596985f9772ceba4187aeb7cd8,
+  Cargo.lockea23646a59c8a3956ede087e8fea60643cbd016771f435fe84c24c467861a9b2,
+  src/main.rsbb3647dc12804670d391170563284799fce7b931a07f663726767e95402b47a3.
+  Adjacent manifest is corroborating metadata only. Validate source pins, artifact
+  identity/private ownership/mode, and protocol; retain a verified no-follow
+  regular-file descriptor and execute that descriptor via /proc/self/fd with
+  pass_fds so a path replacement cannot swap the executable after verification.
+  Close every retained FD on all setup/runtime/cleanup paths.
+- _source_bindings binds actual runtime adapter source and the independently
+  pinned binary/three Rust sources to helper receipts. Tests compare these
+  values to independently read known artifacts and reviewed constants.
+- Start from FINAL helper proof corrections, not superseded test39f7: actual
+  DaemonClient/SessionIPC public post-success pause, actual READY/watchdog ACK
+  then expired pre-GO first-key budget with zero action records, and exact
+  independently calculated receipt source/artifact hashes. Preserve these
+  assertions in the actual compiled causal full helper run with final addon79.
+- Retain and rerun actual-frame benchmark THROUGH the new Python adapter and
+  TemplateMatcher exclusive/dual call shapes, including PNG preparation,
+  source/artifact verification, serialization, process startup/IPC/parse. Pin
+  runner/argv/fixture hashes and assert reference decisions. Component timings
+  alone do not prove integration latency. A focused test command with supplied
+  private fixture paths may serve as the reproducible runner; no private images
+  enter git. Parent independently reproduces final integration evidence.
+
+## Independent preparation stage
+
+To avoid idle time while final component reviews and helper test-proof closure
+finish, stage A may implement ONLY new tools/template_matcher_runtime.py and
+tests/test_template_matcher_runtime.py in rust-matcher-runtime-integration-20261019.
+The seven frozen scorer files and the old helper pair are read-only contract
+inputs. Use parent independently built release for isolated tests. No helper
+integration, promotion or live use before component acceptance and final helper
+proofs. Stage B later owns the remaining helper/test edits using the finalized
+proof baseline. This changes ordering only; reviewed trust/deadline/proof
+requirements and all deployment gates remain in force.
+
+## Parallel helper wiring preparation
+
+Component is now final Sol+Opus READY, parent31checks/reference benchmark green;
+standalone adapter final Sol READY and parent16checks green. While the independent
+helper-proof fixture correction finishes, the integration worker may wire the
+helper production source in its isolated integration worktree and run focused
+matching checks. Leave _record_operation_deadline unchanged there; the parent
+will bring in the narrow finalized deadline-method correction with the corrected
+helper test baseline. Do not edit the older helper test file before that handoff.
+No full-helper claim, final review, deployment or live use until the exact final
+proof tests and deadline method are incorporated and run. The two worktrees do
+not share editable source files. This preparation changes ordering only.
