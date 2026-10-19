@@ -276,6 +276,9 @@ within existing authorization; respect any current movement limits.
   a fast producer alone does not establish the publication sampling budget.
   Before retrying a skipped update, retain bounded per-attempt timing and the
   offending crop before normal cleanup removes transient evidence.
+  Timing regressions must traverse configured backends and production hook
+  call sites. Manual span contexts or stock-capture fixtures cannot qualify
+  timing attribution for a configured producer.
 - If an action has no visible effect, diagnose foreground, coordinates, and input
   delivery before repeating it. Repeated Play clicks can create duplicate clients.
   Another player's bar can physically hide an NPC label; OCR filtering cannot

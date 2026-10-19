@@ -198,3 +198,19 @@ or remains a budget hypothesis. It must identify any retained offending frame,
 all source/binary pins, and the exact cleanup result. This plan is complete only
 after parent verification and the Sol/Opus review gates; writing the plan does
 not authorize implementation or a live retry.
+
+## Approved R3 test-only scope exception
+
+Sol and parent approve extending only
+`tests/test_native_calibration_operator.py` in the existing actual composed
+operator success test. This already runs the real NativeCalibrationRunner,
+daemon provider, configured X11Backend and compiled region producer for100
+updates. Assert same-attempt ordered finite five identity spans, correct fresh
+receipt digest/nonce/retirement, release outcome and same-thread latency-sink
+restoration. This exception adds only the fifth test file; the original four-file
+scope still permits the accepted narrow diagnostic correctness fixes from R2.
+No application-helper change or identity optimization is authorized.
+The four R2 source/test pins remain frozen while this independent fifth-file
+test edit and check run. R3 reviews cover the assertion delta, its actual success-case result, and the
+accepted narrow R2 diagnostic correctness fixes before installation. Do not duplicate the fixture
+or replace the production configured-producer path with a stock fallback.

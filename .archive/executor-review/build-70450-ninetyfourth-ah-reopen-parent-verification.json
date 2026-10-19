@@ -1,0 +1,26 @@
+{
+  "status": "PASS",
+  "qualification": "Complete operator-assisted cycle; no autonomous engine qualification.",
+  "uid": "beta-normal-alliance-1792402769-Arthur-1155",
+  "rawReceiptSha256": "92373cf43c4787b824e290b56e285293cbf09fab20a5ef36a6310c5444d98062",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "16384223c00dd4ae800e1d21d5738b7fbd3d898b9df75165b0e498d062852f70",
+  "boot": "1792403287-486448",
+  "sequence": 87,
+  "ahOpen": true,
+  "pending": 0,
+  "loadedExactAck": true,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "buttonReleased": true,
+  "characterSpeed": 0,
+  "nextDueAt": 1792403669,
+  "verifierSha256": "bf57866245fffaaaa32b496152aa44ce62bdd61b09408eb10947f6cf7a3c5b2d",
+  "compoundReceipt": {
+    "initialSaveAckReceiptSha256": "8543c1c98239416ac0014e84879998a412f48b20b1b65bf6fa1d0675c050e8a9",
+    "successfulReopenReceiptSha256": "83feee7d5220d08b474d07d0f3d5064dfa60a4f198c7ef08d4ef259079c8a22f",
+    "firstReopenAttempt": "failed: old point hovered player",
+    "freshPointRecovery": "separate verified auctioneer point; one guarded successful pulse"
+  }
+}

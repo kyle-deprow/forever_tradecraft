@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 09:36 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 09:59 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -45,14 +45,16 @@ observations; no buying, posting or cancelling is part of this task.
   No service restart was needed. Gen29 fresh preflight passed; resume returned30. Native measurement then
   failed at requested update4 observing update5; pause returned31. Native/input
   remain false. Parent independently decoded the ordinary post-failure frame. Sole GUI
-  reopened AH and #93 is fully verified after an exact900s interval from #92. Next due
-  1792402769 (09:39:29 UTC). Diagnostic-only implementation is isolated;
+  reopened AH and #94 is fully verified after exact900s intervals from #92 through #94.
+  #95 started1792403669 (09:54:29 UTC), exact900s after #94.
+  Diagnostic-only implementation is isolated;
   parent runtime12 and actualrunner1 checks pass. Sol source review R1
   requests exact backend identity timings and truthful unlink outcomes.
-  Actual Opus R1 is NEEDS WORK: source binding, single capture path,
-  write-failure visibility and real reporting/release tests. Luna R2 fixes
-  accepted findings in the isolated worktree. No new daemon/calibration source
-  is installed. #94 started1792402769, exact900s after #93.
+  R2 parent14 runtime and5native checks pass. Sol and actual Opus R2
+  confirm production guard/timing hooks, but require actual configured-producer
+  composition proof. Luna R3 extends the existing real composed helper success
+  test and closes narrow logging/startup/cleanup diagnostic defects. No new
+  daemon/calibration source is installed.
   Read actual status before every transition.
   Do not restart merely to inspect this handoff.
 - Current work must preserve fresh evidence generations, exact commands, and
@@ -61,19 +63,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #93 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792401869-Arthur-5933`:
+Parent verification #94 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792402769-Arthur-1155`:
 
-- 428 observations, 2,014 rows, 419 full and 9 bounded observations, all `ok`;
-- 481-second scan, 46.604228 seconds from finish to the server receipt;
+- 428 observations, 2,043 rows, 419 full and 9 bounded observations, all `ok`;
+- 481-second scan, 24.480017 seconds from finish to the server receipt;
 - exact saved-variable/server digest agreement, independently decoded loaded
   ACK with pending 0, followed by AH reopening; normal native phase,
   inactive fence, released button and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-ninetythird-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-ninetythird-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-ninetyfourth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-ninetyfourth-ah-reopen-parent-verification.json).
 
-#92 is fully verified (428 observations/2,012 rows), and #93 started exactly
-900s later. #91 was fully verified before calibration: 428 observations/2,047 rows,
+#92 and #93 are fully verified (428 observations/2,012 and2,014 rows).
+#94 started900s after #93; its initial reopen hovered a player and failed,
+then a fresh-point guarded pulse succeeded. Both original receipts are
+preserved and linked by compound parent proof. #95 started900s after #94. #91 was fully verified before calibration: 428 observations/2,047 rows,
 419 full/9 bounded, exact900s start interval after #90. Its first reopening
 failed; a separate fresh-point click succeeded and both originals are preserved
 in its compound parent proof. #92 started1773s after #91 (873s late) due to
@@ -330,7 +334,7 @@ ordinary recovery pass.
 Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
-1. Luna has completed #93 save/upload/ACK/reopen; parent independently verified
+1. Luna has completed #94 save/upload/ACK/reopen; parent independently verified
    the original payload, DB, exact ACK, ordinary state and released controls.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.
