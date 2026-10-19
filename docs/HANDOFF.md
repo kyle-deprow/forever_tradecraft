@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 16:33 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 16:46 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,20 +51,20 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#120**:
+Latest fully parent-verified cycle **#121**:
 
-- UID `beta-normal-alliance-1792426911-Arthur-7320`;
-- start1792426911, finish1792427392:481s;428 observations/1,991 rows;
+- UID `beta-normal-alliance-1792427811-Arthur-6177`;
+- start1792427811, finish1792428287:476s;428 observations/1,999 rows;
 - 412 full/16 bounded, all428 `ok`, zero query failures;
-- exactly900s after119;52.473916s finish-to-server receipt;
+- exactly900s after120;34.339005s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredtwentieth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentieth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredtwentyfirst-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentyfirst-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792427811 (16:36:51UTC). Sole operator continues full
+Next ordinary deadline1792428711 (16:51:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..120 all have verified exact900s starts.
+or physical-input retry yet. Scans108..121 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
@@ -173,11 +173,26 @@ tests/test_native_calibration_operator.py::test_actual_operator_measure_composes
 ```
 
 [Sol R3 READY](../.archive/executor-review/native-capture-ack-sol-source-r3-review.json),
-all six pins checked before/after; no new Must/Should/Nits. Actual Opus R2 is
-RUNNING, resolved `claude-opus-5-5`, no approval claimed. Private runner/evidence
-`native-ack-source-opus-r2-20261019/`, attached session30198; poll at most30s.
-Reviews focus on preserved R7-to-final correction plus affected context.
-Do not install until actual Opus verdict and all final source pins are accepted.
+all six pins checked before/after; no new Must/Should/Nits. Actual Opus R2
+completed exit0 as `claude-opus-5-5`, six pins unchanged. It found production
+correct, but returned NEEDS WORK for a test fixture publishing fake PGID999999
+to a real watchdog kill list. [Full review](../.archive/executor-review/native-capture-ack-opus-source-r2-review.md).
+
+The [final test safety correction](../.archive/PLAN-native-ack-watchdog-fixture-closure.md)
+is frozen. Native test final SHA `dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6`;
+runtime test final SHA `d7da65ad2f1704357ef94e15c2acffb93dfdc5481df494fee5a403801723c96e`.
+The other four R2 files above remain exact. An owned live group replaces the
+fake PGID; finally restores/republishes all three injected fault states before
+holder termination/reap, even after failure. Baseline outcomes and comment fixed.
+Parent reproduced affected3 in8.69s, baseline in46.10s and scoped static checks.
+Production/operator bytes and runtime AST outside baseline are unchanged:
+[test-delta proof](../.archive/executor-review/native-ack-test-safety-parent-verification.json).
+Earlier full100/seven-model evidence remains bound to original R2 test hashes.
+[Sol R4 READY](../.archive/executor-review/native-capture-ack-sol-test-safety-r4-review.json); actual Opus R3 bounded test-delta review is running. No installation yet.
+Private final freeze: `native-ack-source-r2-test-safety-r3-20261019/final-test-safety-r3.json`;
+parent logs: `native-ack-test-safety-parent-20261019/`;
+actual reviews: `native-ack-source-opus-r2-20261019/` and
+`native-ack-test-safety-opus-r3-20261019/`.
 
 Earlier partial/rejected candidates remain historical evidence:
 [Sol R1](../.archive/executor-review/native-capture-ack-sol-source-r1-review.json),
@@ -195,8 +210,9 @@ fixture; it is not a concurrent real-C producer race proof.
 
 ## Next live gates, in order
 
-1. Parent offline checks and Sol approval are complete; obtain actual Opus R2
-   source approval. Finish current ordinary save/ACK/reopen chain; sole GUI owner closes
+1. Parent offline checks and Sol approval are complete; obtain actual Opus final
+   source/test approval after the fixture correction. Finish current ordinary
+   save/ACK/reopen chain; sole GUI owner closes
    AH with fresh pending0/ordinary/released evidence. Promote exact accepted six
    files and restart daemon while quiescent. Use new PID/generation, never stale
    bindings. Main has no conflicting changes in these six files since1cbaadf.

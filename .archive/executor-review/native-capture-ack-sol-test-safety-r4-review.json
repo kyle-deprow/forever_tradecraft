@@ -1,0 +1,19 @@
+{
+  "reviewer": "gpt-5.6-sol",
+  "round": "R4 bounded test safety delta",
+  "status": "READY",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "946e02bd467cecb7d720181e032bb54c2fc280076c884e406f680b51ab085d50",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6",
+    "tests/test_session_runtime.py": "d7da65ad2f1704357ef94e15c2acffb93dfdc5481df494fee5a403801723c96e"
+  },
+  "hashesVerifiedBeforeAndAfter": true,
+  "mustFix": [],
+  "shouldFix": [],
+  "nits": [],
+  "summary": "Owned live process group replaces synthetic PGID. Finally restores and republishes all three injected Guardian states before holder termination/reaping; original failure preserved. Baseline pins actual protocol refusal and successful over-budget reduced mode; owner-validation comment corrected. Four production/operator files unchanged.",
+  "qualification": "Source review only; parent test evidence in native-ack-test-safety-parent-verification.json. Live qualification pending."
+}

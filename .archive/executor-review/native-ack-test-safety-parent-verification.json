@@ -1,0 +1,50 @@
+{
+  "status": "PASS",
+  "qualification": "Test-only final safety delta; prior full integration/model evidence remains bound to original R2 hashes. Live native, input and autonomous qualification pending.",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "946e02bd467cecb7d720181e032bb54c2fc280076c884e406f680b51ab085d50",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6",
+    "tests/test_session_runtime.py": "d7da65ad2f1704357ef94e15c2acffb93dfdc5481df494fee5a403801723c96e"
+  },
+  "manifestSha256": "68da77714c00eee2492b4b6b35da689a15fab64356161ee14dcae4b73f5928b6",
+  "parentRunnerSha256": "40eeaace4b73b93b60b5fbadf302d14aa3ac004bc79cb9cbdfa0ebf81cbeeb25",
+  "patchSha256": "115faf6422ef54d170c6af4607dc8632df0380a5e1c3d5d1f05b204fa3cb543f",
+  "unchangedProductionAndOperator": true,
+  "sevenCaseRuntimeAstUnchanged": true,
+  "priorFullEvidence": "native-ack-final-r2-parent-verification.json",
+  "checks": {
+    "typed": {
+      "job": "typed",
+      "returncodes": [
+        0
+      ],
+      "wallSeconds": 8.980577620997792,
+      "sourceUnchanged": true,
+      "logSha256": "41366fa89f79b2fc628f390ec739111ec4dca7991073086e09ec7c2cc730a1aa"
+    },
+    "baseline": {
+      "job": "baseline",
+      "returncodes": [
+        0
+      ],
+      "wallSeconds": 46.39596257600351,
+      "sourceUnchanged": true,
+      "logSha256": "425fc718d6ea06a81ed82b341c766e0a1d09b17b2268e3488f57ba6f7bdee716"
+    },
+    "static": {
+      "job": "static",
+      "returncodes": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "wallSeconds": 0.3260927189840004,
+      "sourceUnchanged": true,
+      "logSha256": "afa20b27dacc9bf0aba3c1d265964c21e04ab42f6e39e2dd4769718ceded003a"
+    }
+  }
+}
