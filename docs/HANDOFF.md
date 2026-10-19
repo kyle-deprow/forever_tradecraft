@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 01:39 UTC. Repository: `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 01:44 UTC. Repository: `/home/dev/repos/pegasus`.
 Origin: https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley
 package, addon and configuration names remain intentional.
 
@@ -39,13 +39,13 @@ recipe economics, useful shopping lists and launch monitoring remain later work.
 - Canonical daemon is **PAUSED/gen23/unqualified**, neither candidate promoted.
   Collection has been **operator-assisted**; repeated900s starts do not qualify
   autonomous save/upload/ACK/reopen.
-- Latest independently verified sweep **67**:
-  `beta-normal-alliance-1792372610-Arthur-5387`, start01:16:50UTC,
-  428 observations/2381rows/407full/21bounded/zero incomplete; start interval900s.
+- Latest independently verified sweep **68**:
+  `beta-normal-alliance-1792373510-Arthur-5376`, start01:31:50UTC,
+  428 observations/2336rows/406full/22bounded/zero incomplete; start interval900s.
   Parent checked source hash, logical DB digest and production-decoded exact ACK.
-  Server receipt19.661469s after finish; loaded ACK boot1792373119-201248/pending0.
-  AH reopened;68 naturally started01:31:50UTC, ordinal253 at01:36:29.
-  Starts64–68 were exact900s intervals;68 completion remains pending.
+  Server receipt37.676346s after finish; loaded ACK boot1792374030-168938/pending0.
+  AH reopened and addon scheduled69 for01:46:50UTC.
+  Starts64–68 were exact900s intervals; qualification remains operator-assisted.
 - Read-only totals:75 sweeps/32100 observations/179664rows, latest receipt
   2026-10-19T01:25:03.661469UTC (parent queried01:37). Historical sweeps included.
 - GNOME login-keyring modal blocked AH reopen and dimmed the binary HUD. A typed
@@ -204,7 +204,7 @@ All failures retained; no broad blind retry. R8 actual Opus and both Sol reviews
 NEEDS WORK; accepted findings are in R9 plan. Earlier helper Opus MAJOR ISSUES.
 New actual CLI review sessions must remain attached/polled <=30s, no fallback;
 rawJSONL0600 stays private.
-Main **6dade3e** is pushed, including the consolidated handoff and curated current
+Main **c1399be** is pushed, including the consolidated handoff and curated current
 plans/review/recovery evidence. Use git log for later HEADs.
 Frozen candidate SOURCE is also pushed as `checkpoint/executor-20261018` commit
 `aa5f76d`: exact seven final R9/private-fixture files; old failed helper pair from
