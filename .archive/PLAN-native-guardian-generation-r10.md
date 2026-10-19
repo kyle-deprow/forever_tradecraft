@@ -117,3 +117,24 @@ This is FINAL arbitration. Finish focused mapped cases, then final relevant nati
 suites/named runtime once on final source and scoped checks, preserving all logs
 and four read-only hashes. Parent independently verifies and obtains focused Sol
 and actual Opus review of R9-to-R10 delta. No source acceptance/live gate yet.
+
+## Fixture reuse clarification (root, 01:48 UTC)
+
+To avoid copying the large private Shell setup into the regression module, the
+test_session_native.py exception also permits a bounded addition to the existing
+`test_compiled_region_composes_through_default_daemon_and_stock_model` fixture:
+reuse its actual pinned producer/private bus/X11Backend to prove the required
+public-owner Guardian-generation orderings in PAUSED and NATIVE_CALIBRATION.
+Existing assertions/coverage and isolation must remain intact; no wider fixture
+rewrite, new framework, timing allowance or production-file scope expansion.
+The surrogate /bin/sleep regression may remain supplementary, but cannot replace
+this required compiled-producer proof. Run newly affected focused case(s), then
+the final relevant suites once the source and proof are final.
+
+Verification economy: if the already-running full native suites pass on the final
+production source, do not repeat all three merely for the bounded compiled-proof
+addition. Run the changed compiled cases and any affected tests on the final
+bytes, retain both exact hash sets/commands, and describe separate invocations
+accurately. Production changes or relevant failures still require appropriate
+rechecks. Parent checks the actual delta and coverage; never invent one combined
+run total. This supersedes any blanket requirement to rerun unaffected suites.

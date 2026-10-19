@@ -1,0 +1,145 @@
+{
+  "authenticCli": {
+    "path": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1",
+    "version": "codex-cli 0.162.1"
+  },
+  "baseCommit": "6dade3ea22c70f97d52fa768d4199440dda6e275",
+  "baseSha256": {
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_runtime.py": "9d634f603968e85c253dfc4116102deedb09fc18e2ed6b5542c3c1b0d2d64868",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "broadRunSourceSha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "tests/test_session_native.py": "96d4bb180bc7c47c4a84353a66c335316849636b444d2fe9116b059842ed26ad",
+    "tests/test_session_native_regressions.py": "337ec332e4019e87e603c8086179982b19c0be2d118e7e0baf6fa959f81cec5a",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "checks": {
+    "focusedPostFormat": {
+      "caseIds": [
+        "test_native_context_rejects_existing_owner_without_guardian_generation",
+        "test_native_snapshot_rejects_live_guardian_generation_drift",
+        "test_completed_worker_cannot_publish_into_next_operation_record[complete]",
+        "test_completed_worker_cannot_publish_into_next_operation_record[error]",
+        "test_completed_worker_cannot_flip_next_starting_operation_record",
+        "test_public_input_start_owns_record_and_publishes_worker_error",
+        "test_public_input_start_rejects_cross_kind_worker_while_starting",
+        "test_native_recovery_restart_refuses_live_reservation",
+        "test_native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure[finalize-archive]",
+        "test_native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure[finalize-state]",
+        "test_native_construction_composes_real_png_runner_and_finalize[False-guardian]",
+        "test_real_session_daemon_native_provider_route_and_stock_model_capture",
+        "test_compiled_private_owner_guardian_generation_revoke_orders[True]",
+        "test_compiled_private_owner_guardian_generation_revoke_orders[False]"
+      ],
+      "invocation": "PYTHONPATH=src pytest -q <11 mapped R10 case IDs>",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-generation-r10-20261019/focused-r10-postformat.log",
+      "result": "14 passed in 72.11s",
+      "sha256": "c9d0f58c908c500bfd5d0b4d1941a21fdaac83656a6c2927ea7a44ae18bea66e"
+    },
+    "fullNativeThreeSuitesFinal2": {
+      "invocation": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=src pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py --disable-warnings",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-generation-r10-20261019/full-native-three-suites-r10-final2.log",
+      "note": "Run completed on final production source and pre-format regression bytes; post-format changed only test layout and was covered by focusedPostFormat.",
+      "result": "367 passed in 532.50s (0:08:52); exit_code=0",
+      "sha256": "7b7159af509e1f4677fcd2ea45159feee052771fa94ea73343e67e21c2a2aa9b"
+    },
+    "namedRuntimeMeter": {
+      "invocation": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=src pytest -q tests/test_session_runtime.py -k default_native_meter_binds_real_child_and_closes_on_retry",
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-generation-r10-20261019/named-runtime-meter-r10-final.log",
+      "result": "1 passed, 14 deselected in 0.49s; exit_code=0",
+      "sha256": "98adba2037388c345f62033bab6d5b12884b5b088a9249481e4491d0c767e284"
+    },
+    "scopedStaticsFinal2": {
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-generation-r10-20261019/static-r10-final2.log",
+      "result": "ruff format --check, ruff check, compileall, and git diff --check passed; exit_code=0",
+      "sha256": "1d05080bb10c2a4ba07d816f65aba3a504f17239e50190eafed94cfefbb889c0"
+    },
+    "supersededCandidate": {
+      "failures": [
+        "test_native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure[finalize-archive]",
+        "test_native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure[finalize-state]",
+        "test_native_construction_composes_real_png_runner_and_finalize[False-guardian]"
+      ],
+      "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-generation-r10-20261019/full-native-three-suites-r10-final.log",
+      "result": "362 passed, 3 failed in 558.78s; superseded before final2 by live-generation check and test-contract correction",
+      "sha256": "2441577fa4f65764f7bceb1d35e4b54ceca082ced770804aa8820ae59ff06b3d"
+    }
+  },
+  "finalSha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "tests/test_session_native.py": "96d4bb180bc7c47c4a84353a66c335316849636b444d2fe9116b059842ed26ad",
+    "tests/test_session_native_regressions.py": "bc6cc3b7a9f4435b93cf921ac57d6db8ea23dd611190f2e5f9749f3bf53c6819",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "fixtureAndEvidence": {
+    "directoryMode": "0700",
+    "evidenceDirectory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-generation-r10-20261019",
+    "logMode": "0600",
+    "noLiveCaptureOrDeployment": true,
+    "supplementalSleepProof": "Retained as unit-only additional coverage; not used as the required compiled producer proof."
+  },
+  "implementation": [
+    "Captured immutable Guardian generation on provisional/inflight owner creation and carried it through private capability matching, recovery tickets, and actual Guardian-locked pre-Popen admission.",
+    "Snapshot validation now separately compares live Guardian generation under its real lock to the immutable owner fact; ownerless legacy context creation may sample current generation, while malformed existing owners fail closed.",
+    "Added lifecycle identity barriers for old complete/error workers and a next-record starting variant; covered public input running/error publication and cross-kind starting refusal.",
+    "Added live preflight-reservation recovery-restart refusal and restored the named real-daemon NATIVE/non-X11 assertion before STOPPED.",
+    "Added real pinned compiled producer/X11Backend/private Shell tests for both Guardian revoke orders and a real NATIVE_CALIBRATION configured capture before PAUSED owner admission."
+  ],
+  "postFormatSourceSha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "tests/test_session_native.py": "96d4bb180bc7c47c4a84353a66c335316849636b444d2fe9116b059842ed26ad",
+    "tests/test_session_native_regressions.py": "bc6cc3b7a9f4435b93cf921ac57d6db8ea23dd611190f2e5f9749f3bf53c6819",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "readOnlyFiles": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_transitions.py",
+    "tests/test_session_runtime.py"
+  ],
+  "review": {
+    "actualOpusRereview": "required",
+    "liveOrNative100Claim": false,
+    "parentReverification": "required",
+    "solRereview": "required"
+  },
+  "schema": 1,
+  "sourceFence": [
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/cli.py",
+    "tests/test_session_native.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_transitions.py",
+    "tests/test_session_runtime.py"
+  ],
+  "stage": "native-guardian-generation-r10",
+  "status": "bounded-source-proof-complete-parent-review-pending",
+  "testOnlyPostBroadDelta": {
+    "change": "Ruff formatting only after final2 broad run; no production bytes changed",
+    "file": "tests/test_session_native_regressions.py",
+    "verification": "focusedPostFormat 14 passed; scopedStaticsFinal2 passed"
+  },
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-guardian-generation-r10-20261019",
+  "writableFiles": [
+    "src/crowley/session/daemon.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_native.py"
+  ]
+}

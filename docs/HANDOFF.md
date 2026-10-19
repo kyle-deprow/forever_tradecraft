@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 01:44 UTC. Repository: `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 02:04 UTC. Repository: `/home/dev/repos/pegasus`.
 Origin: https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley
 package, addon and configuration names remain intentional.
 
@@ -39,15 +39,15 @@ recipe economics, useful shopping lists and launch monitoring remain later work.
 - Canonical daemon is **PAUSED/gen23/unqualified**, neither candidate promoted.
   Collection has been **operator-assisted**; repeated900s starts do not qualify
   autonomous save/upload/ACK/reopen.
-- Latest independently verified sweep **68**:
-  `beta-normal-alliance-1792373510-Arthur-5376`, start01:31:50UTC,
-  428 observations/2336rows/406full/22bounded/zero incomplete; start interval900s.
+- Latest independently verified sweep **69**:
+  `beta-normal-alliance-1792374410-Arthur-0644`, start01:46:50UTC,
+  428 observations/2312rows/410full/18bounded/zero incomplete; start interval900s.
   Parent checked source hash, logical DB digest and production-decoded exact ACK.
-  Server receipt37.676346s after finish; loaded ACK boot1792374030-168938/pending0.
-  AH reopened and addon scheduled69 for01:46:50UTC.
-  Starts64–68 were exact900s intervals; qualification remains operator-assisted.
-- Read-only totals:75 sweeps/32100 observations/179664rows, latest receipt
-  2026-10-19T01:25:03.661469UTC (parent queried01:37). Historical sweeps included.
+  Server receipt20.646572s after finish; loaded ACK boot1792374917-236578/pending0.
+  AH reopened;70 naturally started02:01:50UTC and is advancing normally.
+  Starts64–70 were exact900s intervals; qualification remains operator-assisted.
+- Read-only totals:77 sweeps/32956 observations/184312rows, latest receipt
+  2026-10-19T01:55:05.646572UTC (parent queried01:56). Historical sweeps included.
 - GNOME login-keyring modal blocked AH reopen and dimmed the binary HUD. A typed
   targetexact command was NOT submitted; receipt records open_chat and typing, so
   do not repeat the worker's inaccurate no-input claim. One Xwayland Cancel click
@@ -118,9 +118,27 @@ missing/None resume sequence negatives. Final Opus arbitration is appended to
 R10 plan; no hold remains. It adds immediate/starting worker-record assertions,
 public input-start/cross-kind proof, actual NATIVE configured gate, live-reservation
 recovery overlap, restored legitimate non-X11 assertion and accurate evidence map.
-Finish focused proofs then final suites once. No service/GUI changes.
+R10 freeze/closure now exist; worker367passes/532.50s, separate14 post-format
+  focused passes and named runtime pass. Parent independently25passes/201.87s
+  plus scoped statics/import origins/four read-only/source/log hashes verified.
+  Root REJECTED compiled-proof completion: revoke-first waits for owner deletion
+  and refuses at outer capability guard; separate bare NATIVE capture has no
+  native owner/capability. No source acceptance. Four orphaned pytest trees gone.
+  No service/GUI changes.
 Legacy read-only stock-capture dispatch remains explicitly deferred; strong input
 fencing claims apply to the configured producer used for qualification.
+
+**Active proof-only R10b:** same worker, fresh
+`native-guardian-proof-r10b-20261019`, base d1e3edc with seven exact frozenR10 files.
+Read [the narrow plan](../.archive/PLAN-native-guardian-proof-r10b.md). ONLY the new
+compiled test/tiny helper/import in test_session_native.py writable; six others
+read-only. Four cases: PAUSED public preflight or NATIVE public measure prepare
+then bootstrap, each revoke-first/admission-first. Forwarding real Guardian
+admission barrier holds actual controller/construction locks; real revoke must
+bump generation while normal owner clear is still blocked. Require exact new
+Guardian-generation error and zero real starts; admission-first actual compiled
+child must reap. No broad suite repeat/source change. Parent final four-case
+check plus focused Sol/actual Opus review follow; no live calibration yet.
 
 **Frozen native fixture isolation:** same worker, separate
 `native-r9-private-fixture-20261019`, basefb129d0, seven exact final R9 files copied.
@@ -204,13 +222,14 @@ All failures retained; no broad blind retry. R8 actual Opus and both Sol reviews
 NEEDS WORK; accepted findings are in R9 plan. Earlier helper Opus MAJOR ISSUES.
 New actual CLI review sessions must remain attached/polled <=30s, no fallback;
 rawJSONL0600 stays private.
-Main **c1399be** is pushed, including the consolidated handoff and curated current
+Main **d1e3edc** is pushed, including the consolidated handoff and curated current
 plans/review/recovery evidence. Use git log for later HEADs.
-Frozen candidate SOURCE is also pushed as `checkpoint/executor-20261018` commit
-`aa5f76d`: exact seven final R9/private-fixture files; old failed helper pair from
-parentdacefb9 remains explicitly unaccepted. Nine curated source files only, no
-raw/private evidence. It is an UNACCEPTED recovery checkpoint; both R9 reviews NEEDS WORK;
-canonical main production source/runtime is not promoted.
+Frozen candidate SOURCE is pushed as `checkpoint/executor-20261018` commit
+`c83b6ca`: exact seven frozen R10 files; old failed helper pair remains unchanged
+and explicitly unaccepted. Previousaa5f76d preserves R9. Nine curated source
+files only, no raw/private evidence. This is an UNACCEPTED recovery checkpoint;
+R10b proof plus independent reviews/helper acceptance remain pending. Canonical
+main production source/runtime is not promoted.
 
 Read-only live pin precheck23:40: configured authentic CLI0.162.1 SHA628e3548,
 producer SHAcb938cab matches config/user1000/mode0700; live daemonPAUSED/gen23,
