@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 13:03 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 13:15 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -50,8 +50,9 @@ observations; no buying, posting or cancelling is part of this task.
   2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
   parent-verified. #101 through #106 are also fully parent-verified; all started
   on exact900s deadlines. After #106 the client disconnected (WOW51900319).
-  #107's1792414861 deadline will be late. Sole GUI operator is performing normal
-  authorized reconnect; no new complete scan is claimed.
+  Normal reconnect succeeded without credentials. Parent decoded retained reopen
+  bytes: #107 started1792415211,350s late; nextdue1792416111. It is still running;
+  no new complete scan is claimed.
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -73,7 +74,7 @@ Parent verification #106 completed the operator-assisted scan for UID
 - [scan verification](../.archive/executor-review/build-70450-onehundredsixth-scan-parent-verification.json)
   and [reopen verification](../.archive/executor-review/build-70450-onehundredsixth-ah-reopen-parent-verification.json).
 
-#107 was due1792414861; ordinary reconnect recovery is underway.
+#107 started1792415211,350s late due to disconnect/recovery; nextdue1792416111.
 #105 is fully verified:428observations/2,067rows/416full12bounded/allok,
 481s scan,22.672271s finish-to-serverreceipt,exact900s after104.
 #104 is fully verified:428observations/2,061rows/415full13bounded/allok,
@@ -479,6 +480,24 @@ no new OOM event/cause is established. Sole GUI owner may reconnect normally,
 including the already-authorized standard launcher path if required, then restore
 Arthur at IF AH and full ordinary chains with fresh identity/generation evidence.
 
+Sol completed that diagnostic assessment: admissions1s apart produce994ms
+between shots in the pinned alternating vector. The pre-backend rolling target
+is insufficient. The fixture also misplaces producer/glue charges, measures
+provider acceptance rather than pixel sampling, and omits old deferred owner
+validation. The new [capture ACK alignment plan](../.archive/PLAN-native-capture-ack-alignment.md)
+is a draft under Sol review. It proposes a narrowly scoped private driver
+pre-ACK hook and six named files; no production edits authorized yet. Luna may
+correct ONLY the runtime fixture, parameterize the cases and retain one honest
+logged alternating failure with all-shot timeline against preserved source.
+All further long runs must retain exact output and pins; no phase/vector tuning.
+
+Normal reconnect and Enter World succeeded without credentials. Parent verified
+[reopen payload bytes](../.archive/executor-review/build-70450-post106-reconnect-parent-verification.json),
+boot1792415028-366418/sequence169/ordinary normal0/inactive/pending0/speed0/AHopen
+and107start1792415211. The receipt lacks per-capture monotonic timing, so this
+does not establish independent freshness or calibration qualification. The
+start interval after106 is1250s,350s late due to disconnect/recovery.
+
 ## Next live gates
 
 Run these gates in order, preserving the fresh generation and the exact command
@@ -523,8 +542,8 @@ release, source, review, and verification pins. Relevant records include:
 - [OCR R2 production verification](../.archive/executor-review/native-chat-ocr-r2-final-parent-verification.json);
 - [#85 scan verification](../.archive/executor-review/build-70450-eightyfifth-scan-parent-verification.json);
 - [#85 reopen verification](../.archive/executor-review/build-70450-eightyfifth-ah-reopen-parent-verification.json);
-- [latest backup verification](../.archive/executor-review/market-backup-20261019T121141Z-parent-verification.json),
-  independently validated through scan103; next hourly backup due about13:11 UTC.
+- [latest backup verification](../.archive/executor-review/market-backup-20261019T131230Z-parent-verification.json),
+  independently validated through scan106; next hourly backup due about14:12 UTC.
 
 Private raw frames, receipts, process logs, command histories, and backup
 contents stay under their existing private evidence directories and must not be

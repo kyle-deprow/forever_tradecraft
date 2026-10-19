@@ -1,0 +1,22 @@
+{
+  "status": "RECOVERED;107 started, not completed",
+  "rawReceiptSha256": "4ea4770f1edd6f780bd09f770e9e0e9a8c0340d208feb35f6df8f0fab58303aa",
+  "imageSha256": "4c79c4066c7dc30757aac3617156994224fe34dce1b8826ad901d3fc41f3e8aa",
+  "parentIndependentProductionDecode": true,
+  "boot": "1792415028-366418",
+  "sequence": 169,
+  "ahOpen": true,
+  "pending": 0,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "characterSpeed": 0,
+  "buttonReleased": true,
+  "scan107Start": 1792415211,
+  "prior106Start": 1792413961,
+  "startIntervalSeconds": 1250,
+  "lateSeconds": 350,
+  "nextDueAt": 1792416111,
+  "decodeLimit": "Receipt retains no per-capture monotonic time. Parent validates payload bytes only with neutral decode timestamp; no independent freshness/calibration qualification claimed.",
+  "qualification": "Operator-assisted recovery. Native100/input/autonomous qualification pending."
+}
