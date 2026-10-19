@@ -1,0 +1,41 @@
+{
+  "status": "PASS",
+  "qualification": "Operator-assisted saved/uploaded/exact ACK-loaded/reopened chain. ACK loaded on first owned save reload; no separate ACK reload. Original strict-pending timeout and stale immediate reopen sample preserved. No autonomous qualification.",
+  "uid": "beta-normal-alliance-1792449528-Arthur-2813",
+  "rawReceiptSha256": "7eb00b8a921625f7dd914c3d53fe3926900d56c1c4e7a3c8d41db51d63d7f8ce",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "c2bedd7010ba89c1c977e2e7d15e58141d1b9950bc09ca76f188c9dad084daaf",
+  "boot": "1792450040-208907",
+  "sequence": 72,
+  "ahOpen": true,
+  "pending": 0,
+  "loadedExactAck": true,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "buttonReleased": true,
+  "characterSpeed": 0,
+  "nextDueAt": 1792450428,
+  "verifierSha256": "bf57866245fffaaaa32b496152aa44ce62bdd61b09408eb10947f6cf7a3c5b2d",
+  "retainedEvidenceComposition": {
+    "kind": "Retained evidence composition, no new game flow",
+    "reason": "Exact ACK loaded on first owned save reload before strict-pending observation; later independent retained frame proves reopen after released click.",
+    "noSeparateAckReload": true,
+    "endedFieldMeaning": "Parent normalization time, not original executor completion time.",
+    "originalSources": [
+      {
+        "receipt": "scan144-save-upload-ack-20261019T224701083205Z/receipt.json",
+        "sha256": "ce86541bd8e36eb2b03dbf33a868cefdf45f114b5f4d519133cde9f5c638eb9d"
+      },
+      {
+        "receipt": "scan144-ah-reopen-recovery-20261019T224816899410Z/receipt.json",
+        "sha256": "41e297e62e94d99fa7d0258d1361973c71867f9ded3a0e7d23972d6e3736c563"
+      },
+      {
+        "receipt": "scan144-ah-reopen-verify-20261019T224832287008Z/receipt.json",
+        "sha256": "07d32a3317016d69c7a114dd59c29e9d6bd536bce30b7ae278708491f225c67b"
+      }
+    ],
+    "originalErrorPreserved": true
+  }
+}
