@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 21:41 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 21:49 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -66,24 +66,37 @@ smallest deterministic correction without relaxing exact ordinals. Assisted140
 may resume after recovery, retaining the actual gap after139; no claim of900s
 through the calibration pause.
 
-Latest fully parent-verified cycle **#139**:
+Latest fully parent-verified cycle **#140**:
 
-- UID `beta-normal-alliance-1792444416-Arthur-7942`;
-- start1792444416, finish1792444893:477s;428 observations/1,894 rows;
+- UID `beta-normal-alliance-1792445928-Arthur-0849`;
+- start1792445928, finish1792446404:476s;428 observations/1,942 rows;
 - 409 full/19 bounded, all428 `ok`, zero query failures;
-- exact900s after138;35.276903s finish-to-server receipt;
+- actual1512s gap after139 due to calibration hold, not900s;
+- 61.460253s finish-to-server receipt, retained as assisted evidence only;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredthirtyninth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredthirtyninth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredfortieth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredfortieth-ah-reopen-parent-verification.json).
+
+Next assisted141 due1792446828 (21:53:48UTC). The legacy watcher had a hardcoded
+nominal start; its original receipt remains intact alongside an explicit correction.
+Parent instead verified the original SavedVariables/server start and actual gap.
+
+Native throughput correction is scoped in the
+[approved Rust observer plan](../.archive/PLAN-native-identity-observer.md).
+Replace CLI fanout with one fresh pinned observer per existing identity boundary;
+preserve all three boundaries and all calibration guards. Cheaper /proc filtering
+and Pillow cell checks were measured privately but were insufficient alone. No
+new observer is installed yet. Luna implements in an isolated worktree; parent,
+Sol and actual CLI Opus must approve before live promotion.
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
 Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 completed at
-exact900s intervals; nextdue1792445316 (21:28:36UTC). Full chains125..139 are
-parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
+exact900s intervals; nextdue1792445316 (21:28:36UTC). Full chains125..140 are
+parent verified;140 has the explicit1512s calibration gap. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
 MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
@@ -339,8 +352,9 @@ static checks: [R2 evidence](../.archive/executor-review/native-resource-policy-
 exit0 and all nine hashes unchanged. New private evidence:
 `native-resource-policy-source-r2-20261019`. R2 is installed; fresh live gates pending.
 
-Assisted139 is complete. Ordinary140 is intentionally held after the parent-verified
-closedAH boundary for reviewed installation and one fresh native calibration.
+Assisted139 is complete. After native46 failure/recovery, assisted140 started
+1792445928 (1512s after139), preserving the actual calibration gap. Whole-chain
+verification remains pending; do not count it as autonomous qualification.
 Scan134 reopened through a separate fresh tooltip-verified Auctioneer target;
 the stale-target failure is retained unchanged and its hash plus the recovery
 hash appear in the parent reopen proof. The20:12UTC backup is complete and
@@ -354,13 +368,20 @@ R3 candidate passed parent30 tests/static/unit checks;
 requested changes. Luna completed consolidated R4 fixes; parent independently
 passed all48 tests, scoped static/compile and systemd checks at unchanged six
 pins. [Parent R4 evidence](../.archive/executor-review/host-operations-r4-parent-verification.json).
-Sol R2 source review is underway. [Actual CLI Opus R2](../.archive/executor-review/host-operations-opus-r2-review.json)
-finished NEEDS WORK: increase the256KiB manifest cap to accommodate growing raw
-member lists, cover real second-validation failures, and correct two small
-classification/test issues. Luna implements R5. No host timer is installed or
-enabled yet. Core R2 is installed and pushed as23d7f75.
-These timers do not trigger game scans; the addon900s timer remains the scan clock.
-No timers are installed yet. Do not synthesize human input or bypass capture guards.
+[Sol R2](../.archive/executor-review/host-operations-sol-r2-review.json) and
+[actual CLI Opus R2](../.archive/executor-review/host-operations-opus-r2-review.json)
+requested bounded manifest headroom and targeted classification/test corrections.
+R5 passed parent52 tests and all scoped checks;
+[Sol R3](../.archive/executor-review/host-operations-sol-r3-review.json) and
+[actual CLI Opus R3](../.archive/executor-review/host-operations-opus-r3-review.json)
+are READY, no findings. Exact six files/user units installed without restarting
+session or companion; code and proof pushed as513d76b. Real backup service and
+independent full validation passed. Health correctly reports ATTENTION/exit2
+for preserved native46 error. Both timers are enabled: hourly minute12 backups,
+two-minute read-only health. No duplicate manual/Luna hourly scheduling remains.
+[Host release proof](../.archive/executor-review/host-operations-release-parent-verification.json).
+Core R2 remains installed at23d7f75. These timers do not trigger game scans; the
+addon900s timer remains the scan clock. Never synthesize human input.
 
 ## Next live gates, in order
 
@@ -396,12 +417,29 @@ Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use exact returned generations and canonical ownership/fence/recovery protocol.
 
-Latest validated private backup: `beta-20261019T211217Z-eec6ff648270`, through138
-ingestion; directory0700, manifestSHA
-`4625687a4a8a1c291169d5f4558d188b2d5fe1c1453d3135252dcf8e206f289c`.
-[Backup verification](../.archive/executor-review/market-backup-20261019T2112Z-parent-verification.json).
-Parent independently revalidated the manifest. Next hourly backup about22:12UTC; install reviewed timers or prepare a fallback runner before then.
-Replace manual scheduling only after reviewed timer installation. Prior isolated restore drill remains accepted.
+Latest independently validated private backup:
+`beta-20261019T214631Z-5b430d502121`, through139, manifest
+`45b2b5da05ea2f364e0f066400639344f4cc8a7f60b817363062061e77f82631`.
+Real new systemd backup service succeeded; directory0700/files0600 verified.
+[Host release/backup verification](../.archive/executor-review/host-operations-release-parent-verification.json).
+Next backup22:12UTC via enabled `crowley-market-backup.timer`; prepared manual
+fallback is cancelled/not launched. Prior isolated restore drill accepted.
+
+Host maintenance commands:
+
+```sh
+systemctl --user list-timers crowley-market-backup.timer crowley-health.timer
+systemctl --user start crowley-market-backup.service
+cat ~/.local/state/crowley/host-operations/latest-health.json
+```
+
+The backup oneshot shares its nonblocking lock with scheduled runs. Health reads
+services, IPC status, upload history and validated backup metadata; it performs no
+game input/restart. ATTENTION for the known native calibration error is expected
+until corrected; it is not an operational qualification. Scans remain on the
+addon's900-second start clock, with the deterministic session engine completing
+save/reload/upload/ACK/reopen after qualification. No cron drives game input.
+
 API: `tools.market_backup.snapshot` then `validate_snapshot`; retain full
 invocation output privately and publish only sanitized hash/coverage/mode proof.
 
