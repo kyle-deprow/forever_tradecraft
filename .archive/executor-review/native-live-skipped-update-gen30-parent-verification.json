@@ -1,5 +1,5 @@
 {
-  "status": "NATIVE_FAILED_ORDINARY_VERIFIED_ASSISTED_COLLECTION_RESUMED",
+  "status": "NATIVE_FAILED_ORDINARY_VERIFIED_ASSISTED_SCAN92_COMPLETE",
   "helperSourceSha256": "4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b",
   "controlPreflight": {
     "generation": 29,
@@ -42,7 +42,9 @@
     "previousStartedAt": 1792399196,
     "intervalSeconds": 1773,
     "lateSeconds": 873,
-    "source": "Sole live operator fresh watcher report; final scan payload/server/ACK verification pending"
+    "source": "Sole live operator fresh watcher report; final scan payload/server/ACK verification pending",
+    "finalParentVerification": "PASS:428 observations/2012 rows/419full9bounded/allok; exactACKloaded/pending0/AHreopened",
+    "rawReceiptSha256": "ea198e6884ba74460fc7ab58dfa745fc3857beb7ae6c6ede27cc49c48c6495d3"
   },
   "diagnosis": {
     "identityResolutionsPerUpdate": 5,
