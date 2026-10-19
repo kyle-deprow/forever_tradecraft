@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 11:13 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 11:25 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -36,20 +36,21 @@ observations; no buying, posting or cancelling is part of this task.
   parent runtime14 checks and independent 135.08-second actual composition PASS.
   Controlled restart at10:08:17 UTC replaced PID781512 with3891378; fresh daemon
   state is PAUSED generation32/nativefalse/inputfalse/operationidle/handshakeidle.
-- Assisted #95 is fully verified, exact900s after #94. Luna closed the AH before
-  #96 for installation; parent independently decoded exact #95 ACK/pending0,
-  normal0/inactive fence/closedchat/zeromovement/released controls. Its ordinary
-  deadline1792404569 (10:09:29 UTC) was replaced by calibration; #96 gap is recorded below.
-- Fresh gen32 preflight succeeded; resume returned33. The helper then refused
-  typed `/reload` OCR before the native runner started. Parent reproduced
-  `reload` from the visible `/reload` crop. No native sampling trace was made.
-  Fresh visible Restore at gen35 reloaded the addon; parent decoded ordinary
-  normal0/inactive/pending0/AHreopened/zeromovement/released. Assisted #96
-  started1792404927, interval1258s/358s late after #95; its full chain is parent-verified.
-- Baseline before the released live attempt was PAUSED35/nativefalse/inputfalse; soleGUI continues
-  assisted collection. The helper-only contrast correction is installed after
-  Sol R2 and actual Opus5.5 R2 READY; live measure follows the #99 chain. Native100,
-  physical input and three autonomous900s cycles remain unqualified.
+- Assisted #99 is fully parent-verified. Its start interval was exactly900s;
+  the parent also verified the closed-AH/pending0/ordinary boundary afterward.
+- The helper contrast fix is installed after Sol R2 and actual Opus5.5 R2 READY.
+  Parent independently verified live `/reload` readback and ordinary recovery at
+  generation36 from retained original1920x1080 and derived460x37 images.
+- Native measurement at generation37 got past the fixed chat commands, then
+  requested update2 and observed3. The instrumented failure trace and offending
+  PNG are retained and independently verified. No native100/input qualification.
+- Recovery38 succeeded. Parent verified reopened AH/ordinary normal0/inactive
+  fence/pending0/zero movement/released controls. Assisted #100 started1792408561,
+  934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
+  2,015-row sweep finished with0 query failures; save/ACK/reopen is pending.
+- Sole GUI operator continues assisted collection while Sol reviews the new
+  native identity-budget plan. No unchanged native retry or physical GTK gate.
+  Obtain fresh controller state/generation before any future mutation.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
   screenshot, a private fixture, or an external OCR crop.
@@ -388,15 +389,40 @@ initial admission uses unchanged raw460x37 state guard, never closed-state OCR.
 The failed gen33 fullframe remains unavailable.
 
 
+## Instrumented native budget blocker
+
+The [gen37 failure and recovery proof](../.archive/executor-review/native-live-budget-failure-gen37-parent-verification.json)
+independently verifies sequence15/publisher uptime218361571/updates ordinal3
+from the offending256x256 PNG while ordinal2 was requested. Source drift=false.
+Actual screenshot starts were1384.571ms apart; screenshot work itself took28.957ms.
+Timed identity checks on the cross-capture critical path total926.812ms, with
+another142.073ms pre-poll interval containing deferred-owner revalidation.
+Do not double-count backend identity spans inside the capture span. Lock-to-
+screenshot setup117.511ms is not fully split into admission/spawn/protocol I/O.
+
+The [identity-budget plan](../.archive/PLAN-native-identity-budget.md) is proposed
+for Sol/parent review. It targets duplicate full-window resolves on the eligible
+configured deferred X11 provider while retaining fresh backend pre/post and
+independent runner-post checks plus all cheap owner/generation/lease/process/
+profile/source/B0 and exact pixel/cadence/sequence guards. This is not installed.
+Publisher750..1250ms validation is not consumer work budget; repeated1.1s work
+would still skip1Hz updates. The estimated876ms path needs realistic jitter
+coverage and the actual100-update gate. The trace does not show Rust scoring
+as a compute bottleneck. Do not add another instrumentation-only round unless
+an unanswered fact actually blocks the reviewed correction.
+
 ## Next live gates
 
 Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
-1. Finish the current assisted save/upload/ACK/reopen chain and verify ordinary
-   state before native calibration. The contrast fix is installed; #99 is fully
-   parent-verified and AHclosed at the fresh boundary above. Sole operator is
-   authorized to chain fresh calibration/recovery gates without per-step approval.
+1. Review and implement the identity-budget correction within its exact scope;
+   parent independently reproduces focused checks and actual configured-producer
+   100-update composition, and Sol plus actual Opus approve the frozen sources.
+   Keep assisted collection running in parallel. At the release boundary, finish
+   the current save/upload/ACK/reopen chain and close AH with fresh ordinary
+   pending0 evidence. Install exact accepted files and perform one controlled
+   daemon restart while quiescent; use the fresh returned controller generation.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.
 3. Run native control preflight, resume, and the measured native100 operation.

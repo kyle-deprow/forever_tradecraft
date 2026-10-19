@@ -1,0 +1,90 @@
+{
+  "status": "NATIVE FAILED; ORDINARY RECOVERY VERIFIED",
+  "qualification": "Actual instrumented native measurement failure; no native100/input/autonomous-cycle qualification.",
+  "generation": 37,
+  "failure": {
+    "offending_capture_error": null,
+    "offending_capture_name": "offending-capture.png",
+    "offending_capture_sha256": "8dc18c8a7d29dc2e3f0f7c3ffa553bf7889e89e64d6fbd9943e2c0d7ae8daca4",
+    "ordinal": 2,
+    "reason": "native updates/2 returned 'updates'/3",
+    "stage": "updates"
+  },
+  "failureTraceSha256": "35c09833dda051ae0d6afd85d3190772c9d212c0ec7449148a399956c521ab60",
+  "helperReceiptSha256": "4ecb624a8bb81d2520e794101bfd1d2d0d6e149d729761c12c1ed6397a5267b5",
+  "sourceDrift": false,
+  "parentVerifiedCriticalSourcePins": {
+    "daemon.py": "4259e4de58b3b3d79f2fc595978907090a7f74666656a4af0c311a33602b0dad",
+    "driver.py": "ca0ca123d0fa09d8361c8632d9cc1c2c501d87adf99cb3cc268688dd4291a166",
+    "decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739"
+  },
+  "calibrationSourceSha256": "3a91f4fe690cd820329fe2536fc03e5c7de24e4c20649efdf1a705b8c147c8fc",
+  "parentIndependentProductionDecode": {
+    "kind": "FRESH",
+    "boot": "native-construction:1792408384-815364",
+    "sequence": 15,
+    "publisherUptimeMs": 218361571,
+    "phase": "updates",
+    "ordinal": 3,
+    "updateCount": 14,
+    "imageSha256": "8dc18c8a7d29dc2e3f0f7c3ffa553bf7889e89e64d6fbd9943e2c0d7ae8daca4"
+  },
+  "timingMs": {
+    "actualScreenshotInterval": 1384.5710000023246,
+    "publisherUptimeAdvance": 2014,
+    "failedScreenshotWork": 28.95733100012876,
+    "timedIdentityWorkBetweenCaptures": {
+      "previousBackendPost": 157.724525,
+      "previousRunnerPost": 224.611575,
+      "nextPreProvider": 226.079135,
+      "nextIdentityPoll": 140.391038,
+      "nextBackendPre": 178.00561
+    },
+    "timedIdentityWorkTotal": 926.811883,
+    "unspannedPrePollInterval": 142.073484,
+    "lockToScreenshotStart": 117.51097301021218,
+    "failedProviderDecode": 57.158513
+  },
+  "limits": [
+    "Do not add backend identity spans again to the encompassing capture span.",
+    "First-update pre-provider identity occurs before the first update wait and is excluded from cross-screenshot critical-path total.",
+    "Pre-poll interval contains deferred-owner revalidation by source inspection but is not an independently timed resolver span.",
+    "Lock-to-capture-start117.5ms is not split into process admission/spawn/protocol I/O.",
+    "Exact ordinal2 publication instant and screenshot were not retained; observed publisher advance1-to3 is2014ms.",
+    "Trace demonstrates orchestration/identity budget pressure, not a Rust scoring compute bottleneck."
+  ],
+  "recovery": {
+    "generation": 38,
+    "helperReceiptSha256": "88d5d8a0f44018a61cd64845729b0d7c4ac25a1a063905aaeba3be54697c6c34",
+    "reopen": {
+      "status": "PASS",
+      "reopenReceiptSha256": "8bfdbae4f58eb67225f27cb930f566445d0125bd10bbab54528b85b449184338",
+      "parentComputedImageSha256": "143981fbd16f361787082a6827807581b062611e6a5a1126fcae5603ca1736c1",
+      "boot": "1792408528-457352",
+      "sequence": 36,
+      "scanner": {
+        "scheduleFence": {
+          "state": "inactive",
+          "command": "/crowley session fence",
+          "reason": ""
+        },
+        "ordinal": 1,
+        "startedAt": 1792408561,
+        "planned": 428,
+        "phase": "item",
+        "dueAt": 1792409461,
+        "activeSweepId": "",
+        "cursorItemID": 730
+      },
+      "pending": 0,
+      "ahOpen": true,
+      "released": true,
+      "nativePhase": "normal",
+      "nativeOrdinal": 0,
+      "speed": 0
+    },
+    "assisted100StartIntervalSeconds": 934,
+    "calibrationDelaySeconds": 34
+  },
+  "next": "Plan and review minimal native identity/admission overhead correction preserving all semantic checks; no unchanged native retry."
+}

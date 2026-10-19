@@ -1,0 +1,28 @@
+{
+  "status": "PASS",
+  "qualification": "Live ordinary-reload recovery exercises corrected typed slash reader; no native100/input/autonomous qualification.",
+  "helperSourceSha256": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+  "rawReceiptSha256": "abf4f61bb410bec1143fa112f99e361260fd310870d9e419873912ea18d02ca8",
+  "operation": "recover",
+  "recoveryKind": "ordinary_reload",
+  "generation": 36,
+  "typedCropSha256": "775d339bc6fe17f5d1ad7dbf5d10e8906ec7d3b87cb7204c178698c2ca277363",
+  "retainedOriginalSha256": "3597332b31ac15b471e46f365084e917d719e17bb77809c5cc5bd097ebc15bb5",
+  "originalSize": [
+    1920,
+    1080
+  ],
+  "derivedCropSize": [
+    460,
+    37
+  ],
+  "parentIndependentlyVerifiedCropPixels": true,
+  "parentProductionClassifier": "active",
+  "parentExactProductionOcr": true,
+  "expectedAllowlistedCommand": "/reload",
+  "commandAcceptedAndSubmitted": true,
+  "recoveryComplete": true,
+  "originalFileMode": "0600",
+  "originalDirectoryMode": "0700",
+  "liveNative100Passed": false
+}
