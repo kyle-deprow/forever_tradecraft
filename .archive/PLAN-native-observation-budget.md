@@ -1,7 +1,8 @@
 # Native observation budget and failure-evidence plan
 
-Status: DIAGNOSTIC-ONLY PLAN APPROVED by Sol and parent; implementation
-not released. No identity optimization is authorized in this first round.
+Status: DIAGNOSTIC-ONLY IMPLEMENTATION VERIFIED AND INSTALLED after
+Sol and actual Opus5.5 R3 READY, parent focused14 and independent135.08s actual
+configured-producer composition PASS. No identity optimization is installed.
 Parent scope decision: the first release is DIAGNOSTICS ONLY. No identity
 resolve is removed until actual instrumented native timing is available and
 a separate exact optimization delta is reviewed. Phase 2 is future work after

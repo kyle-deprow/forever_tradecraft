@@ -7312,8 +7312,12 @@ class _NativeRunnerHarness:
             native_ordinal=render["nativeOrdinal"],
         )
 
-    def run(self) -> NativeCalibrationEvidence:
-        return NativeCalibrationRunner(self.driver, monotonic=lambda: self.clock[0]).run()
+    def run(self, *, diagnostic: object | None = None) -> NativeCalibrationEvidence:
+        return NativeCalibrationRunner(
+            self.driver,
+            monotonic=lambda: self.clock[0],
+            diagnostic=diagnostic,
+        ).run()
 
     def close(self) -> None:
         for path in self.created:
@@ -7362,6 +7366,54 @@ def test_native_runner_uses_publisher_uptime_when_capture_clock_is_skewed(tmp_pa
         assert updates[1][3] - updates[0][3] == pytest.approx(0.1)
         assert evidence.render["nativeOrdinal"] == 100
         assert harness.meter._pending_window is None
+    finally:
+        harness.close()
+
+
+def test_native_runner_run_records_all_diagnostic_pipeline_spans(tmp_path: Path) -> None:
+    """The runner records its stages; this direct harness intentionally has no attempt ring."""
+
+    harness = _NativeRunnerHarness(tmp_path)
+    owner = SimpleNamespace(
+        config=SimpleNamespace(journal=tmp_path / "session.json"),
+        _runtime_source_binding={"daemon.py": "a" * 64, "protocol.py": "b" * 64},
+        _loaded_config_semantic_sha256="c" * 64,
+        driver=harness.driver,
+        controller=SimpleNamespace(status=lambda: SimpleNamespace(generation=7)),
+    )
+    diagnostic = daemon_module._NativeObservationDiagnostic(owner)
+    try:
+        diagnostic.start_run()
+        evidence = harness.run(diagnostic=diagnostic)
+        diagnostic.finish_success()
+        assert evidence.render["nativeOrdinal"] == 100
+        # This direct runner harness supplies a provider but no daemon attempt
+        # lifecycle.  Its spans are therefore run-level attribution; the
+        # production provider/runner coupling is covered by the runtime test.
+        counts = {
+            name: sum(span["name"] == name for span in diagnostic._run_spans)
+            for name in (
+                "runner_hash",
+                "runner_decode",
+                "identity_post_capture",
+                "cells",
+                "validation",
+            )
+        }
+        assert counts == {
+            "runner_hash": 103,
+            "runner_decode": 103,
+            "identity_post_capture": 103,
+            "cells": 103,
+            "validation": 103,
+        }
+        pre_provider = [span for span in diagnostic._run_spans if span["name"] == "identity_pre_provider"]
+        assert [(span["requested_stage"], span["requested_ordinal"]) for span in pre_provider] == [
+            ("updates", ordinal) for ordinal in range(1, 100)
+        ]
+        assert all(
+            span["duration_ns"] is not None and span["outcome"] == "ok" for span in diagnostic._run_spans
+        )
     finally:
         harness.close()
 

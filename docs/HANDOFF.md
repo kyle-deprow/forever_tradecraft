@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 09:59 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 10:10 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -32,47 +32,34 @@ observations; no buying, posting or cancelling is part of this task.
 - The game character is Arthur, stationary at the Ironforge auction house.
 - Root must not operate the GUI concurrently with Luna. This handoff does not
   claim human, autonomous, calibration, or native100 qualification.
-- The corrected service restarted successfully at 08:03:22 UTC, PID 781512,
-  initially PAUSED at generation 27 with native/input false and idle calibration
-  operation/handshake. The restart advanced the generation from 26 to 27.
-  Fresh preflight passed, but the subsequent attempt refused the initial closed
-  chat readback before input or native samples. Pause and fresh recovery succeeded;
-  the latest public state is PAUSED generation 29, native/input false, idle
-  operation/handshake. Assisted scan #91 is fully verified. Luna closed the AH after its reopen
-  proof and holds a quiescent ordinary scene for helper installation/calibration.
-  The editor-state fix is installed in MAIN after full89 tests, parent focused
-  and recorded-frame proof passes, Sol READY and actual Opus5.5 READY.
-  No service restart was needed. Gen29 fresh preflight passed; resume returned30. Native measurement then
-  failed at requested update4 observing update5; pause returned31. Native/input
-  remain false. Parent independently decoded the ordinary post-failure frame. Sole GUI
-  reopened AH and #94 is fully verified after exact900s intervals from #92 through #94.
-  #95 started1792403669 (09:54:29 UTC), exact900s after #94.
-  Diagnostic-only implementation is isolated;
-  parent runtime12 and actualrunner1 checks pass. Sol source review R1
-  requests exact backend identity timings and truthful unlink outcomes.
-  R2 parent14 runtime and5native checks pass. Sol and actual Opus R2
-  confirm production guard/timing hooks, but require actual configured-producer
-  composition proof. Luna R3 extends the existing real composed helper success
-  test and closes narrow logging/startup/cleanup diagnostic defects. No new
-  daemon/calibration source is installed.
-  Read actual status before every transition.
-  Do not restart merely to inspect this handoff.
+- Diagnostic release is installed after Sol R3 and actual Opus5.5 R3 READY,
+  parent runtime14 checks and independent 135.08-second actual composition PASS.
+  Controlled restart at10:08:17 UTC replaced PID781512 with3891378; fresh daemon
+  state is PAUSED generation32/nativefalse/inputfalse/operationidle/handshakeidle.
+- Assisted #95 is fully verified, exact900s after #94. Luna closed the AH before
+  #96 for installation; parent independently decoded exact #95 ACK/pending0,
+  normal0/inactive fence/closedchat/zeromovement/released controls. Its ordinary
+  deadline1792404569 (10:09:29 UTC) may be replaced by calibration. Record gap.
+- Fresh gen32 preflight succeeded; public resume returned generation33,
+  NATIVE_CALIBRATION. Sole GUI is running the first instrumented measurement. If it fails, preserve private trace/image and recover ordinary
+  collection. No blind retry, no synthetic human gate. Native100, physical input
+  and three autonomous900s cycles remain unqualified.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
   screenshot, a private fixture, or an external OCR crop.
 
 ## Latest accepted collection
 
-Parent verification #94 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792402769-Arthur-1155`:
+Parent verification #95 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792403669-Arthur-0348`:
 
-- 428 observations, 2,043 rows, 419 full and 9 bounded observations, all `ok`;
-- 481-second scan, 24.480017 seconds from finish to the server receipt;
+- 428 observations, 2,077 rows, 419 full and 9 bounded observations, all `ok`;
+- 480-second scan, 25.425860 seconds from finish to the server receipt;
 - exact saved-variable/server digest agreement, independently decoded loaded
   ACK with pending 0, followed by AH reopening; normal native phase,
   inactive fence, released button and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-ninetyfourth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-ninetyfourth-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-ninetyfifth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-ninetyfifth-ah-reopen-parent-verification.json).
 
 #92 and #93 are fully verified (428 observations/2,012 and2,014 rows).
 #94 started900s after #93; its initial reopen hovered a player and failed,
@@ -132,11 +119,22 @@ Current accepted source pins are:
 - helper `tools/native_calibration_operator.py`:
   `4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b`;
 - helper tests `tests/test_native_calibration_operator.py`:
-  `90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75`;
+  `c9d22c42c50259a9a6f3b6db694b85731764080f6b9c5c43577711881f30596d`;
 - runtime `tools/template_matcher_runtime.py`:
   `edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d`;
 - runtime tests `tests/test_template_matcher_runtime.py`:
   `302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69`.
+
+The [diagnostic release](../.archive/executor-review/native-observation-diagnostics-release-parent-verification.json)
+adds bounded private timings and mismatch evidence while retaining every native
+check. Current daemon SHA256 is
+`4259e4de58b3b3d79f2fc595978907090a7f74666656a4af0c311a33602b0dad`;
+calibration SHA256 is
+`3a91f4fe690cd820329fe2536fc03e5c7de24e4c20649efdf1a705b8c147c8fc`.
+Source/test pins, reviews, worker and parent actual configured-producer proofs,
+service identity and explicit diagnostic limitations are in that release record.
+No identity optimization is installed. Actual instrumented timing evidence is
+required before reviewing any removal of redundant identity checks.
 
 The helper now includes the reviewed editor-state guard. Full helper tests
 passed 89 tests with 5 existing warnings in 350.09 seconds; parent focused checks
@@ -309,7 +307,9 @@ Actual Opus5.5 source review is READY, exit0, no Must/Should findings. The fix
 is installed without a service restart. Current helper SHA256:
 `4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b`;
 tests `90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75`.
-The earlier native159 checks and installed calibration20fe remain unchanged.
+The native159 clock-correction evidence remains historical; the publisher
+checks are preserved by the installed diagnostic hooks. The helper test now
+additionally asserts the real configured-producer timing composition.
 
 The live chain reached update3, then refused requested4 observing5 at gen30.
 Public pause returned31. See [live failure evidence](../.archive/executor-review/native-live-skipped-update-gen30-parent-verification.json).
@@ -334,7 +334,7 @@ ordinary recovery pass.
 Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
-1. Luna has completed #94 save/upload/ACK/reopen; parent independently verified
+1. Luna has completed #95 save/upload/ACK/reopen; parent independently verified
    the original payload, DB, exact ACK, ordinary state and released controls.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.

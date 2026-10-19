@@ -4803,6 +4803,11 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                     {"stage": stage, "ordinal": ordinal, "error": str(exc), "at": time.monotonic()}
                 )
                 raise
+            finally:
+                # The daemon's capture path installs the driver sink only for
+                # the synchronous backend call and must restore this same
+                # thread before the provider returns to the runner.
+                assert session_driver._IDENTITY_LATENCY_SINK.get() is None
             if measurement_failure and stage == "updates" and ordinal == 1:
                 measurement_error_seen = True
                 native_provider_trace.append(
@@ -5762,6 +5767,66 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                 (entry["stage"], entry["ordinal"]) for entry in native_provider_trace if "error" not in entry
             ]
             assert actual_provider_stages == expected_provider_stages
+            diagnostic = daemon._native_observation_diagnostic
+            attempts = list(diagnostic._attempts)
+            update_99 = next(
+                attempt
+                for attempt in reversed(attempts)
+                if attempt["requested_stage"] == "updates"
+                and attempt["requested_ordinal"] == 99
+                and attempt["status"] == "accepted"
+            )
+            receipt_99 = update_99["backend_receipt"]
+            assert receipt_99 is not None
+            assert receipt_99["attempt_retired"] is True
+            assert receipt_99["output_sha256"] == update_99["actual"]["capture_sha256"]
+            assert update_99["release_outcome"] == "released"
+            assert update_99["spans"]["identity_poll"]["outcome"] == "ok"
+            assert update_99["spans"]["identity_backend_pre"]["outcome"] == "ok"
+            assert update_99["spans"]["identity_backend_post"]["outcome"] == "ok"
+            assert update_99["spans"]["identity_post_capture"]["outcome"] == "ok"
+            pre_provider = [
+                span
+                for span in diagnostic._run_spans
+                if span["name"] == "identity_pre_provider"
+                and span["requested_stage"] == "updates"
+                and span["requested_ordinal"] == 99
+            ]
+            assert len(pre_provider) == 1
+            ordered = [
+                pre_provider[0],
+                update_99["spans"]["identity_poll"],
+                update_99["spans"]["identity_backend_pre"],
+                update_99["spans"]["identity_backend_post"],
+                update_99["spans"]["identity_post_capture"],
+            ]
+            previous_end = None
+            for span in ordered:
+                assert isinstance(span["start_monotonic_ns"], int)
+                assert isinstance(span["end_monotonic_ns"], int)
+                assert isinstance(span["duration_ns"], int)
+                assert span["end_monotonic_ns"] >= span["start_monotonic_ns"]
+                assert span["duration_ns"] == (span["end_monotonic_ns"] - span["start_monotonic_ns"])
+                if previous_end is not None:
+                    assert previous_end <= span["start_monotonic_ns"]
+                previous_end = span["end_monotonic_ns"]
+                assert span["outcome"] == "ok"
+            assert update_99["spans"]["runner_hash"]["outcome"] == "ok"
+            assert update_99["spans"]["runner_decode"]["outcome"] == "ok"
+            assert diagnostic._current is None
+            accepted_receipts = [
+                attempt["backend_receipt"]
+                for attempt in attempts
+                if attempt["status"] == "accepted" and attempt["backend_receipt"] is not None
+            ]
+            assert accepted_receipts
+            assert len({receipt["nonce"] for receipt in accepted_receipts}) == len(accepted_receipts)
+            for attempt in attempts:
+                receipt = attempt["backend_receipt"]
+                if attempt["status"] != "accepted" or receipt is None:
+                    continue
+                assert receipt["attempt_retired"] is True
+                assert receipt["output_sha256"] == attempt["actual"]["capture_sha256"]
             assert_agent_actions(
                 [
                     "agent defer",

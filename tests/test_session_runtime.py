@@ -7,12 +7,15 @@ import hashlib
 import json
 import os
 import re
+import stat
 import subprocess
 import threading
 import time
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
@@ -23,12 +26,14 @@ from crowley.core.watchlist import load_catalog
 from crowley.session import Controller, ControllerState, DesktopDriver, SessionConfig, SessionDaemon
 from crowley.session.calibration import (
     LinuxProcStatusVmHwmReset5,
+    NativeCalibrationRunner,
     NativeMemoryMeasurement,
     NativeMemoryResetRecord,
     OwnedWindow,
     XTestInputProfile,
 )
 from crowley.session.cli import _socket_request, serve
+from crowley.session.daemon import _NativeObservationDiagnostic
 from crowley.session.decoder import Sample
 from crowley.session.driver import (
     DriverError,
@@ -1132,6 +1137,7 @@ def _runtime_daemon(
     *,
     journal_changes: dict[str, object] | None = None,
     backend: LifecycleBackend | None = None,
+    lease_path: Path | None = None,
 ) -> tuple[SessionDaemon, LifecycleBackend, DesktopDriver, Controller, SessionConfig, _VirtualMonotonic]:
     """Build one real daemon consumer around the production fixture backend."""
 
@@ -1142,6 +1148,7 @@ def _runtime_daemon(
         profile=DriverProfile(xauthority="/tmp/test-Xauthority", wine_prefix="/tmp/test-wine-prefix"),
         backend=backend,
         monotonic=virtual_clock.monotonic,
+        lease_path=lease_path,
     )
     plan = load_catalog().scan_plan()
     config = SessionConfig(
@@ -1170,7 +1177,11 @@ def _runtime_daemon(
         wall_clock=lambda: backend.current["wallTime"],
         recover_on_restart=False,
     )
-    daemon = SessionDaemon(config, controller=controller, driver=driver)
+    if lease_path is None:
+        daemon = SessionDaemon(config, controller=controller, driver=driver)
+    else:
+        with patch("crowley.session.daemon.LunaAdapter", _RuntimeFixtureModel):
+            daemon = SessionDaemon(config, controller=controller, driver=driver)
     return daemon, backend, driver, controller, config, virtual_clock
 
 
@@ -1825,8 +1836,11 @@ def test_default_native_meter_binds_real_child_and_closes_on_retry(
     outcomes = iter(("failure", "success"))
 
     class ProbeRunner:
-        def __init__(self, owned_driver: DesktopDriver, *, monotonic: object) -> None:
+        def __init__(
+            self, owned_driver: DesktopDriver, *, monotonic: object, diagnostic: object | None = None
+        ) -> None:
             del monotonic
+            del diagnostic
             meter = owned_driver.native_memory_meter
             assert isinstance(meter, LinuxProcStatusVmHwmReset5)
             assert meter.pid == identity.pid
@@ -2126,12 +2140,153 @@ def _assert_native_provider_cleanup(
         assert not list(evidence_dir.glob("*.png"))
 
 
+def _diagnostic_fixture_daemon(root: Path) -> SimpleNamespace:
+    return SimpleNamespace(
+        config=SimpleNamespace(journal=root / "session.json"),
+        _runtime_source_binding={
+            "daemon.py": "a" * 64,
+            "protocol.py": "b" * 64,
+        },
+        _loaded_config_semantic_sha256="c" * 64,
+        driver=SimpleNamespace(profile=SimpleNamespace(telemetry_region_executable_sha256="d" * 64)),
+        controller=SimpleNamespace(status=lambda: SimpleNamespace(generation=7)),
+    )
+
+
+class _RuntimeFixtureModel:
+    def __init__(self, **_kwargs: object) -> None:
+        self.cancelled = False
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def shutdown(self) -> None:
+        self.cancelled = True
+
+
+def test_runtime_native_observation_diagnostic_is_bounded_private_and_bound(tmp_path: Path) -> None:
+    daemon = _diagnostic_fixture_daemon(tmp_path)
+    diagnostic = _NativeObservationDiagnostic(daemon)
+    diagnostic.start_run()
+    with diagnostic.span("identity_pre_provider", requested_stage="updates", requested_ordinal=1):
+        pass
+    for ordinal in range(1, 20):
+        diagnostic.begin_attempt("updates", ordinal)
+        diagnostic.finish_attempt(status="no_change")
+
+    capture = tmp_path / "candidate.png"
+    Image.new("RGB", (256, 256), (0, 0, 0)).save(capture, format="PNG")
+    frame = SimpleNamespace(
+        snapshot=SimpleNamespace(value={"render": {"nativePhase": "updates", "nativeOrdinal": 20}}),
+        boot="boot-7",
+        sequence=27,
+        uptime_ms=20_000,
+    )
+    sample = SimpleNamespace(kind="FRESH", frame=frame, capture_monotonic=123.5)
+    diagnostic.begin_attempt("updates", 20)
+    diagnostic.record_candidate(sample, "e" * 64, capture)
+    diagnostic.set_status(status="mismatch", error="wrong publication")
+    with diagnostic.span("identity_poll"):
+        pass
+    diagnostic.fail(
+        "native updates/20 returned 'updates'/21",
+        stage="updates",
+        ordinal=20,
+        offending_path=capture,
+        mismatch=True,
+    )
+    capture.unlink()
+    diagnostic.mark_release(capture)
+
+    failure = diagnostic.failure_path
+    offending = diagnostic.offending_path
+    assert failure is not None and failure.is_file()
+    assert offending is not None and offending.is_file()
+    with Image.open(offending) as image:
+        assert image.size == (256, 256)
+    assert stat.S_IMODE(failure.stat().st_mode) == 0o600
+    assert stat.S_IMODE(failure.parent.stat().st_mode) == 0o700
+    payload = json.loads(failure.read_text())
+    assert payload["trace_schema"] == "native-observation-diagnostic-v1"
+    assert payload["protocol_sha256"] == payload["source_binding"]["protocol.py"]
+    assert isinstance(payload["source_binding_current"], dict)
+    assert isinstance(payload["source_binding_current_sha256"], str)
+    assert isinstance(payload["calibration_source_sha256_current"], str)
+    assert payload["source_binding_error"] is None
+    assert payload["source_drift"] is True
+    assert payload["binary_sha256"] == "d" * 64
+    assert len(payload["attempts"]) == 16
+    assert payload["attempts"][0]["requested_ordinal"] == 5
+    assert payload["attempts"][-1]["actual"]["publisher_uptime_ms"] == 20_000
+    assert payload["attempts"][-1]["spans"]["identity_poll"]["duration_ns"] is not None
+    assert payload["attempts"][-1]["spans"]["cells"]["duration_ns"] is None
+    assert payload["attempts"][-1]["release_outcome"] == "released"
+    assert payload["run_spans"][0]["name"] == "identity_pre_provider"
+    assert payload["run_spans"][0]["requested_stage"] == "updates"
+    assert payload["run_spans"][0]["requested_ordinal"] == 1
+    assert payload["run_spans"][0]["duration_ns"] is not None
+    assert str(tmp_path) not in failure.read_text()
+    assert (
+        payload["failure"]["offending_capture_sha256"] == hashlib.sha256(offending.read_bytes()).hexdigest()
+    )
+
+
+def test_runtime_native_observation_diagnostic_persistence_failure_preserves_cause(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    daemon = _diagnostic_fixture_daemon(tmp_path)
+    diagnostic = _NativeObservationDiagnostic(daemon)
+    diagnostic.start_run()
+    monkeypatch.setattr(diagnostic, "_failure_directory", lambda: Path("/proc/does-not-exist"))
+    diagnostic.fail("original native mismatch", stage="updates", ordinal=4)
+    assert diagnostic.failure_path is None
+    assert diagnostic._persistence_error is not None
+
+
+def test_runtime_native_observation_diagnostic_success_writes_no_artifact(tmp_path: Path) -> None:
+    daemon = _diagnostic_fixture_daemon(tmp_path)
+    diagnostic = _NativeObservationDiagnostic(daemon)
+    diagnostic.start_run()
+    diagnostic.begin_attempt("construct", 0)
+    diagnostic.finish_attempt(status="accepted")
+    diagnostic.finish_success()
+    assert not (tmp_path / "native-observation-diagnostics").exists()
+
+
+def test_runtime_native_observation_recording_overhead_is_bounded(tmp_path: Path) -> None:
+    daemon = _diagnostic_fixture_daemon(tmp_path)
+    diagnostic = _NativeObservationDiagnostic(daemon)
+    diagnostic.start_run()
+    iterations = 128
+    baseline_started = time.perf_counter_ns()
+    for ordinal in range(iterations):
+        diagnostic.begin_attempt("updates", ordinal)
+        with nullcontext():
+            hashlib.sha256(f"recorded-{ordinal}".encode()).hexdigest()
+        with nullcontext():
+            json.dumps({"ordinal": ordinal}, sort_keys=True)
+        diagnostic.finish_attempt(status="no_change")
+    baseline_ns = time.perf_counter_ns() - baseline_started
+
+    recorded_started = time.perf_counter_ns()
+    for ordinal in range(iterations):
+        diagnostic.begin_attempt("updates", ordinal)
+        with diagnostic.span("provider_hash"):
+            hashlib.sha256(f"recorded-{ordinal}".encode()).hexdigest()
+        with diagnostic.span("provider_decode"):
+            json.dumps({"ordinal": ordinal}, sort_keys=True)
+        diagnostic.finish_attempt(status="no_change")
+    recorded_ns = time.perf_counter_ns() - recorded_started
+    assert recorded_ns - baseline_ns < 250_000_000
+
+
 def test_runtime_native_provider_delayed_agent_and_hold_use_real_publications(tmp_path: Path) -> None:
     backend = _NativeProviderBackend(tmp_path, load_after_captures=3)
     daemon, _backend, driver, controller, _config, _clock = _runtime_daemon(
         tmp_path,
         backend=backend,
         journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
     )
     try:
         identity = backend.identity
@@ -2177,12 +2332,67 @@ def test_runtime_native_provider_delayed_agent_and_hold_use_real_publications(tm
         driver.close()
 
 
+def test_runtime_native_observation_couples_provider_and_runner_spans(tmp_path: Path) -> None:
+    """The real provider and runner hooks share one attributed attempt trace."""
+
+    backend = _NativeProviderBackend(tmp_path, load_after_captures=0)
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
+    )
+    diagnostic = daemon._native_observation_diagnostic
+    runner = NativeCalibrationRunner(driver, diagnostic=diagnostic)
+    decoder = driver.new_native_decoder()
+    released = False
+    try:
+        identity = backend.identity
+        diagnostic.start_run()
+        with runner._diagnostic_span(
+            "identity_pre_provider", requested_stage="construct", requested_ordinal=0
+        ):
+            assert driver.resolve_identity().fingerprint == identity.fingerprint
+        observation = daemon._native_measurement_provider(identity, "construct", 0)
+        with runner._diagnostic_span("runner_hash"):
+            capture_path = runner._capture_observation(identity, observation)
+        with runner._diagnostic_span("runner_decode"):
+            decoded = driver.decode_native_capture(capture_path, identity=identity, decoder=decoder)
+        assert decoded.frame is not None
+
+        attempt = diagnostic._attempts[-1]
+        assert attempt["requested_stage"] == "construct"
+        assert attempt["requested_ordinal"] == 0
+        for name in ("provider_hash", "provider_decode", "runner_hash", "runner_decode"):
+            assert attempt["spans"][name]["duration_ns"] is not None
+            assert attempt["spans"][name]["outcome"] == "ok"
+        assert diagnostic._current is attempt
+        runner._release_capture(Path(observation.capture_path))
+        released = True
+        assert attempt["release_outcome"] == "released"
+        assert diagnostic._current is None
+        with runner._diagnostic_span("identity_pre_provider", requested_stage="updates", requested_ordinal=1):
+            assert driver.resolve_identity().fingerprint == identity.fingerprint
+        pre_provider = [span for span in diagnostic._run_spans if span["name"] == "identity_pre_provider"]
+        assert len(pre_provider) == 2
+        assert pre_provider[0]["requested_stage"] == "construct"
+        assert pre_provider[0]["requested_ordinal"] == 0
+        assert pre_provider[1]["requested_stage"] == "updates"
+        assert pre_provider[1]["requested_ordinal"] == 1
+    finally:
+        if not released and "observation" in locals() and observation.capture_path is not None:
+            daemon.release_native_capture(Path(observation.capture_path))
+        daemon.request_shutdown()
+        driver.close()
+
+
 def test_runtime_native_provider_absence_times_out_and_cleans_artifacts(tmp_path: Path) -> None:
     backend = _NativeProviderBackend(tmp_path, load_after_captures=None)
     daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
         tmp_path,
         backend=backend,
         journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
     )
     try:
         with pytest.raises(DriverError, match="did not produce the requested fresh frame"):
@@ -2201,6 +2411,7 @@ def test_runtime_native_provider_generation_revocation_cleans_artifacts(tmp_path
         tmp_path,
         backend=backend,
         journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
     )
     failures: list[BaseException] = []
 
@@ -2244,7 +2455,12 @@ def test_runtime_native_provider_rejects_wrong_or_skipped_real_publication(
         tmp_path,
         backend=backend,
         journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
     )
+    with daemon._native_construction_lock:
+        daemon._native_construction_handshake = {"state": "running"}
+        daemon._native_construction_reset_history_locked()
+        daemon._native_construction_start_context_locked(generation=4, deferred=False)
     try:
         if fault == "wrong_phase":
             with pytest.raises(DriverError, match=re.escape(message)):
@@ -2255,6 +2471,127 @@ def test_runtime_native_provider_rejects_wrong_or_skipped_real_publication(
             backend.publication_fault = "skipped_ordinal"
             with pytest.raises(DriverError, match=re.escape(message)):
                 daemon._native_measurement_provider(backend.identity, "updates", 1)
+        diagnostic_path = daemon._native_observation_diagnostic.failure_path
+        assert diagnostic_path is not None and diagnostic_path.is_file()
+        diagnostic_payload = json.loads(diagnostic_path.read_text())
+        assert diagnostic_payload["failure"]["stage"] in {"construct", "updates"}
+        assert diagnostic_payload["failure"]["ordinal"] in {0, 1}
+        assert diagnostic_payload["failure"]["offending_capture_name"] == "offending-capture.png"
+        offending = diagnostic_path.parent / "offending-capture.png"
+        assert offending.is_file()
+        with Image.open(offending) as image:
+            assert image.size == (256, 256)
+        assert (
+            diagnostic_payload["failure"]["offending_capture_sha256"]
+            == hashlib.sha256(offending.read_bytes()).hexdigest()
+        )
+        assert diagnostic_payload["source_drift"] is False
+        assert diagnostic_payload["source_binding_error"] is None
+        assert diagnostic_payload["source_binding_start_error"] is None
+        assert diagnostic_payload["calibration_source_error"] is None
+        original_run_id = diagnostic_payload["run_id"]
+        original_attempts = diagnostic_payload["attempts"]
+        # The production runner reports the provider failure and then its outer
+        # exception path reports again.  The latter must remain idempotent: one
+        # run, one directory, and the first causal reason/ring are retained.
+        daemon.notify_native_measurement_failed(backend.identity, "outer native calibration failure")
+        diagnostic_dirs = list((tmp_path / "native-observation-diagnostics").iterdir())
+        assert len(diagnostic_dirs) == 1
+        refreshed = json.loads(diagnostic_path.read_text())
+        assert refreshed["run_id"] == original_run_id
+        assert refreshed["failure"]["reason"] == diagnostic_payload["failure"]["reason"]
+        assert refreshed["attempts"] == original_attempts
+        assert stat.S_IMODE(diagnostic_path.stat().st_mode) == 0o600
+        _assert_native_provider_cleanup(tmp_path, backend, daemon)
+    finally:
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_runtime_native_observation_trace_write_failure_preserves_provider_error_and_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = _NativeProviderBackend(tmp_path, publication_fault="wrong_phase")
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
+    )
+    diagnostic = daemon._native_observation_diagnostic
+
+    def fail_write(_payload: dict[str, object]) -> Path:
+        raise OSError("diagnostic filesystem unavailable")
+
+    monkeypatch.setattr(diagnostic, "_write_payload", fail_write)
+    try:
+        with pytest.raises(DriverError, match=re.escape("native construct/0 returned 'held'/0")):
+            daemon._native_measurement_provider(backend.identity, "construct", 0)
+        assert diagnostic.failure_path is None
+        assert diagnostic._persistence_error is not None
+        assert not list(tmp_path.rglob("offending-capture.png"))
+        _assert_native_provider_cleanup(tmp_path, backend, daemon)
+    finally:
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_runtime_native_observation_cleanup_failure_is_retained_and_traced(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = _NativeProviderBackend(tmp_path, publication_fault="wrong_phase")
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
+    )
+    with daemon._native_construction_lock:
+        daemon._native_construction_handshake = {"state": "running"}
+        daemon._native_construction_reset_history_locked()
+        daemon._native_construction_start_context_locked(generation=4, deferred=False)
+    original_remove = daemon._remove_native_capture
+    monkeypatch.setattr(daemon, "_remove_native_capture", lambda _path: None)
+    try:
+        with pytest.raises(DriverError, match="native construct/0 returned 'held'/0"):
+            daemon._native_measurement_provider(backend.identity, "construct", 0)
+        diagnostic_path = daemon._native_observation_diagnostic.failure_path
+        assert diagnostic_path is not None and diagnostic_path.is_file()
+        payload = json.loads(diagnostic_path.read_text())
+        attempt = payload["attempts"][-1]
+        assert attempt["release_outcome"] == "retained"
+        assert attempt["spans"]["cleanup"]["outcome"] == "failed"
+        assert payload["failure"]["reason"] == "native construct/0 returned 'held'/0"
+    finally:
+        monkeypatch.setattr(daemon, "_remove_native_capture", original_remove)
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_runtime_native_observation_identity_mutation_preserves_error_and_cleanup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = _NativeProviderBackend(tmp_path)
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
+    )
+    original_capture = backend.capture
+
+    def mutate_during_capture(path: Path, **kwargs: object) -> WindowIdentity:
+        captured = original_capture(path, **kwargs)
+        backend.identity = replace(backend.identity, fingerprint="mutated-identity")
+        return captured
+
+    monkeypatch.setattr(backend, "capture", mutate_during_capture)
+    try:
+        identity = backend.identity
+        with pytest.raises(DriverError, match="native client identity changed during operator wait"):
+            constructed = daemon._native_measurement_provider(identity, "construct", 0)
+            daemon.release_native_capture(Path(constructed.capture_path))
+            daemon._native_measurement_provider(identity, "held", 0)
         _assert_native_provider_cleanup(tmp_path, backend, daemon)
     finally:
         daemon.request_shutdown()
@@ -2267,6 +2604,7 @@ def test_runtime_native_provider_cached_publication_times_out_cleanly(tmp_path: 
         tmp_path,
         backend=backend,
         journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-provider.lock",
     )
     try:
         constructed = daemon._native_measurement_provider(backend.identity, "construct", 0)

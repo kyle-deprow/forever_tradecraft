@@ -6,6 +6,7 @@ import base64
 import copy
 import hashlib
 import json
+import logging
 import math
 import os
 import secrets
@@ -16,7 +17,7 @@ import threading
 import time
 import uuid
 from collections.abc import Callable
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, is_dataclass, replace
 from functools import wraps
 from pathlib import Path
@@ -114,6 +115,8 @@ from .motion import (
 )
 from .preferences import load_motion_profile
 from .protocol import ProtocolError
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _canonical_semantic_value(value: Any) -> Any:
@@ -256,6 +259,14 @@ _RUNTIME_SOURCE_FILES = {
     "session_performance.py": Path("tools/session_performance.py"),
 }
 _RUNTIME_SOURCE_MAX_BYTES = 4 * 1024 * 1024
+_DIAGNOSTIC_ERROR_MAX_CHARS = 512
+
+
+def _bounded_diagnostic_error(value: Any) -> str:
+    text = " ".join(str(value).split())
+    if len(text) > _DIAGNOSTIC_ERROR_MAX_CHARS:
+        return text[: _DIAGNOSTIC_ERROR_MAX_CHARS - 3] + "..."
+    return text
 
 
 def _runtime_source_root() -> Path:
@@ -267,12 +278,19 @@ def _runtime_source_root() -> Path:
     return source.resolve().parents[3]
 
 
-def _runtime_source_hashes() -> dict[str, str]:
-    """Read the exact seven bounded source descriptors, refusing drift."""
+def _runtime_source_hashes(*, include_calibration: bool = False, only: str | None = None) -> dict[str, str]:
+    """Read the bounded runtime descriptors, refusing drift."""
 
     root = _runtime_source_root()
+    source_files = dict(_RUNTIME_SOURCE_FILES)
+    if include_calibration:
+        source_files["calibration.py"] = Path("src/crowley/session/calibration.py")
+    if only is not None:
+        if only not in source_files:
+            raise DriverError(f"runtime source descriptor {only} is unknown")
+        source_files = {only: source_files[only]}
     result: dict[str, str] = {}
-    for logical_name, relative in _RUNTIME_SOURCE_FILES.items():
+    for logical_name, relative in source_files.items():
         path = root / relative
         try:
             before = path.lstat()
@@ -364,7 +382,7 @@ def _runtime_source_hashes() -> dict[str, str]:
         except OSError as exc:
             raise DriverError(f"runtime source {logical_name} cannot be inspected") from exc
         result[logical_name] = digest.hexdigest()
-    if set(result) != set(_RUNTIME_SOURCE_FILES):
+    if set(result) != set(source_files):
         raise DriverError("runtime source descriptor map is incomplete")
     return result
 
@@ -631,6 +649,533 @@ def _driver_profile_matches_config(driver: Any, config: SessionConfig) -> bool:
         return False
 
 
+class _NativeObservationDiagnostic:
+    """Keep bounded private timing evidence for one native calibration run.
+
+    This collector is deliberately diagnostic-only.  It never participates in
+    admission, publication selection, identity validation, or cleanup policy;
+    persistence is best effort so a filesystem problem cannot replace the
+    causal calibration error.
+    """
+
+    _SCHEMA = "native-observation-diagnostic-v1"
+    _MAX_ATTEMPTS = 16
+    _MAX_RUN_SPANS = 1024
+    _MAX_JSON_BYTES = 1_048_576
+    _SPAN_NAMES = (
+        "identity_poll",
+        "identity_backend_pre",
+        "identity_backend_post",
+        "identity_post_capture",
+        "capture",
+        "provider_hash",
+        "provider_decode",
+        "runner_hash",
+        "runner_decode",
+        "copy",
+        "cells",
+        "validation",
+        "cleanup",
+    )
+
+    def __init__(self, daemon: SessionDaemon) -> None:
+        self.daemon = daemon
+        self._lock = threading.RLock()
+        self._run_id: str | None = None
+        self._run_started_ns: int | None = None
+        self._run_generation: int | None = None
+        self._source_binding: dict[str, str] | None = None
+        self._source_binding_sha256: str | None = None
+        self._source_binding_current: dict[str, str] | None = None
+        self._source_binding_current_sha256: str | None = None
+        self._calibration_source_sha256_at_start: str | None = None
+        self._calibration_source_sha256_current: str | None = None
+        self._source_drift = False
+        self._source_binding_error: str | None = None
+        self._source_binding_start_error: str | None = None
+        self._calibration_source_error: str | None = None
+        self._binary_sha256: str | None = None
+        self._config_semantic_sha256: str | None = None
+        self._attempts: list[dict[str, Any]] = []
+        self._run_spans: list[dict[str, Any]] = []
+        self._current: dict[str, Any] | None = None
+        self._current_path: Path | None = None
+        self._terminal = False
+        self._failure_persisted = False
+        self._failure_path: Path | None = None
+        self._offending_path: Path | None = None
+        self._persistence_error: str | None = None
+        self._failure_payload: dict[str, Any] | None = None
+
+    @property
+    def failure_path(self) -> Path | None:
+        with self._lock:
+            return self._failure_path
+
+    @property
+    def offending_path(self) -> Path | None:
+        with self._lock:
+            return self._offending_path
+
+    def start_run(self) -> None:
+        """Explicitly start one trace and compute immutable pins once."""
+
+        with self._lock:
+            if self._run_id is not None and not self._terminal:
+                return
+            self._run_id = uuid.uuid4().hex
+            self._run_started_ns = time.monotonic_ns()
+            self._attempts = []
+            self._run_spans = []
+            self._current = None
+            self._current_path = None
+            self._terminal = False
+            self._failure_persisted = False
+            self._failure_path = None
+            self._offending_path = None
+            self._persistence_error = None
+            self._failure_payload = None
+            source_binding = getattr(self.daemon, "_runtime_source_binding", None)
+            self._source_binding = (
+                {str(key): str(value) for key, value in source_binding.items()}
+                if isinstance(source_binding, dict)
+                else None
+            )
+            if self._source_binding is not None:
+                canonical = json.dumps(
+                    self._source_binding, sort_keys=True, separators=(",", ":"), allow_nan=False
+                ).encode("utf-8")
+                self._source_binding_sha256 = hashlib.sha256(canonical).hexdigest()
+            else:
+                self._source_binding_sha256 = None
+            calibration_at_start = getattr(self.daemon, "_runtime_calibration_source_sha256", None)
+            self._calibration_source_sha256_at_start = (
+                calibration_at_start if isinstance(calibration_at_start, str) else None
+            )
+            self._source_binding_current = None
+            self._source_binding_current_sha256 = None
+            self._calibration_source_sha256_current = None
+            self._source_binding_start_error = getattr(self.daemon, "_runtime_source_binding_error", None)
+            self._calibration_source_error = getattr(self.daemon, "_runtime_calibration_source_error", None)
+            self._source_binding_error = self._source_binding_start_error
+            try:
+                current = _runtime_source_hashes(include_calibration=True)
+                calibration_current = current.pop("calibration.py", None)
+                self._source_binding_current = current
+                self._calibration_source_sha256_current = calibration_current
+                if current:
+                    canonical_current = json.dumps(
+                        current, sort_keys=True, separators=(",", ":"), allow_nan=False
+                    ).encode("utf-8")
+                    self._source_binding_current_sha256 = hashlib.sha256(canonical_current).hexdigest()
+            except Exception as exc:
+                self._source_binding_error = _bounded_diagnostic_error(exc)
+            self._source_drift = (
+                self._source_binding_error is not None
+                or self._source_binding is None
+                or self._source_binding_current is None
+                or self._source_binding != self._source_binding_current
+                or self._calibration_source_sha256_at_start is None
+                or self._calibration_source_sha256_current is None
+                or self._calibration_source_sha256_at_start != self._calibration_source_sha256_current
+                or self._calibration_source_error is not None
+            )
+            profile = getattr(getattr(self.daemon, "driver", None), "profile", None)
+            binary_sha256 = getattr(profile, "telemetry_region_executable_sha256", None)
+            self._binary_sha256 = binary_sha256 if isinstance(binary_sha256, str) else None
+            config_sha256 = getattr(self.daemon, "_loaded_config_semantic_sha256", None)
+            self._config_semantic_sha256 = config_sha256 if isinstance(config_sha256, str) else None
+            try:
+                status = self.daemon.controller.status()
+                generation = getattr(status, "generation", None)
+                self._run_generation = generation if isinstance(generation, int) else None
+            except Exception:
+                self._run_generation = None
+
+    def ensure_started(self) -> None:
+        with self._lock:
+            started = self._run_id is not None
+        if not started:
+            self.start_run()
+
+    @staticmethod
+    def _empty_spans() -> dict[str, dict[str, Any]]:
+        return {
+            name: {
+                "start_monotonic_ns": None,
+                "end_monotonic_ns": None,
+                "duration_ns": None,
+                "outcome": "not_reached",
+            }
+            for name in _NativeObservationDiagnostic._SPAN_NAMES
+        }
+
+    def begin_attempt(self, stage: str, ordinal: int) -> None:
+        self.ensure_started()
+        with self._lock:
+            attempt: dict[str, Any] = {
+                "requested_stage": stage,
+                "requested_ordinal": ordinal,
+                "started_monotonic_ns": time.monotonic_ns(),
+                "finished_monotonic_ns": None,
+                "actual": {
+                    "kind": None,
+                    "phase": None,
+                    "ordinal": None,
+                    "boot": None,
+                    "sequence": None,
+                    "update_count": None,
+                    "publisher_uptime_ms": None,
+                    "capture_monotonic": None,
+                    "capture_sha256": None,
+                },
+                "backend_receipt": None,
+                "spans": self._empty_spans(),
+                "status": "in_progress",
+                "error": None,
+                "release_outcome": "not_reached",
+            }
+            self._attempts.append(attempt)
+            if len(self._attempts) > self._MAX_ATTEMPTS:
+                del self._attempts[: len(self._attempts) - self._MAX_ATTEMPTS]
+            self._current = attempt
+            self._current_path = None
+
+    @contextmanager
+    def span(
+        self,
+        name: str,
+        *,
+        requested_stage: str | None = None,
+        requested_ordinal: int | None = None,
+        attach_to_attempt: bool = True,
+    ):
+        """Record a finite span, attributing run-level work to its request."""
+
+        with self._lock:
+            attempt = self._current if attach_to_attempt else None
+            span = attempt.get("spans", {}).get(name) if attempt is not None else None
+            if span is not None and span["start_monotonic_ns"] is None:
+                span["start_monotonic_ns"] = time.monotonic_ns()
+            run_span: dict[str, Any] | None = None
+            if span is None and attempt is None:
+                run_span = {
+                    "name": name,
+                    "requested_stage": requested_stage,
+                    "requested_ordinal": requested_ordinal,
+                    "start_monotonic_ns": time.monotonic_ns(),
+                    "end_monotonic_ns": None,
+                    "duration_ns": None,
+                    "outcome": "in_progress",
+                }
+                self._run_spans.append(run_span)
+                if len(self._run_spans) > self._MAX_RUN_SPANS:
+                    del self._run_spans[: len(self._run_spans) - self._MAX_RUN_SPANS]
+        error: BaseException | None = None
+        try:
+            yield
+        except BaseException as exc:
+            error = exc
+            raise
+        finally:
+            with self._lock:
+                if span is not None and span["end_monotonic_ns"] is None:
+                    end = time.monotonic_ns()
+                    span["end_monotonic_ns"] = end
+                    start = span["start_monotonic_ns"]
+                    span["duration_ns"] = max(0, end - start) if start is not None else None
+                    span["outcome"] = "failed" if error is not None else "ok"
+                if run_span is not None and run_span["end_monotonic_ns"] is None:
+                    end = time.monotonic_ns()
+                    run_span["end_monotonic_ns"] = end
+                    start = run_span["start_monotonic_ns"]
+                    run_span["duration_ns"] = max(0, end - start)
+                    run_span["outcome"] = "failed" if error is not None else "ok"
+
+    def record_backend_receipt(self, receipt: Any) -> None:
+        with self._lock:
+            if self._current is None:
+                return
+            if receipt is None:
+                self._current["backend_receipt"] = {"status": "not_reached"}
+                return
+            try:
+                record = asdict(receipt) if is_dataclass(receipt) else dict(receipt)
+                self._current["backend_receipt"] = copy.deepcopy(record)
+            except Exception:
+                self._current["backend_receipt"] = {"status": "unavailable"}
+
+    def record_candidate(self, sample: Any, digest: str | None, path: Any = None) -> None:
+        with self._lock:
+            if self._current is None:
+                return
+            try:
+                frame = getattr(sample, "frame", None)
+                snapshot = getattr(frame, "snapshot", None)
+                value = getattr(snapshot, "value", {})
+                render = value.get("render", {}) if isinstance(value, dict) else {}
+                if not isinstance(render, dict):
+                    render = {}
+                self._current["actual"] = {
+                    "kind": getattr(sample, "kind", None),
+                    "phase": render.get("nativePhase"),
+                    "ordinal": render.get("nativeOrdinal"),
+                    "boot": getattr(frame, "boot", None),
+                    "sequence": getattr(frame, "sequence", None),
+                    "update_count": render.get("updateCount"),
+                    "publisher_uptime_ms": getattr(frame, "uptime_ms", None),
+                    "capture_monotonic": getattr(sample, "capture_monotonic", None),
+                    "capture_sha256": digest,
+                }
+                self._current_path = Path(path) if path is not None else None
+            except Exception:
+                self._current["actual"]["capture_sha256"] = digest
+                self._current_path = None
+
+    def finish_attempt(self, *, status: str, error: str | None = None) -> None:
+        with self._lock:
+            if self._current is None:
+                return
+            self._current["status"] = status
+            self._current["error"] = _bounded_diagnostic_error(error) if error is not None else None
+            self._current["finished_monotonic_ns"] = time.monotonic_ns()
+            if status != "accepted":
+                self._current = None
+                self._current_path = None
+
+    def set_status(self, *, status: str, error: str | None = None) -> None:
+        with self._lock:
+            if self._current is not None:
+                self._current["status"] = status
+                self._current["error"] = _bounded_diagnostic_error(error) if error is not None else None
+
+    def mark_release(self, path: Any, *, error: str | None = None) -> None:
+        refresh = False
+        with self._lock:
+            if self._current is None:
+                return
+            try:
+                candidate = Path(path)
+            except TypeError:
+                return
+            if self._current_path is None or candidate != self._current_path:
+                return
+            if error:
+                self._current["release_outcome"] = "failed"
+            elif candidate.exists():
+                self._current["release_outcome"] = "retained"
+            else:
+                self._current["release_outcome"] = "released"
+            self._current["finished_monotonic_ns"] = time.monotonic_ns()
+            self._current = None
+            self._current_path = None
+            refresh = self._failure_path is not None and self._failure_payload is not None
+        if refresh:
+            self._refresh_failure_payload()
+
+    def _failure_directory(self) -> Path:
+        journal = Path(self.daemon.config.journal).expanduser()
+        run_id = self._run_id or uuid.uuid4().hex
+        root = journal.parent / "native-observation-diagnostics"
+        root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(root, 0o700)
+        return root / run_id
+
+    def _copy_offending_capture(self, path: Any) -> tuple[str | None, str | None]:
+        try:
+            candidate = Path(path)
+            stat_result = candidate.lstat()
+            if (
+                not stat.S_ISREG(stat_result.st_mode)
+                or stat_result.st_nlink != 1
+                or stat_result.st_size > 131072
+            ):
+                return None, "offending capture is not a bounded regular file"
+            directory = self._failure_directory()
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(directory, 0o700)
+            target = directory / "offending-capture.png"
+            shutil.copyfile(candidate, target)
+            os.chmod(target, 0o600)
+            digest = hashlib.sha256(target.read_bytes()).hexdigest()
+            self._offending_path = target
+            return digest, None
+        except Exception as exc:
+            return None, f"offending capture copy failed: {type(exc).__name__}: {exc}"
+
+    def _write_payload(self, payload: dict[str, Any]) -> Path:
+        encoded = (
+            json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False) + "\n"
+        ).encode()
+        if len(encoded) > self._MAX_JSON_BYTES:
+            raise DriverError("native observation diagnostic exceeds its size bound")
+        directory = self._failure_directory()
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(directory, 0o700)
+        path = directory / "failure.json"
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".failure-", dir=directory)
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                descriptor = -1
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            os.chmod(path, 0o600)
+            return path
+        finally:
+            if descriptor != -1:
+                os.close(descriptor)
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    def _refresh_failure_payload(self) -> None:
+        with self._lock:
+            payload = copy.deepcopy(self._failure_payload)
+            path = self._failure_path
+            if payload is not None:
+                payload["attempts"] = copy.deepcopy(self._attempts)
+        if payload is None or path is None:
+            return
+        try:
+            refreshed = self._write_payload(payload)
+            with self._lock:
+                self._failure_path = refreshed
+        except Exception as exc:
+            self._record_persistence_failure(exc, remove_offending=False)
+
+    def _record_persistence_failure(self, exc: BaseException, *, remove_offending: bool) -> None:
+        error = type(exc).__name__
+        errno_value = getattr(exc, "errno", None)
+        if isinstance(errno_value, int) and not isinstance(errno_value, bool):
+            error = f"{error} errno={errno_value}"
+        orphan = None
+        with self._lock:
+            self._persistence_error = error
+            if remove_offending:
+                orphan = self._offending_path
+                self._offending_path = None
+        if orphan is not None:
+            try:
+                orphan.unlink()
+            except OSError:
+                pass
+        _LOGGER.warning("native observation diagnostic persistence failed: %s", error)
+
+    def fail(
+        self,
+        reason: str,
+        *,
+        stage: str | None = None,
+        ordinal: int | None = None,
+        offending_path: Any = None,
+        mismatch: bool = False,
+    ) -> None:
+        """Persist one private failure artifact without changing the causal error."""
+
+        self.ensure_started()
+        with self._lock:
+            if self._failure_persisted:
+                return
+            self._failure_persisted = True
+            self._terminal = True
+            run_id = self._run_id
+            attempts = copy.deepcopy(self._attempts)
+            source_binding = copy.deepcopy(self._source_binding)
+            source_binding_sha256 = self._source_binding_sha256
+            binary_sha256 = self._binary_sha256
+            config_sha256 = self._config_semantic_sha256
+            generation = self._run_generation
+        offending_digest = None
+        artifact_error = None
+        if mismatch and offending_path is not None:
+            offending_digest, artifact_error = self._copy_offending_capture(offending_path)
+        payload = {
+            "trace_schema": self._SCHEMA,
+            "run_id": run_id,
+            "generation": generation,
+            "run_started_monotonic_ns": self._run_started_ns,
+            "source_binding": source_binding,
+            "source_binding_sha256": source_binding_sha256,
+            "source_binding_current": copy.deepcopy(self._source_binding_current),
+            "source_binding_current_sha256": self._source_binding_current_sha256,
+            "calibration_source_sha256_at_start": self._calibration_source_sha256_at_start,
+            "calibration_source_sha256_current": self._calibration_source_sha256_current,
+            "source_drift": self._source_drift,
+            "source_binding_error": self._source_binding_error,
+            "source_binding_start_error": self._source_binding_start_error,
+            "calibration_source_error": self._calibration_source_error,
+            "protocol_sha256": source_binding.get("protocol.py") if source_binding else None,
+            "binary_sha256": binary_sha256,
+            "config_semantic_sha256": config_sha256,
+            "attempts": attempts,
+            "run_spans": copy.deepcopy(self._run_spans),
+            "failure": {
+                "reason": _bounded_diagnostic_error(reason),
+                "stage": stage,
+                "ordinal": ordinal,
+                "offending_capture_sha256": offending_digest,
+                "offending_capture_name": "offending-capture.png" if offending_digest else None,
+                "offending_capture_error": (
+                    _bounded_diagnostic_error(artifact_error) if artifact_error is not None else None
+                ),
+            },
+        }
+        with self._lock:
+            self._failure_payload = copy.deepcopy(payload)
+        try:
+            path = self._write_payload(payload)
+            with self._lock:
+                self._failure_path = path
+        except Exception as exc:
+            self._record_persistence_failure(exc, remove_offending=True)
+
+    def finish_success(self) -> None:
+        with self._lock:
+            self._terminal = True
+            if self._current is not None:
+                self._current["finished_monotonic_ns"] = time.monotonic_ns()
+
+
+def _native_diagnostic_span(diagnostic: Any, name: str, *, attach_to_attempt: bool = True):
+    """Use one diagnostic span path while keeping ordinary calls unchanged."""
+
+    if isinstance(diagnostic, _NativeObservationDiagnostic):
+        return diagnostic.span(name, attach_to_attempt=attach_to_attempt)
+    return nullcontext()
+
+
+class _NativeIdentityLatencySink:
+    """Bridge the driver's existing identity barriers into one native attempt."""
+
+    def __init__(self, diagnostic: _NativeObservationDiagnostic) -> None:
+        self.diagnostic = diagnostic
+
+    def span(self, _name: str):
+        return nullcontext()
+
+    def barrier(self, name: str):
+        if name == "backend_pre":
+            return self.diagnostic.span("identity_backend_pre")
+        if name == "backend_post":
+            return self.diagnostic.span("identity_backend_post")
+        return nullcontext()
+
+    def instant(self, _name: str) -> None:
+        return None
+
+    def mark(self, _name: str) -> None:
+        return None
+
+
+class _NativeCaptureRetained(Exception):
+    """Internal marker for an unlink helper that left its exact path behind."""
+
+
 def _serialized_motion(method):
     """Serialize all interaction producers around one physical intent.
 
@@ -741,10 +1286,20 @@ class SessionDaemon:
         # Source evidence is optional for ordinary daemon operation. A source
         # installation that cannot be inspected remains usable, but its
         # paused diagnostic is refused when it reaches the qualification gate.
+        self._runtime_source_binding_error: str | None = None
+        self._runtime_calibration_source_error: str | None = None
         try:
             self._runtime_source_binding = _runtime_source_hashes()
-        except DriverError:
+        except DriverError as exc:
             self._runtime_source_binding = None
+            self._runtime_source_binding_error = _bounded_diagnostic_error(exc)
+        try:
+            calibration_binding = _runtime_source_hashes(include_calibration=True, only="calibration.py")
+            self._runtime_calibration_source_sha256 = calibration_binding.get("calibration.py")
+        except DriverError as exc:
+            self._runtime_calibration_source_sha256 = None
+            self._runtime_calibration_source_error = _bounded_diagnostic_error(exc)
+        self._native_observation_diagnostic = _NativeObservationDiagnostic(self)
         self._motion_profiles = self._load_motion_profiles(self.config)
         self.capture_index = 0
         self._named_capture_sequence = 0
@@ -3305,9 +3860,12 @@ class SessionDaemon:
     def notify_native_measurement_failed(
         self, identity: WindowIdentity, reason: str
     ) -> NativeRestorationReceipt:
+        message = str(reason) or "native measurement failed"
+        diagnostic = getattr(self, "_native_observation_diagnostic", None)
+        if isinstance(diagnostic, _NativeObservationDiagnostic):
+            diagnostic.fail(message)
         if identity.fingerprint != self.driver.resolve_identity().fingerprint:
             raise DriverError("native failure identity changed")
-        message = str(reason) or "native measurement failed"
         self.controller.journal.append_archive(
             "interventions",
             {
@@ -3685,7 +4243,23 @@ class SessionDaemon:
             raise DriverError("native capture release requires a filesystem path") from exc
         with self._native_bootstrap_lock:
             self._native_owned_capture_paths.discard(candidate)
-        self._remove_native_capture(candidate)
+        diagnostic = getattr(self, "_native_observation_diagnostic", None)
+        attach_to_attempt = (
+            isinstance(diagnostic, _NativeObservationDiagnostic) and diagnostic._current_path == candidate
+        )
+        try:
+            with _native_diagnostic_span(diagnostic, "cleanup", attach_to_attempt=attach_to_attempt):
+                self._remove_native_capture(candidate)
+                if isinstance(diagnostic, _NativeObservationDiagnostic) and candidate.exists():
+                    raise _NativeCaptureRetained()
+        except _NativeCaptureRetained:
+            pass
+        except Exception as exc:
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                diagnostic.mark_release(candidate, error=str(exc))
+            raise
+        if isinstance(diagnostic, _NativeObservationDiagnostic):
+            diagnostic.mark_release(candidate)
         publish_release = False
         release_payload: dict[str, Any] | None = None
         with self._native_construction_lock:
@@ -3741,13 +4315,37 @@ class SessionDaemon:
         deadline: float | None = None,
     ) -> tuple[Sample, str, Any]:
         capture_started = self._native_clock()
-        path = self._capture_native_region_for_identity(identity, deadline=deadline)
+        diagnostic = getattr(self, "_native_observation_diagnostic", None)
+        backend = getattr(self.driver, "backend", None)
+        before_receipt = getattr(backend, "last_region_receipt", None)
+        sink = (
+            _NativeIdentityLatencySink(diagnostic)
+            if isinstance(diagnostic, _NativeObservationDiagnostic)
+            else None
+        )
+        sink_token = _set_identity_latency_sink(sink) if sink is not None else None
+        try:
+            with _native_diagnostic_span(diagnostic, "capture"):
+                path = self._capture_native_region_for_identity(identity, deadline=deadline)
+        finally:
+            if sink_token is not None:
+                _reset_identity_latency_sink(sink_token)
         retained = None
         try:
             if deadline is not None:
                 self._remaining_motion_budget(deadline)
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            sample = self.driver.decode_native_capture(path, identity=identity, decoder=decoder)
+            with _native_diagnostic_span(diagnostic, "provider_hash"):
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            after_receipt = getattr(backend, "last_region_receipt", None)
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                receipt_valid = (
+                    after_receipt is not None
+                    and after_receipt is not before_receipt
+                    and getattr(after_receipt, "output_sha256", None) == digest
+                )
+                diagnostic.record_backend_receipt(after_receipt if receipt_valid else None)
+            with _native_diagnostic_span(diagnostic, "provider_decode"):
+                sample = self.driver.decode_native_capture(path, identity=identity, decoder=decoder)
             # Decoder timestamps are publication/return times.  Freshness for
             # native consumers must instead describe when this capture was
             # admitted, before the potentially slow crop/decode path began.
@@ -3760,12 +4358,13 @@ class SessionDaemon:
             # copy each provider artifact into a private persistent evidence
             # directory before returning it to the native runner.  The runner
             # then decodes and seals this exact retained path/hash.
-            evidence_dir = self.config.journal.expanduser().parent / "native-evidence"
-            evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
-            os.chmod(evidence_dir, 0o700)
-            retained = evidence_dir / f"capture-{time.monotonic_ns()}-{self.capture_index:08d}.png"
-            shutil.copyfile(path, retained)
-            os.chmod(retained, 0o600)
+            with _native_diagnostic_span(diagnostic, "copy"):
+                evidence_dir = self.config.journal.expanduser().parent / "native-evidence"
+                evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+                os.chmod(evidence_dir, 0o700)
+                retained = evidence_dir / f"capture-{time.monotonic_ns()}-{self.capture_index:08d}.png"
+                shutil.copyfile(path, retained)
+                os.chmod(retained, 0o600)
             self._remove_native_capture(path)
             self._native_owned_capture_paths.add(retained)
             return sample, digest, retained
@@ -3811,6 +4410,10 @@ class SessionDaemon:
         polls the real status surface until that action publishes the requested
         fresh frame.  Once update 1 arrives, every later ordinal is exact.
         """
+
+        diagnostic = getattr(self, "_native_observation_diagnostic", None)
+        if isinstance(diagnostic, _NativeObservationDiagnostic):
+            diagnostic.ensure_started()
 
         if stage not in {"construct", "held", "updates", "resume"}:
             raise DriverError(f"unknown native measurement stage {stage!r}")
@@ -3878,12 +4481,22 @@ class SessionDaemon:
 
         accepted: tuple[Sample, str, Any] | None = None
         while self._native_clock() < deadline:
-            self._check_native_poll_identity(identity, generation)
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                diagnostic.begin_attempt(stage, ordinal)
+                try:
+                    self._check_native_poll_identity(identity, generation)
+                except Exception as exc:
+                    diagnostic.finish_attempt(status="error", error=str(exc))
+                    raise
+            else:
+                self._check_native_poll_identity(identity, generation)
             try:
                 candidate, candidate_id, candidate_path = self._capture_native_frame_with_capture(
                     identity, decoder
                 )
             except ProtocolError:
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="protocol_rejected")
                 # Before Agent construction the crop is ordinary game pixels.
                 # Keep polling until the operator has loaded the addon, then
                 # fail closed at the bounded deadline if no valid frame arrives.
@@ -3891,22 +4504,54 @@ class SessionDaemon:
                     time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                     continue
                 raise
+            except Exception as exc:
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="error", error=str(exc))
+                raise
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                diagnostic.record_candidate(candidate, candidate_id, candidate_path)
             if candidate.kind != "FRESH" or candidate.frame is None:
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.set_status(status="no_change")
                 self.release_native_capture(candidate_path)
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="no_change")
                 time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                 continue
             frame = candidate.frame
             render = frame.snapshot.value.get("render")
             if not isinstance(render, dict):
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.fail(
+                        "native frame has no render metrics",
+                        stage=stage,
+                        ordinal=ordinal,
+                    )
+                    diagnostic.set_status(status="error", error="native frame has no render metrics")
                 self.release_native_capture(candidate_path)
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="error", error="native frame has no render metrics")
                 raise DriverError("native frame has no render metrics")
             actual_phase = render.get("nativePhase")
             actual_ordinal = render.get("nativeOrdinal")
             if expected_boot is not None and frame.boot != expected_boot:
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.fail(
+                        f"native {stage} frame boot changed during operator wait",
+                        stage=stage,
+                        ordinal=ordinal,
+                    )
+                    diagnostic.set_status(status="error", error="boot changed")
                 self.release_native_capture(candidate_path)
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="error", error="boot changed")
                 raise DriverError(f"native {stage} frame boot changed during operator wait")
             if prior_sequence is not None and frame.sequence <= prior_sequence:
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.set_status(status="no_change")
                 self.release_native_capture(candidate_path)
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="no_change")
                 time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                 continue
 
@@ -3916,6 +4561,8 @@ class SessionDaemon:
                     # the construction proof, even if it carries Agent data.
                     self._validate_identity(frame.snapshot.value, state=ControllerState.NATIVE_CALIBRATION)
                 accepted = (candidate, candidate_id, candidate_path)
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="accepted")
                 break
 
             # Hold-required may see normal/0 while the operator reacts;
@@ -3926,7 +4573,22 @@ class SessionDaemon:
                 or (stage == "updates" and ordinal == 1 and (actual_phase, actual_ordinal) == ("held", 0))
                 or (stage == "resume" and (actual_phase, actual_ordinal) == ("held", 100))
             )
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                message = f"native {stage}/{ordinal} returned {actual_phase!r}/{actual_ordinal!r}"
+                if not waitable:
+                    diagnostic.fail(
+                        message,
+                        stage=stage,
+                        ordinal=ordinal,
+                        offending_path=candidate_path,
+                        mismatch=True,
+                    )
+                    diagnostic.set_status(status="mismatch", error=message)
+                else:
+                    diagnostic.set_status(status="waitable")
             self.release_native_capture(candidate_path)
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                diagnostic.finish_attempt(status="mismatch" if not waitable else "waitable", error=None)
             if waitable:
                 time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                 continue
@@ -4008,7 +4670,10 @@ class SessionDaemon:
                     or current_reservation.get("reservationId") != reservation_snapshot.get("reservationId")
                 ):
                     raise DriverError("native construction owner changed during poll validation")
-        if self.driver.resolve_identity().fingerprint != identity.fingerprint:
+        diagnostic = getattr(self, "_native_observation_diagnostic", None)
+        with _native_diagnostic_span(diagnostic, "identity_poll"):
+            current_identity = self.driver.resolve_identity()
+        if current_identity.fingerprint != identity.fingerprint:
             raise DriverError("native client identity changed during operator wait")
         with self.controller.lock:
             status = self.controller.status()
@@ -7377,6 +8042,9 @@ class SessionDaemon:
         """Own the live render gate; callers cannot supply copied measurements."""
         self._begin_calibration("native", expected_generation, admitted_context=admitted_context)
         self._native_measurement_state = None
+        diagnostic = getattr(self, "_native_observation_diagnostic", None)
+        if isinstance(diagnostic, _NativeObservationDiagnostic):
+            diagnostic.start_run()
         run_context: dict[str, Any] | None = None
         deferred = False
         succeeded = False
@@ -7414,7 +8082,11 @@ class SessionDaemon:
                 if self._native_bootstrap_observation is not None:
                     pending_path = self._native_bootstrap_observation.get("capturePath")
             self._cleanup_native_owned_captures(keep=pending_path)
-            evidence = NativeCalibrationRunner(self.driver, monotonic=self._native_clock).run()
+            evidence = NativeCalibrationRunner(
+                self.driver,
+                monotonic=self._native_clock,
+                diagnostic=diagnostic,
+            ).run()
             if deferred:
                 self._native_construction_revalidate_run_owner(
                     run_context, expected_generation=expected_generation or run_context["generation"]
@@ -7591,8 +8263,12 @@ class SessionDaemon:
             self._native_baseline_ready.clear()
             self._native_baseline_observation = None
             succeeded = True
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                diagnostic.finish_success()
             result = self.status_dict() | {"calibration": "native", "state": status.state.value}
         except Exception as exc:
+            if isinstance(diagnostic, _NativeObservationDiagnostic):
+                diagnostic.fail(str(exc))
             # A failed native run cannot reuse the preconstruction capture:
             # the operator may have loaded/reloaded the client while the
             # provider was running.  Require a new external bootstrap token.

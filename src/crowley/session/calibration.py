@@ -21,6 +21,7 @@ import sys
 import threading
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Protocol
@@ -4263,10 +4264,36 @@ class InputCalibrationWorkflow:
 class NativeCalibrationRunner:
     """Capture and validate native render evidence from the configured client."""
 
-    def __init__(self, driver: Any, *, monotonic: Callable[[], float] = time.monotonic):
+    def __init__(
+        self,
+        driver: Any,
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+        diagnostic: Any | None = None,
+    ):
         self.driver = driver
         self.monotonic = monotonic
+        self.diagnostic = diagnostic
         self.memory_meter: LinuxProcStatusVmHwmReset5 | None = getattr(driver, "native_memory_meter", None)
+
+    @contextmanager
+    def _diagnostic_span(
+        self,
+        name: str,
+        *,
+        requested_stage: str | None = None,
+        requested_ordinal: int | None = None,
+    ):
+        diagnostic = self.diagnostic
+        if diagnostic is None or not callable(getattr(diagnostic, "span", None)):
+            yield
+            return
+        with diagnostic.span(
+            name,
+            requested_stage=requested_stage,
+            requested_ordinal=requested_ordinal,
+        ):
+            yield
 
     @staticmethod
     def _validate_cells(path: Path) -> None:
@@ -4604,11 +4631,17 @@ class NativeCalibrationRunner:
                 if observation.capture_path is None:
                     raise CalibrationError(f"native {label} observation has no capture artifact")
                 capture_path = Path(observation.capture_path)
-                self._capture_observation(identity, observation)
-                if self.driver.resolve_identity().fingerprint != identity.fingerprint:
-                    raise CalibrationError(f"native {label} capture identity changed")
-                self._validate_cells(capture_path)
-                decoded = self.driver.decode_native_capture(capture_path, identity=identity, decoder=decoder)
+                with self._diagnostic_span("runner_hash"):
+                    self._capture_observation(identity, observation)
+                with self._diagnostic_span("identity_post_capture"):
+                    if self.driver.resolve_identity().fingerprint != identity.fingerprint:
+                        raise CalibrationError(f"native {label} capture identity changed")
+                with self._diagnostic_span("cells"):
+                    self._validate_cells(capture_path)
+                with self._diagnostic_span("runner_decode"):
+                    decoded = self.driver.decode_native_capture(
+                        capture_path, identity=identity, decoder=decoder
+                    )
                 if decoded.frame is None:
                     raise CalibrationError(f"native {label} capture did not decode a frame")
                 if previous_sequence is not None:
@@ -4618,8 +4651,9 @@ class NativeCalibrationRunner:
                         raise CalibrationError(f"native {label} capture sequence did not advance")
                 if expected_boot[0] is not None and decoded.frame.boot != expected_boot[0]:
                     raise CalibrationError(f"native {label} frame boot changed during measurement")
-                self._bind_observation(observation, decoded.frame, capture_path)
-                self._validate_metrics(observation.metrics, minimum_updates=minimum_updates)
+                with self._diagnostic_span("validation"):
+                    self._bind_observation(observation, decoded.frame, capture_path)
+                    self._validate_metrics(observation.metrics, minimum_updates=minimum_updates)
                 if last_publisher_uptime_ms is not None and (
                     (expected_phase == "updates" and expected_ordinal >= 2) or expected_ordinal == 100
                 ):
@@ -4707,7 +4741,12 @@ class NativeCalibrationRunner:
 
             update_window_start = updates_window.reset_completed_monotonic
             for update in range(1, 100):
-                current = self.driver.resolve_identity()
+                with self._diagnostic_span(
+                    "identity_pre_provider",
+                    requested_stage="updates",
+                    requested_ordinal=update,
+                ):
+                    current = self.driver.resolve_identity()
                 if current.fingerprint != identity.fingerprint:
                     raise CalibrationError("native client identity changed during updates")
                 try:

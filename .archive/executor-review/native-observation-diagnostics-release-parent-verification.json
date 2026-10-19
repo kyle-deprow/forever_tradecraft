@@ -1,0 +1,98 @@
+{
+  "status": "INSTALLED_INSTRUMENTED_NATIVE_ATTEMPT_PENDING",
+  "objective": "Measure exact native observation pipeline timings and retain bounded private mismatch evidence without changing native guards.",
+  "sourceSha256": {
+    "src/crowley/session/daemon.py": "4259e4de58b3b3d79f2fc595978907090a7f74666656a4af0c311a33602b0dad",
+    "src/crowley/session/calibration.py": "3a91f4fe690cd820329fe2536fc03e5c7de24e4c20649efdf1a705b8c147c8fc",
+    "tests/test_session_runtime.py": "d07d6d484dd70a84ceb3da0e1e729b936c0bf34cd9d4b3fe12e7a12c580c0c31",
+    "tests/test_session_native.py": "d0f3cbe99c5cf2d1df5ac3790e77d8487730a72b06abcf8eacf2253141dd57ec",
+    "tests/test_native_calibration_operator.py": "c9d22c42c50259a9a6f3b6db694b85731764080f6b9c5c43577711881f30596d"
+  },
+  "checks": {
+    "workerRuntime": "14passed13.59s",
+    "workerNative": "5passed15.38s",
+    "workerMeterRetry": "1passed0.46s",
+    "parentRuntime": "14passed13.91s",
+    "workerActualComposition": "1passed137.31s",
+    "workerComposedLogSha256": "17f893c53d02a1742d57333b633154e22af0ea561fb5676983b76255d8f103b9",
+    "parentActualComposition": "1passed135.08s",
+    "parentComposedLogSha256": "c3026e6ab1969fe83a1ff464d4b60204b3b8db5aa1d9daa149a5d96d1aac7001",
+    "parentSourceUnchanged": true,
+    "ruffFormatCompileDiff": "PASS"
+  },
+  "reviews": {
+    "solR1": "NEEDS WORK; exactfiveidentityspans and truthfulrelease corrected",
+    "solR2": "NEEDS WORK; actualconfiguredproducer composition proof corrected",
+    "solR3": {
+      "verdict": "READY",
+      "must": [],
+      "should": []
+    },
+    "opusR1": {
+      "model": "claude-opus-5-5",
+      "exit": 0,
+      "verdict": "NEEDS WORK",
+      "rawSha256": "9cef3b091dd71a84801342fb7c2afac3dffac169b4e7270b5be2951bcf5ff08a"
+    },
+    "opusR2": {
+      "model": "claude-opus-5-5",
+      "exit": 0,
+      "verdict": "NEEDS WORK",
+      "rawSha256": "b2771ec59c95ff6e13f4d815de5ff8583865cde62a8ee16dc89a0a72509167ca"
+    },
+    "opusR3": {
+      "model": "claude-opus-5-5",
+      "exit": 0,
+      "verdict": "READY",
+      "rawSha256": "5418cc9c0901b929bd5b29b385da629a5227f3f76564dbe7826288d6c471e0e1",
+      "must": [],
+      "should": [],
+      "deferredNits": [
+        "Fixture update99 lookup depends on recent16ring; passed bothworker runs and independentparentcase. Optionalreference retention is futuretesthardening.",
+        "On resume-side failure, non-current held100 cleanup runspan is not refreshed into saved failure.json; record is incomplete and must not be used as completecleanup attestation. Actualcleanup guards unchanged."
+      ]
+    }
+  },
+  "ordinaryBeforeInstall": {
+    "parentIndependentRetainedDecode": true,
+    "receiptSha256": "d81c40b01065db77d3f585919ab77936529a0fd83d364485fb48934c31151f36",
+    "frameSha256": "345531b563c7167e95554ecabcbe0ce8bf54bc02a40ddfa841a6832607acc0df",
+    "boot": "1792404188-593292",
+    "sequence": 247,
+    "ordinary": true,
+    "exact95Ack": true,
+    "pending": 0,
+    "ahOpen": false,
+    "speed": 0,
+    "inputReleased": true,
+    "preInstallGeneration": 31
+  },
+  "service": {
+    "restartUtc": "2026-10-19T10:08:17Z",
+    "oldPid": 781512,
+    "newPid": 3891378,
+    "postGeneration": 32,
+    "state": "PAUSED",
+    "nativeCalibration": false,
+    "inputCalibration": false,
+    "operation": "idle",
+    "handshake": "idle",
+    "daemonImportOrigin": "/home/dev/repos/pegasus/src/crowley/session/daemon.py",
+    "calibrationImportOrigin": "/home/dev/repos/pegasus/src/crowley/session/calibration.py",
+    "actualEntryInterpreter": "/home/dev/.local/share/uv/tools/crowley/bin/python3",
+    "entryInterpreterImportOrigins": {
+      "daemon": "/home/dev/repos/pegasus/src/crowley/session/daemon.py",
+      "calibration": "/home/dev/repos/pegasus/src/crowley/session/calibration.py"
+    }
+  },
+  "privacyBounds": {
+    "attemptRing": 16,
+    "runSpanCap": 1024,
+    "jsonMaxBytes": 1048576,
+    "mismatchImageMaxCount": 1,
+    "directoryMode": "0700",
+    "fileMode": "0600",
+    "rawEvidenceInGit": false
+  },
+  "qualification": "Source/test/review and paused installation qualified. No identity optimization. Actual instrumented native100, ordinary recovery, physical input gate and three autonomous900s cycles remain unqualified."
+}
