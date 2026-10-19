@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 21:29 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 21:41 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -44,7 +44,7 @@ Stable game identity: PID644491/start15495385, xid0x02e00001,
 child0x2000011, fingerprint
 `e84a459bda54c891092f049af9c523eb171588ce566a44123723d733baf6918a`.
 1920x1080 client, telemetry crop80,48,256,256. DISPLAY:0; obtain fresh authority
-and controller generation before mutation. Latest verified native recovery was PAUSED44,
+and controller generation before mutation. Latest canonical native recovery was PAUSED47,
 nativefalse/inputfalse; do not treat this historical generation as fresh.
 
 Daemon `crowley-session` restarted after accepted resource-policy R2 installation
@@ -53,9 +53,18 @@ three unchanged boundaries match final pins; MAIN imports verified; copy occurre
 while stopped. [Release proof](../.archive/executor-review/native-resource-policy-release-parent-verification.json).
 Parent decoded fresh closedAH normal0/inactive/pending0/speed0/released boundary
 before install: [quiescence](../.archive/executor-review/native-resource-policy-quiescence-parent-verification.json).
-Original gen40/43 failure archives remain byte-exact. Sole operator now performs
-ONE fresh native100 on the reviewed policy; no input calibration or autonomous
-cycles yet. Ordinary140 is held for this qualification; retain the real cadence gap.
+Original gen40/43 failure archives remain byte-exact. One fresh native attempt in
+generation46 failed exact ordinal validation: updates/4 observed updates/5,
+sequence18. Parent independently decoded the offending original PNG. Updates1..3
+were accepted; one Measure command, no source drift and all captures released.
+[Failure proof](../.archive/executor-review/native-resource-policy-live46-failure-parent-verification.json).
+Canonical public pause/recovery succeeded to PAUSED47/nativefalse/inputfalse. No
+unchanged retry, genuine input calibration or autonomous cycle occurred. The
+trace shows1.2..1.4s host processing per1Hz update; repeated identity checks
+dominate while ScreenshotArea itself takes about44ms. Luna investigates the
+smallest deterministic correction without relaxing exact ordinals. Assisted140
+may resume after recovery, retaining the actual gap after139; no claim of900s
+through the calibration pause.
 
 Latest fully parent-verified cycle **#139**:
 
@@ -342,8 +351,14 @@ independent implementation in `/home/dev/.cache/crowley/worktrees/host-operation
 R3 candidate passed parent30 tests/static/unit checks;
 [Sol R1](../.archive/executor-review/host-operations-sol-r1-review.json) and
 [actual Opus R1](../.archive/executor-review/host-operations-opus-r1-review.json)
-requested changes. Luna is implementing their consolidated fixes in R4. [Parent host evidence](../.archive/executor-review/host-operations-r3-parent-verification.json).
-Core R2 remains frozen while host fixes proceed.
+requested changes. Luna completed consolidated R4 fixes; parent independently
+passed all48 tests, scoped static/compile and systemd checks at unchanged six
+pins. [Parent R4 evidence](../.archive/executor-review/host-operations-r4-parent-verification.json).
+Sol R2 source review is underway. [Actual CLI Opus R2](../.archive/executor-review/host-operations-opus-r2-review.json)
+finished NEEDS WORK: increase the256KiB manifest cap to accommodate growing raw
+member lists, cover real second-validation failures, and correct two small
+classification/test issues. Luna implements R5. No host timer is installed or
+enabled yet. Core R2 is installed and pushed as23d7f75.
 These timers do not trigger game scans; the addon900s timer remains the scan clock.
 No timers are installed yet. Do not synthesize human input or bypass capture guards.
 
@@ -351,13 +366,14 @@ No timers are installed yet. Do not synthesize human input or bypass capture gua
 
 1. COMPLETE: Parent offline gates, Sol/actual Opus approval, full122 chain,
    fresh quiescence, exact accepted six-file promotion and service restart.
-2. Implement the authorized resource-policy separation in the isolated worktree;
-   parent reproduces scoped regressions and real compiled100 composition, then
-   Sol and actual Opus review the frozen source. Promote only after all pass,
-   after an independently decoded quiescent game boundary. Perform one fresh
-   native100 and preserve its correctness and resource assessments separately.
-   Never reclassify old40/43. Qualification retains all current identity/cadence/
-   ordinal/ownership/cleanup/recovery evidence.
+2. COMPLETE: resource-policy separation parent verification, Sol/actual Opus
+   approval, quiescent installation and pushed commit23d7f75. Fresh live46 failed
+   updates/4 versus5; recovered47. Diagnose and fix measured host processing
+   latency with a bounded plan, meaningful regressions and both source reviews.
+   Preserve all current identity/cadence/ordinal/ownership/cleanup/recovery guards.
+   Then one fresh native100; retain correctness and resource assessments
+   separately. Never reclassify old40/43/46. Continue independent host timer
+   review/release and assisted beta collection while awaiting calibration.
 3. Public pause then canonical ordinary recovery: PAUSED/native true/inputfalse,
    checkpoint clear, no stale operation/action. **Only then ask user availability**
    for physical input calibration.

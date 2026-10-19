@@ -1,0 +1,60 @@
+{
+  "status": "UNQUALIFIED",
+  "generation": 46,
+  "operatorReceiptSha256": "44fd891b95d8fbe136d5f71388e7a9c0e9f5d9c6bcbf7297e013b5483fd248d9",
+  "diagnosticSha256": "c82153358eb8ba211b7fd4e7d515f6a70979209da5d8256f4ee650fee2728490",
+  "sourceDrift": false,
+  "sourceBindingSha256": "c72d6c83d7cbeec435a27d7f3e175d9e726d9195ddc219eea3d2fc9366bb8d83",
+  "requested": {
+    "phase": "updates",
+    "ordinal": 4
+  },
+  "parentIndependentProductionDecode": true,
+  "observed": {
+    "phase": "updates",
+    "ordinal": 5,
+    "sequence": 18,
+    "boot": "native-construction:1792445385-972201"
+  },
+  "offendingImageSha256": "37bc9558c547f707c8f5ac1ae40e21bcd0e3617bee9f602c514d340e37990370",
+  "measureSubmissions": 1,
+  "acceptedUpdateOrdinals": [
+    1,
+    2,
+    3
+  ],
+  "attempts": [
+    {
+      "requested_stage": "updates",
+      "requested_ordinal": 1,
+      "status": "accepted",
+      "release_outcome": "released"
+    },
+    {
+      "requested_stage": "updates",
+      "requested_ordinal": 2,
+      "status": "accepted",
+      "release_outcome": "released"
+    },
+    {
+      "requested_stage": "updates",
+      "requested_ordinal": 3,
+      "status": "accepted",
+      "release_outcome": "released"
+    },
+    {
+      "requested_stage": "updates",
+      "requested_ordinal": 4,
+      "status": "mismatch",
+      "release_outcome": "released"
+    }
+  ],
+  "recovery": {
+    "receiptSha256": "c74e2f06664116a8098884d207bfe5d5cf91c8e734a9a1a862a480004d37770e",
+    "outcome": "success",
+    "generation": 47,
+    "ordinaryReloadBoundaryRecorded": true,
+    "finalOrdinaryPixelVerification": "pending separate retained frame"
+  },
+  "qualification": "Native/input false; no retry; no autonomous qualification cycle."
+}

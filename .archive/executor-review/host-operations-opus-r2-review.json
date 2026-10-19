@@ -1,0 +1,19 @@
+{
+  "status": "NEEDS WORK",
+  "reviewer": "Actual Claude Code CLI Opus",
+  "resolvedModels": [
+    "claude-opus-5-5"
+  ],
+  "exitCode": 0,
+  "sourceUnchanged": true,
+  "reviewSha256": "df740e85396ab3b3f4e536de46d5087a3819b72f81587538e0267f5c8f782e91",
+  "rawStreamSha256": "b2c0f1c23ceac90ca5092e07f8206b6e39a70943d6ae08c3a0d91784208f055f",
+  "candidateSha256": "f2da406300f534b7b62353fb6718d1a74477c38719dba23b46ee9299a458a8bc",
+  "findingsAccepted": [
+    "Increase format-compatible bounded health manifest headroom; remove tiny redundant backup admission cap.",
+    "Add actual second-validation failure and identity/digest mismatch last-good preservation cases.",
+    "Any independent issue forces attention even when controller gated.",
+    "Replace vacuous shell assertion with actual subprocess kwargs assertion."
+  ],
+  "qualification": "R4 source review; fix round R5 pending, no service installation."
+}
