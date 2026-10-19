@@ -1,0 +1,87 @@
+Resolved model: claude-opus-5-5
+CLI exit: 0
+Private raw stream SHA256: 61d6160d14b34e43730a590bdd56538ae35a8101d8efc7e78cc96ee8534b1109
+
+# R8→R9 native executor review (frozen `native-r9-private-fixture-20261019`, base `fb129d0`)
+
+**Verdict.** I found no correctness defect in the R9 production delta. The lock order holds, the rollback is correct, the transaction guards are correct, and no new escaped dispatch exists. Several tests that the closure counts as proof would pass on R8 code, though, and two explicitly arbitrated proof items are still missing. Everything below can be fixed in tests only, plus one note that needs recording.
+
+This was a read-only review. I edited nothing in the repo or reports, ran no tests, made no git changes and sent no input. My only write was the plan scratch file. I read one 98-byte private log because its cited timing looked implausible.
+
+## What I checked
+- **Hashes.** All seven hashes match the user-supplied set. `cli.py`, `test_session_runtime.py` and `test_session_transitions.py` are byte-identical to R8 proof. `a74297c..fb129d0` has no `src/` or `tests/` changes.
+- **controller.py.** The diff is confined to `Controller.native_calibrated`.
+- **test_session_native.py.** The diff is the STOPPED fixture plus one helper and two calls to it.
+- **Lock nesting.** A syntactic scan of nested lock acquisition in `daemon.py` finds only controller→construction, construction→calibration-state, and bootstrap→construction. Every controller call made under the construction lock happens with the controller lock already held.
+- **Guardian.** It runs its callbacks after releasing its own lock (`guardian.py:1894-1940`), so controller→construction→Guardian→driver `_process_lock` has no reverse edge.
+
+## Must-Fix
+None.
+
+## Should-Fix
+
+**1. The worker-identity regression (Nit4) also passes on R8 code** (`tests/test_session_native_regressions.py:6625-6720`).
+- The test asserts nothing between `old_thread.join` (6696) and `new_release.set()` (6698). After that, the new worker's `_finish_calibration` resets `state`/`error` and its own result write overwrites `result`.
+- On R8, the old worker writes `"late old worker failure"` or its stale snapshot into the new record. The final assertions (state `complete`, `error == ""`, result kind `native`) still pass.
+- The test also never reaches the "finally flips a new *starting* record to error" race, because it waits until the new record is `running`.
+- **Fix:** assert the new record is unchanged (running, result None, error "") right after the old worker joins and before releasing the new one. Add a variant where the old worker's `finally` runs while the new record is still `starting`, with the new worker held before `_begin_calibration`.
+
+**2. The NATIVE_CALIBRATION configured-producer execution gate is never run through the real method.** Final arbitration (Nit5) required this.
+- **Untested code:** the NATIVE pre-check at `daemon.py:4566-4573`, and `admit_observer` (`4577-4598`) under NATIVE_CALIBRATION state.
+- **Where the tests fall short:**
+  - Both R9 linearization tests (5993, 6136) run in PAUSED.
+  - The composed finalize test and `_configure_deadline_png_runner` replace `_capture_native_region_for_identity` (6862, 7156).
+- **Why it matters:** this is the deferred-finalize path for the qualification producer, which is exactly where the strong "no revoked producer dispatch" claim applies.
+- **Risk is low.** `admit_observer` doesn't depend on state, so the PAUSED proof covers the locking mechanism, and by inspection the NATIVE branch is correct. The requirement is still unproved.
+- **Fix:** run `_r9_configure_png_capture` with a real deferred owner (prepare → bootstrap → `finalize_required`) and call the real gate with `expected_state=NATIVE_CALIBRATION`. Pause after the capability check and revoke via cancel or replay. Assert zero `process_calls` when revocation wins, and owner-clear-after-start when admission wins.
+
+**3. An undocumented production fix to the public input gate has no regression** (`daemon.py:1215`, `1254-1257`).
+- **What was broken in R8:** `start_calibration("input")` publishes a `starting` input record. The worker's `_begin_calibration("input")` then hit `current == "starting" and not (native and native)` and raised "a calibration operation is already starting". So IPC `input_calibrate` (`cli.py:177-195`) and the interaction-mode INPUT_CALIBRATION gate (`daemon.py:7768-7776`) errored immediately on every tick.
+- **What R9 does:** it allows same-kind adoption and updates the record in place, which the Nit4 identity design needs.
+- **The change looks correct.** Only the record's own worker can adopt it, because `start_calibration` refuses while a record is starting or running.
+- **The gap:** the change is neither listed in the closure nor tested. The only test of the input start path is a refusal (5723).
+- **Fix:** record it in the closure. Add a test that `start_calibration("input")` reaches `running` on its own record and publishes its result or error there, and that a cross-kind `starting` record still refuses.
+
+## Nits
+- **Malformed resume facts (Nit3) has no regression-sensitive negative** (`daemon.py:3147-3167`). The existing `missing_capture` and NaN-sequence cases (5559-5585) produce the same message on R8. A missing sequence (masked as "not a fresh same-boot proof" on R8) or a `None` sequence (TypeError on R8) would expose the reorder. The early check now also applies to the legacy path; it fails closed, but it should be stated as intended.
+- **The "recovery restart cannot overlap a live reservation" guard (Nit5) is untested** (`daemon.py:2362-2363`). No test matches that string; the existing overlap test (5098-5143) only covers the inflight guard.
+- **The cancel-wins variant has no later public recheck** (7011-7023). It asserts the exact guard and zero mutations. It doesn't call `native_construction_recheck` afterwards to show the terminal stays `cancelled`, which Should2 asked for. Production is correct: the worker's error path skips a closed context.
+- **The finalize-wins barrier is still timing-based** (6988-7004). `cancel_attempted` is set *before* `dispatch`, and `not cancel_done.wait(0.2)` doesn't prove the cancel is blocked on the controller mutex. It is very likely to catch an early lock release, but it isn't deterministic.
+- **The STOPPED fixture dropped its real-daemon X11-backend assertion** (`tests/test_session_native.py:1003-1010`). It now proves the restored STOPPED refusal, which is good. It no longer asserts the region-enabled, non-X11 refusal from a legitimately admitted state; only the stub-daemon test at 880 covers that.
+- **Evidence mapping.**
+  - The closure maps STOPPED refusal to `test_compiled_region_composes_through_default_daemon_and_stock_model` and `named-runtime-and-stopped.log`.
+  - The edited test is actually `test_real_session_daemon_native_provider_route_and_stock_model_capture`.
+  - That log is 98 bytes (`2 passed in 1.64s`) with no test IDs. The time doesn't fit the compiled test (about 8.7 s alone, per the parent's private-bus run).
+  - The STOPPED proof actually rests on the 353-pass run.
+
+## Production delta: confirmed correct
+- **Capability transaction.** The construction lock is held from the exact comparison through `observer_dispatch_admission` (`4593-4598`). Every matcher call site holds the lock (2812/2825, 4561, 4571, 4593). Epoch, generation, kind and ID are compared exactly, with `None` matching only `None`.
+- **Final binding.**
+  - The snapshot is validated outside the locks (7441-7456), including lease, PID/start, profile, Guardian generation and armed state.
+  - The candidate's identity fingerprint, its capture identity and the reservation identity must all be equal.
+  - The transaction repeats the pure identity and Guardian checks before any mutation (1916-1927).
+- **Durable rollback** (`controller.py:1762-1789`).
+  - Snapshot and restore cover all six fields.
+  - The archive goes through `append_archive`, which calls `self.write`, so injecting `journal.write` really reaches both boundaries.
+  - The archive artifact is kept, per the plan.
+- **STOPPED refusal** (4541) restores HEAD semantics. The stock no-producer status capture uses `_capture_client_crop`, so it is unaffected.
+
+## Requirement status
+| Requirement | Status |
+|---|---|
+| Capability/construction-lock linearization (PAUSED configured producer) | Proved. On R8 the replayed bootstrap clears the owner under the construction lock alone, so the `revocation_wins=False` case would fail. |
+| Exact capability negatives, plus legitimate inflight `None` ID | Proved. Kind and `None`-ID would match on R8. The positive `None`-ID case goes through the real gate only in the older compiled test. |
+| Final capture-to-commit identity and Guardian drift | Proved, both outside-lock and in-transaction. |
+| Durable `native_calibrated` rollback through the real owner error handler | Proved; the later save succeeds. |
+| Transaction deadline after the lock wait | Proved; the transaction wrapper is entered exactly once. |
+| Cancel-wins at transaction entry | Proved, except the later recheck. |
+| Finalize-wins | Correct, but the barrier is timing-based. |
+| STOPPED refusal; PAUSED no-producer recovery begin; deferred callback ordering | Proved. |
+| Nit4 async operation identity | **Unproved**: the test is insensitive (Should-Fix 1). |
+| NATIVE configured-producer gate | **Unproved** (Should-Fix 2). |
+| Nit3 reorder; Nit5 overlap guard; input start path | **Unproved**. |
+| Independent Guardian revoke vs admission (driver-side, outside the fence) | Not exercised. `InputGuardian.revoke` calls its release hook only when input is held or a process group is active (`guardian.py:1907-1920`). The new Guardian-generation commit guard still prevents a false finalize. |
+| Private bus fixture | Sound. The Popen subclass keeps type checks working for newly spawned processes, only the `dbus-run-session` argv changes, `NO_AT_BRIDGE` is scoped by monkeypatch, and production treats producer stderr as diagnostic only. |
+| Legacy stock-capture residual | Deferred, as agreed. |
+
+STATUS: NEEDS WORK
