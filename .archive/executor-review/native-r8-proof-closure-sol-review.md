@@ -1,6 +1,7 @@
 # Native R8 proof closure — Sol review
 
-Reviewer: configured `gpt-5.6-sol`  
+Reviewer: configured `gpt-5.6-sol`
+
 Scope: only the 535 appended lines in frozen `tests/test_session_native_regressions.py` (`6447c6a4470334650034ae277dc00d30e67c2ce29179f812a14c52f3dae042a8`) against the original R8 file (`093b97e15d81c407d40564815ee3eb867003bbd43146acb85a0ed7a1fdd4bba5`). I did not review R9, reconsider the accepted R8 capability race, or rerun tests.
 
 ## Must
