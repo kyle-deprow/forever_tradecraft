@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "qualification": "Complete operator-assisted cycle; no autonomous engine qualification.",
+  "uid": "beta-normal-alliance-1792404927-Arthur-7595",
+  "rawReceiptSha256": "e83a7615ab18c8ff2c7923003119aa49e27eae230bb8e89a87073c5a48aea18c",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "a071880d513e037d2d525de5b1d8aa96e46c794c0b2f598a160ea1e075289e62",
+  "boot": "1792405510-933514",
+  "sequence": 90,
+  "ahOpen": true,
+  "pending": 0,
+  "loadedExactAck": true,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "buttonReleased": true,
+  "characterSpeed": 0,
+  "nextDueAt": 1792405827,
+  "verifierSha256": "bf57866245fffaaaa32b496152aa44ce62bdd61b09408eb10947f6cf7a3c5b2d",
+  "compoundReceipt": {
+    "description": "Original save/upload/exact ACK receipt refused AH reopen on player tooltip; separately retained fresh Auctioneer hover and guarded reopen succeeded. Original receipts unchanged.",
+    "saveAckReceiptSha256": "73f3d16fb1de12e08e37c51a4ec8b5e89384300a677751d4c430d710bc848627",
+    "reopenReceiptSha256": "41fa16929a106bdc929caa396899d3df007ccac30b66df835dc1b42a6d4b4a63"
+  }
+}

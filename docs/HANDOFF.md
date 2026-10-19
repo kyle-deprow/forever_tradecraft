@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 10:23 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 10:32 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -39,15 +39,16 @@ observations; no buying, posting or cancelling is part of this task.
 - Assisted #95 is fully verified, exact900s after #94. Luna closed the AH before
   #96 for installation; parent independently decoded exact #95 ACK/pending0,
   normal0/inactive fence/closedchat/zeromovement/released controls. Its ordinary
-  deadline1792404569 (10:09:29 UTC) may be replaced by calibration. Record gap.
+  deadline1792404569 (10:09:29 UTC) was replaced by calibration; #96 gap is recorded below.
 - Fresh gen32 preflight succeeded; resume returned33. The helper then refused
   typed `/reload` OCR before the native runner started. Parent reproduced
   `reload` from the visible `/reload` crop. No native sampling trace was made.
   Fresh visible Restore at gen35 reloaded the addon; parent decoded ordinary
   normal0/inactive/pending0/AHreopened/zeromovement/released. Assisted #96
-  started1792404927, interval1258s/358s late after #95; finalverificationpending.
+  started1792404927, interval1258s/358s late after #95; its full chain is parent-verified.
 - Current service state is PAUSED35/nativefalse/inputfalse; soleGUI continues
-  assisted collection while the helper-only contrast plan is reviewed. Native100,
+  assisted collection while Luna implements the Sol/parent-approved helper contrast plan
+  in isolated worktree native-chat-contrast-20261019. Native100,
   physical input and three autonomous900s cycles remain unqualified.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
@@ -55,16 +56,24 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #95 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792403669-Arthur-0348`:
+Parent verification #96 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792404927-Arthur-7595`:
 
-- 428 observations, 2,077 rows, 419 full and 9 bounded observations, all `ok`;
-- 480-second scan, 25.425860 seconds from finish to the server receipt;
-- exact saved-variable/server digest agreement, independently decoded loaded
-  ACK with pending 0, followed by AH reopening; normal native phase,
-  inactive fence, released button and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-ninetyfifth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-ninetyfifth-ah-reopen-parent-verification.json).
+- 428 observations, 2,083 rows, 416 full, 10 bounded and 2 incomplete;
+  426 `ok` observations and 2 explicit `query_timeout` observations;
+- 543-second scan, 25.491240 seconds from finish to the server receipt;
+- 1,258-second start interval after #95, 358 seconds late due to calibration
+  refusal and recovery; next ordinary deadline1792405827;
+- exact saved-variable/server digest agreement and independently decoded
+  exact loaded ACK/pending0. The first reopening refused a player tooltip;
+  a fresh Auctioneer hover and guarded click succeeded. Both original receipts
+  remain unchanged and are linked in the compound parent verification;
+- reopened AH, ordinary normal0/inactive fence, released controls and zero movement;
+- [scan verification](../.archive/executor-review/build-70450-ninetysixth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-ninetysixth-ah-reopen-parent-verification.json).
+
+#95 is fully verified: 428 observations, 2,077 rows, 419 full/9 bounded,
+all `ok`, 480-second scan and exact900s interval after #94.
 
 #92 and #93 are fully verified (428 observations/2,012 and2,014 rows).
 #94 started900s after #93; its initial reopen hovered a player and failed,
@@ -358,8 +367,9 @@ Only helper+helpertests are in scope; no service restart is required.
 Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
-1. Luna has completed #95 save/upload/ACK/reopen; parent independently verified
-   the original payload, DB, exact ACK, ordinary state and released controls.
+1. Finish the current assisted save/upload/ACK/reopen chain and verify ordinary
+   state before installing the accepted helper-only contrast fix. #96 is fully
+   parent-verified. Keep collection running until that controlled boundary.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.
 3. Run native control preflight, resume, and the measured native100 operation.
