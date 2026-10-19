@@ -1,0 +1,65 @@
+{
+  "status": "PASS",
+  "profileSha256": "b71253f0b6afb30bc0b155209f7b5fa4945e74c5cb48856799bfdba21d9d2817",
+  "sourceUnchanged": true,
+  "capturesIndependentlyDecoded": 13,
+  "stableBoot": "1792394976-258518",
+  "generation": 26,
+  "allSequenceDeltas": 1,
+  "deltas": [
+    {
+      "publisherSeconds": 1.001,
+      "captureStartSeconds": 0.5672529099974781
+    },
+    {
+      "publisherSeconds": 1.0,
+      "captureStartSeconds": 0.9844357700203545
+    },
+    {
+      "publisherSeconds": 1.0,
+      "captureStartSeconds": 0.9752178060007282
+    },
+    {
+      "publisherSeconds": 1.0,
+      "captureStartSeconds": 0.9672195589810144
+    },
+    {
+      "publisherSeconds": 1.0,
+      "captureStartSeconds": 0.9724657550104894
+    },
+    {
+      "publisherSeconds": 1.012,
+      "captureStartSeconds": 0.9706522159976885
+    },
+    {
+      "publisherSeconds": 1.001,
+      "captureStartSeconds": 0.9730565340141766
+    },
+    {
+      "publisherSeconds": 1.0,
+      "captureStartSeconds": 0.9640557909733616
+    },
+    {
+      "publisherSeconds": 1.001,
+      "captureStartSeconds": 0.9643501760147046
+    },
+    {
+      "publisherSeconds": 1.001,
+      "captureStartSeconds": 0.9746541419881396
+    },
+    {
+      "publisherSeconds": 1.0,
+      "captureStartSeconds": 0.9701699480065145
+    },
+    {
+      "publisherSeconds": 1.012,
+      "captureStartSeconds": 1.0068389179941732
+    }
+  ],
+  "medianCosts": {
+    "captureMs": 28.804408997530118,
+    "backendCallMs": 379.0412929956801,
+    "decodeMs": 56.46602000342682
+  },
+  "qualification": "Read-only ordinary normal/0 capture timing. Demonstrates publisher and consumer clock distinction under current producer. Not original failed native1/2 or native100 proof."
+}

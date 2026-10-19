@@ -179,6 +179,9 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   with only required service directories; retain real GTK/protocol dispatch and
   scope accessibility environment settings to that fixture. Preserve Popen's
   process type when adapting its argv: driver isinstance checks require a class.
+  Check publication cadence against decoded publisher uptime, independently of
+  real capture-admission freshness and ordering. Keep the first observation of
+  each publication as its timing anchor; repeated captures must not replace it.
   Advancing simulated Lua time does not pace real screenshot timestamps. For
   cadence proofs, publish the external scene on a real monotonic schedule and
   allow repeated captures of the current frame; never restamp captures to pass

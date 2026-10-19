@@ -1,0 +1,28 @@
+{
+  "status": "LIVE_NATIVE_MEASUREMENT_REFUSED",
+  "helperSourceSha256": "1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211",
+  "generation": 25,
+  "receiptSha256": "2618bf9c290a1d23d8719224ee2ae6c21b86e6f9348210227becdb36d6a26ac2",
+  "error": "native update 2 publication cadence is not 1Hz",
+  "acceptedPrecedingStages": [
+    "actual recovery",
+    "control preflight",
+    "construction",
+    "hold",
+    "measure command readback and submission"
+  ],
+  "measureSubmittedMonotonic": 203939.381247656,
+  "failureMonotonic": 203941.263476435,
+  "exactUpdateCaptureIntervals": "Not retained; do not infer from operator chat captures.",
+  "cleanup": {
+    "publicPauseGeneration": 26,
+    "freshHelperRecovery": "success",
+    "receiptSha256": "c9bfc62a57514accf87b14233b2186258f1da3183a260841999b04f050ece9c2",
+    "ordinaryBoot": "1792394161-128257",
+    "fence": "inactive",
+    "nativeCalibration": false,
+    "inputCalibration": false
+  },
+  "next": "Read-only production fastcanvas timing profile and Sol-reviewed plan. No blind cadence relaxation, frame restamping, skipped ordinals or Rust rewrite without measured need.",
+  "qualification": "Native100, human input and autonomous loops NOT qualified."
+}
