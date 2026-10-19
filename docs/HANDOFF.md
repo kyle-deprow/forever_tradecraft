@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 11:25 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 11:32 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -47,7 +47,8 @@ observations; no buying, posting or cancelling is part of this task.
 - Recovery38 succeeded. Parent verified reopened AH/ordinary normal0/inactive
   fence/pending0/zero movement/released controls. Assisted #100 started1792408561,
   934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
-  2,015-row sweep finished with0 query failures; save/ACK/reopen is pending.
+  2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
+  parent-verified. #101 started on its exact900s deadline1792409461.
 - Sole GUI operator continues assisted collection while Sol reviews the new
   native identity-budget plan. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -57,22 +58,26 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #99 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792407627-Arthur-0388`:
+Parent verification #100 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792408561-Arthur-5268`:
 
-- 428 observations, 2,054 rows, 418 full and 10 bounded, all `ok`;
-- 479-second scan, 62.218005 seconds from finish to server receipt;
-- exact900-second start interval after #98; next ordinary deadline1792408527;
+- 428 observations, 2,015 rows, 417 full and 11 bounded, all `ok`;
+- 497-second scan, 53.210904 seconds from finish to server receipt;
+- 934-second start interval after #99; 34 seconds late due to calibration;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-ninetyninth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-ninetyninth-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-onehundredth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-onehundredth-ah-reopen-parent-verification.json).
 
-Sole operator then closed the AH with one guarded Escape. Parent independently
+#101 started on its exact900s deadline1792409461; nextdue1792410361.
+#99 is fully verified:428observations/2,054rows/418full10bounded/allok,
+479s scan,62.218005s finish-to-serverreceipt,exact900s after98.
+
+After #99, sole operator closed the AH with one guarded Escape before calibration. Parent independently
 decoded retained frame592deac4: ordinary normal0/inactive/pending0, exact99ACK,
 AHclosed/speed0/released controls. This is the [fresh calibration boundary](../.archive/executor-review/native-chat-contrast-preflight-boundary-parent-verification.json).
-The ordinary100 deadline may be replaced by calibration; record the actual gap.
+That calibration replaced the ordinary100 deadline by34s; the actual gap is above.
 #98 is fully verified:428 observations/2,063 rows/419full9bounded/allok,
 476s scan,61.315347s finish-to-serverreceipt,exact900s interval after97.
 
@@ -390,6 +395,11 @@ The failed gen33 fullframe remains unavailable.
 
 
 ## Instrumented native budget blocker
+
+Fresh control preflight36 succeeded with the promoted helper before native
+resume37; the parent matched receipt14b1713c/source63fd2b97. The initial
+preflight35 failed before any capture/command, then recovery36 cleared it; its
+sanitized receipt retains only operator_failure, so do not invent a finer cause.
 
 The [gen37 failure and recovery proof](../.archive/executor-review/native-live-budget-failure-gen37-parent-verification.json)
 independently verifies sequence15/publisher uptime218361571/updates ordinal3

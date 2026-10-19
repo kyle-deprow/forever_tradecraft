@@ -86,5 +86,13 @@
     "assisted100StartIntervalSeconds": 934,
     "calibrationDelaySeconds": 34
   },
-  "next": "Plan and review minimal native identity/admission overhead correction preserving all semantic checks; no unchanged native retry."
+  "next": "Plan and review minimal native identity/admission overhead correction preserving all semantic checks; no unchanged native retry.",
+  "freshControlPreflight": {
+    "generation": 36,
+    "outcome": "success",
+    "mode": "control-preflight",
+    "helperSourceSha256": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+    "receiptSha256": "14b1713cd01c4a267b37bd7b45b4bcbafcd5bf316d36b5fe61b6cc71ffee6b87",
+    "parentReceiptDigestAndSourceVerified": true
+  }
 }
