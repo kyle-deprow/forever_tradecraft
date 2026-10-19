@@ -1,0 +1,47 @@
+{
+  "status": "ACCEPTED_AND_INSTALLED",
+  "source": {
+    "tools/native_calibration_operator.py": "4c3c2aa399cc36b52f42b0af6ef0f1dbe5038fe42d7825c31911d132f17fbb60",
+    "tests/test_native_calibration_operator.py": "6f8ddc4b2091f7928004e9f9d3fab2bdb0077cf88f71afb1367db6404875b21c",
+    "tools/template_matcher_runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "tests/test_template_matcher_runtime.py": "302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69"
+  },
+  "sourceUnchanged": true,
+  "parentFocused": {
+    "passed": 22,
+    "seconds": 1.32,
+    "logSha256": "7bea775f9a8081f2d73572ef9c02aad15168dbcdb4437ad14e9f176e876628f9"
+  },
+  "workerFullFinal": {
+    "passed": 98,
+    "warnings": 5,
+    "seconds": 349.41,
+    "logSha256": "e6b09132778c997e1e4d762851423029c49b05847aa8219ebf92cfcef6c95d23"
+  },
+  "sol": {
+    "verdict": "READY",
+    "mustFix": [],
+    "shouldFix": []
+  },
+  "opus": {
+    "model": [
+      "claude-opus-5-5"
+    ],
+    "verdict": "READY",
+    "rawSha256": "f0a8f5bdb80b9c171c06bd8cfb4b6c4e45ca93e0621f98825c382a29aa54546d",
+    "reviewSha256": "fb2e75f6131d63ce06cf7d828afc975c2d0237112fd2dcfa8e151fff68e1cb91",
+    "sourceUnchanged": true
+  },
+  "deferredNonblockingNits": [
+    "Constructor-minimum test comment still describes recheck although expired-click guard exits first; NOT corrected.",
+    "Empty legacy actions.log cannot prove no input; actual forbidden emitter factory establishes refusal before allocation.",
+    "Prior Opus R1 nits: independent served-frame comparison, payload-copy optimization, timeout diagnostics, hypothetical in-place artifact mutation."
+  ],
+  "installed": {
+    "cliHelpExit": 0,
+    "artifactSha256": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+    "configSha256": "0dde50b95ad0e992a53d3cfa86e02cbba7e60af2d6d722db86804bb77c12c3a1",
+    "serviceRestartRequired": false
+  },
+  "qualification": "Offline acceptance and installed source only. Sole GUI operator released to perform actual preflight/native100/ordinary recovery; no human or autonomous qualification claimed."
+}

@@ -1,0 +1,22 @@
+{
+  "reviewModel": [
+    "claude-opus-5-5"
+  ],
+  "returncode": 0,
+  "verdict": "NEEDS WORK",
+  "sourceUnchanged": true,
+  "rawSha256": "b9e77e9cc33be31898be8b265f7c6d8dd1ade5bf980be3cba67bbf9521c61a81",
+  "elapsedSeconds": 1013.2333719730377,
+  "arbitration": {
+    "mustFix": "None in actual review",
+    "acceptedShouldFix": "Require explicit matcher deadline and prove original absolute capture deadline reaches SEARCH/SCORE_AT/dual calls; runtime failure/refusal before FixedInput emitter creation and recorded input. Current production callsites already pass deadline; this removes silent rebasing and proves integration boundary.",
+    "deferredNonblockingNits": [
+      "Constructor-minimum test comment correction was considered but did not land; DEFERRED, not fixed.",
+      "Independent served-frame comparison is stronger than self-comparison in fixture; actual Lua/compiled-producer lifecycle and command histories remain separately verified.",
+      "Payload memoryview copy optimization, not required for current 15-minute cadence.",
+      "Matcher-timeout receipt classification and bounded deterministic-protocol retry diagnostics.",
+      "Recheck descriptor metadata for hypothetical in-place artifact mutation; accepted builder publishes atomically and frozen artifact remains unchanged."
+    ]
+  },
+  "scope": "Same four-file integration in isolated worktree; no runtime/native/GUI/install changes authorized for deferred nits. Narrow delta Sol+actualOpus after new focused and full tests; no reopening accepted architectures."
+}

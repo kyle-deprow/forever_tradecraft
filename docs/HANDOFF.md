@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 05:29 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 06:13 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -32,11 +32,27 @@ WoW PID644491/procstart15495385/XID0x02e00001; fingerprint
 
 Canonical crowley-session.service verified active PID3581203 after native source
 installation/restart, **PAUSED/gen24/nativefalse/inputfalse/operationidle**.
-Seven accepted native files are installed; helper remains uninstalled.
+Seven accepted native files and the final Rust-backed calibration helper are installed.
 See native-paused-install-parent-verification.json for hashes/pins/process proof.
 Collection is still **operator-assisted**; GUI Luna keeps it flowing.
 
-Latest parent independently verified **78**, UID
+Historical parent independently verified **80**, UID
+`beta-normal-alliance-1792388863-Arthur-6955`:428obs/2060rows/412full/16bounded/
+0incomplete, duration479s, exact900s after79. Original/DB/ACK/AH independently
+verified; finish→server43.468876s. AHboot1792389401-501896/seq13, pending0, normal0,
+inactivefence/stationary/released. Public build-70450-eightieth-{scan,ah-reopen}-
+parent-verification.json.81due1792389763 (06:02:43), soleGUI owns fullnextcycles.
+
+Previously parent independently verified **79**, UID
+`beta-normal-alliance-1792387963-Arthur-1707`:428obs/2045rows/411full/17bounded/
+0incomplete, duration478s, exact900s after78. Original/DB/ACK/AH independently
+verified by private deterministicrunner; finish→server40.631092s. AHboot
+1792388498-512859/seq13, pending0/normal0/inactivefence/stationary/released.
+Public build-70450-seventyninth-{scan,ah-reopen}-parent-verification.json.
+80nextdue1792388863 (05:47:43). 77/78/79 are three complete on-time assisted
+cycles, NOT autonomousengine qualification. SoleGUIcontinues untilrelease.
+
+Previously parent independently verified **78**, UID
 `beta-normal-alliance-1792387063-Arthur-1589`:428obs/2016rows/412full/16bounded/
 0incomplete, duration480s, exact900s after77. Original/DB/ACK/finalAH independently
 verified; finish→server31.733305s, boot1792387591-257771/seq14, pending0, normal0/
@@ -331,47 +347,100 @@ finalcausaltests/hashhandoffpending. Diagnosticrawlogs private runtime-relink/
 native-helper-proof-closure-20261019. Separatewiringworktree untouchedbyproofworker.
 Helper NOT main/installed; never run rejected old candidates. R8/66pass historical.
 
-## Final combined integration checkpoint (05:20 UTC)
+## Final combined integration checkpoint (05:37 UTC)
 
-Frozen production helper8776425736b81d0c130380f96f673a0010b79d1382c36e9681cbbfb1b02b1169,
+Frozen final integration in private `rust-matcher-runtime-integration-20261019`:
+helper8776425736b81d0c130380f96f673a0010b79d1382c36e9681cbbfb1b02b1169;
+helpertest314e118b497f9814d371553c33706063b6b6bef32da0e472657aa6e73041ed38;
+runtimeedc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d;
+runtimetest302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69.
+Proofhelper47af/testa38 scopedfocusedfreeze is separatelycommitted; final314e
+adds actualrestorecheckpointtoken and exact acceptedcommand/control/boot/reload
+histories. Prior a962/20f/b8/ee0b are superseded test-only revisions, neverpromoted.
+Historical full94r2:86PASS then badfixturecheckpoint ordinary856168 vsactualseed
+454944; focusedcheckpointfixPASS19.74s. Historyassertions fixedphaseorder/exact
+empty/prefixvscompletedhistory and actualcontrolacceptance. No native/production
+changes for these test fixes. Priorlogsretained, not relabeledfinal.
+
+FinalSol **READY**, noMust/Should/Nits onexactfourfinalhashes; public
+native-helper-rust-final-sol-review.md. Parent ACTUAL finalpositive100updates +
+publicpause/freshRestore→ordinaryrecovery PASS137.10s, sourcepre/postunchanged;
+public native-helper-rust-final-actual-parent-verification.json. Private run
+rust-matcher-final-actual-parent-20261019/{input.json,run.py,tests.log,result.json};
+root exec61766 completed0. Parent22focusedPASS3.22s and finalproductionwrapper
+~207ms exclusive/~239msdual referenceparity remain separatelyhash-bound (tests
+werea962 in thosefocused/benchmark records; productionthreefilesunchanged).
+
+Worker ONE final full94 **PASS350.13s/5warnings**, private rust-matcher-helper-final-
+20261019/full-combined-final-r4.log, exactfinal314e pre/postunchanged. Workercompleted
+scopedCLI/compile/Ruff/diffchecks too; no further implementationneeded. Parent
+independently verifiedfull94log/mode/sourcepins, public native-helper-rust-full94-
+parent-verification.json.
+No furtherfull/native367/sourcearchitecture re-review withoutnewconcretefailure.
+ActualOpus R1 completed0 **NEEDS WORK**, resolvedclaude-opus-5-5, sourceunchanged,
+rawSHA b9e77e9cc33be31898be8b265f7c6d8dd1ade5bf980be3cba67bbf9521c61a81,
+1013.23s. Private native-helper-rust-final-review-20261019/{review.txt,process.json,
+opus-stream.jsonl,review-input.json}. Root91918/CELL3168 CLOSED, no runningexec.
+NoMust, ONEacceptedShould: requireexplicitTemplateMatcher deadline/removefresh5s
+fallback, test exactsame capturedeadline through allcalls +actual_click/_postreload
+refusal beforeFixedInputemitter/allactualinput. Currentprodcalls alreadypassit;
+proofgap/futuremissingargumenthardening, notnewconfirmedlivefailure. Parentaccepted
+commentnitclarification was considered but did NOT land; deferred. Other4nitsnonblocking/deferred
+(servedframeselfcheck,copyoptimization,receiptclassification,recheckFDmetadata under
+hypotheticalinplaceupgrade). Public native-helper-rust-opus-r1-arbitration.json.
+LunaRustworker resumed bounded SAME4files forShould+commentonly, runtimeedcshould
+stayunchanged; no native/GUI/main/git. Focusnewboundarytests/runtime17 thenfullonce
+stable, newfreeze. Parentrepro meaningfulnewboundary tests; Sol+ACTUALOpus NARROW
+DELTA against frozen877/314e baseline, no 17minwholearchitecture repeat. Exactold877/314e sourcebaselines recoveredandhash-verified frompreservedsource
+fragments in private native-helper-deadline-delta-review-20261019/baseline-*.py.
+Also preserved candidate4c3c/d52 before finaltestchainchanges; worker informed.
+Newhelper4c3c2aa399cc36b52f42b0af6ef0f1dbe5038fe42d7825c31911d132f17fbb60,
+interimhelpertestd52d074ae9904b9d1ac7ee96c63965a1e1bd2242e14e8c2be15b030fc3c843bc.
+Newfocused5PASS0.93s andruntime17PASS0.85s; fullcombined98 running in
+rust-matcher-helper-final-20261019/full-combined-deadline-r1.log (89dotsat06:02).
+ParentcaughtpositiveforwardingtestonlycalledMatcher directly; workeraskedstrengthen
+samefunction via ACTUAL Operator._capture and fixedONEdeadline allscreen/runtime
+calls. Negative deadlinegetteralsoprecomputedconstant. TESTONLYfinalstrengthening
+canfollowfull98 withfocused4andASTcomparison ofallothermodulecode instead of
+redundantfullnative100. Planappendixauthorizes truthfulversion-specificevidence.
+No R2reviewstarted untilnewboundarytests build; runtimeedc/test-runtime302 unchanged. Previous94/parent137 remainhonest
+oldhashproof, not relabelednewsource. No installbefore new acceptedreviews.
+Reviewrunner add-dir includes MAIN andownprivate reviewdir. IfREADY, parent copies
+exactfourfiles toMAIN, verifies CLI/source/artifact/config pins, commits/pushes;
+no service restartneeded for unchangednative7. SoleGUIthenpreflight/native100/
+publicpause→freshordinaryrecovery/clearedcheckpoint/AH between completed scans.
+GUIalreadyaskedread-only prepareactualargs/profile/templatepins, no calinputuntil
+parent announces actualreviewrelease. Controllerfreshreadonly status05:35:
+PAUSEDgen24, moderepeat, leaseGeneration1. No mode-migrationneeded.
+Then realuserphysicalGTKkey/clickgate, then3autonomous900s cycles. No livehelper,
+native100/human/autonomousqualification claimed byofflinechecks.
+
+Latest81 independently verified: beta-normal-alliance-1792389763-Arthur-0881,
+428/2094rows/413full15bounded0incomplete,900s after80,finish→server45.35329s.
+ExactACK/pending0/AHtrue/ordinary0/inactive/stationary/released; boot1792390300-186600
+seq14. Nextdue1792390663 (06:17:43); soleGUI released livecal after81flush.
+Backup beta-20261019T061211Z-fc30b9ff6d72 independentlyvalidate PASS/0700,
+manifest 3239b52eb82de2008d29e244b1a7f9f3cd203700b80ed8696fefa99a7d57694f. Nextbackup07:12UTC.
+
+## Current release — supersedes historical review status above
+
+Final helper/Rust composition ACCEPTED AND INSTALLED in main at 06:12 UTC.
+Exact hashes: helper4c3c2aa399cc36b52f42b0af6ef0f1dbe5038fe42d7825c31911d132f17fbb60,
+helpertest6f8ddc4b2091f7928004e9f9d3fab2bdb0077cf88f71afb1367db6404875b21c,
 runtimeedc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d,
 runtimetest302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69.
-Proofhelper47af/testa38 frozen; reports native-helper-proof-closure-{freeze.json,closure.md}
-are workerwritten pendingparentcuration. Final combinedhelpertest WAS a9625c49...:
-parent22focusedPASS3.22s/sourceunchanged; actualfinalwrapper benchmark~207ms/
-206.5ms exclusive and238.5ms dual, originalPythonreferenceparity. Public finalfocused/
-wrapperbenchmark parentverification reports pin actual testedversions; not fullgreen.
-Full94r2:86PASS then recover-restore actor_admission_invalid. Parentcausecheckpoint
-B0/expectedConstructorBoot still ordinary856168 vs actualrestore_seedmarker454944.
-Lunafixes fixture using actualinitialrestoreclientpersistedtoken +nativebootassert;
-ordinaryrecovery uses actualordinaryboot. Newtest20f637... supersedes a962.
-Solreview IN PROGRESS (read-only): production coherent; accepted additional
-TEST ONLY gap: persist compact actualactionhistory boot/chatdelta/reloadcounts,
-assert every expected agentcmd accepted, controlpreflight Constructrefused/no
-mutation, expectedreloadcounts. Runtimeworker owns these together with checkpoint
-fix; focus then ONE finalfull94 whenstable. No RNG/native/guard/deadlinechanges.
-Sol keeps reviewedproduction, reviews only finaltestdelta once frozen; notREADYyet.
-Restore checkpoint focusedfix20f PASS19.74s. Addedactionhistory caught wrong
-expectedtimelines beforetestingcomplete; sources changingTESTONLY. Measurement
-failure needs actualprefix+recover/Restore and typedreloadcount1; actualpreflight
-history is defer→recover, controls Constructrefused→Restoreaccepted, typedreload0.
-A pureactualLua parent check confirms deferred ordinary HUDfencearmed; never
-change recoveryKind/bootguard to fit wrong expectedtimeline. Lunafixes exact
-orderedcommands/controlhistory +phase-specific before/afterpublicpause lists,
-zero-input histories actuallyempty. Last focusedr4/r5 failureexpectedlists only,
-r6focusedmeasurementfailure/preflight/restore3PASS73.67s; finalsuccess100+
-publicpause/recovery nowrunning in checks-action-history-success.log. Sol caught
-missingreload in pre-pause expectedlist and prefix-onlycompletedfailure assertion;
-Luna applies these beforefinalfreeze. No finalfrozen newtesthash yet.
-Production877/runtimeedc unchanged.
-Twoexisting repo skills updatedcompactly foractivevsseedclients/orderedactual
-actions/finalpostcaptureposition; both skillvalidatorPASS.
-Root actualsuccess147s repro runner PREPARED NOTSTARTED in private
-rust-matcher-final-actual-parent-20261019/input.json/run.py; updatefinaltesthash first.
-Root finalactualOpus runner PREPARED NOTSTARTED at native-helper-rust-final-review-
-20261019/{run.py,prompt.txt,baseline-helper-6f8.py,baseline-test-39f7.py}; no inputjsonyet.
-After finalfullgreen: parentactualcase +actualOpus review; exactsourcepre/post, no
-fallback. Current root has no running exec sessions. No helper installed/main yet.
+Final full98 PASS349.41s/5warnings on these exact hashes (pre/post unchanged),
+parent22 PASS1.32s, Sol READY/noMustShould, actual claude-opus-5-5 R2 READY/noMustShould,
+rawSHAf0a8f5bdb80b9c171c06bd8cfb4b6c4e45ca93e0621f98825c382a29aa54546d.
+Private native-helper-deadline-delta-review-20261019/{review.txt,process.json}.
+Public native-helper-rust-final-release-parent-verification.json binds final evidence.
+All original comment/performance nits deferred; constructor-test comment NOT fixed.
+Unused action-log assertion is not input proof; actual forbidden emitter factory is.
+Canonical artifact75b/config0dde independently unchanged; actual MAIN CLI help0.
+No service restart: accepted native7 unchanged. Sole GUI released to complete81
+save/upload/ACK then actual preflight/native100/publicpause/freshrecover/Restore/
+ordinary cleared checkpoint. No physical user gate or autonomous success yet.
+Do not rerun architecture reviews or suites without concrete failure.
 
 ## Remaining live gates
 

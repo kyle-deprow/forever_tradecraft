@@ -1,0 +1,29 @@
+{
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/pytest",
+    "-q",
+    "tests/test_native_calibration_operator.py",
+    "-k",
+    "actual_operator_measure_composes_x11_screen_daemon_and_agent and success",
+    "--maxfail=1"
+  ],
+  "sourceBefore": {
+    "tools/native_calibration_operator.py": "8776425736b81d0c130380f96f673a0010b79d1382c36e9681cbbfb1b02b1169",
+    "tests/test_native_calibration_operator.py": "314e118b497f9814d371553c33706063b6b6bef32da0e472657aa6e73041ed38",
+    "tools/template_matcher_runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "tests/test_template_matcher_runtime.py": "302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69"
+  },
+  "sourceAfter": {
+    "tools/native_calibration_operator.py": "8776425736b81d0c130380f96f673a0010b79d1382c36e9681cbbfb1b02b1169",
+    "tests/test_native_calibration_operator.py": "314e118b497f9814d371553c33706063b6b6bef32da0e472657aa6e73041ed38",
+    "tools/template_matcher_runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "tests/test_template_matcher_runtime.py": "302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69"
+  },
+  "returncode": 0,
+  "elapsedSeconds": 137.444993019104,
+  "logSha256": "b83109962c3200d2856a23bb15f0e80bd1d3e78f210e4a7fa73959c75d711da4",
+  "runnerSha256": "1e2e2902ecc48076c46426add52f72a9b759d254e772ecdb03d1468273f6b87d",
+  "output": ".                                                                        [100%]\n1 passed, 76 deselected in 137.10s (0:02:17)\n",
+  "scope": "Actual isolated production helper+verified Rust scorer+native daemon+compiled producer+real Lua addon100 updates and public pause/fresh restore recovery. No live GUI input.",
+  "qualification": "Independent parent complete actual isolated workflow passed; live game calibration and autonomous qualification remain separate."
+}

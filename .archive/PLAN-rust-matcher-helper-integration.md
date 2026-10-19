@@ -127,3 +127,25 @@ time without changing acceptance: the full combined run, parent actual workflow
 reproduction and final Opus review must all pass before installation. Any source
 change invalidates its previous frozen review until the changed delta is reviewed.
 No live qualification is inferred from this scheduling change.
+
+## Actual Opus R1 deadline follow-up
+
+The actual review completed0/NEEDS WORK with no Must and one accepted Should.
+In the same four-file worktree, remove TemplateMatcher's silent fresh-five-second
+deadline default, require the absolute deadline at each matching API, and test
+actual Operator._capture propagation to SEARCH/SCORE_AT and both dual searches.
+Inject runtime error/timeout/rejection through actual _click and assert no emitter
+allocation or recorded input. Clarify the existing minimum-test comment only;
+other review nits are nonblocking and deferred. No native/runtime architecture,
+GUI, matcher-algorithm or deferred-nit changes in this round.
+
+Run focused new boundary tests and runtime17, then full combined suite once stable.
+If only those two new test functions receive stronger assertions after that full
+run, preserve its original exact test hash and verify all other module AST is
+unchanged; rerun every revised test/parameter on the final hash instead of another
+unchanged hundred-second native measurement. Record the mixed-version evidence
+truthfully, never as a full run of the later test file. Production hashes must be
+identical across both checks. Parent independently reproduces those new boundaries;
+Sol and actual Opus review only the small delta against exact prior877/314e source
+copies. Baseline hashes are independently verified in private deadline-delta review
+directory. All review/validation gates still precede installation and live input.

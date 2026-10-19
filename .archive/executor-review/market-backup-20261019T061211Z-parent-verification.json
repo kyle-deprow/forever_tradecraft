@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "snapshot": "beta-20261019T061211Z-fc30b9ff6d72",
+  "manifestSha256": "3239b52eb82de2008d29e244b1a7f9f3cd203700b80ed8696fefa99a7d57694f",
+  "mode": "0700",
+  "validation": "validate_snapshot completed independently without error; originals remain private."
+}
