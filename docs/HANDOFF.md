@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 11:49 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 11:57 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -48,8 +48,8 @@ observations; no buying, posting or cancelling is part of this task.
   fence/pending0/zero movement/released controls. Assisted #100 started1792408561,
   934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
   2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
-  parent-verified. #101 is also fully parent-verified; #102 started on its
-  exact900s deadline1792410361 and is running.
+  parent-verified. #101 and #102 are also fully parent-verified; both started
+  on exact900s deadlines. Nextdue1792411261 (12:01:01 UTC).
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -59,19 +59,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #101 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792409461-Arthur-8845`:
+Parent verification #102 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792410361-Arthur-9812`:
 
-- 428 observations, 2,054 rows, 416 full and 12 bounded, all `ok`;
-- 480-second scan, 53.081652 seconds from finish to server receipt;
-- exact900-second start interval after #100;
+- 428 observations, 2,091 rows, 416 full and 12 bounded, all `ok`;
+- 479-second scan, 55.017523 seconds from finish to server receipt;
+- exact900-second start interval after #101;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-onehundredfirst-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-onehundredfirst-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-onehundredsecond-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-onehundredsecond-ah-reopen-parent-verification.json).
 
-#102 started on its exact900s deadline1792410361; nextdue1792411261.
+#103 nextdue1792411261.
+#101 is fully verified:428observations/2,054rows/416full12bounded/allok,
+480s scan,53.081652s finish-to-serverreceipt,exact900s after100.
 #100 is fully verified:428observations/2,015rows/417full11bounded/allok,
 497s scan,53.210904s finish-to-serverreceipt,934s after99 due to calibration.
 #99 is fully verified:428observations/2,054rows/418full10bounded/allok,
