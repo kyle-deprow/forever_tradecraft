@@ -1,0 +1,76 @@
+{
+  "status": "INSTALLED",
+  "qualification": "Reviewed helper correction; live native100/input/autonomous-cycle gates remain unqualified.",
+  "sourcePins": {
+    "helper": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+    "tests": "190497551114ff44cc7a9acf42a4d2234d238b9b8131bf74b4b050cc47bbae0a"
+  },
+  "scope": "Helper and helper tests only; no daemon/driver/addon changes or service restart.",
+  "behavior": [
+    "Uniform body-only autocontrast cutoff1 before unchanged threshold45/cursor probe; exact matching and raw editor-state guard unchanged.",
+    "Private last-four exact original PNG retention; sequence-safe original/crop filenames and typed-failure association.",
+    "Evict before admitting a new original; skip optional retention truthfully if eviction fails.",
+    "Capped256-codepoint raw/normalized OCR diagnostics after existing Escape attempt; diagnostic errors cannot mask original refusal or owned cleanup."
+  ],
+  "verification": {
+    "parentFinalFocusedTests": 18,
+    "mainPromotedFocused": {
+      "passed": 18,
+      "seconds": 2.3
+    },
+    "ruffFormatCheck": true,
+    "ruffCheck": true,
+    "compile": true,
+    "diffCheck": true,
+    "productionCliInterpreterImportsPromotedMain": true,
+    "fullSuite": {
+      "passed": 96,
+      "warnings": 5,
+      "seconds": 352.23,
+      "productionPin": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+      "earlierTestPin": "71f9297312f9ce5c42c339f51ddbf3b37f93a82bbbc9f3611946e5b14d9f28b7",
+      "logSha256": "b7023a46a2dc134a2891d4d6d88d4cbb9ba8bfed6b3a1a2115c22019dd48faa9",
+      "oneAddedTestOnlyVerifiedByExactEarlierSourceHash": true,
+      "final97FullSuiteClaimed": false
+    },
+    "parentRecordedFrameProof": {
+      "originalFullframeCases": 8,
+      "actualFailedCropCases": 1,
+      "allPassed": true,
+      "exactOriginalBytesVerified": true,
+      "productionPin": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+      "sha256": "09843c645d67213c3a326e0af11014936025bc45c667903605ec7255bdbc0327",
+      "substitutedContext": [
+        "capture",
+        "input",
+        "identity",
+        "admission"
+      ],
+      "liveQualification": false
+    }
+  },
+  "reviews": {
+    "sol": {
+      "round": 2,
+      "status": "READY",
+      "findings": []
+    },
+    "opus": {
+      "round": 2,
+      "status": "READY",
+      "actualModel": "claude-opus-5-5",
+      "returncode": 0,
+      "rawSha256": "0698da946f38a68e4206d437daab1bf9a728268d6e986ede9a520e30015c104b",
+      "must": [],
+      "should": [],
+      "deferredNit": "Redundant callback assertion can be caught by best-effort diagnostics; separate successful real-classifier JSON test covers the same behavior. No coverage gap."
+    }
+  },
+  "limits": [
+    "Autocontrast may OCR darker inactive texture as text; closed-state admission uses raw visual classifier and never OCR.",
+    "Gen33 original failed fullframe was not retained; failed crop only.",
+    "If eviction permanently fails, originals1..4 remain and new retention is skipped with retained=false; no untracked growth.",
+    "Native100, physical human GTK input and three autonomous900-second cycles still required."
+  ],
+  "next": "Sole GUI operator finishes assisted99 chain, verifies ordinary closed AH, recovers any pending checkpoint, runs fresh control preflight and instrumented native measure. On failure preserve diagnostics, pause/recover and resume assisted collection."
+}

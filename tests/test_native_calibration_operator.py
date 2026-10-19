@@ -189,9 +189,15 @@ ROq2LS0OrOmlI3X3ItIqvogTvWURK3cpN/tOrJ1g6C7rOgBqdHZZQRNl/xHV2HFL5V5t9bu3vVyPBepy
 FZTiJ4Ku2KlairSOYoUPUg55SX3BS3NQfD0eqhtp6m226DFq7cwRl3JHUrlMmg1gdJ0dnWYpjc1IWhigL3Koa7//A/iDnF6J
 hUR2AAAAAElFTkSuQmCC\n"""
 
+# This sanitized failed /reload crop is the exact 460x37 grayscale region. The
+# original failed fullframe was unavailable; no desktop, identity, or chat
+# history is retained in this self-contained fixture.
+_OCR_FAILED_RELOAD_SANITIZED_CROP_B64 = """\niVBORw0KGgoAAAANSUhEUgAAAcwAAAAlCAAAAADqjIakAAAC3klEQVR4nO2Wv2tTURTHP+clMRGivIeTuDTFUZBodFAQWn+NUiv+AVJ0FRFcBRWk0Ek30UVwsYii6KCmS0fbVHAQ0Saugk3EwR/vJdchrfTHTXNf0mcdzmdJ3n3n3HPO/d5z7wNFURRFURRFUZRNR1wN5zIhKcALM6EHSEQawCPM/E5H6aa+T+q9AOmQTAR4EJGO0rKnHzG3tH/8hovxL7Ku8yo94f20Dcac5IVZ/jT83GJy+UbMOZUNIu1quNTC0ZYVg1FmraVpgTi3/P+A6W5i5W+RxjKWKNYoMcUsVkQCP/DLDPtTdUQQhv1yAzgdlKvAaF0gfsc7pLrBLBfQJsq6rE6wY8KxKulovDatls3MXUwBOFr2vH23CrOvHxTmrx/+JuA9Deq3D3/mXbV++9BbpjHBZDuv5BSJObNdIbGZyNqhuGF7Kbubj7A6H6uHcwe1t8LQSw8KO/YfKR44+/CqAUaC0vE7F1tDlWNnx0+1RigdWFgM2+vZ1R1jkpu7X5Lawi4VO3dmCoDgaxaqC1tPVkcz34+FQHGS3JP70dSr3QdLM1FxktzjbUvxEzwtDa7r1qPuFreu9Wz2d4KzmAAMVBGoiwSF88JsCwg+pqgFTf9ZYRaf4FOKxvYlc5NsecZh+XptYavfumr2UepGrVI8MYfK0g5ebV6QYNAD6oMwUONStWRuBlQL4C+/eBLerOvr6a6krDLt4NmpnM1uyUXifXXue7NoP3Vmd278Qgp4NOZz7bWwIDvPC4/GfP9czG7o8/6zX6DG9HOxxvT8F1q6xHDuTCNAcaZ9dVKZ+FCvnWgCcxNf6pUr3r3pYbm7l9rEl0b5ny/FyuM8yY8je2smff4AIN0Lc04j5wED73NAM8xBmG9IVppRljDfkBytXfOkTJZ82PC83+T7yTt2cv1gLH87L5us8xQHu6d9q9gGmz96Dq0oiqIoiqIoiqIoiqIoiqIoiqIoiqIoiqIoffAHe68ZV7fPRuQAAAAASUVORK5CYII=\n"""
+
 # Fresh active-empty and inactive world-texture evidence, reduced to the exact
-# 460x37 grayscale chat region.  No desktop frame, identity, or chat history
-# is retained in these self-contained fixtures.
+# 460x37 grayscale chat region. No desktop frame, identity, or chat history is
+# retained in these self-contained fixtures.
+
 _OCR_ACTIVE_EMPTY_CROP_B64 = """\niVBORw0KGgoAAAANSUhEUgAAAcwAAAAlCAAAAADqjIakAAAPDklEQVR4nO1bS4wkx3F9LzKru6d3ZrmrXYm7/JOiJNIUCdOi1oRO
 ggEdJAO+2z4Ihm8G/Dn66oMAH3zzxRfZ0FGGj4YvuuhggwS9BEXS1JoWaRKQBIo/73B3ZvpTmfF8yKrq6p7umV6SaxHGJjBTXRVZ
 mREZkZERL7N4HoDGR8QJJQMAmirs36wvSzWPVdaJL5Xr4h98XtVxdxQ/OiLi+B5kr3M2A3SdkzQcnhkD8uv1ubvu8trTbJ4QBjGa
@@ -345,6 +351,32 @@ def _write_chat_ocr_fixture(tmp_path: Path, name: str, encoded: str) -> Path:
     return path
 
 
+def _legacy_chat_ocr_without_contrast(path: Path, destination: Path) -> str:
+    with Image.open(path) as image_raw:
+        image = image_raw.convert("L")
+        left, top, width, height = operator.CHAT_OCR_BOX
+        prepared = image.crop((left, top, left + width, top + height))
+        foreground_probe = prepared.point(lambda value: 255 if value > operator.CHAT_OCR_THRESHOLD else 0)
+        for column in range(width):
+            foreground = sum(foreground_probe.getpixel((column, row)) // 255 for row in range(height))
+            if foreground >= height - 1:
+                for row in range(height):
+                    prepared.putpixel((column, row), 0)
+        prepared = prepared.resize(
+            (width * operator.CHAT_OCR_SCALE, height * operator.CHAT_OCR_SCALE),
+            Image.Resampling.BICUBIC,
+        )
+        prepared_path = destination / "legacy-ocr.png"
+        prepared.save(prepared_path, format="PNG")
+    result = subprocess.run(
+        ["tesseract", str(prepared_path), "stdout", "--psm", "7"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return operator.normalize_ocr(result.stdout)
+
+
 def _synthetic_chat_state(_path: Path) -> str:
     return operator.CHAT_EDITOR_INACTIVE
 
@@ -376,12 +408,17 @@ def _minimal_chat_ocr_operator(tmp_path: Path, closed: Path, typed: Path):
     return instance
 
 
-def test_production_chat_ocr_preserves_closed_empty_and_typed_fixed_command(tmp_path):
+def test_production_chat_ocr_preserves_typed_command_and_documents_inactive_text(tmp_path):
+    # Uniform contrast can make a darker inactive body look like OCR text. The
+    # state guard must classify it as inactive before production calls OCR.
     closed = _write_chat_ocr_fixture(tmp_path, "closed.png", _OCR_CLOSED_CROP_B64)
     typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_TYPED_CROP_B64)
     assert Image.open(closed).size == operator.CHAT_CROP_SIZE
     assert Image.open(typed).size == operator.CHAT_CROP_SIZE
-    assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(closed)) == ""
+    assert operator.NativeCalibrationOperator._chat_editor_state(closed) == operator.CHAT_EDITOR_INACTIVE
+    assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(closed)) == (
+        "lea -—---------—~- i eel"
+    )
     assert (
         operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(typed))
         == "/crowley agent recover"
@@ -397,6 +434,15 @@ def test_production_chat_ocr_preserves_reload_command_body(tmp_path):
     typed = _write_chat_ocr_fixture(tmp_path, "reload-typed.png", _OCR_RELOAD_TYPED_CROP_B64)
     assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(closed)) == ""
     assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(typed)) == "/reload"
+
+
+def test_production_chat_ocr_normalizes_sanitized_failed_reload_texture(tmp_path):
+    failed = _write_chat_ocr_fixture(
+        tmp_path, "failed-reload-sanitized.png", _OCR_FAILED_RELOAD_SANITIZED_CROP_B64
+    )
+    assert Image.open(failed).mode == "L"
+    assert _legacy_chat_ocr_without_contrast(failed, tmp_path) == "reload"
+    assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(failed)) == "/reload"
 
 
 def test_chat_editor_state_classifies_fresh_active_and_inactive_crops(tmp_path):
@@ -908,7 +954,7 @@ def _production_main_owner_fixture(
 
         @staticmethod
         def _ocr_file(path):
-            if Path(path).name.startswith("chat-closed-"):
+            if "chat-closed-" in Path(path).name:
                 return ""
             return "/crowley agent defer"
 
@@ -1936,6 +1982,510 @@ def test_chat_readback_mismatch_escapes_without_submit(tmp_path):
         op._chat("/crowley agent defer", expected_state="construction_prepared")
     assert ("key", "Escape") in input_device.calls
     assert ("key", "Return") not in input_device.calls[2:]
+    assert op.receipt.attempt is not None
+    retained = sorted((op.receipt.attempt / "chat-fullframes").glob("*.png"))
+    assert len(retained) == 2
+    diagnostic = op.receipt.attempt / "chat-readback-00000002.json"
+    assert diagnostic.stat().st_mode & 0o777 == 0o600
+    report = json.loads(diagnostic.read_text(encoding="utf-8"))
+    failed = report["failed_typed_capture"]
+    assert failed["sequence"] == 2
+    assert failed["use"] == "typed_chat_readback"
+    assert failed["typed_editor_state"] == operator.CHAT_EDITOR_INACTIVE
+    retained_typed = op.receipt.attempt / "chat-fullframes" / failed["filename"]
+    assert retained_typed.read_bytes() == restore_scene.read_bytes()
+    assert failed["original_sha256"] == hashlib.sha256(retained_typed.read_bytes()).hexdigest()
+    typed_crop = op.receipt.attempt / failed["derived_crop_filename"]
+    assert failed["derived_crop_sha256"] == hashlib.sha256(typed_crop.read_bytes()).hexdigest()
+    assert report["observed_raw"] == "/wrong"
+    assert report["observed_normalized"] == "/wrong"
+    op.input.close()
+
+
+def test_chat_fullframe_retention_is_bounded_and_repeated_labels_are_distinct(tmp_path):
+    manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
+    source_paths = []
+    with Image.open(restore_scene) as source_image:
+        for index in range(5):
+            source = source_image.copy()
+            source.putpixel((index, 0), (20 + index, 30 + index, 40 + index))
+            source_path = tmp_path / f"retention-source-{index}.png"
+            source.save(source_path, format="PNG")
+            source_paths.append(source_path)
+
+    class RepeatedLabelScreen(FakeScreen):
+        def __init__(self):
+            super().__init__(tmp_path, restore_scene, restore_scene)
+            self.source_index = 0
+
+        def capture(self, path, *, identity, deadline_monotonic=None):
+            assert identity is self.identity
+            path.write_bytes(source_paths[self.source_index].read_bytes())
+            os.chmod(path, 0o600)
+            self.source_index += 1
+            return self.identity
+
+    screen = RepeatedLabelScreen()
+    op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
+        mode=operator.MODE_CONTROL_PREFLIGHT,
+        generation=7,
+        config_path=tmp_path / "config.toml",
+        template_manifest=manifest,
+        client=FakeClient(7, ["construction_prepared"] * 12),
+        screen=screen,
+        input_device=FakeInput(screen),
+        receipt_root=tmp_path / "receipts",
+    )
+    op.receipt.begin()
+    op._reservation_deadline = time.monotonic() + 30.0
+    for _index in range(5):
+        op._capture(
+            "chat-repeated",
+            crop=True,
+            retain_chat_frame="typed_chat_readback",
+            deadline_monotonic=time.monotonic() + 30.0,
+        )
+    assert op.receipt.attempt is not None
+    retention_root = op.receipt.attempt / "chat-fullframes"
+    assert retention_root.stat().st_mode & 0o777 == 0o700
+    retained = sorted(retention_root.glob("*.png"))
+    assert [path.name.split("-", 1)[0] for path in retained] == [
+        "00000002",
+        "00000003",
+        "00000004",
+        "00000005",
+    ]
+    assert all(path.stat().st_mode & 0o777 == 0o600 for path in retained)
+    assert not (retention_root / "00000001-chat-repeated.png").exists()
+    assert len({path.name for path in retained}) == 4
+    records = sorted(op._chat_retained_frames, key=lambda item: item["sequence"])
+    assert [record["sequence"] for record in records] == [2, 3, 4, 5]
+    assert all((record["width"], record["height"]) == (1280, 720) for record in records)
+    assert all(
+        (record["derived_crop_width"], record["derived_crop_height"]) == (64, 64) for record in records
+    )
+    assert len({record["derived_crop_filename"] for record in records}) == 4
+    for record, source_path in zip(records, source_paths[1:], strict=True):
+        retained_path = retention_root / record["filename"]
+        assert retained_path.read_bytes() == source_path.read_bytes()
+        assert record["original_sha256"] == hashlib.sha256(source_path.read_bytes()).hexdigest()
+        crop_path = op.receipt.attempt / record["derived_crop_filename"]
+        assert record["derived_crop_sha256"] == hashlib.sha256(crop_path.read_bytes()).hexdigest()
+
+
+def test_chat_fullframe_retention_skips_new_frame_when_eviction_fails(tmp_path, monkeypatch):
+    manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
+    source_paths = []
+    with Image.open(restore_scene) as source_image:
+        for index in range(5):
+            source = source_image.copy()
+            source.putpixel((index, 0), (40 + index, 50 + index, 60 + index))
+            source_path = tmp_path / f"eviction-source-{index}.png"
+            source.save(source_path, format="PNG")
+            source_paths.append(source_path)
+
+    class EvictionScreen(FakeScreen):
+        def __init__(self):
+            super().__init__(tmp_path, restore_scene, restore_scene)
+            self.source_index = 0
+
+        def capture(self, path, *, identity, deadline_monotonic=None):
+            assert identity is self.identity
+            path.write_bytes(source_paths[self.source_index].read_bytes())
+            os.chmod(path, 0o600)
+            self.source_index += 1
+            return self.identity
+
+    screen = EvictionScreen()
+    op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
+        mode=operator.MODE_CONTROL_PREFLIGHT,
+        generation=7,
+        config_path=tmp_path / "config.toml",
+        template_manifest=manifest,
+        client=FakeClient(7, ["construction_prepared"] * 12),
+        screen=screen,
+        input_device=FakeInput(screen),
+        receipt_root=tmp_path / "receipts",
+    )
+    op.receipt.begin()
+    op._reservation_deadline = time.monotonic() + 30.0
+    for _index in range(4):
+        op._capture(
+            "chat-eviction",
+            crop=True,
+            retain_chat_frame="typed_chat_readback",
+            deadline_monotonic=time.monotonic() + 30.0,
+        )
+
+    original_unlink = Path.unlink
+
+    def fail_old_frame_unlink(self, *args, **kwargs):
+        if self.name == "00000001-chat-eviction.png":
+            raise OSError("retention eviction denied")
+        return original_unlink(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "unlink", fail_old_frame_unlink)
+    op._capture(
+        "chat-eviction",
+        crop=True,
+        retain_chat_frame="typed_chat_readback",
+        deadline_monotonic=time.monotonic() + 30.0,
+    )
+
+    assert op.receipt.attempt is not None
+    retention_root = op.receipt.attempt / "chat-fullframes"
+    retained = sorted(retention_root.glob("*.png"))
+    assert [path.name.split("-", 1)[0] for path in retained] == [
+        "00000001",
+        "00000002",
+        "00000003",
+        "00000004",
+    ]
+    assert len(op._chat_retained_frames) == 4
+    assert [record["sequence"] for record in op._chat_retained_frames] == [1, 2, 3, 4]
+    assert op._last_chat_capture_record["retention_skipped"] is True
+    assert op._last_chat_capture_record["retention_error"] == "OSError"
+    assert op._last_chat_capture_record["retained"] is False
+    assert (
+        op._last_chat_capture_record["original_sha256"]
+        == hashlib.sha256(source_paths[4].read_bytes()).hexdigest()
+    )
+    assert (op._last_chat_capture_record["width"], op._last_chat_capture_record["height"]) == (
+        1280,
+        720,
+    )
+    assert op._last_chat_capture_record["derived_crop_width"] == screen.chat_crop[2]
+    assert op._last_chat_capture_record["derived_crop_height"] == screen.chat_crop[3]
+    assert not (retention_root / "00000005-chat-eviction.png").exists()
+
+
+def test_chat_retention_write_failure_preserves_capture_ocr_and_readback_failure(tmp_path, monkeypatch):
+    manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
+    capture_calls = []
+    ocr_calls = []
+    state_calls = []
+
+    class CountingScreen(FakeScreen):
+        def capture(self, path, *, identity, deadline_monotonic=None):
+            capture_calls.append(path.name)
+            return super().capture(path, identity=identity, deadline_monotonic=deadline_monotonic)
+
+    screen = CountingScreen(tmp_path, restore_scene, restore_scene)
+    input_device = FakeInput(screen)
+
+    def state(path):
+        state_calls.append(path.name)
+        return operator.CHAT_EDITOR_INACTIVE
+
+    op = operator.NativeCalibrationOperator(
+        chat_state=state,
+        mode=operator.MODE_CONTROL_PREFLIGHT,
+        generation=7,
+        config_path=tmp_path / "config.toml",
+        template_manifest=manifest,
+        client=FakeClient(7, ["construction_prepared", "construction_prepared"]),
+        screen=screen,
+        input_device=input_device,
+        ocr=lambda path: ocr_calls.append(path.name) or ("" if "chat-closed" in path.name else "/wrong"),
+        receipt_root=tmp_path / "receipts",
+    )
+    op.receipt.begin()
+    op._binding = operator.ReservationBinding.from_record(
+        FakeBinding().record(7), expected_generation=7, now=1.0
+    )
+    op._reservation_deadline = 1000000000000.0
+    op._handshake = "construction_prepared"
+
+    original_write_bytes = Path.write_bytes
+    retention_writes = 0
+
+    def fail_typed_retention_write(self, data):
+        nonlocal retention_writes
+        if self.parent.name == "chat-fullframes" and self.name.startswith("."):
+            retention_writes += 1
+            if retention_writes == 2:
+                raise OSError("retention copy denied")
+        return original_write_bytes(self, data)
+
+    monkeypatch.setattr(Path, "write_bytes", fail_typed_retention_write)
+    with pytest.raises(operator.OperatorError, match="readback"):
+        op._chat("/crowley agent defer", expected_state="construction_prepared")
+
+    assert len(capture_calls) == 2
+    assert len(state_calls) == 2
+    assert len(ocr_calls) == 1
+    assert ocr_calls[0].startswith("chat-") and "chat-closed" not in ocr_calls[0]
+    assert input_device.calls == [
+        ("key", "Return"),
+        ("type", "/crowley agent defer"),
+        ("key", "Escape"),
+    ]
+    assert op._last_chat_capture_record["retention_error"] == "OSError"
+    assert op._last_chat_capture_record["retained"] is False
+    assert len(op._chat_retained_frames) == 1
+    assert op.receipt.attempt is not None
+    diagnostic = op.receipt.attempt / "chat-readback-00000002.json"
+    assert diagnostic.is_file()
+    report = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert report["observed_normalized"] == "/wrong"
+    assert report["failed_typed_capture"]["retained"] is False
+    assert report["failed_typed_capture"]["original_sha256"]
+    op.input.close()
+
+
+def test_chat_readback_diagnostic_errors_do_not_mask_actual_mismatch_cleanup(tmp_path, monkeypatch):
+    manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
+    screen = FakeScreen(tmp_path, restore_scene, restore_scene)
+    input_device = FakeInput(screen)
+    state_calls = 0
+
+    def state(path):
+        nonlocal state_calls
+        state_calls += 1
+        if state_calls == 1:
+            return operator.CHAT_EDITOR_INACTIVE
+        raise operator.OperatorError("typed classification failed")
+
+    op = operator.NativeCalibrationOperator(
+        chat_state=state,
+        mode=operator.MODE_CONTROL_PREFLIGHT,
+        generation=7,
+        config_path=tmp_path / "config.toml",
+        template_manifest=manifest,
+        client=FakeClient(7, ["construction_prepared", "construction_prepared"]),
+        screen=screen,
+        input_device=input_device,
+        ocr=lambda path: "" if "chat-closed" in path.name else "/wrong",
+        receipt_root=tmp_path / "receipts",
+    )
+    op.receipt.begin()
+    op._binding = operator.ReservationBinding.from_record(
+        FakeBinding().record(7), expected_generation=7, now=1.0
+    )
+    op._reservation_deadline = time.monotonic() + 30.0
+    op._handshake = "construction_prepared"
+
+    original_write_text = Path.write_text
+
+    def fail_diagnostic_write(self, *args, **kwargs):
+        if self.name.startswith(".") and self.name.endswith(".tmp"):
+            raise OSError("diagnostic storage failed")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_diagnostic_write)
+    with pytest.raises(operator.OperatorError, match="readback"):
+        op._chat("/crowley agent defer", expected_state="construction_prepared")
+    assert state_calls == 2
+    assert ("key", "Escape") in input_device.calls
+    assert ("key", "Return") not in input_device.calls[2:]
+    assert op.receipt.attempt is not None
+    assert not list(op.receipt.attempt.glob("chat-readback-*.json"))
+    input_device.close()
+    assert input_device.closed
+
+
+def test_run_preserves_chat_mismatch_through_diagnostic_errors_and_auto_cleanup(tmp_path, monkeypatch):
+    manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
+    closed_crop = _write_chat_ocr_fixture(tmp_path, "run-closed.png", _OCR_RELOAD_CLOSED_CROP_B64)
+    typed_crop = _write_chat_ocr_fixture(tmp_path, "run-typed.png", _OCR_RELOAD_TYPED_CROP_B64)
+
+    class ActualChatScreen(FakeScreen):
+        def __init__(self):
+            super().__init__(tmp_path, restore_scene, restore_scene)
+            self.chat_crop = (0, 0, *operator.CHAT_CROP_SIZE)
+
+        def capture(self, path, *, identity, deadline_monotonic=None):
+            assert identity is self.identity
+            source = closed_crop if "chat-closed" in path.name else typed_crop
+            path.write_bytes(source.read_bytes())
+            os.chmod(path, 0o600)
+            return self.identity
+
+    screen = ActualChatScreen()
+    input_device = FakeInput(screen)
+    state_calls = 0
+    cancel_calls = []
+
+    def state(path):
+        nonlocal state_calls
+        state_calls += 1
+        if state_calls == 1:
+            assert (
+                operator.NativeCalibrationOperator._chat_editor_state(path) == operator.CHAT_EDITOR_INACTIVE
+            )
+            return operator.CHAT_EDITOR_INACTIVE
+        assert operator.NativeCalibrationOperator._chat_editor_state(path) == operator.CHAT_EDITOR_ACTIVE
+        raise operator.OperatorError("typed classification failed")
+
+    op = operator.NativeCalibrationOperator(
+        chat_state=state,
+        mode=operator.MODE_CONTROL_PREFLIGHT,
+        generation=7,
+        config_path=tmp_path / "config.toml",
+        template_manifest=manifest,
+        client=FakeClient(7, []),
+        screen=screen,
+        input_device=input_device,
+        ocr=lambda path: "" if "chat-closed" in path.name else "/wrong",
+        receipt_root=tmp_path / "receipts",
+    )
+    op._prepare = lambda *, preflight: None
+    op._recheck = lambda expected_state, deadline_monotonic: None
+    op._pause_after_terminal_error = lambda: False
+    op._cancel_active_reservation = lambda: cancel_calls.append(True)
+    op._reservation_deadline = time.monotonic() + 30.0
+
+    original_write_text = Path.write_text
+
+    def fail_diagnostic_write(self, *args, **kwargs):
+        if self.name.startswith(".") and self.name.endswith(".tmp"):
+            raise OSError("diagnostic storage failed")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_diagnostic_write)
+    with pytest.raises(operator.OperatorError, match="readback"):
+        op.run()
+    assert state_calls == 2
+    assert cancel_calls == [True]
+    assert input_device.closed
+    assert ("key", "Escape") in input_device.calls
+    assert ("key", "Return") not in input_device.calls[2:]
+    assert op.receipt.attempt is not None
+    assert json.loads((op.receipt.attempt / "receipt.json").read_text())["outcome"] == "failure"
+    assert not list(op.receipt.attempt.glob("chat-readback-*.json"))
+    typed_records = [record for record in op._chat_retained_frames if record["use"] == "typed_chat_readback"]
+    assert len(typed_records) == 1
+    typed_record = typed_records[0]
+    typed_capture = op.receipt.attempt / typed_record["derived_crop_filename"]
+    assert typed_record["derived_crop_sha256"] == hashlib.sha256(typed_capture.read_bytes()).hexdigest()
+
+
+def test_chat_readback_diagnostic_records_real_typed_editor_state_and_crop(tmp_path):
+    manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
+    closed_crop = _write_chat_ocr_fixture(tmp_path, "real-closed.png", _OCR_RELOAD_CLOSED_CROP_B64)
+    typed_crop = _write_chat_ocr_fixture(tmp_path, "real-typed.png", _OCR_RELOAD_TYPED_CROP_B64)
+
+    class ActualChatScreen(FakeScreen):
+        def __init__(self):
+            super().__init__(tmp_path, restore_scene, restore_scene)
+            self.chat_crop = (0, 0, *operator.CHAT_CROP_SIZE)
+
+        def capture(self, path, *, identity, deadline_monotonic=None):
+            assert identity is self.identity
+            source = closed_crop if "chat-closed" in path.name else typed_crop
+            path.write_bytes(source.read_bytes())
+            os.chmod(path, 0o600)
+            return self.identity
+
+    screen = ActualChatScreen()
+    input_device = FakeInput(screen)
+    op = operator.NativeCalibrationOperator(
+        chat_state=operator.NativeCalibrationOperator._chat_editor_state,
+        mode=operator.MODE_CONTROL_PREFLIGHT,
+        generation=7,
+        config_path=tmp_path / "config.toml",
+        template_manifest=manifest,
+        client=FakeClient(7, ["construction_prepared", "construction_prepared"]),
+        screen=screen,
+        input_device=input_device,
+        ocr=lambda path: "" if "chat-closed" in path.name else "/wrong",
+        receipt_root=tmp_path / "receipts",
+    )
+    op.receipt.begin()
+    op._binding = operator.ReservationBinding.from_record(
+        FakeBinding().record(7), expected_generation=7, now=1.0
+    )
+    op._reservation_deadline = 1000000000000.0
+    op._handshake = "construction_prepared"
+
+    with pytest.raises(operator.OperatorError, match="readback"):
+        op._chat("/reload", expected_state="construction_prepared")
+
+    assert op.receipt.attempt is not None
+    diagnostic = op.receipt.attempt / "chat-readback-00000002.json"
+    report = json.loads(diagnostic.read_text(encoding="utf-8"))
+    failed = report["failed_typed_capture"]
+    assert failed["sequence"] == 2
+    assert failed["use"] == "typed_chat_readback"
+    assert failed["typed_editor_state"] == operator.CHAT_EDITOR_ACTIVE
+    typed_path = op.receipt.attempt / failed["derived_crop_filename"]
+    assert failed["derived_crop_sha256"] == hashlib.sha256(typed_path.read_bytes()).hexdigest()
+    assert input_device.calls == [
+        ("key", "Return"),
+        ("type", "/reload"),
+        ("key", "Escape"),
+    ]
+
+
+def test_chat_readback_diagnostic_caps_text_and_survives_classification_or_write_errors(
+    tmp_path, monkeypatch
+):
+    manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
+    screen = FakeScreen(tmp_path, restore_scene, restore_scene)
+    op = operator.NativeCalibrationOperator(
+        chat_state=lambda _path: (_ for _ in ()).throw(operator.OperatorError("classification failed")),
+        mode=operator.MODE_CONTROL_PREFLIGHT,
+        generation=7,
+        config_path=tmp_path / "config.toml",
+        template_manifest=manifest,
+        client=FakeClient(7, []),
+        screen=screen,
+        input_device=FakeInput(screen),
+        receipt_root=tmp_path / "receipts",
+    )
+    op.receipt.begin()
+    op._reservation_deadline = time.monotonic() + 30.0
+    typed = tmp_path / "typed.png"
+    typed.write_bytes(restore_scene.read_bytes())
+    op._last_chat_capture_record = {
+        "sequence": 9,
+        "label": "chat-repeat",
+        "use": "typed_chat_readback",
+        "original_sha256": "a" * 64,
+        "derived_crop_sha256": "b" * 64,
+    }
+    long = "x" * 300
+    op._record_chat_readback_diagnostic(
+        command="/reload",
+        typed_path=typed,
+        observed_raw=long,
+        observed=long,
+        expected="/reload",
+    )
+    assert op.receipt.attempt is not None
+    diagnostic = op.receipt.attempt / "chat-readback-00000009.json"
+    report = json.loads(diagnostic.read_text(encoding="utf-8"))
+    assert len(report["observed_raw"]) == 256
+    assert report["observed_raw_truncated"] is True
+    assert len(report["observed_normalized"]) == 256
+    assert report["observed_normalized_truncated"] is True
+    assert report["expected_truncated"] is False
+    assert report["failed_typed_capture"]["typed_editor_state"] is None
+    assert report["failed_typed_capture"]["typed_editor_state_error"] == "OperatorError"
+    bounded, truncated = operator.NativeCalibrationOperator._bounded_chat_text("é" * 257)
+    assert len(bounded) == 256 and bounded == "é" * 256 and truncated is True
+    bounded, truncated = operator.NativeCalibrationOperator._bounded_chat_text("λ" * 256)
+    assert len(bounded) == 256 and truncated is False
+
+    original_write_text = Path.write_text
+
+    def fail_diagnostic_write(self, *args, **kwargs):
+        if self.name.startswith(".") and self.name.endswith(".tmp"):
+            raise OSError("diagnostic storage failed")
+        return original_write_text(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "write_text", fail_diagnostic_write)
+    # Persistence failure remains best-effort and cannot replace the causal
+    # readback refusal path (the Escape and cleanup assertions live above).
+    op._record_chat_readback_diagnostic(
+        command="/reload",
+        typed_path=typed,
+        observed_raw="wrong",
+        observed="wrong",
+        expected="/reload",
+    )
     op.input.close()
 
 

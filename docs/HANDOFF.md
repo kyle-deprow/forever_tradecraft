@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 10:57 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 11:07 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -47,8 +47,8 @@ observations; no buying, posting or cancelling is part of this task.
   normal0/inactive/pending0/AHreopened/zeromovement/released. Assisted #96
   started1792404927, interval1258s/358s late after #95; its full chain is parent-verified.
 - Current service state is PAUSED35/nativefalse/inputfalse; soleGUI continues
-  assisted collection while Luna implements the Sol/parent-approved helper contrast plan
-  in isolated worktree native-chat-contrast-20261019. Native100,
+  assisted collection. The helper-only contrast correction is installed after
+  Sol R2 and actual Opus5.5 R2 READY; live measure follows the #99 chain. Native100,
   physical input and three autonomous900s cycles remain unqualified.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
@@ -137,9 +137,9 @@ exited 0.
 Current accepted source pins are:
 
 - helper `tools/native_calibration_operator.py`:
-  `4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b`;
+  `63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462`;
 - helper tests `tests/test_native_calibration_operator.py`:
-  `c9d22c42c50259a9a6f3b6db694b85731764080f6b9c5c43577711881f30596d`;
+  `190497551114ff44cc7a9acf42a4d2234d238b9b8131bf74b4b050cc47bbae0a`;
 - runtime `tools/template_matcher_runtime.py`:
   `edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d`;
 - runtime tests `tests/test_template_matcher_runtime.py`:
@@ -324,7 +324,7 @@ without relaxing production thresholds. Final full helper passed 89 tests,
 `f7ecd8820bdfd157b2985fb2198477b57ec7416f4972a41f4e5bc9c2411949cd`.
 Sol source review is READY after adding its required mixed-signature negative.
 Actual Opus5.5 source review is READY, exit0, no Must/Should findings. The fix
-is installed without a service restart. Current helper SHA256:
+was installed without a service restart. At that earlier release helper SHA256:
 `4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b`;
 tests `90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75`.
 The native159 clock-correction evidence remains historical; the publisher
@@ -358,26 +358,27 @@ The failed original fullframe was not retained; its exact460x37 crop is private.
 The parent independently reproduced the missing slash. The failed vs accepted
 full crop differs by at most4 grayscale levels, with the same2 cursor columns.
 
-The [contrast plan](../.archive/PLAN-native-chat-contrast.md) proposes uniform
-`ImageOps.autocontrast(cutoff=1)` on the400x13body AFTERcrop and BEFORE the
-unchanged threshold45 cursor probe. It changes no geometry, stateguard, resize,
-Tesseractmode, textnormalization or exactexpectedcomparison. The private matrix
-was independently reproduced: baseline8/9, proposed9/9 (all8 original typed
-fullframes plus the actualfailedcrop). This is an offline experiment, not an
-implemented or live-qualified fix. Sol and parent approved the plan. The implementation
-will also retain the last4 exactoriginalfullchatframes and private refusal OCR.
-Only helper+helpertests are in scope; no service restart is required.
-R1 source review by Sol and actual Opus5.5 requires fixes before release:
-strict four-original bound on eviction error, actual `run()` automatic cleanup
-under diagnostic errors, retention-write failure coverage, and real typed-crop
-state evidence. Luna is fixing those in isolated native-chat-contrast-r2-20261019.
-The frozen R1 helper passed all8 recorded commands plus the failedcrop via the
-actual candidate seams (substituted capture/input/admission context, not live).
-Its full suite91 passed on an earlier test pin;14 focused checks passed on the
-final R1 pin. No final93-test full-suite result is claimed.
-Autocontrast may OCR darker inactive body texture as text. Initial-editor
-safety uses the unchanged raw460x37 state guard before input; closed-state OCR
-is never used as proof. Preserve this limitation in release notes.
+The [contrast correction](../.archive/executor-review/native-chat-contrast-release-parent-verification.json)
+is now installed after Sol R2 and actual Opus5.5 R2 READY. It applies uniform
+body-only autocontrast cutoff1 after400x13crop and before unchanged threshold45,
+preserving all editor, geometry, cursor, resize, Tesseract and exact-text guards.
+Private retention holds up to four exact original fullframes with unique capture
+sequence and hashes; eviction failure skips the new optional original. Failed
+readback diagnostics bind the actual typed crop, state, source hash and capped
+OCR after the existing Escape attempt, without masking refusal or cleanup.
+Parent reproduced all8 recorded fullframe commands and the actualfailedcrop
+through actual candidate seams, with substituted capture/input/identity/admission
+context; exact retained original bytes were independently verified. This is not
+live native100 qualification. Full helper96 passed in352.23s on the same source
+and earlier testpin71f92973; finaltest19049755 has exactly one added test,
+verified against that prior hash, and18 focused tests pass in WT and MAIN.
+No97-test full-suite result is claimed. Production CLI interpreter imports the
+exact promoted MAIN helper. No service restart occurred.
+R1 review failures and closures remain in the public R1 record. One redundant
+callback assertion nit is deferred; a separate successful real-classifier JSON
+test covers it. Autocontrast may OCR darker inactive body texture as text;
+initial admission uses unchanged raw460x37 state guard, never closed-state OCR.
+The failed gen33 fullframe remains unavailable.
 
 
 ## Next live gates
@@ -386,8 +387,9 @@ Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
 1. Finish the current assisted save/upload/ACK/reopen chain and verify ordinary
-   state before installing the accepted helper-only contrast fix. #98 is fully
-   parent-verified. Keep collection running until that controlled boundary.
+   state before native calibration. The contrast fix is installed. #98 is fully
+   parent-verified; #99 runs on its exact900s schedule. Sole operator is authorized
+   to finish99 then close AH and chain the fresh calibration/recovery gates.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.
 3. Run native control preflight, resume, and the measured native100 operation.

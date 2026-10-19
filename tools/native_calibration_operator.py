@@ -31,7 +31,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Protocol
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 if not __package__:
     _PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -2879,6 +2879,9 @@ class NativeCalibrationOperator:
         self._reservation_deadline: float | None = None
         self._release_dispatch: float | None = None
         self._last_capture_completed: float | None = None
+        self._chat_capture_sequence = 0
+        self._chat_retained_frames: list[dict[str, Any]] = []
+        self._last_chat_capture_record: dict[str, Any] | None = None
         self._history_before_action = 0
         self._aborted = False
         self._cleanup_started = False
@@ -3002,6 +3005,7 @@ class NativeCalibrationOperator:
                 ):
                     raise OperatorError("fixed chat OCR interior geometry is malformed")
                 prepared = image.crop((left, top, left + width, top + height))
+                prepared = ImageOps.autocontrast(prepared, cutoff=1)
                 # The focused chat editor draws a two-column insertion cursor
                 # through the body.  Its probe height is 13/13; the tallest
                 # glyph/rule probe is 11/13.  Drop columns at >=12/13, leaving
@@ -3427,6 +3431,7 @@ class NativeCalibrationOperator:
         require_exclusive: str | None = None,
         require_dual: bool = False,
         crop: bool = False,
+        retain_chat_frame: str | None = None,
         deadline_monotonic: float | None = None,
     ) -> tuple[Path, Any, TemplateMatch | None]:
         capture_started = self.clock()
@@ -3435,7 +3440,13 @@ class NativeCalibrationOperator:
         target_root = self.receipt.attempt
         if target_root is None:
             raise ReceiptError("receipt was not initialized")
-        path = target_root / f"{label}.png"
+        capture_sequence: int | None = None
+        if retain_chat_frame is not None:
+            self._chat_capture_sequence += 1
+            capture_sequence = self._chat_capture_sequence
+            path = target_root / (f"chat-{capture_sequence:08d}-{self._safe_chat_label(label)}.png")
+        else:
+            path = target_root / f"{label}.png"
         before = getattr(identity, "fingerprint", None)
         captured = self.screen.capture(path, identity=identity, deadline_monotonic=deadline)
         after = self.screen.resolve_identity(require_foreground=True, deadline_monotonic=deadline)
@@ -3444,6 +3455,15 @@ class NativeCalibrationOperator:
             or getattr(after, "fingerprint", before) != before
         ):
             raise OperatorError("fresh capture identity changed")
+        if retain_chat_frame is not None:
+            self._last_chat_capture_record = self._retain_chat_fullframe(
+                path,
+                label=label,
+                use=retain_chat_frame,
+                sequence=capture_sequence if capture_sequence is not None else 0,
+            )
+        else:
+            self._last_chat_capture_record = None
         if crop:
             crop_box = getattr(self.screen, "chat_crop", None)
             if not (
@@ -3483,6 +3503,16 @@ class NativeCalibrationOperator:
             digest = hashlib.sha256(path.read_bytes()).hexdigest()
         except OSError as exc:
             raise OperatorError("fresh capture is unavailable") from exc
+        if retain_chat_frame is not None and self._last_chat_capture_record is not None:
+            self._last_chat_capture_record["derived_crop_sha256"] = digest
+            self._last_chat_capture_record["derived_crop_filename"] = path.name
+            try:
+                with Image.open(path) as derived:
+                    self._last_chat_capture_record["derived_crop_width"] = derived.width
+                    self._last_chat_capture_record["derived_crop_height"] = derived.height
+            except (OSError, ValueError):
+                self._last_chat_capture_record["derived_crop_width"] = None
+                self._last_chat_capture_record["derived_crop_height"] = None
         self._event(
             "capture",
             label=label,
@@ -3607,6 +3637,7 @@ class NativeCalibrationOperator:
         closed_path, _closed_identity, _ = self._capture(
             f"chat-closed-{hashlib.sha256(command.encode()).hexdigest()[:12]}",
             crop=True,
+            retain_chat_frame="chat_editor_state",
             deadline_monotonic=deadline,
         )
         editor_state = self.chat_state(closed_path)
@@ -3638,9 +3669,11 @@ class NativeCalibrationOperator:
         buffer_path, _identity, _ = self._capture(
             f"chat-{hashlib.sha256(command.encode()).hexdigest()[:12]}",
             crop=True,
+            retain_chat_frame="typed_chat_readback",
             deadline_monotonic=deadline,
         )
-        observed = normalize_ocr(self.ocr(buffer_path))
+        observed_raw = self.ocr(buffer_path)
+        observed = normalize_ocr(observed_raw)
         expected = normalize_ocr(command)
         self._event("chat_readback", command=command, accepted=observed == expected)
         if observed != expected:
@@ -3651,6 +3684,13 @@ class NativeCalibrationOperator:
                 self._event("key_dispatch", key="Escape", edge="mismatch")
             except Exception:
                 pass
+            self._record_chat_readback_diagnostic(
+                command=command,
+                typed_path=buffer_path,
+                observed_raw=observed_raw,
+                observed=observed,
+                expected=expected,
+            )
             raise OperatorError("chat command readback mismatch")
         self._recheck(expected_state, deadline_monotonic=deadline)
         self._identity_guard(deadline)
@@ -4261,6 +4301,151 @@ class NativeCalibrationOperator:
         if result is None:
             raise OperatorError("native calibration did not produce a result")
         return result
+
+    @staticmethod
+    def _bounded_chat_text(value: Any) -> tuple[str, bool]:
+        text = value if isinstance(value, str) else str(value)
+        truncated = len(text) > 256
+        return text[:256], truncated
+
+    @staticmethod
+    def _safe_chat_label(label: str) -> str:
+        safe = "".join(character if character.isalnum() or character in "-_" else "_" for character in label)
+        return safe[:64] or "capture"
+
+    def _retain_chat_fullframe(self, path: Path, *, label: str, use: str, sequence: int) -> dict[str, Any]:
+        record: dict[str, Any] = {
+            "sequence": sequence,
+            "label": label,
+            "use": use,
+            "retained": False,
+        }
+        try:
+            info = path.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_mode & 0o022:
+                raise OSError("chat fullframe is not private")
+            original = path.read_bytes()
+            with Image.open(path) as image:
+                width, height = image.size
+            digest = hashlib.sha256(original).hexdigest()
+            record.update(
+                {
+                    "original_sha256": digest,
+                    "width": width,
+                    "height": height,
+                }
+            )
+            target_root = self.receipt.attempt
+            if target_root is None:
+                raise OSError("receipt was not initialized")
+            retention_root = target_root / "chat-fullframes"
+            retention_root.mkdir(mode=0o700, exist_ok=True)
+            os.chmod(retention_root, 0o700)
+            if len(self._chat_retained_frames) >= 4:
+                oldest = self._chat_retained_frames[0]
+                old_name = oldest.get("filename")
+                if not isinstance(old_name, str) or not old_name:
+                    self._chat_retained_frames.pop(0)
+                else:
+                    try:
+                        (retention_root / old_name).unlink()
+                    except FileNotFoundError:
+                        pass
+                    except OSError as exc:
+                        record["retention_error"] = type(exc).__name__
+                        record["retention_skipped"] = True
+                        return record
+                    self._chat_retained_frames.pop(0)
+            filename = f"{sequence:08d}-{self._safe_chat_label(label)}.png"
+            destination = retention_root / filename
+            temporary = retention_root / f".{filename}.{secrets.token_hex(4)}.tmp"
+            try:
+                temporary.write_bytes(original)
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, destination)
+                os.chmod(destination, 0o600)
+            finally:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+            record.update(
+                {
+                    "filename": filename,
+                    "original_sha256": digest,
+                    "width": width,
+                    "height": height,
+                    "retained": True,
+                }
+            )
+            self._chat_retained_frames.append(record)
+        except OperatorInterrupted:
+            raise
+        except Exception as exc:
+            record["retention_error"] = type(exc).__name__
+        return record
+
+    def _record_chat_readback_diagnostic(
+        self,
+        *,
+        command: str,
+        typed_path: Path,
+        observed_raw: Any,
+        observed: Any,
+        expected: Any,
+    ) -> None:
+        """Best-effort private evidence for a failed typed chat readback."""
+        try:
+            raw, raw_truncated = self._bounded_chat_text(observed_raw)
+            normalized, normalized_truncated = self._bounded_chat_text(observed)
+            expected_text, expected_truncated = self._bounded_chat_text(expected)
+            state: str | None = None
+            state_error: str | None = None
+            try:
+                state = self.chat_state(typed_path)
+            except Exception as exc:
+                state_error = type(exc).__name__
+            record = dict(self._last_chat_capture_record or {})
+            try:
+                record["derived_crop_sha256"] = hashlib.sha256(typed_path.read_bytes()).hexdigest()
+            except OSError as exc:
+                record["derived_crop_error"] = type(exc).__name__
+            record["typed_editor_state"] = state
+            if state_error is not None:
+                record["typed_editor_state_error"] = state_error
+            retained = [dict(item) for item in self._chat_retained_frames]
+            payload = {
+                "schema": 1,
+                "command": command,
+                "expected": expected_text,
+                "expected_truncated": expected_truncated,
+                "observed_raw": raw,
+                "observed_raw_truncated": raw_truncated,
+                "observed_normalized": normalized,
+                "observed_normalized_truncated": normalized_truncated,
+                "failed_typed_capture": record,
+                "retained_frames": retained,
+            }
+            target_root = self.receipt.attempt
+            if target_root is None:
+                return
+            sequence = record.get("sequence", self._chat_capture_sequence)
+            filename = target_root / f"chat-readback-{int(sequence):08d}.json"
+            temporary = target_root / f".{filename.name}.{secrets.token_hex(4)}.tmp"
+            try:
+                temporary.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+                os.chmod(temporary, 0o600)
+                os.replace(temporary, filename)
+                os.chmod(filename, 0o600)
+            finally:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
+        except Exception:
+            # This evidence is strictly diagnostic; never replace the causal
+            # readback refusal or alter the ordinary cleanup path.
+            return
 
 
 def _failure_code(error: BaseException) -> str:

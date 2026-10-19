@@ -1,6 +1,7 @@
 # Native chat OCR contrast normalization plan
 
-Status: PLAN APPROVED BY SOL AND PARENT. R1 source review needs fixes; implementation not released.
+Status: IMPLEMENTED AND INSTALLED after Sol R2 and actual Opus5.5 R2 READY.
+Live native100 qualification remains pending; see release parent verification.
 The initial experiment is independently reproduced; production candidate and
 full helper checks plus source reviews remain mandatory before promotion.
 
