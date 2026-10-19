@@ -1,0 +1,18 @@
+{
+  "kind": "Parent byte and visual verification of retained disconnect evidence.",
+  "lastCompleteCycle": 106,
+  "nextCycle": 107,
+  "status": "DISCONNECTED; normal authorized recovery underway",
+  "receiptSha256": "28de808c6774271bc531036393c61af5b5964dd8774a71fc99c42eb98d227c74",
+  "fullFrameSha256": "885789b043a05ae3b809ab2d1af57ea8227182b27a49e3d21be0d030b7f02225",
+  "parentViewedOriginalFrame": true,
+  "visualError": "WOW51900319 disconnected from server",
+  "watcherRefusals": [
+    "7e6aba85d13506e8f75975d6c1bc4f7cb063d26fdad1be6390be7f8e121f800f",
+    "22dc45d16f45e80610ff5f8cd26955b4b005c690b70acff27b450f2767b82694"
+  ],
+  "memoryNotification": "The retained frame explicitly labels it 8 hours ago; no causal relationship to this disconnect established.",
+  "freshOomSearch": "No matching kernel/OOM-manager entries found in inspected interval.",
+  "recoveryOwner": "luna_live_recovery",
+  "qualification": "No107 completed or autonomous cycle claimed."
+}

@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 12:55 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 13:03 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -49,7 +49,9 @@ observations; no buying, posting or cancelling is part of this task.
   934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
   2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
   parent-verified. #101 through #106 are also fully parent-verified; all started
-  on exact900s deadlines. Nextdue1792414861 (13:01:01 UTC).
+  on exact900s deadlines. After #106 the client disconnected (WOW51900319).
+  #107's1792414861 deadline will be late. Sole GUI operator is performing normal
+  authorized reconnect; no new complete scan is claimed.
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -71,7 +73,7 @@ Parent verification #106 completed the operator-assisted scan for UID
 - [scan verification](../.archive/executor-review/build-70450-onehundredsixth-scan-parent-verification.json)
   and [reopen verification](../.archive/executor-review/build-70450-onehundredsixth-ah-reopen-parent-verification.json).
 
-#107 nextdue1792414861.
+#107 was due1792414861; ordinary reconnect recovery is underway.
 #105 is fully verified:428observations/2,067rows/416full12bounded/allok,
 481s scan,22.672271s finish-to-serverreceipt,exact900s after104.
 #104 is fully verified:428observations/2,061rows/415full13bounded/allok,
@@ -457,6 +459,25 @@ the same four-file scope. Every new cheap validation and target calculation is
 counted as active modeled work; only sleeper duration is wait. Numeric jitter
 cases and the terminal held100 budget exception are pinned in the plan.
 No source approval or installation yet. Assisted collection continues.
+
+At13:00 the implementation worker was paused for a diagnostic checkpoint after
+it kept editing/testing without returning requested status. The actual-run
+selector reportedly exited1 after107.35s: aligned exactupdates1..99/held100/resume,
+but first alternating-jitter transition1492.444ms active due one duplicate/retry;
+later transitions882..889ms. No full output/first-shot timeline was retained.
+The [reported failure record](../.archive/executor-review/native-alignment-jitter-reported-failure-parent-record.json)
+distinguishes that report from independent runtime verification. Four current
+files are parent-hashed in the private diagnostic snapshot125916Z. Sol is
+assessing fixture versus production behavior read-only. No more implementation
+edits/tests or source approval until that assessment; old redundant test PID
+3888223 and parent3813817 have exited. Actual source Opus review has not started.
+
+Separately, [post106 disconnect evidence](../.archive/executor-review/build-70450-post106-disconnect-parent-verification.json)
+is byte- and visually verified by parent. Two strict watcher refusals preceded
+the actual WOW51900319 screen. Its memory notification explicitly says8hours ago;
+no new OOM event/cause is established. Sole GUI owner may reconnect normally,
+including the already-authorized standard launcher path if required, then restore
+Arthur at IF AH and full ordinary chains with fresh identity/generation evidence.
 
 ## Next live gates
 

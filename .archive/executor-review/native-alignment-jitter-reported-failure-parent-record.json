@@ -1,0 +1,31 @@
+{
+  "kind": "Reported failing test; not independent parent runtime reproduction.",
+  "status": "NOT QUALIFIED",
+  "selector": "tests/test_session_runtime.py::test_native_update_fast_trace_replay_uses_real_runner_and_provider",
+  "reportedCommand": ".venv/bin/pytest -q tests/test_session_runtime.py::test_native_update_fast_trace_replay_uses_real_runner_and_provider --tb=short",
+  "reportedExitCode": 1,
+  "reportedSeconds": 107.35,
+  "reportedFailure": {
+    "case": "alternating",
+    "firstActiveTransitionMs": 1492.444,
+    "duplicateRetry": true,
+    "subsequentActiveMsApprox": [
+      882,
+      889
+    ],
+    "stream": "Reported exact updates1..99 plus held100/resume; budget assertion failed."
+  },
+  "evidenceLimits": "No exact full output or first-shot timeline was retained. Current source snapshot is parent-hashed; no retrospective source binding for the earlier test is claimed.",
+  "currentDiagnosticSnapshotHashes": {
+    "src/crowley/session/daemon.py": "683bf4f64385b935e0f836a77864fed640d805393c421d489ab616b86961113f",
+    "src/crowley/session/calibration.py": "0b722e46ccff5c5d949e6839229465e3462e88c756997bc21cf5819decc3418d",
+    "tests/test_session_runtime.py": "8681fb53c3d82775da4e4d9b859e5abcd4b83f707b51d37df1f8c1a5a6fbdb60",
+    "tests/test_native_calibration_operator.py": "480892f17f2b8e8840ac451ed9f589dc0352239477165c8ca0960da71a10fe61"
+  },
+  "sourceInstalled": false,
+  "sourceApproved": false,
+  "native100Qualified": false,
+  "inputQualified": false,
+  "autonomousQualifiedCycles": 0,
+  "nextAction": "Sol read-only fixture/plan assessment before another edit or test."
+}
