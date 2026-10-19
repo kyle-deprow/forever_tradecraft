@@ -1,0 +1,19 @@
+{
+  "status": "PASS",
+  "qualification": "Ordinary closed-AH boundary after assisted99; no native/input qualification.",
+  "rawReceiptSha256": "acae1aa5f4b2889d418655a71b12b667d4219d7355ea730b4ba87482f6bdfe7a",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "592deac44a16ecd7aa5781137e9c36e8ed11baa23ef3ff5023867e1845640273",
+  "boot": "1792408183-415124",
+  "sequence": 40,
+  "loadedExactAck": "beta-normal-alliance-1792407627-Arthur-0388",
+  "pending": 0,
+  "ahOpen": false,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "characterSpeed": 0,
+  "inputReleased": true,
+  "nextOrdinaryDeadline": 1792408527,
+  "calibrationMayReplaceDeadline": true
+}

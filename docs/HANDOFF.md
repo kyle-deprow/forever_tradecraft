@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 11:07 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 11:13 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -46,7 +46,7 @@ observations; no buying, posting or cancelling is part of this task.
   Fresh visible Restore at gen35 reloaded the addon; parent decoded ordinary
   normal0/inactive/pending0/AHreopened/zeromovement/released. Assisted #96
   started1792404927, interval1258s/358s late after #95; its full chain is parent-verified.
-- Current service state is PAUSED35/nativefalse/inputfalse; soleGUI continues
+- Baseline before the released live attempt was PAUSED35/nativefalse/inputfalse; soleGUI continues
   assisted collection. The helper-only contrast correction is installed after
   Sol R2 and actual Opus5.5 R2 READY; live measure follows the #99 chain. Native100,
   physical input and three autonomous900s cycles remain unqualified.
@@ -56,17 +56,24 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #98 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792406727-Arthur-4757`:
+Parent verification #99 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792407627-Arthur-0388`:
 
-- 428 observations, 2,063 rows, 419 full and 9 bounded, all `ok`;
-- 476-second scan, 61.315347 seconds from finish to server receipt;
-- exact900-second start interval after #97; next ordinary deadline1792407627;
+- 428 observations, 2,054 rows, 418 full and 10 bounded, all `ok`;
+- 479-second scan, 62.218005 seconds from finish to server receipt;
+- exact900-second start interval after #98; next ordinary deadline1792408527;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-ninetyeighth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-ninetyeighth-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-ninetyninth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-ninetyninth-ah-reopen-parent-verification.json).
+
+Sole operator then closed the AH with one guarded Escape. Parent independently
+decoded retained frame592deac4: ordinary normal0/inactive/pending0, exact99ACK,
+AHclosed/speed0/released controls. This is the [fresh calibration boundary](../.archive/executor-review/native-chat-contrast-preflight-boundary-parent-verification.json).
+The ordinary100 deadline may be replaced by calibration; record the actual gap.
+#98 is fully verified:428 observations/2,063 rows/419full9bounded/allok,
+476s scan,61.315347s finish-to-serverreceipt,exact900s interval after97.
 
 #97 is fully verified: 428 observations, 2,070 rows, 417 full/11 bounded,
 all `ok`, 483-second scan,62.376083s finish-to-serverreceipt and exact900s
@@ -114,11 +121,11 @@ closed for calibration with exact #91 ACK, pending 0, normal/0, inactive fence,
 closed chat, zero movement and released controls. Public state is PAUSED29.
 Record the resulting calibration-related gap; do not count these as autonomous.
 
-The latest private backup is `beta-20261019T101203Z-c3c69ae2c976`, independently
-validated after #95 ingestion, directory mode0700. Manifest SHA256:
-`385e5af0e425da02254f7e84c8177e8fb7169275954d510067368a0b97e96ffe`.
-See [backup verification](../.archive/executor-review/market-backup-20261019T101203Z-parent-verification.json).
-Next hourly backup: 11:12 UTC. Prior isolated restore drill passed; repeat only
+The latest private backup is `beta-20261019T111106Z-717ede9b8040`, independently
+validated after #99 ingestion, directory mode0700. Manifest SHA256:
+`0c1cd73c92f3f7f7eedb57df9a40b2687b44c8934816064b6638978a5150171e`.
+See [backup verification](../.archive/executor-review/market-backup-20261019T111106Z-parent-verification.json).
+Next hourly backup: 12:11 UTC. Prior isolated restore drill passed; repeat only
 if new evidence warrants it. Raw backup data stays private.
 
 ## Accepted installed release
@@ -349,7 +356,7 @@ No live
 native100 success is claimed, and no human input is needed until native100 and
 ordinary recovery pass.
 
-## Current typed OCR blocker
+## Typed OCR correction and pending live qualification
 
 Gen33 `/crowley agent defer` was accepted, but typed `/reload` returned
 `reload` from the unchanged production OCR before native runner entry. See
@@ -387,9 +394,9 @@ Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
 1. Finish the current assisted save/upload/ACK/reopen chain and verify ordinary
-   state before native calibration. The contrast fix is installed. #98 is fully
-   parent-verified; #99 runs on its exact900s schedule. Sole operator is authorized
-   to finish99 then close AH and chain the fresh calibration/recovery gates.
+   state before native calibration. The contrast fix is installed; #99 is fully
+   parent-verified and AHclosed at the fresh boundary above. Sole operator is
+   authorized to chain fresh calibration/recovery gates without per-step approval.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.
 3. Run native control preflight, resume, and the measured native100 operation.
