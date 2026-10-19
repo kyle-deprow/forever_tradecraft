@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "qualification": "Quiescent promotion boundary only; native/input/autonomous qualification pending.",
+  "rawReceiptSha256": "1aca62f10070619e5817dc042605ac97eb24faeb636f9fa35ebf203fedff8717",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "a09fcd99bf326643fb23e88dc0e313ac2e310702d23fc89d14a176e047de9d5f",
+  "boot": "1792429237-184470",
+  "sequence": 48,
+  "ahOpen": false,
+  "pending": 0,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "characterSpeed": 0,
+  "inputReleased": true
+}

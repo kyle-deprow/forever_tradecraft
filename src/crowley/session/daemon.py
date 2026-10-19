@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import re
 import secrets
 import shutil
 import stat
@@ -18,7 +19,7 @@ import time
 import uuid
 from collections.abc import Callable
 from contextlib import contextmanager, nullcontext
-from dataclasses import asdict, is_dataclass, replace
+from dataclasses import asdict, dataclass, is_dataclass, replace
 from functools import wraps
 from pathlib import Path
 from typing import Any
@@ -40,6 +41,7 @@ from .config import SessionConfig
 from .controller import Controller, ControllerState
 from .decoder import PixelDecoder, Sample
 from .driver import (
+    _DEFAULT_CAPTURE_TIMEOUT_SECONDS,
     DesktopDriver,
     DriverError,
     MeasuredAnchor,
@@ -114,7 +116,7 @@ from .motion import (
     waypoint_heading_error,
 )
 from .preferences import load_motion_profile
-from .protocol import ProtocolError
+from .protocol import ProtocolError, unsigned_delta
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -664,6 +666,9 @@ class _NativeObservationDiagnostic:
     _MAX_JSON_BYTES = 1_048_576
     _SPAN_NAMES = (
         "identity_poll",
+        "alignment_capability",
+        "alignment_target",
+        "ack_admission",
         "identity_backend_pre",
         "identity_backend_post",
         "identity_post_capture",
@@ -706,6 +711,10 @@ class _NativeObservationDiagnostic:
         self._offending_path: Path | None = None
         self._persistence_error: str | None = None
         self._failure_payload: dict[str, Any] | None = None
+        # Tests and private evidence may subscribe to completed attempts.  The
+        # callback is deliberately outside the admission path: it receives a
+        # copy after release/retirement and cannot affect qualification.
+        self._attempt_observer: Callable[[dict[str, Any]], None] | None = None
 
     @property
     def failure_path(self) -> Path | None:
@@ -933,6 +942,8 @@ class _NativeObservationDiagnostic:
                 self._current_path = None
 
     def finish_attempt(self, *, status: str, error: str | None = None) -> None:
+        observed: dict[str, Any] | None = None
+        observer: Callable[[dict[str, Any]], None] | None = None
         with self._lock:
             if self._current is None:
                 return
@@ -940,8 +951,17 @@ class _NativeObservationDiagnostic:
             self._current["error"] = _bounded_diagnostic_error(error) if error is not None else None
             self._current["finished_monotonic_ns"] = time.monotonic_ns()
             if status != "accepted":
+                observed = copy.deepcopy(self._current)
+                observer = self._attempt_observer
                 self._current = None
                 self._current_path = None
+        if observed is not None and observer is not None:
+            try:
+                observer(observed)
+            except Exception:
+                # Diagnostic observers are best effort and never alter the
+                # causal native result or cleanup path.
+                pass
 
     def set_status(self, *, status: str, error: str | None = None) -> None:
         with self._lock:
@@ -951,6 +971,8 @@ class _NativeObservationDiagnostic:
 
     def mark_release(self, path: Any, *, error: str | None = None) -> None:
         refresh = False
+        observed: dict[str, Any] | None = None
+        observer: Callable[[dict[str, Any]], None] | None = None
         with self._lock:
             if self._current is None:
                 return
@@ -967,11 +989,18 @@ class _NativeObservationDiagnostic:
             else:
                 self._current["release_outcome"] = "released"
             self._current["finished_monotonic_ns"] = time.monotonic_ns()
+            observed = copy.deepcopy(self._current)
+            observer = self._attempt_observer
             self._current = None
             self._current_path = None
             refresh = self._failure_path is not None and self._failure_payload is not None
         if refresh:
             self._refresh_failure_payload()
+        if observed is not None and observer is not None:
+            try:
+                observer(observed)
+            except Exception:
+                pass
 
     def _failure_directory(self) -> Path:
         journal = Path(self.daemon.config.journal).expanduser()
@@ -1176,6 +1205,28 @@ class _NativeCaptureRetained(Exception):
     """Internal marker for an unlink helper that left its exact path behind."""
 
 
+@dataclass(frozen=True, slots=True)
+class _NativeUpdateCapability:
+    """Private per-update admission proof for the native identity fast path."""
+
+    generation: int
+    guardian_generation: int
+    epoch: int
+    reservation_id: str
+    run_id: str
+    identity_fingerprint: str
+    expected_state: ControllerState
+    profile_fingerprint: str
+    owner_pid: int
+    owner_process_start: str
+    desktop_lease_held: bool
+    guardian_armed: bool
+    backend_id: int
+    b0: str
+    expected_constructor_boot: str
+    expires_monotonic: float
+
+
 def _serialized_motion(method):
     """Serialize all interaction producers around one physical intent.
 
@@ -1233,6 +1284,10 @@ class SessionDaemon:
     # bounds only determine how long the producer waits for the next actual
     # Agent publication after a readiness signal becomes visible.
     _NATIVE_FRAME_TIMEOUT_SECONDS = 30.0
+    # The native provider's longer publication wait must not remove the
+    # driver's established fifteen-second producer bound.  One immutable
+    # deadline below is passed through capture and pre-ACK admission.
+    _NATIVE_PRODUCER_TIMEOUT_SECONDS = _DEFAULT_CAPTURE_TIMEOUT_SECONDS
     _NATIVE_POLL_INTERVAL_SECONDS = 0.05
     # One construction attempt makes 103 provider calls: construct/0, held/0,
     # updates/1..99, held/100, and resume/0.  Add the existing ten-second
@@ -1344,8 +1399,16 @@ class SessionDaemon:
         # callback owner.  Callbacks never infer legacy/deferred mode from the
         # mutable reservation after a worker has started.
         self._native_construction_run_context: dict[str, Any] | None = None
+        self._native_construction_sealed_run_id: str | None = None
         self._native_construction_terminals: dict[str, dict[str, Any]] = {}
         self._native_construction_expired = False
+        # A deferred update anchor is private run-local state.  It is written
+        # only after the daemon provider accepts a fresh update and consumed by
+        # the next call from the exact runner that owns that update.  Keeping
+        # the runner token and anchor together prevents a stale previous run
+        # or an arbitrary provider caller from borrowing the timing proof.
+        self._native_update_alignment_runner: dict[str, Any] | None = None
+        self._native_update_alignment_anchor: dict[str, Any] | None = None
         # A bounded private diagnostic for a failed rejected-measurement
         # audit append.  It is intentionally absent from IPC and status.
         self._native_memory_archive_diagnostic: str | None = None
@@ -1410,6 +1473,14 @@ class SessionDaemon:
             self.driver.notify_native_resume_required = self.notify_native_resume_required
             self.driver.notify_native_measurement_failed = self.notify_native_measurement_failed
             self.driver.release_native_capture = self.release_native_capture
+        # Calibration may consult this private predicate before its redundant
+        # update identity poll.  The daemon-owned provider recomputes the
+        # capability at entry, so replacing or wrapping the provider can only
+        # fall back to the full identity path.
+        self.driver._native_identity_budget_eligibility = self._native_update_identity_budget_capability
+        self.driver._native_identity_budget_capability_valid = (
+            self._native_update_identity_budget_capability_valid
+        )
         if isinstance(self.driver.backend, X11Backend) and not (
             self.config.plan_hash and self.config.plan_json
         ):
@@ -1652,6 +1723,220 @@ class SessionDaemon:
         current_id = owner.get("reservationId")
         return expected_id == current_id
 
+    @staticmethod
+    def _native_exact_provider(provider: Any, daemon: SessionDaemon) -> bool:
+        """Require the installed daemon provider, rather than a wrapper."""
+
+        return getattr(provider, "__self__", None) is daemon and getattr(
+            provider, "__func__", None
+        ) is getattr(getattr(daemon, "_native_measurement_provider", None), "__func__", None)
+
+    def _native_update_capability_matches_locked(
+        self,
+        capability: _NativeUpdateCapability,
+        identity: WindowIdentity | None = None,
+    ) -> bool:
+        """Validate the private update proof while holding construction lock."""
+
+        if not isinstance(capability, _NativeUpdateCapability):
+            return False
+        # B0 and its constructor echo are a typed construction binding, not
+        # caller-controlled token fields.  The durable owner context below
+        # retains the values admitted at deferred-run start, so a witness
+        # cannot be reminted after the live reservation is changed.
+        if not isinstance(capability.b0, str) or not isinstance(capability.expected_constructor_boot, str):
+            return False
+        try:
+            b0_size = len(capability.b0.encode("utf-8"))
+            expected_boot_size = len(capability.expected_constructor_boot.encode("utf-8"))
+        except UnicodeError:
+            return False
+        if (
+            not capability.b0
+            or capability.b0.startswith("native-construction:")
+            or b0_size > 64
+            or capability.expected_constructor_boot != f"native-construction:{capability.b0}"
+            or expected_boot_size > 96
+        ):
+            return False
+        if capability.expected_state is not ControllerState.NATIVE_CALIBRATION:
+            return False
+        if capability.epoch != self._native_construction_epoch:
+            return False
+        if identity is not None and identity.fingerprint != capability.identity_fingerprint:
+            return False
+        owner = self._native_construction_reservation
+        context = self._native_construction_run_context
+        if (
+            not isinstance(owner, dict)
+            or not isinstance(context, dict)
+            or context.get("closed")
+            or not context.get("deferred")
+            or owner.get("reservationState") != "consumed"
+            or context.get("runId") != capability.run_id
+            or self._native_construction_sealed_run_id != capability.run_id
+            or context.get("epoch") != capability.epoch
+            or context.get("reservationId") != capability.reservation_id
+            or owner.get("reservationId") != capability.reservation_id
+            or owner.get("controllerGeneration") != capability.generation
+            or context.get("generation") != capability.generation
+            or owner.get("guardianGeneration") != capability.guardian_generation
+            or context.get("constructionB0") != capability.b0
+            or context.get("expectedConstructorBoot") != capability.expected_constructor_boot
+            or owner.get("identityFingerprint") != capability.identity_fingerprint
+            or owner.get("ownerPid") != capability.owner_pid
+            or owner.get("ownerProcessStart") != capability.owner_process_start
+            or owner.get("desktopLeaseHeld") is not capability.desktop_lease_held
+            or owner.get("guardianArmed") is not capability.guardian_armed
+            or owner.get("profileFingerprint") != capability.profile_fingerprint
+            or owner.get("B0") != capability.b0
+            or owner.get("expectedConstructorBoot") != capability.expected_constructor_boot
+            or owner.get("expiresMonotonic") != capability.expires_monotonic
+        ):
+            return False
+        if not isinstance(self.driver.backend, X11Backend) or not self._native_region_enabled():
+            return False
+        # Preserve the original construction snapshot checks as live semantic
+        # predicates.  Comparing a token with its copied fields alone would
+        # allow a caller to mint a self-consistent but no-longer-owned token.
+        if capability.owner_pid != os.getpid():
+            return False
+        current_process_start = _proc_start(os.getpid())
+        if (
+            not isinstance(current_process_start, str)
+            or current_process_start != capability.owner_process_start
+        ):
+            return False
+        if capability.desktop_lease_held is not True or capability.guardian_armed is not False:
+            return False
+        if id(self.driver.backend) != capability.backend_id:
+            return False
+        if (
+            self._native_construction_profile_fingerprint(self.driver.profile)
+            != capability.profile_fingerprint
+        ):
+            return False
+        guardian = getattr(self.driver, "guardian", None)
+        lease = getattr(guardian, "lease", None)
+        guardian_lock = getattr(guardian, "_lock", None)
+        if guardian is None or guardian_lock is None or lease is None:
+            return False
+        with guardian_lock:
+            if (
+                guardian.generation != capability.guardian_generation
+                or bool(guardian.armed) != capability.guardian_armed
+                or bool(lease.held) != capability.desktop_lease_held
+            ):
+                return False
+        operation_deadline = self._native_construction_operation_deadline
+        return (
+            isinstance(operation_deadline, (int, float))
+            and math.isfinite(float(operation_deadline))
+            and self._native_clock() < float(operation_deadline)
+            and self._native_clock() < capability.expires_monotonic
+        )
+
+    def _native_update_identity_budget_capability_valid(
+        self,
+        capability: Any,
+        provider: Any,
+        identity: WindowIdentity,
+        stage: str,
+        ordinal: int,
+    ) -> bool:
+        """Verify the exact daemon witness before calibration skips a poll."""
+
+        if (
+            stage != "updates"
+            or not isinstance(ordinal, int)
+            or isinstance(ordinal, bool)
+            or not 1 <= ordinal <= 99
+            or not isinstance(identity, WindowIdentity)
+            or not self._native_exact_provider(provider, self)
+        ):
+            return False
+        with self._native_construction_lock:
+            return self._native_update_capability_matches_locked(capability, identity)
+
+    def _native_update_identity_budget_capability(
+        self,
+        provider: Any,
+        identity: WindowIdentity,
+        stage: str,
+        ordinal: int,
+    ) -> _NativeUpdateCapability | None:
+        """Return a daemon-owned proof only for the exact deferred update path."""
+
+        if (
+            stage != "updates"
+            or not isinstance(ordinal, int)
+            or isinstance(ordinal, bool)
+            or not 1 <= ordinal <= 99
+            or not self._native_exact_provider(provider, self)
+            or not isinstance(identity, WindowIdentity)
+        ):
+            return None
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.state is not ControllerState.NATIVE_CALIBRATION:
+                return None
+            generation = status.generation
+        if not isinstance(self.driver.backend, X11Backend) or not self._native_region_enabled():
+            return None
+        with self._native_construction_lock:
+            context = self._native_construction_run_context
+            reservation = self._native_construction_reservation
+            if (
+                not isinstance(context, dict)
+                or context.get("closed")
+                or not context.get("deferred")
+                or not isinstance(reservation, dict)
+                or reservation.get("reservationState") != "consumed"
+            ):
+                return None
+            guardian = getattr(self.driver, "guardian", None)
+            lease = getattr(guardian, "lease", None) if guardian is not None else None
+            if guardian is None or lease is None:
+                return None
+            capability = _NativeUpdateCapability(
+                generation=generation,
+                guardian_generation=reservation.get("guardianGeneration"),
+                epoch=self._native_construction_epoch,
+                reservation_id=reservation.get("reservationId"),
+                run_id=context.get("runId"),
+                identity_fingerprint=identity.fingerprint,
+                expected_state=ControllerState.NATIVE_CALIBRATION,
+                profile_fingerprint=reservation.get("profileFingerprint"),
+                owner_pid=reservation.get("ownerPid"),
+                owner_process_start=reservation.get("ownerProcessStart"),
+                desktop_lease_held=reservation.get("desktopLeaseHeld"),
+                guardian_armed=reservation.get("guardianArmed"),
+                backend_id=id(self.driver.backend),
+                b0=reservation.get("B0"),
+                expected_constructor_boot=reservation.get("expectedConstructorBoot"),
+                expires_monotonic=reservation.get("expiresMonotonic"),
+            )
+            if (
+                not isinstance(capability.guardian_generation, int)
+                or isinstance(capability.guardian_generation, bool)
+                or not isinstance(capability.epoch, int)
+                or not isinstance(capability.reservation_id, str)
+                or not isinstance(capability.run_id, str)
+                or not isinstance(capability.profile_fingerprint, str)
+                or not isinstance(capability.owner_pid, int)
+                or not isinstance(capability.owner_process_start, str)
+                or not isinstance(capability.desktop_lease_held, bool)
+                or not isinstance(capability.guardian_armed, bool)
+                or not isinstance(capability.b0, str)
+                or not isinstance(capability.expected_constructor_boot, str)
+                or not isinstance(capability.expires_monotonic, (int, float))
+                or isinstance(capability.expires_monotonic, bool)
+                or not math.isfinite(float(capability.expires_monotonic))
+                or not self._native_update_capability_matches_locked(capability, identity)
+            ):
+                return None
+            return capability
+
     def _native_construction_record_terminal_locked(
         self,
         reservation: dict[str, Any] | None,
@@ -1743,21 +2028,369 @@ class SessionDaemon:
             "epoch": self._native_construction_epoch,
             "generation": generation,
             "guardianGeneration": guardian_generation,
+            # Preserve the immutable construction binding beside the mutable
+            # reservation.  Update witnesses must not be reminted from a
+            # self-consistent reservation after B0 has changed.
+            "constructionB0": owner.get("B0") if isinstance(owner, dict) else None,
+            "expectedConstructorBoot": (
+                owner.get("expectedConstructorBoot") if isinstance(owner, dict) else None
+            ),
             "deferred": deferred,
             "reservationId": reservation_id,
             "closed": False,
             "stateHistory": copy.deepcopy(self._native_construction_state_history),
         }
+        self._native_construction_sealed_run_id = context["runId"]
         self._native_construction_run_context = context
         return copy.deepcopy(context)
 
     def _native_construction_close_context_locked(self, context: dict[str, Any]) -> None:
         current = self._native_construction_run_context
         if current is not None and current.get("runId") == context.get("runId"):
+            self._native_update_alignment_runner = None
+            self._native_update_alignment_anchor = None
             closed = copy.deepcopy(current)
             closed["closed"] = True
             closed["stateHistory"] = copy.deepcopy(self._native_construction_state_history)
             self._native_construction_run_context = closed
+
+    def _native_update_alignment_enter(self, provider: Any, identity: WindowIdentity) -> object | None:
+        """Bind alignment to one live runner invocation of the installed provider."""
+
+        if not self._native_exact_provider(provider, self) or not isinstance(identity, WindowIdentity):
+            return None
+        token = object()
+        with self._native_construction_lock:
+            context = self._native_construction_run_context
+            self._native_update_alignment_runner = {
+                "token": token,
+                "provider": provider,
+                "identity": identity.fingerprint,
+                "runId": context.get("runId") if isinstance(context, dict) else None,
+                "generation": context.get("generation") if isinstance(context, dict) else None,
+                "epoch": self._native_construction_epoch,
+            }
+            self._native_update_alignment_anchor = None
+        return token
+
+    def _native_update_alignment_exit(self, token: object | None) -> None:
+        """Clear provisional alignment state at every runner terminal."""
+
+        with self._native_construction_lock:
+            runner = self._native_update_alignment_runner
+            if runner is None or runner.get("token") is token:
+                self._native_update_alignment_runner = None
+                self._native_update_alignment_anchor = None
+
+    def _native_update_alignment_wait(
+        self,
+        *,
+        identity: WindowIdentity,
+        generation: int,
+        capability: _NativeUpdateCapability,
+        ordinal: int,
+        deadline: float,
+    ) -> float:
+        """Wait for the immutable publisher-derived target before ACK admission.
+
+        The method deliberately performs no producer work and holds no authority
+        lock while sleeping.  The caller invokes it from the private driver
+        pre-ACK hook, after the exact producer has passed owner admission.  The
+        returned target is retained for diagnostic accounting only.
+        """
+
+        with self._native_construction_lock:
+            runner = self._native_update_alignment_runner
+            anchor = self._native_update_alignment_anchor
+            if (
+                not isinstance(runner, dict)
+                or not isinstance(anchor, dict)
+                or runner.get("identity") != identity.fingerprint
+                or runner.get("generation") != generation
+                or runner.get("epoch") != capability.epoch
+                or anchor.get("nextOrdinal") != ordinal
+                or anchor.get("runId") != capability.run_id
+                or anchor.get("generation") != capability.generation
+                or anchor.get("identity") != identity.fingerprint
+            ):
+                raise DriverError("native update alignment anchor is missing or stale")
+            origin_capture_started = anchor.get("originCaptureStarted")
+            origin_uptime_ms = anchor.get("originUptimeMs")
+            previous_uptime_ms = anchor.get("lastUptimeMs")
+            if (
+                isinstance(origin_capture_started, bool)
+                or not isinstance(origin_capture_started, (int, float))
+                or not math.isfinite(float(origin_capture_started))
+                or isinstance(origin_uptime_ms, bool)
+                or not isinstance(origin_uptime_ms, int)
+                or isinstance(previous_uptime_ms, bool)
+                or not isinstance(previous_uptime_ms, int)
+                or not 0 <= origin_uptime_ms <= 0xFFFFFFFF
+                or not 0 <= previous_uptime_ms <= 0xFFFFFFFF
+            ):
+                self._native_update_alignment_anchor = None
+                raise DriverError("native update alignment origin is malformed")
+            try:
+                publisher_elapsed_ms = unsigned_delta(previous_uptime_ms, origin_uptime_ms)
+            except ProtocolError as exc:
+                self._native_update_alignment_anchor = None
+                raise DriverError("native update alignment publisher origin is ambiguous") from exc
+            diagnostic = getattr(self, "_native_observation_diagnostic", None)
+            with _native_diagnostic_span(diagnostic, "alignment_target"):
+                target = self._native_update_alignment_target(
+                    float(origin_capture_started), publisher_elapsed_ms
+                )
+            if (
+                isinstance(deadline, bool)
+                or not isinstance(deadline, (int, float))
+                or not math.isfinite(float(deadline))
+                or not math.isfinite(target)
+                or target < float(origin_capture_started)
+            ):
+                self._native_update_alignment_anchor = None
+                raise DriverError("native update alignment target is malformed")
+            earliest_deadline = float(deadline)
+            for candidate in (
+                capability.expires_monotonic,
+                self._native_construction_operation_deadline,
+                (self._native_construction_reservation or {}).get("expiresMonotonic"),
+            ):
+                if candidate is None:
+                    continue
+                if (
+                    isinstance(candidate, bool)
+                    or not isinstance(candidate, (int, float))
+                    or not math.isfinite(float(candidate))
+                ):
+                    self._native_update_alignment_anchor = None
+                    raise DriverError("native update alignment deadline is malformed")
+                earliest_deadline = min(earliest_deadline, float(candidate))
+            now = self._native_clock()
+            # A target that reaches or exceeds any authority deadline cannot
+            # leave room for the final identity/Guardian checks and one-shot
+            # ACK.  Refuse before the first sleep rather than discovering this
+            # only after spending the remaining capture budget.
+            if now >= earliest_deadline or target >= earliest_deadline:
+                self._native_update_alignment_anchor = None
+                raise DriverError("native update alignment target cannot fit its deadline")
+            anchor["waitingOrdinal"] = ordinal
+            anchor["targetMonotonic"] = target
+
+        while self._native_clock() < target:
+            now = self._native_clock()
+            if now >= earliest_deadline:
+                with self._native_construction_lock:
+                    self._native_update_alignment_anchor = None
+                raise DriverError("native update alignment exceeded its earliest deadline")
+            remaining = target - now
+            if remaining > 0:
+                # Keep replay/test clock injection local to this alignment
+                # wait.  Patching ``daemon.time.sleep`` would mutate the
+                # process-wide stdlib module and can change Guardian
+                # lifecycle timing in unrelated threads.
+                sleep = getattr(self, "_native_alignment_sleep", time.sleep)
+                sleep(min(0.05, remaining))
+            self._check_native_poll_identity(
+                identity,
+                generation,
+                native_capability=capability,
+            )
+            if self._native_clock() >= earliest_deadline:
+                with self._native_construction_lock:
+                    self._native_update_alignment_anchor = None
+                raise DriverError("native update alignment exceeded its earliest deadline")
+        self._check_native_poll_identity(identity, generation, native_capability=capability)
+        return target
+
+    def _native_update_alignment_target(
+        self, origin_capture_started: float, publisher_elapsed_ms: float
+    ) -> float:
+        """Compute the publisher-derived target without changing its origin."""
+
+        return float(origin_capture_started) + float(publisher_elapsed_ms) / 1000.0 + 1.050
+
+    def _native_update_alignment_pre_ack(
+        self,
+        *,
+        identity: WindowIdentity,
+        generation: int,
+        capability: _NativeUpdateCapability,
+        ordinal: int,
+        producer_pid: int,
+        dispatch_ack_once: Callable[[], None],
+        deadline: float,
+        admitted_pid: int | None,
+    ) -> None:
+        """Align one exact admitted producer, then dispatch its ACK once."""
+
+        if not isinstance(producer_pid, int) or isinstance(producer_pid, bool) or producer_pid <= 0:
+            raise DriverError("native pre-ACK producer PID is malformed")
+        if admitted_pid != producer_pid:
+            raise DriverError("native pre-ACK producer PID is not the admitted process")
+        self._native_update_alignment_wait(
+            identity=identity,
+            generation=generation,
+            capability=capability,
+            ordinal=ordinal,
+            deadline=deadline,
+        )
+        guardian = self.driver.guardian
+        with self.controller.lock:
+            status = self.controller.status()
+            if (
+                status.state is not ControllerState.NATIVE_CALIBRATION
+                or status.generation != generation
+                or status.stop_requested
+                or self._shutdown_event.is_set()
+            ):
+                raise DriverError("native pre-ACK controller admission was revoked")
+            with self._native_construction_lock:
+                if not self._native_update_capability_matches_locked(capability, identity):
+                    raise DriverError("native pre-ACK identity capability was revoked")
+                anchor = self._native_update_alignment_anchor
+                if (
+                    not isinstance(anchor, dict)
+                    or anchor.get("nextOrdinal") != ordinal
+                    or anchor.get("runId") != capability.run_id
+                    or anchor.get("waitingOrdinal") != ordinal
+                ):
+                    raise DriverError("native pre-ACK alignment anchor was replaced")
+                diagnostic = getattr(self, "_native_observation_diagnostic", None)
+                with _native_diagnostic_span(diagnostic, "ack_admission"):
+                    with guardian._lock:
+                        guardian.admission_gate_ready()
+                        operation_deadline = self._native_construction_operation_deadline
+                        reservation = self._native_construction_reservation
+                        reservation_deadline = (
+                            reservation.get("expiresMonotonic") if isinstance(reservation, dict) else None
+                        )
+                        if (
+                            self._shutdown_event.is_set()
+                            or self._native_clock() >= float(deadline)
+                            or self._native_clock() >= capability.expires_monotonic
+                            or (
+                                isinstance(operation_deadline, (int, float))
+                                and self._native_clock() >= float(operation_deadline)
+                            )
+                            or (
+                                isinstance(reservation_deadline, (int, float))
+                                and self._native_clock() >= float(reservation_deadline)
+                            )
+                        ):
+                            raise DriverError("native pre-ACK deadline or shutdown was revoked")
+                        if (
+                            guardian.generation != capability.guardian_generation
+                            or guardian.armed
+                            or guardian.held
+                            or not guardian.lease.held
+                            or guardian.active_process_groups
+                            or producer_pid not in guardian.observer_process_groups
+                            or getattr(guardian, "_release_failed", False)
+                        ):
+                            raise DriverError("native pre-ACK Guardian admission is not ready")
+                        dispatch_ack_once()
+
+    def _native_update_alignment_record(
+        self,
+        *,
+        provider: Any,
+        identity: WindowIdentity,
+        capability: _NativeUpdateCapability | None,
+        ordinal: int,
+        capture_monotonic: float,
+        publisher_uptime_ms: int,
+        receipt: Any,
+        capture_digest: str,
+        previous_uptime_ms: int | None,
+    ) -> None:
+        """Publish a provisional receipt-backed publisher origin."""
+
+        if capability is None or ordinal < 1 or ordinal >= 99:
+            return
+        if not isinstance(capture_monotonic, (int, float)) or not math.isfinite(float(capture_monotonic)):
+            raise DriverError("native update capture timestamp cannot anchor alignment")
+        if (
+            isinstance(publisher_uptime_ms, bool)
+            or not isinstance(publisher_uptime_ms, int)
+            or not 0 <= publisher_uptime_ms <= 0xFFFFFFFF
+            or not isinstance(capture_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", capture_digest)
+            or receipt is None
+            or getattr(receipt, "output_sha256", None) != capture_digest
+            or getattr(receipt, "attempt_retired", None) is not True
+            or not isinstance(getattr(receipt, "capture_started", None), (int, float))
+            or isinstance(getattr(receipt, "capture_started", None), bool)
+            or not math.isfinite(float(receipt.capture_started))
+            or float(receipt.capture_started) > self._native_clock()
+        ):
+            raise DriverError("native update producer receipt cannot anchor alignment")
+        expected_rectangle = (
+            identity.child_geometry[0] + self.driver.profile.canvas_crop[0],
+            identity.child_geometry[1] + self.driver.profile.canvas_crop[1],
+            self.driver.profile.canvas_crop[2],
+            self.driver.profile.canvas_crop[3],
+        )
+        if (
+            tuple(getattr(receipt, "rectangle", ())) != expected_rectangle
+            or getattr(receipt, "executable_sha256", None)
+            != self.driver.profile.telemetry_region_executable_sha256
+            or not isinstance(getattr(receipt, "nonce", None), str)
+            or not receipt.nonce
+            or not isinstance(getattr(receipt, "owner_pid", None), int)
+            or receipt.owner_pid <= 0
+            or not isinstance(getattr(receipt, "owner_process_start", None), str)
+            or not receipt.owner_process_start
+        ):
+            raise DriverError("native update producer receipt is not bound to this capture")
+        if previous_uptime_ms is not None and (
+            isinstance(previous_uptime_ms, bool)
+            or not isinstance(previous_uptime_ms, int)
+            or not 0 <= previous_uptime_ms <= 0xFFFFFFFF
+        ):
+            raise DriverError("native update previous publisher uptime is malformed")
+        with self._native_construction_lock:
+            runner = self._native_update_alignment_runner
+            if (
+                not isinstance(runner, dict)
+                or not self._native_exact_provider(runner.get("provider"), self)
+                or not self._native_exact_provider(provider, self)
+                or getattr(runner.get("provider"), "__func__", None)
+                is not getattr(provider, "__func__", None)
+                or runner.get("identity") != identity.fingerprint
+                or runner.get("runId") != capability.run_id
+                or runner.get("epoch") != capability.epoch
+            ):
+                return
+            runner_anchor = self._native_update_alignment_anchor
+            if ordinal > 1 and (
+                not isinstance(runner_anchor, dict)
+                or runner_anchor.get("nextOrdinal") != ordinal
+                or runner_anchor.get("lastUptimeMs") != previous_uptime_ms
+            ):
+                raise DriverError("native update publisher origin is stale")
+            if ordinal == 1:
+                origin_capture_started = float(receipt.capture_started)
+                origin_uptime_ms = publisher_uptime_ms
+            else:
+                if not isinstance(runner_anchor, dict):
+                    raise DriverError("native update publisher origin is missing")
+                origin_capture_started = runner_anchor.get("originCaptureStarted")
+                origin_uptime_ms = runner_anchor.get("originUptimeMs")
+            self._native_update_alignment_anchor = {
+                "runId": capability.run_id,
+                "generation": capability.generation,
+                "epoch": capability.epoch,
+                "identity": identity.fingerprint,
+                "fromOrdinal": ordinal,
+                "nextOrdinal": ordinal + 1,
+                "originCaptureStarted": origin_capture_started,
+                "originUptimeMs": origin_uptime_ms,
+                "lastCaptureStarted": float(receipt.capture_started),
+                "lastUptimeMs": publisher_uptime_ms,
+                "lastReceiptNonce": receipt.nonce,
+                "lastCaptureDigest": capture_digest,
+                "waitingOrdinal": None,
+            }
 
     def _begin_calibration(
         self,
@@ -4313,11 +4946,16 @@ class SessionDaemon:
         decoder: PixelDecoder,
         *,
         deadline: float | None = None,
-    ) -> tuple[Sample, str, Any]:
+        expected_generation: int | None = None,
+        expected_state: ControllerState | None = None,
+        native_capability: _NativeUpdateCapability | None = None,
+        native_update_ordinal: int | None = None,
+    ) -> tuple[Sample, str, Any, Any | None]:
         capture_started = self._native_clock()
         diagnostic = getattr(self, "_native_observation_diagnostic", None)
         backend = getattr(self.driver, "backend", None)
         before_receipt = getattr(backend, "last_region_receipt", None)
+        receipt_holder: list[Any] = []
         sink = (
             _NativeIdentityLatencySink(diagnostic)
             if isinstance(diagnostic, _NativeObservationDiagnostic)
@@ -4326,7 +4964,15 @@ class SessionDaemon:
         sink_token = _set_identity_latency_sink(sink) if sink is not None else None
         try:
             with _native_diagnostic_span(diagnostic, "capture"):
-                path = self._capture_native_region_for_identity(identity, deadline=deadline)
+                path = self._capture_native_region_for_identity(
+                    identity,
+                    deadline=deadline,
+                    expected_generation=expected_generation,
+                    expected_state=expected_state,
+                    native_capability=native_capability,
+                    native_update_ordinal=native_update_ordinal,
+                    **({"_receipt_sink": receipt_holder.append} if native_capability is not None else {}),
+                )
         finally:
             if sink_token is not None:
                 _reset_identity_latency_sink(sink_token)
@@ -4336,13 +4982,31 @@ class SessionDaemon:
                 self._remaining_motion_budget(deadline)
             with _native_diagnostic_span(diagnostic, "provider_hash"):
                 digest = hashlib.sha256(path.read_bytes()).hexdigest()
-            after_receipt = getattr(backend, "last_region_receipt", None)
+            if native_capability is not None:
+                # Eligible updates consume only the finalized receipt handed
+                # off by this exact capture.  A missing/multiple handoff is a
+                # refusal; the mutable compatibility field cannot stand in
+                # for a per-attempt proof.
+                after_receipt = receipt_holder[-1] if len(receipt_holder) == 1 else None
+            else:
+                after_receipt = getattr(backend, "last_region_receipt", None)
+            receipt_valid = (
+                after_receipt is not None
+                and after_receipt is not before_receipt
+                and getattr(after_receipt, "output_sha256", None) == digest
+            )
+            receipt_capture_started = getattr(after_receipt, "capture_started", None)
+            if native_capability is not None and (
+                len(receipt_holder) != 1
+                or not receipt_valid
+                or isinstance(receipt_capture_started, bool)
+                or not isinstance(receipt_capture_started, (int, float))
+                or not math.isfinite(float(receipt_capture_started))
+                or float(receipt_capture_started) < capture_started
+                or float(receipt_capture_started) > self._native_clock()
+            ):
+                raise DriverError("native eligible capture did not publish a fresh bound receipt")
             if isinstance(diagnostic, _NativeObservationDiagnostic):
-                receipt_valid = (
-                    after_receipt is not None
-                    and after_receipt is not before_receipt
-                    and getattr(after_receipt, "output_sha256", None) == digest
-                )
                 diagnostic.record_backend_receipt(after_receipt if receipt_valid else None)
             with _native_diagnostic_span(diagnostic, "provider_decode"):
                 sample = self.driver.decode_native_capture(path, identity=identity, decoder=decoder)
@@ -4367,7 +5031,7 @@ class SessionDaemon:
                 os.chmod(retained, 0o600)
             self._remove_native_capture(path)
             self._native_owned_capture_paths.add(retained)
-            return sample, digest, retained
+            return sample, digest, retained, after_receipt if receipt_valid else None
         except Exception:
             self._remove_native_capture(path)
             if retained is not None:
@@ -4384,7 +5048,9 @@ class SessionDaemon:
         *,
         deadline: float | None = None,
     ) -> tuple[Sample, str]:
-        sample, digest, path = self._capture_native_frame_with_capture(identity, decoder, deadline=deadline)
+        sample, digest, path, _receipt = self._capture_native_frame_with_capture(
+            identity, decoder, deadline=deadline
+        )
         try:
             return sample, digest
         finally:
@@ -4399,6 +5065,66 @@ class SessionDaemon:
     ) -> Sample:
         sample, _digest = self._capture_native_frame_with_digest(identity, decoder, deadline=deadline)
         return sample
+
+    def _native_measurement_deadline(
+        self,
+        attempt_started: float,
+        capability: _NativeUpdateCapability | None,
+        *,
+        frame_deadline: float | None = None,
+        include_producer_limit: bool = True,
+    ) -> float:
+        """Resolve one bounded deadline for a provider attempt.
+
+        The Agent publication wait is intentionally longer than the driver's
+        producer bound.  Capture, producer IPC, and pre-ACK admission must all
+        consume this same absolute deadline, with the live operation/owner
+        limits able to shorten it but never extend the fifteen-second driver
+        limit.
+        """
+
+        if (
+            isinstance(attempt_started, bool)
+            or not isinstance(attempt_started, (int, float))
+            or not math.isfinite(float(attempt_started))
+        ):
+            raise DriverError("native measurement attempt clock is malformed")
+        deadline = (
+            float(attempt_started) + self._NATIVE_FRAME_TIMEOUT_SECONDS
+            if frame_deadline is None
+            else float(frame_deadline)
+        )
+        if (
+            isinstance(deadline, bool)
+            or not isinstance(deadline, (int, float))
+            or not math.isfinite(float(deadline))
+        ):
+            raise DriverError("native measurement frame deadline is malformed")
+        if include_producer_limit:
+            deadline = min(deadline, float(attempt_started) + self._NATIVE_PRODUCER_TIMEOUT_SECONDS)
+        with self._native_construction_lock:
+            candidates = (
+                self._native_construction_operation_deadline,
+                (self._native_construction_reservation or {}).get("expiresMonotonic"),
+                capability.expires_monotonic if capability is not None else None,
+            )
+            for candidate in candidates:
+                if candidate is None:
+                    continue
+                if (
+                    isinstance(candidate, bool)
+                    or not isinstance(candidate, (int, float))
+                    or not math.isfinite(float(candidate))
+                ):
+                    raise DriverError("native measurement deadline is malformed")
+                deadline = min(deadline, float(candidate))
+        return deadline
+
+    def _native_provider_sleep(self, seconds: float) -> None:
+        """Sleep through the daemon-local provider seam, never global time."""
+
+        hook = getattr(self, "_native_provider_sleep_hook", None)
+        (hook if callable(hook) else time.sleep)(seconds)
 
     def _native_measurement_provider(
         self, identity: WindowIdentity, stage: str, ordinal: int
@@ -4436,7 +5162,24 @@ class SessionDaemon:
             if live_status.state != ControllerState.NATIVE_CALIBRATION:
                 raise DriverError("native calibration generation was revoked")
             generation = live_status.generation
-        deadline = self._native_clock() + self._NATIVE_FRAME_TIMEOUT_SECONDS
+        identity_budget_capability: _NativeUpdateCapability | None = None
+        if stage == "updates":
+            eligibility = getattr(self.driver, "_native_identity_budget_eligibility", None)
+            if callable(eligibility):
+                diagnostic = getattr(self, "_native_observation_diagnostic", None)
+                with _native_diagnostic_span(diagnostic, "alignment_capability"):
+                    identity_budget_capability = eligibility(
+                        self.driver.native_measurement_provider,
+                        identity,
+                        stage,
+                        ordinal,
+                    )
+        attempt_started = self._native_clock()
+        frame_deadline = self._native_measurement_deadline(
+            attempt_started,
+            identity_budget_capability,
+            include_producer_limit=False,
+        )
         with self._native_construction_lock:
             context = self._native_construction_run_context
             if context is not None and context.get("closed"):
@@ -4447,7 +5190,7 @@ class SessionDaemon:
                     raise DriverError("deferred construction provider entered before release")
                 release_monotonic = self._native_construction_handshake.get("releaseMonotonic")
                 operation_deadline = self._native_construction_operation_deadline
-                click_deadline = deadline - 7.0
+                click_deadline = frame_deadline - 7.0
                 if (
                     not isinstance(release_monotonic, (int, float))
                     or not math.isfinite(float(release_monotonic))
@@ -4459,11 +5202,12 @@ class SessionDaemon:
                     raise DriverError("deferred constructor click deadline is invalid")
                 self._native_construction_handshake.update(
                     {
-                        "providerDeadline": deadline,
+                        "providerDeadline": frame_deadline,
                         "constructorClickDeadline": click_deadline,
                     }
                 )
         state = self._native_measurement_state
+        previous_publisher_uptime_ms: int | None = None
         if stage == "construct":
             decoder = self.driver.new_native_decoder()
             prior_sequence: int | None = None
@@ -4478,22 +5222,56 @@ class SessionDaemon:
             decoder = state["decoder"]
             prior_sequence = int(state["sequence"])
             expected_boot = str(state["boot"])
+            previous_publisher_uptime_ms = state.get("publisherUptimeMs")
 
-        accepted: tuple[Sample, str, Any] | None = None
-        while self._native_clock() < deadline:
+        accepted: tuple[Sample, str, Any, Any | None] | None = None
+        while self._native_clock() < frame_deadline:
             if isinstance(diagnostic, _NativeObservationDiagnostic):
                 diagnostic.begin_attempt(stage, ordinal)
                 try:
-                    self._check_native_poll_identity(identity, generation)
+                    self._check_native_poll_identity(
+                        identity,
+                        generation,
+                        native_capability=identity_budget_capability,
+                    )
                 except Exception as exc:
                     diagnostic.finish_attempt(status="error", error=str(exc))
                     raise
             else:
-                self._check_native_poll_identity(identity, generation)
-            try:
-                candidate, candidate_id, candidate_path = self._capture_native_frame_with_capture(
-                    identity, decoder
+                self._check_native_poll_identity(
+                    identity,
+                    generation,
+                    native_capability=identity_budget_capability,
                 )
+            try:
+                capture_deadline = self._native_measurement_deadline(
+                    self._native_clock(),
+                    identity_budget_capability,
+                    frame_deadline=frame_deadline,
+                )
+                capture_context = (
+                    _native_diagnostic_span(diagnostic, "poll_backend_glue")
+                    if stage == "updates"
+                    else nullcontext()
+                )
+                with capture_context:
+                    candidate, candidate_id, candidate_path, candidate_receipt = (
+                        self._capture_native_frame_with_capture(
+                            identity,
+                            decoder,
+                            deadline=capture_deadline,
+                            expected_generation=(
+                                generation if identity_budget_capability is not None else None
+                            ),
+                            expected_state=(
+                                ControllerState.NATIVE_CALIBRATION
+                                if identity_budget_capability is not None
+                                else None
+                            ),
+                            native_capability=identity_budget_capability,
+                            native_update_ordinal=ordinal if stage == "updates" else None,
+                        )
+                    )
             except ProtocolError:
                 if isinstance(diagnostic, _NativeObservationDiagnostic):
                     diagnostic.finish_attempt(status="protocol_rejected")
@@ -4501,8 +5279,17 @@ class SessionDaemon:
                 # Keep polling until the operator has loaded the addon, then
                 # fail closed at the bounded deadline if no valid frame arrives.
                 if stage == "construct":
-                    time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
+                    self._native_provider_sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                     continue
+                raise
+            except DriverError as exc:
+                now = self._native_clock()
+                if now >= frame_deadline:
+                    if isinstance(diagnostic, _NativeObservationDiagnostic):
+                        diagnostic.finish_attempt(status="no_change", error=str(exc))
+                    break
+                if isinstance(diagnostic, _NativeObservationDiagnostic):
+                    diagnostic.finish_attempt(status="error", error=str(exc))
                 raise
             except Exception as exc:
                 if isinstance(diagnostic, _NativeObservationDiagnostic):
@@ -4516,7 +5303,7 @@ class SessionDaemon:
                 self.release_native_capture(candidate_path)
                 if isinstance(diagnostic, _NativeObservationDiagnostic):
                     diagnostic.finish_attempt(status="no_change")
-                time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
+                self._native_provider_sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                 continue
             frame = candidate.frame
             render = frame.snapshot.value.get("render")
@@ -4552,7 +5339,7 @@ class SessionDaemon:
                 self.release_native_capture(candidate_path)
                 if isinstance(diagnostic, _NativeObservationDiagnostic):
                     diagnostic.finish_attempt(status="no_change")
-                time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
+                self._native_provider_sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                 continue
 
             if (actual_phase, actual_ordinal) == (expected_phase, expected_ordinal):
@@ -4560,7 +5347,7 @@ class SessionDaemon:
                     # A character-select/disconnected frame must never become
                     # the construction proof, even if it carries Agent data.
                     self._validate_identity(frame.snapshot.value, state=ControllerState.NATIVE_CALIBRATION)
-                accepted = (candidate, candidate_id, candidate_path)
+                accepted = (candidate, candidate_id, candidate_path, candidate_receipt)
                 if isinstance(diagnostic, _NativeObservationDiagnostic):
                     diagnostic.finish_attempt(status="accepted")
                 break
@@ -4590,13 +5377,13 @@ class SessionDaemon:
             if isinstance(diagnostic, _NativeObservationDiagnostic):
                 diagnostic.finish_attempt(status="mismatch" if not waitable else "waitable", error=None)
             if waitable:
-                time.sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
+                self._native_provider_sleep(self._NATIVE_POLL_INTERVAL_SECONDS)
                 continue
             raise DriverError(f"native {stage}/{ordinal} returned {actual_phase!r}/{actual_ordinal!r}")
 
         if accepted is None:
             raise DriverError(f"native {stage}/{ordinal} did not produce the requested fresh frame")
-        sample, capture_id, capture_path = accepted
+        sample, capture_id, capture_path, capture_receipt = accepted
         assert sample.frame is not None
         if sample.capture_monotonic < 0:
             self.release_native_capture(capture_path)
@@ -4611,11 +5398,26 @@ class SessionDaemon:
                 "sequence": sample.frame.sequence,
                 "captureMonotonic": sample.capture_monotonic,
                 "generation": generation,
+                "publisherUptimeMs": sample.frame.uptime_ms,
             }
         else:
             assert state is not None
+            previous_publisher_uptime_ms = state.get("publisherUptimeMs")
             state["sequence"] = sample.frame.sequence
             state["captureMonotonic"] = sample.capture_monotonic
+            state["publisherUptimeMs"] = sample.frame.uptime_ms
+        if stage == "updates":
+            self._native_update_alignment_record(
+                provider=self.driver.native_measurement_provider,
+                identity=identity,
+                capability=identity_budget_capability,
+                ordinal=ordinal,
+                capture_monotonic=sample.capture_monotonic,
+                publisher_uptime_ms=sample.frame.uptime_ms,
+                previous_uptime_ms=previous_publisher_uptime_ms,
+                receipt=capture_receipt,
+                capture_digest=capture_id,
+            )
         return NativeRenderObservation(
             metrics=dict(render),
             identity_fingerprint=identity.fingerprint,
@@ -4630,31 +5432,46 @@ class SessionDaemon:
             native_ordinal=render.get("nativeOrdinal"),
         )
 
-    def _check_native_poll_identity(self, identity: WindowIdentity, generation: int) -> None:
+    def _check_native_poll_identity(
+        self,
+        identity: WindowIdentity,
+        generation: int,
+        *,
+        native_capability: _NativeUpdateCapability | None = None,
+    ) -> None:
         if self._shutdown_event.is_set():
             raise DriverError("native calibration was canceled during operator wait")
         reservation_snapshot: dict[str, Any] | None = None
         context_snapshot: dict[str, Any] | None = None
         with self._native_construction_lock:
-            context = self._native_construction_run_context
-            reservation = self._native_construction_reservation
-            operation_deadline = self._native_construction_operation_deadline
-            if (
-                context is not None
-                and context.get("deferred")
-                and reservation is not None
-                and reservation.get("reservationId") == context.get("reservationId")
-                and operation_deadline is not None
-                and self._native_clock() >= operation_deadline
-            ):
-                raise DriverError("deferred native construction operation deadline expired")
-            if context is not None and context.get("deferred"):
-                self._native_construction_callback_context_locked()
-                if reservation is None:
-                    raise DriverError("native construction reservation is unavailable")
-                reservation_snapshot = copy.deepcopy(reservation)
-                context_snapshot = copy.deepcopy(context)
-        if reservation_snapshot is not None:
+            if native_capability is not None:
+                diagnostic = getattr(self, "_native_observation_diagnostic", None)
+                with _native_diagnostic_span(diagnostic, "alignment_capability"):
+                    capability_matches = self._native_update_capability_matches_locked(
+                        native_capability, identity
+                    )
+                if not capability_matches:
+                    raise DriverError("native update identity capability was revoked")
+            else:
+                context = self._native_construction_run_context
+                reservation = self._native_construction_reservation
+                operation_deadline = self._native_construction_operation_deadline
+                if (
+                    context is not None
+                    and context.get("deferred")
+                    and reservation is not None
+                    and reservation.get("reservationId") == context.get("reservationId")
+                    and operation_deadline is not None
+                    and self._native_clock() >= operation_deadline
+                ):
+                    raise DriverError("deferred native construction operation deadline expired")
+                if context is not None and context.get("deferred"):
+                    self._native_construction_callback_context_locked()
+                    if reservation is None:
+                        raise DriverError("native construction reservation is unavailable")
+                    reservation_snapshot = copy.deepcopy(reservation)
+                    context_snapshot = copy.deepcopy(context)
+        if native_capability is None and reservation_snapshot is not None:
             self._native_construction_validate_current_locked(
                 reservation_snapshot, expected_generation=generation
             )
@@ -4670,11 +5487,12 @@ class SessionDaemon:
                     or current_reservation.get("reservationId") != reservation_snapshot.get("reservationId")
                 ):
                     raise DriverError("native construction owner changed during poll validation")
-        diagnostic = getattr(self, "_native_observation_diagnostic", None)
-        with _native_diagnostic_span(diagnostic, "identity_poll"):
-            current_identity = self.driver.resolve_identity()
-        if current_identity.fingerprint != identity.fingerprint:
-            raise DriverError("native client identity changed during operator wait")
+        if native_capability is None:
+            diagnostic = getattr(self, "_native_observation_diagnostic", None)
+            with _native_diagnostic_span(diagnostic, "identity_poll"):
+                current_identity = self.driver.resolve_identity()
+            if current_identity.fingerprint != identity.fingerprint:
+                raise DriverError("native client identity changed during operator wait")
         with self.controller.lock:
             status = self.controller.status()
             if status.state != ControllerState.NATIVE_CALIBRATION or status.generation != generation:
@@ -5269,7 +6087,9 @@ class SessionDaemon:
         deadline: float | None = None,
         expected_generation: int | None = None,
         expected_state: ControllerState | None = None,
-        native_capability: dict[str, Any] | None = None,
+        native_capability: dict[str, Any] | _NativeUpdateCapability | None = None,
+        native_update_ordinal: int | None = None,
+        _receipt_sink: Callable[[Any], None] | None = None,
     ) -> Path:
         with self.controller.lock:
             admitted_status = self.controller.status()
@@ -5303,6 +6123,13 @@ class SessionDaemon:
                     native_capability
                 ):
                     raise DriverError("PAUSED native region capture requires a live recovery capability")
+        elif isinstance(native_capability, _NativeUpdateCapability):
+            # Update optimization carries a stronger private proof than the
+            # legacy recovery dict.  Check it before producer selection and
+            # again at the observer linearization point below.
+            with self._native_construction_lock:
+                if not self._native_update_capability_matches_locked(native_capability, identity):
+                    raise DriverError("native update identity capability was revoked")
         elif native_capability is not None:
             # Deferred finalization also carries an exact owner capability.
             # Recheck it before selecting the producer and again at the
@@ -5313,8 +6140,10 @@ class SessionDaemon:
                     raise DriverError("native region capture capability was revoked")
 
         guardian = self.driver.guardian
+        admitted_process_pid: int | None = None
 
         def admit_observer(start: Callable[[], Any]) -> Any:
+            nonlocal admitted_process_pid
             # This is the linearization point: the controller state and its
             # generation remain stable until Guardian registers the gated
             # process and releases its nonblocking exec gate.
@@ -5331,7 +6160,10 @@ class SessionDaemon:
                 # owner under construction lock, so keep that lock through
                 # the actual Guardian process admission.
                 with self._native_construction_lock:
-                    if native_capability is not None and not self._native_construction_capability_matches(
+                    if isinstance(native_capability, _NativeUpdateCapability):
+                        if not self._native_update_capability_matches_locked(native_capability, identity):
+                            raise DriverError("native update identity capability was revoked")
+                    elif native_capability is not None and not self._native_construction_capability_matches(
                         native_capability
                     ):
                         raise DriverError("native region capture capability was revoked")
@@ -5341,13 +6173,24 @@ class SessionDaemon:
                         # while holding the real Guardian lock.  This is the
                         # final pre-Popen generation fence; an earlier sample
                         # would leave a revoke-first race at the callback.
-                        if native_capability is not None and guardian.generation != native_capability.get(
-                            "guardianGeneration"
+                        expected_guardian_generation = (
+                            native_capability.guardian_generation
+                            if isinstance(native_capability, _NativeUpdateCapability)
+                            else native_capability.get("guardianGeneration")
+                            if native_capability is not None
+                            else None
+                        )
+                        if (
+                            native_capability is not None
+                            and guardian.generation != expected_guardian_generation
                         ):
                             raise DriverError("native region capture Guardian generation is stale")
                         return start()
 
-                    return guardian.observer_dispatch_admission(start_with_guardian_generation)
+                    admitted = guardian.observer_dispatch_admission(start_with_guardian_generation)
+                    admitted_process = getattr(getattr(admitted, "observer", admitted), "process", None)
+                    admitted_process_pid = getattr(admitted_process, "pid", None)
+                    return admitted
 
         def observer_reaped(process_group: int) -> None:
             guardian.unregister_observer_process(process_group)
@@ -5357,8 +6200,31 @@ class SessionDaemon:
             "observer_admission": admit_observer,
             "observer_reaped": observer_reaped,
         }
+        if isinstance(native_capability, _NativeUpdateCapability) and (
+            isinstance(native_update_ordinal, int)
+            and not isinstance(native_update_ordinal, bool)
+            and 2 <= native_update_ordinal <= 99
+        ):
+
+            def pre_ack_admission(producer_pid: int, dispatch_ack_once: Callable[[], None]) -> None:
+                if deadline is None:
+                    raise DriverError("native pre-ACK deadline is missing")
+                self._native_update_alignment_pre_ack(
+                    identity=identity,
+                    generation=admitted_generation,
+                    capability=native_capability,
+                    ordinal=native_update_ordinal,
+                    producer_pid=producer_pid,
+                    dispatch_ack_once=dispatch_ack_once,
+                    deadline=deadline,
+                    admitted_pid=admitted_process_pid,
+                )
+
+            capture_kwargs["_pre_ack_admission"] = pre_ack_admission
         if deadline is not None:
             capture_kwargs["deadline_monotonic"] = deadline
+        if _receipt_sink is not None and native_capability is not None:
+            capture_kwargs["_receipt_sink"] = _receipt_sink
         return self.driver.capture_native_region_for_identity(identity, **capture_kwargs)
 
     def _read_command_buffer(self) -> str:

@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 16:52 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 17:02 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -47,26 +47,28 @@ child0x2000011, fingerprint
 and controller generation before mutation. Last native recovery was PAUSED38,
 nativefalse/inputfalse; do not treat this historical generation as fresh.
 
-Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
-No identity-budget/ACK-alignment candidate is installed. Assisted operation
-continues while offline correctness/performance work proceeds.
+Daemon service `crowley-session` is active, NEW PID1566769 after reviewed release
+installation at17:02UTC. Fresh status PAUSED39/nativefalse/inputfalse. Exact final
+identity-budget/ACK-alignment correction is installed; sole operator is beginning
+canonical recovery/preflight/native100. Assisted collection deliberately paused
+after full122 for qualification.
 
-Latest fully parent-verified cycle **#121**:
+Latest fully parent-verified cycle **#122**:
 
-- UID `beta-normal-alliance-1792427811-Arthur-6177`;
-- start1792427811, finish1792428287:476s;428 observations/1,999 rows;
-- 412 full/16 bounded, all428 `ok`, zero query failures;
-- exactly900s after120;34.339005s finish-to-server receipt;
+- UID `beta-normal-alliance-1792428711-Arthur-2069`;
+- start1792428711, finish1792429183:472s;428 observations/2,002 rows;
+- 413 full/15 bounded, all428 `ok`, zero query failures;
+- exactly900s after121;39.213126s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredtwentyfirst-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentyfirst-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredtwentysecond-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentysecond-ah-reopen-parent-verification.json).
 
-Scan122 started exactly1792428711 (16:51:51UTC). PROMOTION READY sent after
-final approvals; sole operator must finish122 full save/ACK/reopen, then closeAH
-for fresh ordinary quiescence and stop before123. This is an explicit planned
-qualification pause. No native or physical-input retry yet. Scans108..121 have
-verified exact900s starts;122 full-chain proof is pending.
+Scans108..122 have full-chain proofs and exact900s starts. Scan123 is deliberately
+held for qualification. After122, parent decoded fresh closedAH/pending0/ordinary
+normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
+Exact accepted six files installed while service stopped, imports verified from
+MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
@@ -91,7 +93,7 @@ Private runtime flow receipts live under
 
 Accepted diagnostic release:
 [verification](../.archive/executor-review/native-observation-diagnostics-release-parent-verification.json).
-Current MAIN source SHA256:
+Historical pre-promotion MAIN source SHA256 (superseded below):
 
 - daemon: `4259e4de58b3b3d79f2fc595978907090a7f74666656a4af0c311a33602b0dad`;
 - calibration: `3a91f4fe690cd820329fe2536fc03e5c7de24e4c20649efdf1a705b8c147c8fc`;
@@ -190,7 +192,7 @@ Parent reproduced affected3 in8.69s, baseline in46.10s and scoped static checks.
 Production/operator bytes and runtime AST outside baseline are unchanged:
 [test-delta proof](../.archive/executor-review/native-ack-test-safety-parent-verification.json).
 Earlier full100/seven-model evidence remains bound to original R2 test hashes.
-[Sol R4 READY](../.archive/executor-review/native-capture-ack-sol-test-safety-r4-review.json) and [actual Opus R3 READY](../.archive/executor-review/native-capture-ack-opus-test-safety-r3-review.md), exit0 realclaude-opus-5-5, no findings. All offline release gates complete. No installation yet.
+[Sol R4 READY](../.archive/executor-review/native-capture-ack-sol-test-safety-r4-review.json) and [actual Opus R3 READY](../.archive/executor-review/native-capture-ack-opus-test-safety-r3-review.md), exit0 realclaude-opus-5-5, no findings. All offline release gates complete. Exact final six files installed at17:02UTC; see release proof above.
 Private final freeze: `native-ack-source-r2-test-safety-r3-20261019/final-test-safety-r3.json`;
 parent logs: `native-ack-test-safety-parent-20261019/`;
 actual reviews: `native-ack-source-opus-r2-20261019/` and
@@ -212,12 +214,8 @@ fixture; it is not a concurrent real-C producer race proof.
 
 ## Next live gates, in order
 
-1. Parent offline checks, Sol and actual Opus final approval are complete.
-   Finish current122 ordinary
-   save/ACK/reopen chain; sole GUI owner closes
-   AH with fresh pending0/ordinary/released evidence. Promote exact accepted six
-   files and restart daemon while quiescent. Use new PID/generation, never stale
-   bindings. Main has no conflicting changes in these six files since1cbaadf.
+1. COMPLETE: Parent offline gates, Sol/actual Opus approval, full122 chain,
+   fresh quiescence, exact accepted six-file promotion and service restart.
 2. Canonically recover any existing checkpoint before new calibration. Run fresh
    native control preflight, resume and measured native100 with full evidence.
    Verify operation/finalization and native true. Failure requires preserved

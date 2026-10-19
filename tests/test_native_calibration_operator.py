@@ -4863,6 +4863,46 @@ def test_compiled_producer_and_stock_decoder_fixture_is_reused(
     test_compiled_region_composes_through_default_daemon_and_stock_model(tmp_path, monkeypatch)
 
 
+def test_resume_required_marks_retained_only_after_valid_callback(tmp_path: Path) -> None:
+    from crowley.session.calibration import NativeCalibrationRunner
+
+    capture = tmp_path / "held-100.png"
+    capture.write_bytes(b"held-100")
+    events: list[str] = []
+
+    class Diagnostic:
+        def mark_release(self, path: Path) -> None:
+            assert path == capture
+            events.append("mark_release")
+
+    class Driver:
+        def notify_native_resume_required(self, _identity: object, _boundary: object) -> None:
+            events.append("resume_required")
+
+        def notify_native_resume_ready(self, _identity: object, _result: object, _sample: object) -> None:
+            events.append("resume_ready")
+
+    runner = NativeCalibrationRunner(Driver(), diagnostic=Diagnostic())
+    runner._publish_resume_required_boundary(object(), object(), capture)
+    assert events == ["resume_required", "mark_release"]
+
+    rejecting_events: list[str] = []
+
+    class RejectingDriver:
+        def notify_native_resume_required(self, _identity: object, _boundary: object) -> None:
+            rejecting_events.append("resume_required")
+            raise RuntimeError("resume callback rejected")
+
+        def notify_native_resume_ready(self, _identity: object, _result: object, _sample: object) -> None:
+            rejecting_events.append("resume_ready")
+
+    rejecting_runner = NativeCalibrationRunner(RejectingDriver(), diagnostic=Diagnostic())
+    with pytest.raises(RuntimeError, match="resume callback rejected"):
+        rejecting_runner._publish_resume_required_boundary(object(), object(), capture)
+    assert rejecting_events == ["resume_required"]
+    assert events == ["resume_required", "mark_release"]
+
+
 @pytest.mark.parametrize(
     ("operation_mode", "measurement_failure", "recovery_kind", "fixture_case"),
     [
@@ -4874,6 +4914,7 @@ def test_compiled_producer_and_stock_decoder_fixture_is_reused(
         (operator.MODE_MEASURE_DEFERRED, False, "", "watchdog-readiness"),
         (operator.MODE_MEASURE_DEFERRED, False, "", "pressed-budget"),
         (operator.MODE_MEASURE_DEFERRED, False, "", "post-handoff-cancel"),
+        (operator.MODE_MEASURE_DEFERRED, False, "", "resume-required-reject"),
     ],
     ids=[
         "success",
@@ -4884,6 +4925,7 @@ def test_compiled_producer_and_stock_decoder_fixture_is_reused(
         "watchdog-readiness",
         "pressed-budget",
         "post-handoff-cancel",
+        "resume-required-reject",
     ],
 )
 def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
@@ -5322,6 +5364,47 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
         )
         controller = Controller(journal, driver=driver, recover_on_restart=False)
         daemon = SessionDaemon(daemon_config, controller=controller, driver=driver)
+        observed_attempts: list[dict[str, Any]] = []
+        # The diagnostic hook receives each completed attempt before the
+        # bounded 16-attempt ring can prune it.  This is a test-owned
+        # collector; the production qualification path remains the exact
+        # daemon provider and configured compiled producer below.
+        daemon._native_observation_diagnostic._attempt_observer = observed_attempts.append
+        observed_update_pre_ack: list[dict[str, Any]] = []
+        original_update_pre_ack = daemon._native_update_alignment_pre_ack
+
+        def observe_update_pre_ack(**kwargs: Any) -> None:
+            capability = kwargs.get("capability")
+            assert capability.__class__.__name__ == "_NativeUpdateCapability"
+            observed_update_pre_ack.append(
+                {
+                    "ordinal": kwargs.get("ordinal"),
+                    "identity": kwargs.get("identity").fingerprint,
+                    "generation": kwargs.get("generation"),
+                    "epoch": capability.epoch,
+                    "run_id": capability.run_id,
+                    "receipt_before": (
+                        daemon.driver.backend.last_region_receipt.nonce
+                        if daemon.driver.backend.last_region_receipt is not None
+                        else None
+                    ),
+                }
+            )
+            return original_update_pre_ack(**kwargs)
+
+        daemon._native_update_alignment_pre_ack = observe_update_pre_ack  # type: ignore[method-assign]
+        resume_callback_errors: list[BaseException] = []
+        if fixture_case == "resume-required-reject":
+
+            def reject_resume_required(_identity: Any, _boundary: Any) -> None:
+                error = RuntimeError("actual resume-required callback rejected")
+                resume_callback_errors.append(error)
+                raise error
+
+            # This replaces the callback installed on the real daemon driver,
+            # so the worker reaches the production runner's held/100 boundary
+            # and fails at the callback handoff rather than in a helper seam.
+            driver.notify_native_resume_required = reject_resume_required  # type: ignore[method-assign]
         if operation_mode == operator.MODE_RECOVER:
             checkpoint_boot = restore_constructor_boot if recovery_kind == "restore" else ordinary_boot
             daemon.controller.set_native_construction_checkpoint(
@@ -5340,45 +5423,59 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
         measurement_error_seen = False
         original_native_provider = daemon._native_measurement_provider
 
-        def traced_native_provider(identity: Any, stage: str, ordinal: int) -> Any:
-            nonlocal measurement_error_seen
-            # Keep the real daemon/provider path and timestamps untouched.
-            # The compositor ticker below publishes actual deferred-client
-            # state once per real second; this wrapper only records the
-            # resulting observations.
-            try:
-                observation = original_native_provider(identity, stage, ordinal)
-            except BaseException as exc:
-                native_provider_trace.append(
-                    {"stage": stage, "ordinal": ordinal, "error": str(exc), "at": time.monotonic()}
-                )
-                raise
-            finally:
-                # The daemon's capture path installs the driver sink only for
-                # the synchronous backend call and must restore this same
-                # thread before the provider returns to the runner.
-                assert session_driver._IDENTITY_LATENCY_SINK.get() is None
-            if measurement_failure and stage == "updates" and ordinal == 1:
-                measurement_error_seen = True
-                native_provider_trace.append(
-                    {"stage": stage, "ordinal": ordinal, "error": "actual fixture measurement failure"}
-                )
-                raise RuntimeError("actual fixture measurement failure")
-            if fixture_case == "post-handoff-cancel" and stage == "updates" and ordinal == 1:
-                os.kill(os.getpid(), signal.SIGINT)
-            native_provider_trace.append(
-                {
-                    "stage": stage,
-                    "ordinal": ordinal,
-                    "capture": observation.capture_monotonic,
-                    "at": time.monotonic(),
-                    "phase": observation.native_phase,
-                }
-            )
-            return observation
+        # The success composition deliberately leaves the exact daemon-bound
+        # provider installed.  Negative action/cancellation cases retain a
+        # narrow fault seam because they must inject their terminal action;
+        # success timing and call-count evidence comes from the production
+        # diagnostic attempts below, never from a provider wrapper.
+        if measurement_failure or fixture_case == "post-handoff-cancel":
 
-        daemon._native_measurement_provider = traced_native_provider  # type: ignore[method-assign]
-        driver.native_measurement_provider = traced_native_provider
+            def traced_native_provider(identity: Any, stage: str, ordinal: int) -> Any:
+                nonlocal measurement_error_seen
+                try:
+                    observation = original_native_provider(identity, stage, ordinal)
+                except BaseException as exc:
+                    native_provider_trace.append(
+                        {"stage": stage, "ordinal": ordinal, "error": str(exc), "at": time.monotonic()}
+                    )
+                    raise
+                finally:
+                    assert session_driver._IDENTITY_LATENCY_SINK.get() is None
+                if measurement_failure and stage == "updates" and ordinal == 1:
+                    measurement_error_seen = True
+                    native_provider_trace.append(
+                        {"stage": stage, "ordinal": ordinal, "error": "actual fixture measurement failure"}
+                    )
+                    raise RuntimeError("actual fixture measurement failure")
+                if fixture_case == "post-handoff-cancel" and stage == "updates" and ordinal == 1:
+                    os.kill(os.getpid(), signal.SIGINT)
+                native_provider_trace.append(
+                    {
+                        "stage": stage,
+                        "ordinal": ordinal,
+                        "capture": observation.capture_monotonic,
+                        "at": time.monotonic(),
+                        "phase": observation.native_phase,
+                    }
+                )
+                return observation
+
+            daemon._native_measurement_provider = traced_native_provider  # type: ignore[method-assign]
+            driver.native_measurement_provider = traced_native_provider
+
+        def diagnostic_update_capture(ordinal: int) -> float | None:
+            attempts = list(observed_attempts)
+            for attempt in reversed(attempts):
+                if (
+                    attempt.get("requested_stage") == "updates"
+                    and attempt.get("requested_ordinal") == ordinal
+                    and attempt.get("status") == "accepted"
+                ):
+                    value = attempt.get("actual", {}).get("capture_monotonic")
+                    if isinstance(value, (int, float)):
+                        return float(value)
+            return None
+
         ipc = SessionIPC(daemon.controller, owner=daemon)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         listener.bind(str(socket_path))
@@ -5673,10 +5770,13 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             deadline = time.monotonic() + 20.0
             first_capture: float | None = None
             while time.monotonic() < deadline and not stop_server.is_set():
-                for entry in native_provider_trace:
-                    if entry.get("stage") == "updates" and entry.get("ordinal") == 1:
-                        first_capture = float(entry["capture"])
-                        break
+                if native_provider_trace:
+                    for entry in native_provider_trace:
+                        if entry.get("stage") == "updates" and entry.get("ordinal") == 1:
+                            first_capture = float(entry["capture"])
+                            break
+                else:
+                    first_capture = diagnostic_update_capture(1)
                 if first_capture is not None:
                     break
                 time.sleep(0.005)
@@ -6237,6 +6337,41 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                 assert_controls([("construct", True)])
                 return
 
+            if fixture_case == "resume-required-reject":
+                with pytest.raises(operator.OperatorError):
+                    operator_instance.run()
+                assert daemon.controller.status().state is ControllerState.PAUSED
+                assert not driver.guardian.armed
+                assert input_device.cleanup_failures == []
+                receipt_paths = list((tmp_path / "operator-receipts").glob("*/receipt.json"))
+                assert len(receipt_paths) == 1
+                receipt = json.loads(receipt_paths[0].read_text(encoding="utf-8"))
+                assert receipt["outcome"] == "failure"
+                assert receipt["failureCode"] == "operator_failure"
+                assert any(event["name"] == "terminal" for event in receipt["events"])
+                assert not any(event["name"] == "resume_required" for event in receipt["events"])
+                assert len(resume_callback_errors) == 1
+                held_100_attempts = [
+                    attempt
+                    for attempt in observed_attempts
+                    if attempt.get("requested_stage") == "held" and attempt.get("requested_ordinal") == 100
+                ]
+                assert held_100_attempts
+                assert all(attempt.get("release_outcome") == "released" for attempt in held_100_attempts)
+                assert [entry["command"] for entry in action_history] == [
+                    "agent defer",
+                    "reload",
+                    "agent release",
+                    "agent hold",
+                    "agent measure",
+                    "agent recover",
+                ]
+                assert reload_count == 1
+                assert state["client"].ns.Agent.Lifecycle() == "ordinary"
+                assert not daemon._native_observation_diagnostic._current
+                assert daemon._native_owned_capture_paths == set()
+                return
+
             if measurement_failure:
                 with pytest.raises(operator.OperatorError, match="actual fixture measurement failure"):
                     operator_instance.run()
@@ -6306,22 +6441,52 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
 
             result = operator_instance.run()
             assert result["ok"] is True
-            expected_provider_stages = [
+            diagnostic = daemon._native_observation_diagnostic
+            attempts = list(observed_attempts)
+            accepted = [attempt for attempt in attempts if attempt["status"] == "accepted"]
+            assert [(attempt["requested_stage"], attempt["requested_ordinal"]) for attempt in accepted] == [
                 ("construct", 0),
                 ("held", 0),
-                *(("updates", ordinal) for ordinal in range(1, 100)),
+                *[("updates", ordinal) for ordinal in range(1, 100)],
                 ("held", 100),
                 ("resume", 0),
             ]
-            actual_provider_stages = [
-                (entry["stage"], entry["ordinal"]) for entry in native_provider_trace if "error" not in entry
-            ]
-            assert actual_provider_stages == expected_provider_stages
-            diagnostic = daemon._native_observation_diagnostic
-            attempts = list(diagnostic._attempts)
+            assert len(accepted) == 103
+            for attempt in accepted:
+                receipt = attempt["backend_receipt"]
+                assert receipt is not None
+                assert receipt["attempt_retired"] is True
+                assert receipt["output_sha256"] == attempt["actual"]["capture_sha256"]
+                expected_release = (
+                    "retained"
+                    if attempt["requested_stage"] == "held" and attempt["requested_ordinal"] == 100
+                    else "released"
+                )
+                assert attempt["release_outcome"] == expected_release
+                spans = attempt["spans"]
+                if attempt["requested_stage"] == "updates":
+                    assert spans["identity_poll"]["outcome"] == "not_reached"
+                else:
+                    assert spans["identity_poll"]["outcome"] == "ok"
+                ordered = [
+                    spans["identity_backend_pre"],
+                    spans["identity_backend_post"],
+                    spans["identity_post_capture"],
+                ]
+                previous_end = None
+                for span in ordered:
+                    assert span["outcome"] == "ok"
+                    assert isinstance(span["start_monotonic_ns"], int)
+                    assert isinstance(span["end_monotonic_ns"], int)
+                    assert isinstance(span["duration_ns"], int)
+                    assert span["end_monotonic_ns"] >= span["start_monotonic_ns"]
+                    assert span["duration_ns"] == (span["end_monotonic_ns"] - span["start_monotonic_ns"])
+                    if previous_end is not None:
+                        assert previous_end <= span["start_monotonic_ns"]
+                    previous_end = span["end_monotonic_ns"]
             update_99 = next(
                 attempt
-                for attempt in reversed(attempts)
+                for attempt in reversed(accepted)
                 if attempt["requested_stage"] == "updates"
                 and attempt["requested_ordinal"] == 99
                 and attempt["status"] == "accepted"
@@ -6331,7 +6496,24 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             assert receipt_99["attempt_retired"] is True
             assert receipt_99["output_sha256"] == update_99["actual"]["capture_sha256"]
             assert update_99["release_outcome"] == "released"
-            assert update_99["spans"]["identity_poll"]["outcome"] == "ok"
+            held_100 = next(
+                attempt
+                for attempt in accepted
+                if attempt["requested_stage"] == "held" and attempt["requested_ordinal"] == 100
+            )
+            assert held_100["release_outcome"] == "retained"
+            retained_paths = [
+                path
+                for path in daemon._native_owned_capture_paths
+                if path.is_file()
+                and hashlib.sha256(path.read_bytes()).hexdigest() == held_100["actual"]["capture_sha256"]
+            ]
+            assert len(retained_paths) == 1
+            sealed_native = daemon.controller.journal.read()["calibrationEvidence"]["native"]
+            assert sealed_native["capture_path"] == str(retained_paths[0])
+            assert sealed_native["capture_sha256"] == held_100["actual"]["capture_sha256"]
+            assert sealed_native["capture_sha256"] == held_100["backend_receipt"]["output_sha256"]
+            assert update_99["spans"]["identity_poll"]["outcome"] == "not_reached"
             assert update_99["spans"]["identity_backend_pre"]["outcome"] == "ok"
             assert update_99["spans"]["identity_backend_post"]["outcome"] == "ok"
             assert update_99["spans"]["identity_post_capture"]["outcome"] == "ok"
@@ -6342,10 +6524,8 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                 and span["requested_stage"] == "updates"
                 and span["requested_ordinal"] == 99
             ]
-            assert len(pre_provider) == 1
+            assert pre_provider == []
             ordered = [
-                pre_provider[0],
-                update_99["spans"]["identity_poll"],
                 update_99["spans"]["identity_backend_pre"],
                 update_99["spans"]["identity_backend_post"],
                 update_99["spans"]["identity_post_capture"],
@@ -6363,12 +6543,20 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                 assert span["outcome"] == "ok"
             assert update_99["spans"]["runner_hash"]["outcome"] == "ok"
             assert update_99["spans"]["runner_decode"]["outcome"] == "ok"
+            assert [item["ordinal"] for item in observed_update_pre_ack] == list(range(2, 100))
+            assert all(item["identity"] == identity.fingerprint for item in observed_update_pre_ack)
+            assert all(item["generation"] == 7 for item in observed_update_pre_ack)
+            update_1_attempt = next(
+                attempt
+                for attempt in accepted
+                if attempt["requested_stage"] == "updates" and attempt["requested_ordinal"] == 1
+            )
+            assert update_1_attempt["backend_receipt"] is not None
+            assert (
+                observed_update_pre_ack[0]["receipt_before"] == update_1_attempt["backend_receipt"]["nonce"]
+            )
             assert diagnostic._current is None
-            accepted_receipts = [
-                attempt["backend_receipt"]
-                for attempt in attempts
-                if attempt["status"] == "accepted" and attempt["backend_receipt"] is not None
-            ]
+            accepted_receipts = [attempt["backend_receipt"] for attempt in accepted]
             assert accepted_receipts
             assert len({receipt["nonce"] for receipt in accepted_receipts}) == len(accepted_receipts)
             for attempt in attempts:

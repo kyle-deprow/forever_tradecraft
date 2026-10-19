@@ -62,6 +62,7 @@ _F_SEAL_SEAL = getattr(fcntl, "F_SEAL_SEAL", 0x0001)
 _F_SEAL_SHRINK = getattr(fcntl, "F_SEAL_SHRINK", 0x0002)
 _F_SEAL_GROW = getattr(fcntl, "F_SEAL_GROW", 0x0004)
 _F_SEAL_WRITE = getattr(fcntl, "F_SEAL_WRITE", 0x0008)
+_DEFAULT_CAPTURE_TIMEOUT_SECONDS = 15.0
 
 
 _IDENTITY_LATENCY_SINK: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
@@ -228,7 +229,7 @@ def _capture_deadline(deadline_monotonic: float | None) -> float:
 
     now = time.monotonic()
     if deadline_monotonic is None:
-        return now + 15.0
+        return now + _DEFAULT_CAPTURE_TIMEOUT_SECONDS
     if (
         isinstance(deadline_monotonic, bool)
         or not isinstance(deadline_monotonic, (int, float))
@@ -2767,7 +2768,7 @@ class X11Backend:
                 self._check_capture_epoch(capture_epoch)
                 self._run(
                     ["gnome-screenshot", "-f", str(stage)],
-                    timeout=min(15.0, remaining),
+                    timeout=min(_DEFAULT_CAPTURE_TIMEOUT_SECONDS, remaining),
                     deadline_monotonic=deadline,
                 )
                 _wait_for_complete_png(
@@ -2812,6 +2813,8 @@ class X11Backend:
         deadline_monotonic: float | None = None,
         observer_admission: Callable[[Callable[[], Any]], Any] | None = None,
         observer_reaped: Callable[[int], None] | None = None,
+        _pre_ack_admission: Callable[[int, Callable[[], None]], None] | None = None,
+        _receipt_sink: Callable[[TelemetryRegionReceipt], None] | None = None,
         _allow_unobserved_fixture: bool = False,
     ) -> WindowIdentity:
         """Capture one exact profile-derived region through the private producer."""
@@ -2858,6 +2861,8 @@ class X11Backend:
             raise DriverError("telemetry region observer admission and reap callbacks must be paired")
         if observer_admission is None and _allow_unobserved_fixture is not True:
             raise DriverError("telemetry region capture requires Guardian observer admission")
+        if _pre_ack_admission is not None and not callable(_pre_ack_admission):
+            raise DriverError("telemetry pre-ACK admission hook is not callable")
         deadline = _capture_deadline(deadline_monotonic)
         capture_epoch = self._capture_epoch_snapshot()
         self._check_capture_epoch(capture_epoch)
@@ -2888,6 +2893,7 @@ class X11Backend:
         capture_started: float | None = None
         capture_returned: float | None = None
         attempt_retired: bool | None = None
+        finalized_receipt: TelemetryRegionReceipt | None = None
         protocol_stage = "capture_lock_wait"
 
         def update_protocol_stage(stage_name: str) -> None:
@@ -3063,14 +3069,32 @@ class X11Backend:
                     raise DriverError("telemetry owner proof does not match the admitted process")
                 _verify_admitted_process(process, image_fd, verified_digest, os.getpid())
                 ack = json.dumps({"type": "ACK", "protocol": 1, "nonce": nonce}, separators=(",", ":"))
-                with self._process_lock:
-                    self._check_capture_epoch_locked(capture_epoch)
-                    if process.poll() is not None or time.monotonic() >= deadline:
-                        raise DriverError("telemetry capture was revoked before owner ACK")
-                    _verify_admitted_process(process, image_fd, verified_digest, os.getpid())
-                    ack_sent = time.monotonic()
-                    update_protocol_stage("capture_started")
-                    parent_sock.sendall((ack + "\n").encode())
+                ack_dispatched = False
+
+                def dispatch_ack_once() -> None:
+                    nonlocal ack_sent, ack_dispatched
+                    with self._process_lock:
+                        if ack_dispatched:
+                            raise DriverError("telemetry producer ACK was dispatched twice")
+                        self._check_capture_epoch_locked(capture_epoch)
+                        if process is None or process.poll() is not None or time.monotonic() >= deadline:
+                            raise DriverError("telemetry capture was revoked before owner ACK")
+                        _verify_admitted_process(process, image_fd, verified_digest, os.getpid())
+                        ack_sent = time.monotonic()
+                        update_protocol_stage("capture_started")
+                        # Burn the one-shot before touching the socket.  A
+                        # partial send or a caller that catches the write
+                        # error must never be allowed to retry an ACK for the
+                        # same admitted process/nonce.
+                        ack_dispatched = True
+                        parent_sock.sendall((ack + "\n").encode())
+
+                if _pre_ack_admission is None:
+                    dispatch_ack_once()
+                else:
+                    _pre_ack_admission(process.pid, dispatch_ack_once)
+                    if not ack_dispatched:
+                        raise DriverError("telemetry pre-ACK admission did not dispatch the producer ACK")
                 started = _json_record(
                     parent_sock,
                     deadline,
@@ -3174,7 +3198,7 @@ class X11Backend:
                     os.chmod(stage, 0o600)
                     os.replace(stage, path)
                     self.last_identity = after
-                    self.last_region_receipt = TelemetryRegionReceipt(
+                    finalized_receipt = TelemetryRegionReceipt(
                         nonce=nonce,
                         rectangle=rectangle,
                         executable_sha256=verified_digest,
@@ -3195,6 +3219,7 @@ class X11Backend:
                         capture_epoch=capture_epoch,
                         attempt_retired=False,
                     )
+                    self.last_region_receipt = finalized_receipt
                     update_protocol_stage("published")
                     return after
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
@@ -3263,11 +3288,10 @@ class X11Backend:
                         and owned_process.pid not in self._active_process_groups
                     )
             attempt_retired = directory_retired and process_retired
-            if self.last_region_receipt is not None and self.last_region_receipt.nonce == nonce:
-                self.last_region_receipt = replace(
-                    self.last_region_receipt,
-                    attempt_retired=attempt_retired,
-                )
+            if finalized_receipt is not None:
+                finalized_receipt = replace(finalized_receipt, attempt_retired=attempt_retired)
+                if self.last_region_receipt is not None and self.last_region_receipt.nonce == nonce:
+                    self.last_region_receipt = finalized_receipt
             _identity_latency_instant("cleanup")
             # This snapshot is also the durable failure evidence.  It is
             # written after process reap and attempt retirement, so a late
@@ -3282,6 +3306,8 @@ class X11Backend:
                 "capture_returned": capture_returned,
                 "attempt_retired": attempt_retired,
             }
+            if _receipt_sink is not None and finalized_receipt is not None:
+                _receipt_sink(finalized_receipt)
 
     def synthetic_calibration(
         self, window_id: str, x: int, y: int, *, calibration_ticket: CalibrationTicket | None = None
@@ -6605,6 +6631,8 @@ class DesktopDriver:
         deadline_monotonic: float | None = None,
         observer_admission: Callable[[Callable[[], Any]], Any] | None = None,
         observer_reaped: Callable[[int], None] | None = None,
+        _pre_ack_admission: Callable[[int, Callable[[], None]], None] | None = None,
+        _receipt_sink: Callable[[TelemetryRegionReceipt], None] | None = None,
         _allow_unobserved_fixture: bool = False,
     ) -> Path:
         """Capture the exact native status rectangle without selecting model crops."""
@@ -6625,16 +6653,26 @@ class DesktopDriver:
             region_capture = getattr(self.backend, "capture_native_region", None)
             if not callable(region_capture):
                 raise DriverError("native region capture requires the configured X11 producer")
-            captured = region_capture(target, identity=identity, rectangle=rectangle)
+            fixture_kwargs: dict[str, Any] = {"identity": identity, "rectangle": rectangle}
+            if _pre_ack_admission is not None:
+                fixture_kwargs["_pre_ack_admission"] = _pre_ack_admission
+            captured = region_capture(target, **fixture_kwargs)
         else:
+            capture_kwargs: dict[str, Any] = {
+                "identity": identity,
+                "rectangle": rectangle,
+                "deadline_monotonic": deadline_monotonic,
+                "observer_admission": observer_admission,
+                "observer_reaped": observer_reaped,
+                "_allow_unobserved_fixture": _allow_unobserved_fixture,
+            }
+            if _pre_ack_admission is not None:
+                capture_kwargs["_pre_ack_admission"] = _pre_ack_admission
+            if _receipt_sink is not None:
+                capture_kwargs["_receipt_sink"] = _receipt_sink
             captured = self.backend.capture_native_region(
                 target,
-                identity=identity,
-                rectangle=rectangle,
-                deadline_monotonic=deadline_monotonic,
-                observer_admission=observer_admission,
-                observer_reaped=observer_reaped,
-                _allow_unobserved_fixture=_allow_unobserved_fixture,
+                **capture_kwargs,
             )
         if captured is None or captured.fingerprint != identity.fingerprint:
             raise DriverError("native region capture identity does not match the verified client")

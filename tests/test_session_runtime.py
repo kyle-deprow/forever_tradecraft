@@ -11,10 +11,12 @@ import stat
 import subprocess
 import threading
 import time
-from contextlib import nullcontext
+from collections.abc import Callable
+from contextlib import contextmanager, nullcontext
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -40,6 +42,8 @@ from crowley.session.driver import (
     DriverProfile,
     WindowIdentity,
     X11Backend,
+    _identity_latency_barrier,
+    _proc_start,
 )
 from crowley.session.evidence import EvidenceError, read_stable_saved_scan
 from crowley.session.input_events import EventClass, XI2Event
@@ -56,13 +60,14 @@ _REVERSE_BITS = bytes(int(f"{value:08b}"[::-1], 2) for value in range(256))
 class _FixtureNativeMemoryMeter(LinuxProcStatusVmHwmReset5):
     """Deterministic reset5 contract for the headless daemon lifecycle."""
 
-    def __init__(self, identity: WindowIdentity) -> None:
+    def __init__(self, identity: WindowIdentity, *, monotonic: Callable[[], float] | None = None) -> None:
         self.pid = identity.pid
         self.process_start = identity.process_start
         self.process_executable = identity.executable
         self.identity_fingerprint = identity.fingerprint
         self.expected_uid = os.getuid()
         self.kernel_release = os.uname().release
+        self._monotonic = monotonic or time.monotonic
         self._pending = None
 
     def begin_window(self, phase: str, ordinal: int, *, limit_bytes: int, before_reset):
@@ -96,7 +101,7 @@ class _FixtureNativeMemoryMeter(LinuxProcStatusVmHwmReset5):
             kernel_release=self.kernel_release,
             historical_hwm_bytes=0,
             rss_before_reset_bytes=0,
-            reset_completed_monotonic=time.monotonic(),
+            reset_completed_monotonic=self._monotonic(),
             post_reset_hwm_bytes=0,
             rss_after_reset_bytes=0,
             limit_bytes=limit_bytes,
@@ -425,6 +430,7 @@ class LifecycleBackend(X11Backend):
         self.agent_load_requested = False
         self.agent_commands: list[tuple[str, int]] = []
         self.agent_last_capture_sequence = 0
+        self.agent_frame_sampling_callback: Callable[[], None] | None = None
         self.virtual_clock: object | None = None
         self.agent_trace: list[tuple[int, str, int, float]] = []
         self.runtime_observer: _FixtureInputObserver | None = None
@@ -543,7 +549,7 @@ class LifecycleBackend(X11Backend):
             # into the runner, so the negative no-Agent interval cannot hang
             # forever behind a wall-clock sleep.
             advance = getattr(self.virtual_clock, "advance", None)
-            if callable(advance):
+            if callable(advance) and not getattr(self, "suppress_fresh_capture_clock", False):
                 advance(1.0)
             Image.new("RGB", (1920, 1080), (17, 17, 17)).save(path, compress_level=0)
             return self.identity
@@ -551,6 +557,9 @@ class LifecycleBackend(X11Backend):
             self._publish_lifecycle_agent()
         else:
             self._service_agent_operator()
+        sample_callback = self.agent_frame_sampling_callback
+        if callable(sample_callback):
+            sample_callback()
         raw = self.agent_client.agent_frame
         frame = decode_frame(raw, plan_item_ids=load_catalog().scan_plan()["itemIDs"])
         render = frame.snapshot["render"]
@@ -573,11 +582,15 @@ class LifecycleBackend(X11Backend):
             if callable(schedule):
                 raise AssertionError("native publication was not consumed between captures")
             else:
-                advance = getattr(self.virtual_clock, "advance", None)
-                if not callable(advance):
-                    raise AssertionError("runtime fixture requires a virtual clock for native cadence")
-                advance(1.0)
-                self.agent_client.advance_with_timers(1)
+                publisher = getattr(self, "native_publication_callback", None)
+                if callable(publisher):
+                    publisher()
+                else:
+                    advance = getattr(self.virtual_clock, "advance", None)
+                    if not callable(advance):
+                        raise AssertionError("runtime fixture requires a virtual clock for native cadence")
+                    advance(1.0)
+                    self.agent_client.advance_with_timers(1)
             raw = self.agent_client.agent_frame
             frame = decode_frame(raw, plan_item_ids=load_catalog().scan_plan()["itemIDs"])
         if self.lifecycle_agent:
@@ -586,7 +599,7 @@ class LifecycleBackend(X11Backend):
             # same namespace while preserving the explicit virtual cadence
             # used by the native handshake above.
             self.virtual_clock.value = time.monotonic()
-        elif frame.sequence != previous_sequence:
+        elif frame.sequence != previous_sequence and not getattr(self, "suppress_fresh_capture_clock", False):
             advance = getattr(self.virtual_clock, "advance", None)
             if not callable(advance):
                 raise AssertionError("runtime fixture requires a virtual clock for native timestamps")
@@ -1032,6 +1045,8 @@ class _NativeProviderBackend(LifecycleBackend):
         self.publication_fault = publication_fault
         self.capture_started = threading.Event()
         self.advance_cached_clock = False
+        self.native_publication_callback: Callable[[], None] | None = None
+        self.suppress_fresh_capture_clock = False
 
     def capture(
         self,
@@ -1117,7 +1132,7 @@ def test_native_capture_start_uses_driver_clock_domain(tmp_path: Path) -> None:
     daemon._native_bootstrap_lock = threading.RLock()
     capture_path = tmp_path / "capture.png"
     capture_path.write_bytes(b"capture")
-    daemon._capture_client_crop_for_identity = lambda identity, deadline=None: capture_path
+    daemon._capture_native_region_for_identity = lambda identity, **_kwargs: capture_path
     daemon._remove_native_capture = lambda path: None
     daemon.driver = SimpleNamespace(
         decode_native_capture=lambda path, *, identity, decoder: Sample(
@@ -1126,10 +1141,396 @@ def test_native_capture_start_uses_driver_clock_domain(tmp_path: Path) -> None:
     )
     identity = SimpleNamespace(fingerprint="client-1")
 
-    sample, _digest, retained = daemon._capture_native_frame_with_capture(identity, object())
+    sample, _digest, retained, _receipt = daemon._capture_native_frame_with_capture(identity, object())
 
     assert sample.capture_monotonic == pytest.approx(123.0)
     assert retained.is_file()
+
+
+def test_native_generic_capture_does_not_receive_private_receipt_sink(tmp_path: Path) -> None:
+    """Legacy/custom capture callables keep their original closed keyword set."""
+
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon._native_clock = lambda: 123.0
+    daemon.config = SimpleNamespace(journal=tmp_path / "session.json")
+    daemon.capture_index = 0
+    daemon._native_owned_capture_paths = set()
+    daemon._native_bootstrap_lock = threading.RLock()
+    capture_path = tmp_path / "capture.png"
+    capture_path.write_bytes(b"custom-capture")
+    digest = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+    prior_receipt = SimpleNamespace(
+        nonce="prior-receipt",
+        output_sha256="0" * 64,
+        capture_started=122.0,
+        attempt_retired=True,
+    )
+    fresh_receipt = SimpleNamespace(
+        nonce="custom-receipt",
+        output_sha256=digest,
+        capture_started=122.5,
+        attempt_retired=True,
+    )
+    backend = SimpleNamespace(last_region_receipt=prior_receipt)
+    calls: list[object] = []
+
+    def capture(
+        _identity: object,
+        *,
+        deadline: float | None = None,
+        expected_generation: int | None = None,
+        expected_state: object | None = None,
+        native_capability: object | None = None,
+        native_update_ordinal: int | None = None,
+    ) -> Path:
+        del deadline, expected_generation, expected_state, native_capability, native_update_ordinal
+        calls.append(_identity)
+        backend.last_region_receipt = fresh_receipt
+        return capture_path
+
+    daemon._capture_native_region_for_identity = capture
+    daemon.driver = SimpleNamespace(
+        backend=backend,
+        decode_native_capture=lambda path, *, identity, decoder: Sample(
+            "FRESH", None, 123.4, (0, 0, 256, 256), 1, identity.fingerprint
+        ),
+    )
+    daemon._remove_native_capture = lambda path: path.unlink(missing_ok=True)
+
+    sample, _digest, _retained, receipt = daemon._capture_native_frame_with_capture(
+        SimpleNamespace(fingerprint="client-1"), object()
+    )
+
+    assert sample.kind == "FRESH"
+    assert calls
+    assert receipt is backend.last_region_receipt
+
+
+def test_native_provider_deadline_keeps_driver_fifteen_second_cap(tmp_path: Path) -> None:
+    """A thirty-second Agent wait cannot extend the real producer bound."""
+
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon._native_construction_lock = threading.RLock()
+    daemon._native_construction_operation_deadline = 190.0
+    daemon._native_construction_reservation = {"expiresMonotonic": 180.0}
+    capability = SimpleNamespace(expires_monotonic=170.0)
+
+    deadline = daemon._native_measurement_deadline(100.0, capability)  # type: ignore[arg-type]
+
+    assert deadline == pytest.approx(115.0)
+    assert daemon._native_measurement_deadline(
+        100.0, capability, include_producer_limit=False
+    ) == pytest.approx(130.0)
+    assert daemon._native_measurement_deadline(100.0, capability, frame_deadline=130.0) == pytest.approx(
+        115.0
+    )
+    daemon._native_construction_operation_deadline = 108.0
+    assert daemon._native_measurement_deadline(100.0, capability) == pytest.approx(108.0)
+
+
+@pytest.mark.parametrize("stale_digest", [True, False], ids=["same-digest", "mismatched-digest"])
+def test_native_eligible_capture_rejects_stale_or_mismatched_receipt(
+    tmp_path: Path, stale_digest: bool
+) -> None:
+    """An eligible update may only consume the receipt created by this capture."""
+
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon._native_clock = lambda: 123.5
+    daemon.config = SimpleNamespace(journal=tmp_path / "session.json")
+    daemon.capture_index = 0
+    daemon._native_owned_capture_paths = set()
+    daemon._native_bootstrap_lock = threading.RLock()
+    capture_path = tmp_path / "capture.png"
+    capture_path.write_bytes(b"fresh-pixels")
+    digest = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+    backend = SimpleNamespace(
+        last_region_receipt=SimpleNamespace(
+            output_sha256=digest if stale_digest else "0" * 64,
+            capture_started=123.0,
+            attempt_retired=True,
+        )
+    )
+    daemon.driver = SimpleNamespace(backend=backend)
+    daemon._capture_native_region_for_identity = lambda identity, **_kwargs: capture_path
+    daemon._remove_native_capture = lambda path: path.unlink(missing_ok=True)
+
+    with pytest.raises(DriverError, match="fresh bound receipt"):
+        daemon._capture_native_frame_with_capture(
+            SimpleNamespace(fingerprint="client-1"),
+            object(),
+            native_capability=object(),
+            native_update_ordinal=1,
+        )
+    assert not capture_path.exists()
+
+
+def test_native_eligible_capture_uses_per_call_receipt_before_global_substitution(tmp_path: Path) -> None:
+    """A same-digest later global receipt cannot replace the capture's receipt."""
+
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    clock_values = iter((123.0, 123.5, 123.5, 123.5))
+    daemon._native_clock = lambda: next(clock_values, 123.5)
+    daemon.config = SimpleNamespace(journal=tmp_path / "session.json")
+    daemon.capture_index = 0
+    daemon._native_owned_capture_paths = set()
+    daemon._native_bootstrap_lock = threading.RLock()
+    capture_path = tmp_path / "capture.png"
+    capture_path.write_bytes(b"fresh-pixels")
+    digest = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+    origin = SimpleNamespace(
+        nonce="origin-receipt",
+        capture_started=123.1,
+        output_sha256=digest,
+        attempt_retired=True,
+    )
+    substitute = SimpleNamespace(
+        nonce="substitute-receipt",
+        capture_started=123.2,
+        output_sha256=digest,
+        attempt_retired=True,
+    )
+    backend = SimpleNamespace(last_region_receipt=None)
+
+    def capture(_identity: object, **kwargs: object) -> Path:
+        sink = kwargs.get("_receipt_sink")
+        assert callable(sink)
+        sink(origin)
+        backend.last_region_receipt = substitute
+        return capture_path
+
+    daemon.driver = SimpleNamespace(
+        backend=backend,
+        decode_native_capture=lambda path, *, identity, decoder: Sample(
+            "FRESH", None, 123.4, (0, 0, 256, 256), 1, identity.fingerprint
+        ),
+    )
+    daemon._capture_native_region_for_identity = capture
+    daemon._remove_native_capture = lambda path: path.unlink(missing_ok=True)
+
+    sample, _digest, _retained, receipt = daemon._capture_native_frame_with_capture(
+        SimpleNamespace(fingerprint="client-1"),
+        object(),
+        native_capability=object(),
+        native_update_ordinal=1,
+    )
+
+    assert sample.kind == "FRESH"
+    assert receipt is origin
+    assert receipt.nonce == "origin-receipt"
+    assert backend.last_region_receipt is substitute
+
+
+def test_native_update_alignment_keeps_capture_receipt_across_backend_substitution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The update anchor uses the receipt validated by its own capture."""
+
+    backend = _NativeProviderBackend(tmp_path, load_after_captures=0)
+    daemon, _backend, driver, _controller, _config, clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-receipt-origin.lock",
+    )
+    producer = tmp_path / "region-producer"
+    producer.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+    producer.chmod(0o700)
+    producer_sha256 = hashlib.sha256(producer.read_bytes()).hexdigest()
+    profile = replace(
+        driver.profile,
+        telemetry_region_executable=producer,
+        telemetry_region_executable_sha256=producer_sha256,
+    )
+    driver.profile = profile
+    backend.profile = profile
+    monkeypatch.setattr(daemon, "_native_region_enabled", lambda: True)
+    identity = backend.identity
+    try:
+        _prime_native_update_budget_owner(daemon, driver, identity)
+        provider = driver.native_measurement_provider
+        capability = daemon._native_update_identity_budget_capability(provider, identity, "updates", 1)
+        assert capability is not None
+        token = daemon._native_update_alignment_enter(provider, identity)
+        assert token is not None
+        digest = "a" * 64
+        origin = SimpleNamespace(
+            nonce="origin-receipt",
+            rectangle=(
+                identity.child_geometry[0] + profile.canvas_crop[0],
+                identity.child_geometry[1] + profile.canvas_crop[1],
+                profile.canvas_crop[2],
+                profile.canvas_crop[3],
+            ),
+            executable_sha256=producer_sha256,
+            owner_pid=os.getpid(),
+            owner_process_start=_proc_start(os.getpid()),
+            capture_started=clock.value,
+            output_sha256=digest,
+            attempt_retired=True,
+        )
+        daemon._native_update_alignment_record(
+            provider=provider,
+            identity=identity,
+            capability=capability,
+            ordinal=1,
+            capture_monotonic=clock.value,
+            publisher_uptime_ms=1000,
+            receipt=origin,
+            capture_digest=digest,
+            previous_uptime_ms=None,
+        )
+        backend.last_region_receipt = SimpleNamespace(
+            **{**origin.__dict__, "nonce": "same-digest-substitute", "capture_started": clock.value}
+        )
+        with daemon._native_construction_lock:
+            anchor = copy.deepcopy(daemon._native_update_alignment_anchor)
+        assert anchor is not None
+        assert anchor["lastReceiptNonce"] == "origin-receipt"
+        assert anchor["lastCaptureDigest"] == digest
+    finally:
+        daemon._native_update_alignment_exit(token if "token" in locals() else None)
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_native_provider_preserves_receipt_across_real_backend_substitution(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The real eligible provider anchors the receipt handed off by its capture."""
+
+    backend = _NativeProviderBackend(tmp_path, load_after_captures=0)
+    daemon, _backend, driver, _controller, _config, clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-real-receipt-origin.lock",
+    )
+    monkeypatch.setattr(daemon, "_native_region_enabled", lambda: True)
+    daemon._native_provider_sleep_hook = clock.advance  # type: ignore[attr-defined]
+    identity = backend.identity
+    origin_receipts: list[Any] = []
+    try:
+        producer_sha256 = "a" * 64
+        profile = replace(
+            driver.profile,
+            telemetry_region_executable_sha256=producer_sha256,
+        )
+        driver.profile = profile
+        backend.profile = profile
+
+        def capture_fixture(
+            identity_value: WindowIdentity,
+            _decoder: Any,
+            *,
+            native_capability: Any | None = None,
+            **_kwargs: Any,
+        ) -> tuple[Sample, str, Path, Any | None]:
+            if backend.agent_client is None:
+                backend.load_agent()
+                backend._load_real_agent()
+            backend._service_agent_operator()
+            assert backend.agent_client is not None
+            frame = decode_frame(
+                backend.agent_client.agent_frame,
+                plan_item_ids=load_catalog().scan_plan()["itemIDs"],
+            )
+            clock.advance(0.01)
+            path = tmp_path / f"capture-{len(origin_receipts)}.png"
+            path.write_bytes(f"capture-{len(origin_receipts)}".encode("ascii"))
+            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            sample = Sample(
+                "FRESH", frame, clock.value, (0, 0, 256, 256), frame.crc32, identity_value.fingerprint
+            )
+            if native_capability is None:
+                backend.last_region_receipt = None
+                return sample, digest, path, None
+            receipt = SimpleNamespace(
+                nonce=f"origin-{len(origin_receipts)}",
+                rectangle=(80, 48, 256, 256),
+                executable_sha256=producer_sha256,
+                owner_pid=os.getpid(),
+                owner_process_start=_proc_start(os.getpid()),
+                capture_started=daemon._native_clock(),
+                output_sha256=digest,
+                attempt_retired=True,
+            )
+            origin_receipts.append(receipt)
+            backend.last_region_receipt = SimpleNamespace(
+                **{
+                    **receipt.__dict__,
+                    "nonce": "late-global-substitute",
+                    "capture_started": float(receipt.capture_started) + 0.001,
+                }
+            )
+            return sample, digest, path, receipt
+
+        monkeypatch.setattr(daemon, "_capture_native_frame_with_capture", capture_fixture)
+        constructed = daemon._native_measurement_provider(identity, "construct", 0)
+        daemon.release_native_capture(Path(constructed.capture_path))
+        backend.request_agent_command("hold", delayed_captures=0)
+        held = daemon._native_measurement_provider(identity, "held", 0)
+        daemon.release_native_capture(Path(held.capture_path))
+        _prime_native_update_budget_owner(daemon, driver, identity)
+        provider = driver.native_measurement_provider
+        token = daemon._native_update_alignment_enter(provider, identity)
+        assert token is not None
+        backend.request_agent_command("measure", delayed_captures=0)
+        update = daemon._native_measurement_provider(identity, "updates", 1)
+        assert update.native_phase == "updates"
+        assert update.native_ordinal == 1
+        assert len(origin_receipts) == 1
+        with daemon._native_construction_lock:
+            anchor = copy.deepcopy(daemon._native_update_alignment_anchor)
+        assert anchor is not None
+        assert anchor["lastReceiptNonce"] == origin_receipts[0].nonce
+        assert backend.last_region_receipt.nonce == "late-global-substitute"
+        daemon.release_native_capture(Path(update.capture_path))
+    finally:
+        daemon._native_update_alignment_exit(token if "token" in locals() else None)
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_native_alignment_rejects_unfit_target_before_sleep() -> None:
+    """A target at the earliest deadline is refused before any wait chunk."""
+
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon._native_construction_lock = threading.RLock()
+    daemon._native_update_alignment_runner = {
+        "identity": "client-1",
+        "generation": 4,
+        "epoch": 2,
+    }
+    daemon._native_update_alignment_anchor = {
+        "nextOrdinal": 1,
+        "runId": "run-1",
+        "generation": 4,
+        "identity": "client-1",
+        "originCaptureStarted": 100.0,
+        "originUptimeMs": 0,
+        "lastUptimeMs": 0,
+    }
+    daemon._native_construction_operation_deadline = 100.5
+    daemon._native_construction_reservation = {"expiresMonotonic": 100.5}
+    daemon._native_clock = lambda: 100.0
+    daemon._check_native_poll_identity = lambda *_args, **_kwargs: None
+    identity = SimpleNamespace(fingerprint="client-1")
+    capability = SimpleNamespace(
+        epoch=2,
+        run_id="run-1",
+        generation=4,
+        expires_monotonic=100.5,
+    )
+
+    daemon._native_alignment_sleep = lambda _seconds: (_ for _ in ()).throw(AssertionError("unexpected wait"))
+    with pytest.raises(DriverError, match="cannot fit its deadline"):
+        daemon._native_update_alignment_wait(
+            identity=identity,
+            generation=4,
+            capability=capability,
+            ordinal=1,
+            deadline=100.5,
+        )
 
 
 def _runtime_daemon(
@@ -2340,7 +2741,7 @@ def test_runtime_native_observation_couples_provider_and_runner_spans(tmp_path: 
         tmp_path,
         backend=backend,
         journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
-        lease_path=tmp_path / "native-provider.lock",
+        lease_path=tmp_path / "native-provider-coupled.lock",
     )
     diagnostic = daemon._native_observation_diagnostic
     runner = NativeCalibrationRunner(driver, diagnostic=diagnostic)
@@ -2375,13 +2776,1333 @@ def test_runtime_native_observation_couples_provider_and_runner_spans(tmp_path: 
             assert driver.resolve_identity().fingerprint == identity.fingerprint
         pre_provider = [span for span in diagnostic._run_spans if span["name"] == "identity_pre_provider"]
         assert len(pre_provider) == 2
-        assert pre_provider[0]["requested_stage"] == "construct"
-        assert pre_provider[0]["requested_ordinal"] == 0
-        assert pre_provider[1]["requested_stage"] == "updates"
-        assert pre_provider[1]["requested_ordinal"] == 1
+        assert (pre_provider[0]["requested_stage"], pre_provider[0]["requested_ordinal"]) == (
+            "construct",
+            0,
+        )
+        assert (pre_provider[1]["requested_stage"], pre_provider[1]["requested_ordinal"]) == (
+            "updates",
+            1,
+        )
     finally:
         if not released and "observation" in locals() and observation.capture_path is not None:
             daemon.release_native_capture(Path(observation.capture_path))
+        daemon.request_shutdown()
+        driver.close()
+
+
+def _prime_native_update_budget_owner(
+    daemon: SessionDaemon,
+    driver: DesktopDriver,
+    identity: WindowIdentity,
+    *,
+    deferred: bool = True,
+) -> None:
+    """Install one private consumed owner as a real daemon admission fixture."""
+
+    guardian = driver.guardian
+    with guardian._lock:
+        guardian_generation = guardian.generation
+        guardian_armed = bool(guardian.armed)
+        lease_held = bool(guardian.lease.held)
+    epoch = 23
+    reservation_id = "native-update-budget-owner"
+    profile_fingerprint = daemon._native_construction_profile_fingerprint(driver.profile)
+    owner_start = _proc_start(os.getpid())
+    assert owner_start
+    operation_deadline = daemon._native_clock() + 30.0
+    with daemon._native_construction_lock:
+        daemon._native_construction_epoch = epoch
+        daemon._native_construction_reservation = {
+            "reservationId": reservation_id,
+            "reservationKind": "measure",
+            "reservationState": "consumed",
+            "controllerGeneration": 4,
+            "desktopLeaseHeld": lease_held,
+            "guardianGeneration": guardian_generation,
+            "guardianArmed": guardian_armed,
+            "ownerPid": os.getpid(),
+            "ownerProcessStart": owner_start,
+            "profileFingerprint": profile_fingerprint,
+            "identityFingerprint": identity.fingerprint,
+            "B0": "boot-1",
+            "expectedConstructorBoot": "native-construction:boot-1",
+            "expiresMonotonic": operation_deadline,
+        }
+        daemon._native_construction_run_context = {
+            "runId": "native-update-budget-run",
+            "epoch": epoch,
+            "generation": 4,
+            "guardianGeneration": guardian_generation,
+            "constructionB0": "boot-1",
+            "expectedConstructorBoot": "native-construction:boot-1",
+            "deferred": deferred,
+            "reservationId": reservation_id,
+            "closed": False,
+        }
+        daemon._native_construction_sealed_run_id = "native-update-budget-run"
+        daemon._native_construction_operation_deadline = operation_deadline
+
+
+def test_native_update_fast_eligibility_is_closed_and_revoke_blocks_producer(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    backend = _NativeProviderBackend(tmp_path, load_after_captures=0)
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-update-fast.lock",
+    )
+    monkeypatch.setattr(daemon, "_native_region_enabled", lambda: True)
+    identity = backend.identity
+    try:
+        _prime_native_update_budget_owner(daemon, driver, identity)
+        provider = driver.native_measurement_provider
+        capability = daemon._native_update_identity_budget_capability(provider, identity, "updates", 1)
+        assert capability is not None
+        assert capability.expected_state is ControllerState.NATIVE_CALIBRATION
+        assert capability.identity_fingerprint == identity.fingerprint
+        semantic_mutations = {
+            "generation": capability.generation + 1,
+            "guardian_generation": capability.guardian_generation + 1,
+            "epoch": capability.epoch + 1,
+            "reservation_id": "other-reservation",
+            "identity_fingerprint": "other-client",
+            "expected_state": ControllerState.PAUSED,
+            "profile_fingerprint": "other-profile",
+            "owner_pid": os.getpid() + 1,
+            "owner_process_start": "other-process",
+            "desktop_lease_held": False,
+            "guardian_armed": True,
+            "backend_id": capability.backend_id + 1,
+            "b0": "other-boot",
+            "expected_constructor_boot": "native-construction:other-boot",
+            "expires_monotonic": capability.expires_monotonic - 1.0,
+        }
+        for field, value in semantic_mutations.items():
+            mutated = replace(capability, **{field: value})
+            with daemon._native_construction_lock:
+                assert not daemon._native_update_capability_matches_locked(mutated, identity)
+        # Repeat the same checks against live owner state.  A self-consistent
+        # copied token must not survive a process, profile, lease, Guardian,
+        # epoch, or reservation handover in the daemon itself.
+        live_owner_mutations = {
+            "ownerPid": os.getpid() + 1,
+            "ownerProcessStart": "live-owner-replaced",
+            "profileFingerprint": "live-profile-replaced",
+            "controllerGeneration": capability.generation + 1,
+            "guardianGeneration": capability.guardian_generation + 1,
+            "B0": "live-boot-replaced",
+            "expectedConstructorBoot": "native-construction:live-boot-replaced",
+            "reservationId": "live-reservation-replaced",
+        }
+        with daemon._native_construction_lock:
+            reservation = daemon._native_construction_reservation
+            assert reservation is not None
+            for field, value in live_owner_mutations.items():
+                original = reservation[field]
+                reservation[field] = value
+                try:
+                    assert not daemon._native_update_capability_matches_locked(capability, identity)
+                finally:
+                    reservation[field] = original
+            original_epoch = daemon._native_construction_epoch
+            daemon._native_construction_epoch += 1
+            try:
+                assert (
+                    daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+                )
+            finally:
+                daemon._native_construction_epoch = original_epoch
+            context = daemon._native_construction_run_context
+            assert context is not None
+            original_run_id = context["runId"]
+            context["runId"] = "handover-run"
+            try:
+                assert (
+                    daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+                )
+            finally:
+                context["runId"] = original_run_id
+            original_b0 = reservation["B0"]
+            original_echo = reservation["expectedConstructorBoot"]
+            reservation["B0"] = "minted-after-owner-change"
+            try:
+                # A B0-only mutation must reject a newly minted witness.
+                assert (
+                    daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+                )
+                # The derived echo cannot make that changed owner self-consistent.
+                reservation["expectedConstructorBoot"] = "native-construction:minted-after-owner-change"
+                assert (
+                    daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+                )
+            finally:
+                reservation["B0"] = original_b0
+                reservation["expectedConstructorBoot"] = original_echo
+        changed_identity = replace(
+            identity, process_start="fresh-process-handover", fingerprint="fresh-client-handover"
+        )
+        assert (
+            daemon._native_update_identity_budget_capability(provider, changed_identity, "updates", 1) is None
+        )
+        guardian = driver.guardian
+        with guardian._lock:
+            original_guardian_generation = guardian.generation
+            original_armed = guardian.armed
+            guardian.generation += 1
+            try:
+                assert (
+                    daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+                )
+            finally:
+                guardian.generation = original_guardian_generation
+            guardian.armed = True
+            try:
+                assert (
+                    daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+                )
+            finally:
+                guardian.armed = original_armed
+        original_lease = guardian.lease
+        monkeypatch.setattr(guardian, "lease", SimpleNamespace(held=False))
+        try:
+            assert daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+        finally:
+            monkeypatch.setattr(guardian, "lease", original_lease)
+        original_profile = driver.profile
+        monkeypatch.setattr(driver, "profile", replace(original_profile, wine_prefix="/handover-profile"))
+        try:
+            assert daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+        finally:
+            monkeypatch.setattr(driver, "profile", original_profile)
+        assert daemon._native_update_identity_budget_capability(provider, identity, "construct", 0) is None
+
+        def wrapped_provider(*args: object, **kwargs: object) -> object:
+            return provider(*args, **kwargs)
+
+        assert (
+            daemon._native_update_identity_budget_capability(wrapped_provider, identity, "updates", 1) is None
+        )
+        resolve_calls: list[int] = []
+        original_resolve = driver.resolve_identity
+
+        def count_resolve(**kwargs: object) -> WindowIdentity:
+            resolve_calls.append(1)
+            return original_resolve(**kwargs)
+
+        monkeypatch.setattr(driver, "resolve_identity", count_resolve)
+        daemon._check_native_poll_identity(identity, 4)
+        assert resolve_calls
+        with daemon._native_construction_lock:
+            daemon._native_construction_run_context["deferred"] = False
+        assert daemon._native_update_identity_budget_capability(provider, identity, "updates", 1) is None
+        with daemon._native_construction_lock:
+            daemon._native_construction_run_context["deferred"] = True
+        cheap_passed = threading.Event()
+        resume = threading.Event()
+        failures: list[BaseException] = []
+        match_calls = 0
+        original_match = daemon._native_update_capability_matches_locked
+
+        def observe_cheap_match(candidate: object, candidate_identity: object = None) -> bool:
+            nonlocal match_calls
+            result = original_match(candidate, candidate_identity)
+            match_calls += 1
+            if result and match_calls == 1:
+                cheap_passed.set()
+            return result
+
+        monkeypatch.setattr(daemon, "_native_update_capability_matches_locked", observe_cheap_match)
+        observer_ready = threading.Event()
+        producer_starts: list[int] = []
+
+        def capture_native_region(
+            path: Path,
+            *,
+            identity: WindowIdentity,
+            rectangle: tuple[int, int, int, int],
+            observer_admission: object,
+            observer_reaped: object,
+            **_kwargs: object,
+        ) -> WindowIdentity:
+            assert rectangle == (80, 48, 256, 256)
+
+            class Gated:
+                def __init__(self, process: subprocess.Popen[bytes]) -> None:
+                    self.process = process
+
+                def release_admission_gate(self) -> None:
+                    return None
+
+            def spawn() -> Gated:
+                producer_starts.append(1)
+                return Gated(subprocess.Popen(["/bin/sleep", "2"]))
+
+            observer_ready.set()
+            assert resume.wait(timeout=2)
+            admitted = observer_admission(spawn)
+            process = admitted.process
+            process.terminate()
+            process.wait(timeout=2)
+            observer_reaped(process.pid)
+            return identity
+
+        monkeypatch.setattr(backend, "capture_native_region", capture_native_region)
+
+        def capture() -> None:
+            try:
+                daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=4,
+                    expected_state=ControllerState.NATIVE_CALIBRATION,
+                    native_capability=capability,
+                )
+            except BaseException as exc:
+                failures.append(exc)
+
+        worker = threading.Thread(target=capture, name="native-revoke-after-cheap")
+
+        def revoke_owner() -> None:
+            assert observer_ready.wait(timeout=2)
+            with daemon._native_construction_lock:
+                daemon._native_construction_reservation["reservationId"] = "handover"
+            resume.set()
+
+        revoker = threading.Thread(target=revoke_owner, name="native-revoke-owner")
+        revoker.start()
+        worker.start()
+        assert cheap_passed.wait(timeout=2)
+        worker.join(timeout=2)
+        revoker.join(timeout=2)
+        assert not worker.is_alive()
+        assert len(failures) == 1
+        assert isinstance(failures[0], DriverError)
+        assert "capability was revoked" in str(failures[0])
+        assert producer_starts == []
+    finally:
+        daemon.request_shutdown()
+        driver.close()
+
+
+@pytest.mark.parametrize("mutation", ["backend_pre", "backend_post"])
+def test_native_update_fast_identity_mutation_rejects_and_cleans_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    """The eligible capture path still fences fresh identity at producer boundaries."""
+
+    backend = _NativeProviderBackend(tmp_path, load_after_captures=0)
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / f"native-fast-{mutation}.lock",
+    )
+    monkeypatch.setattr(daemon, "_native_region_enabled", lambda: True)
+    identity = backend.identity
+    producer_starts: list[int] = []
+    captured_paths: list[Path] = []
+    try:
+        _prime_native_update_budget_owner(daemon, driver, identity)
+        capability = daemon._native_update_identity_budget_capability(
+            driver.native_measurement_provider, identity, "updates", 1
+        )
+        assert capability is not None
+
+        def capture_native_region(
+            path: Path,
+            *,
+            identity: WindowIdentity,
+            observer_admission: Callable[[Callable[[], Any]], Any],
+            observer_reaped: Callable[[int], None],
+            **_kwargs: object,
+        ) -> WindowIdentity:
+            captured_paths.append(path)
+            if mutation == "backend_pre":
+                backend.identity = replace(identity, fingerprint="backend-pre-handover")
+                assert backend.resolve_identity().fingerprint != identity.fingerprint
+                raise DriverError("telemetry region identity changed before capture")
+            assert backend.resolve_identity().fingerprint == identity.fingerprint
+            Image.new("RGB", (256, 256), (0, 0, 0)).save(path)
+
+            def spawn() -> object:
+                producer_starts.append(1)
+                return SimpleNamespace(process=subprocess.Popen(["/bin/sleep", "2"]))
+
+            admitted = observer_admission(spawn)
+            process = admitted.process
+            backend.identity = replace(identity, fingerprint="backend-post-handover")
+            process.terminate()
+            process.wait(timeout=2)
+            observer_reaped(process.pid)
+            try:
+                raise DriverError("telemetry region identity changed during capture")
+            finally:
+                # Match the configured producer's own failed-attempt cleanup
+                # contract: a post-capture identity refusal cannot publish a
+                # crop or leave its temporary directory behind.
+                daemon._remove_native_capture(path)
+
+        monkeypatch.setattr(backend, "capture_native_region", capture_native_region)
+        with pytest.raises(DriverError, match="identity changed"):
+            daemon._capture_native_frame_with_capture(
+                identity,
+                driver.new_native_decoder(),
+                expected_generation=4,
+                expected_state=ControllerState.NATIVE_CALIBRATION,
+                native_capability=capability,
+            )
+        assert captured_paths and all(not path.exists() for path in captured_paths)
+        assert producer_starts == ([] if mutation == "backend_pre" else [1])
+    finally:
+        backend.identity = identity
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_native_update_fast_trace_replay_uses_real_runner_and_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Exercise the real runner/provider graph against an independent publisher clock."""
+
+    vector_ms = {
+        "accepted_producer": 32.323,
+        "backend_post": 157.725,
+        "provider_hash": 0.027,
+        "provider_decode": 64.179,
+        "copy": 0.437,
+        "runner_hash": 0.263,
+        "runner_post": 224.612,
+        "cells": 44.599,
+        "runner_decode": 54.788,
+        "validation": 0.229,
+        "cleanup": 0.173,
+        "accepted_glue": 0.847,
+        "outer_pre_provider": 226.079,
+        "outer_gap": 0.040,
+        "owner_validation": 142.073,
+        "provider_poll": 140.391,
+        "poll_backend_glue": 0.167,
+        "backend_pre": 178.006,
+        "request_glue": 0.100,
+        "lock_to_shot": 117.511,
+        "alignment_capability": 0.500,
+        "alignment_target": 0.050,
+        "ack_admission": 0.500,
+    }
+
+    def run_case(
+        *,
+        mode: str,
+        root: Path,
+        jitter: str = "reference",
+        publisher_intervals: tuple[float, ...] = (1000.0,),
+        phase_age_ms: float = 0.0,
+        ack_tail_ms: float = 1.0,
+    ) -> dict[str, Any]:
+        assert jitter in {"reference", "slower", "alternating", "overbudget"}
+        assert publisher_intervals and all(interval > 0.0 for interval in publisher_intervals)
+        assert 0.0 <= phase_age_ms <= 999.0
+        assert ack_tail_ms >= 0.0
+        # The lock-to-shot measurement straddles the one-shot ACK boundary.
+        # Keep the named pre/post pieces explicit so the active-work model
+        # cannot charge the full lock span and then charge the ACK tail again.
+        case_vector = {
+            **vector_ms,
+            "lock_to_shot_before": vector_ms["lock_to_shot"] - ack_tail_ms,
+            "ack_tail": ack_tail_ms,
+        }
+        first_shot_names = (
+            "alignment_capability",
+            "alignment_capability",
+            "alignment_capability",
+            "outer_gap",
+            "alignment_capability",
+            "alignment_capability",
+            "alignment_capability",
+            "request_glue",
+            "backend_pre",
+            "poll_backend_glue",
+            "lock_to_shot_before",
+            "ack_tail",
+        )
+        phase_reference_startup_ms = sum(case_vector[name] for name in first_shot_names)
+        if jitter == "slower":
+            phase_reference_startup_ms += 4.0
+        elif jitter == "alternating":
+            phase_reference_startup_ms += 6.0
+        elif jitter == "overbudget":
+            phase_reference_startup_ms += 40.0
+        root.mkdir(parents=True, exist_ok=True)
+        backend = _NativeProviderBackend(root, load_after_captures=None)
+        # Publication time is supplied only by the independent virtual
+        # publisher below.  LifecycleBackend's default 10 ms fresh-frame
+        # advance would make capture time a second publisher clock.
+        # Construction/held captures still use the fixture's ordinary fresh
+        # capture timestamp advance.  Once the real update-memory-ready
+        # callback arms Measure, update publication timing is supplied only by
+        # the independent virtual publisher below.
+        backend.suppress_fresh_capture_clock = False
+        daemon, _backend, driver, _controller, config, clock = _runtime_daemon(
+            root,
+            backend=backend,
+            journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+            lease_path=root / "desktop.lock",
+        )
+        daemon._NATIVE_POLL_INTERVAL_SECONDS = 0.05
+        producer = root / "region-producer"
+        producer.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
+        producer.chmod(0o700)
+        producer_sha256 = hashlib.sha256(producer.read_bytes()).hexdigest()
+        profile = replace(
+            driver.profile,
+            telemetry_region_executable=producer,
+            telemetry_region_executable_sha256=producer_sha256,
+        )
+        driver.profile = profile
+        backend.profile = profile
+        daemon.config = replace(config, profile=profile)
+        driver.input_hierarchy = lambda **_kwargs: ((2, 3, "master", "pointer"), (3, 2, "master", "keyboard"))  # type: ignore[method-assign]
+        driver.native_memory_meter = _FixtureNativeMemoryMeter(backend.identity, monotonic=clock.monotonic)
+
+        def normalize_agent_wall_time() -> None:
+            if backend.agent_client is None:
+                return
+            lua = backend.agent_client.lua
+            # The protocol wall clock is integer seconds while GetTime() may
+            # retain the selected fractional publisher interval for uptimeMs.
+            # Keep those two clocks distinct in this real Lua fixture.
+            lua.globals().time = lambda: int(float(lua.globals()._now))
+            lua.execute("time = function() return math.floor(_now) end")
+            lua.globals()["__native_uptime_seconds"] = float(lua.globals()._now) - 1760000000.0
+            lua.execute("GetTime = function() return __native_uptime_seconds end")
+
+        original_baseline_ready = driver.notify_native_baseline_ready
+
+        def baseline_ready(identity: WindowIdentity, value: int) -> None:
+            original_baseline_ready(identity, value)
+            # The addon is loaded only after the post-reset absence proof and
+            # baseline-ready boundary, exactly where production permits it.
+            backend.load_agent()
+            # ``load_agent`` only arms the real lifecycle loader; instantiate
+            # it here so the fixture's independent publisher clock is applied
+            # before the first timer callback.
+            backend._load_real_agent()
+            normalize_agent_wall_time()
+
+        driver.notify_native_baseline_ready = baseline_ready
+        publisher_history: list[int] = []
+        publisher_times: list[float] = []
+        publisher_index = 0
+        next_publication_ms: float | None = None
+        measure_publication_time: float | None = None
+        phase_setup_wait_ms = 0.0
+        # The measured pre-sample setup is about 302 ms in this fixture.  High
+        # phase-age cases explicitly delay external device startup by the
+        # remainder, without advancing the active consumer budget.
+        charge_total = 0.0
+        charge_names: list[str] = []
+        shot_records: list[dict[str, Any]] = []
+        accepted_marks: dict[int, float] = {}
+        accepted_wait_marks: dict[int, float] = {}
+        producer_starts: list[int] = []
+        pre_ack_calls: list[tuple[int, float]] = []
+        capability_match_calls = 0
+        intentional_wait_ms = 0.0
+        charging = False
+        alignment_waiting = False
+        current_update_attempt = 0
+
+        def publish_due() -> None:
+            nonlocal next_publication_ms, publisher_index
+            if backend.agent_client is None or next_publication_ms is None:
+                return
+            while next_publication_ms <= clock.value * 1000.0 + 1e-6:
+                interval = publisher_intervals[publisher_index % len(publisher_intervals)]
+                lua = backend.agent_client.lua.globals()
+                lua["__native_uptime_seconds"] = float(lua["__native_uptime_seconds"]) + interval / 1000.0
+                lua["_now"] = int(float(lua["_now"])) + 1
+                lua["_runTimers"]()
+                publisher_history.append(
+                    publisher_history[-1] + int(round(interval))
+                    if publisher_history
+                    else int(round(interval))
+                )
+                publisher_times.append(clock.value)
+                publisher_index += 1
+                next_interval = publisher_intervals[publisher_index % len(publisher_intervals)]
+                next_publication_ms += next_interval
+
+        def advance_clock(seconds: float) -> None:
+            """Advance through each independent publisher deadline exactly."""
+
+            if seconds < 0.0:
+                raise AssertionError("negative virtual clock advance")
+            target = clock.value + seconds
+            while clock.value + 1e-12 < target:
+                if next_publication_ms is None:
+                    clock.advance(target - clock.value)
+                    break
+                publication_boundary = next_publication_ms / 1000.0
+                if publication_boundary <= clock.value + 1e-9:
+                    publish_due()
+                    continue
+                step = min(target - clock.value, publication_boundary - clock.value)
+                clock.advance(step)
+                if next_publication_ms is not None and next_publication_ms <= clock.value * 1000.0 + 1e-6:
+                    publish_due()
+
+        backend.native_publication_callback = publish_due
+        original_service_agent_operator = backend._service_agent_operator
+
+        def service_agent_operator() -> None:
+            nonlocal next_publication_ms, measure_publication_time
+            pending = backend.agent_commands[0] if backend.agent_commands else None
+            original_service_agent_operator()
+            if pending is not None and pending[0] == "measure" and pending[1] == 0:
+                # Measure itself supplies update ordinal 1.  Arm the
+                # independent publisher timer at that actual command
+                # publication, before any consumer capture work begins.
+                measure_publication_time = clock.value
+                next_publication_ms = measure_publication_time * 1000.0 + publisher_intervals[0]
+
+        backend._service_agent_operator = service_agent_operator  # type: ignore[method-assign]
+
+        def record_agent_frame_sample() -> None:
+            """Record the exact frame immediately before base capture reads it."""
+
+            if backend.agent_client is None:
+                return
+            raw = backend.agent_client.agent_frame
+            frame = decode_frame(raw, plan_item_ids=load_catalog().scan_plan()["itemIDs"])
+            render = frame.snapshot["render"]
+            prior_publications = [when for when in publisher_times if when <= clock.value + 1e-9]
+            publication_time = prior_publications[-1] if prior_publications else None
+            if (
+                publication_time is None
+                and render["nativePhase"] == "updates"
+                and render["nativeOrdinal"] == 1
+            ):
+                # The first update frame is the direct result of the actual
+                # Measure command; later frames have an independent timer
+                # publication marker.
+                publication_time = measure_publication_time
+            shot_records.append(
+                {
+                    "attempt": current_update_attempt,
+                    "capture_started": clock.value,
+                    "active_work_ms": charge_total,
+                    "intentional_wait_ms": intentional_wait_ms,
+                    "phase": render["nativePhase"],
+                    "ordinal": render["nativeOrdinal"],
+                    "sequence": frame.sequence,
+                    "boot": frame.boot,
+                    "crc32": frame.crc32,
+                    "publisher_uptime_ms": frame.uptime_ms,
+                    "phase_age_ms": (
+                        (clock.value - publication_time) * 1000.0 if publication_time is not None else None
+                    ),
+                    "update_count": render["updateCount"],
+                }
+            )
+
+        backend.agent_frame_sampling_callback = record_agent_frame_sample
+
+        class ReplayDiagnostic(_NativeObservationDiagnostic):
+            def _charge(self, name: str) -> None:
+                nonlocal charge_total
+                if not charging:
+                    return
+                extra = 0.0
+                if name in {"backend_pre", "backend_post", "lock_to_shot_before"}:
+                    if jitter == "slower":
+                        extra = 2.0
+                    elif jitter == "overbudget" and name in {"backend_pre", "backend_post"}:
+                        extra = 40.0
+                    elif jitter == "alternating":
+                        if current_update_attempt % 2:
+                            extra = {
+                                "backend_pre": 3.0,
+                                "backend_post": 1.0,
+                                "lock_to_shot_before": 3.0,
+                            }[name]
+                        elif name == "backend_post":
+                            extra = 1.0
+                charge_names.append(name)
+                charge_total += case_vector[name] + extra
+                advance_clock((case_vector[name] + extra) / 1000.0)
+
+            @contextmanager
+            def span(self, name: str, **kwargs: object):  # type: ignore[no-untyped-def]
+                mapped = {
+                    "identity_backend_pre": "backend_pre",
+                    "identity_backend_post": "backend_post",
+                    "identity_pre_provider": "outer_pre_provider",
+                    "identity_post_capture": "runner_post",
+                }.get(name, name)
+                # Capability matching is charged by the wrapper around the
+                # actual daemon validator below.  The surrounding diagnostic
+                # span is retained for attribution but must not double-count
+                # the same invocation.
+                if mapped in case_vector and mapped != "alignment_capability":
+                    self._charge(mapped)
+                with super().span(name, **kwargs):
+                    yield
+
+            def begin_attempt(self, stage: str, ordinal: int) -> None:
+                nonlocal current_update_attempt
+                if stage == "updates":
+                    current_update_attempt += 1
+                    self._charge("outer_gap")
+                super().begin_attempt(stage, ordinal)
+
+            def finish_attempt(self, *, status: str, error: str | None = None) -> None:
+                if status == "accepted" and self._current is not None:
+                    actual = self._current.get("actual", {})
+                    if actual.get("phase") == "updates" and actual.get("ordinal") is not None:
+                        matching_shots = [
+                            shot
+                            for shot in reversed(shot_records)
+                            if shot["phase"] == actual.get("phase")
+                            and shot["ordinal"] == actual.get("ordinal")
+                            and shot["sequence"] == actual.get("sequence")
+                        ]
+                        if not matching_shots:
+                            raise AssertionError(
+                                "accepted provider result has no matching Agent sampling record"
+                            )
+                        shot = matching_shots[0]
+                        accepted_marks[int(actual["ordinal"])] = float(shot["active_work_ms"])
+                        accepted_wait_marks[int(actual["ordinal"])] = float(shot["intentional_wait_ms"])
+                super().finish_attempt(status=status, error=error)
+
+        diagnostic = ReplayDiagnostic(daemon)
+        daemon._native_observation_diagnostic = diagnostic
+        original_capture = LifecycleBackend.capture
+
+        def capture_native_region(
+            path: Path,
+            *,
+            identity: WindowIdentity,
+            rectangle: tuple[int, int, int, int],
+            observer_admission: Callable[[Callable[[], Any]], Any],
+            observer_reaped: Callable[[int], None],
+            deadline_monotonic: float | None = None,
+            _pre_ack_admission: Callable[[int, Callable[[], None]], None] | None = None,
+            **_kwargs: object,
+        ) -> WindowIdentity:
+            nonlocal next_publication_ms
+            diagnostic._charge("request_glue")
+            full = path.with_name(f"{path.name}.desktop.png")
+            shot_start = len(shot_records)
+            with _identity_latency_barrier("backend_pre"):
+                if backend.resolve_identity().fingerprint != identity.fingerprint:
+                    raise DriverError("replay backend identity changed before capture")
+
+            class GatedProcess:
+                def __init__(self, process: subprocess.Popen[bytes]) -> None:
+                    self.process = process
+
+                def release_admission_gate(self) -> None:
+                    return None
+
+            def spawn() -> GatedProcess:
+                producer_starts.append(1)
+                diagnostic._charge("lock_to_shot_before")
+                return GatedProcess(subprocess.Popen(["/bin/sleep", "2"]))
+
+            admitted = observer_admission(spawn)
+            process = admitted.process
+            ack_sent: float | None = None
+
+            def dispatch_ack_once() -> None:
+                nonlocal ack_sent
+                if ack_sent is not None:
+                    raise DriverError("fixture producer ACK was dispatched twice")
+                diagnostic._charge("ack_tail")
+                ack_sent = clock.value
+
+            try:
+                if _pre_ack_admission is None:
+                    dispatch_ack_once()
+                else:
+                    pre_ack_calls.append((process.pid, clock.value))
+                    _pre_ack_admission(process.pid, dispatch_ack_once)
+            except BaseException:
+                process.kill()
+                process.wait()
+                observer_reaped(process.pid)
+                full.unlink(missing_ok=True)
+                diagnostic._charge("accepted_glue")
+                raise
+            try:
+                # Use the base lifecycle capture seam so Agent publication is
+                # driven only by the independent virtual publisher callback,
+                # never by the provider's capture helper.
+                # Service any publisher timer that became due during the
+                # pre-shot admission work immediately before the physical
+                # sample.  This is the producer boundary, not a second read
+                # of the same frame, and prevents a stale-frame reread from
+                # masquerading as a capture.
+                publish_due()
+                if (
+                    backend.agent_client is None
+                    and backend.load_after_captures is not None
+                    and backend.captures >= backend.load_after_captures
+                ):
+                    backend.load_agent()
+                if backend.agent_client is None and backend.agent_load_requested:
+                    backend._load_real_agent()
+                    normalize_agent_wall_time()
+                original_capture(
+                    backend,
+                    full,
+                    identity=identity,
+                    deadline_monotonic=deadline_monotonic,
+                )
+                sampled_shots = shot_records[shot_start:]
+                if not sampled_shots and backend.agent_client is not None:
+                    raise AssertionError("capture returned without a sampled Agent frame")
+                # The pre-addon absence proof is an ordinary dark crop, not a
+                # publisher shot.  It has no sampling record and is never
+                # used for accepted update boundaries.
+                sampled_shot = sampled_shots[-1] if sampled_shots else {"capture_started": clock.value}
+                # Producer work begins after the exact sampled frame boundary;
+                # setup and backend-post work remain on the same real attempt.
+                diagnostic._charge("accepted_producer")
+                with Image.open(full) as image:
+                    image.crop((80, 48, 336, 304)).save(path, format="PNG", compress_level=0)
+                with _identity_latency_barrier("backend_post"):
+                    if backend.resolve_identity().fingerprint != identity.fingerprint:
+                        raise DriverError("replay backend identity changed after capture")
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+                finalized_receipt = SimpleNamespace(
+                    nonce=f"replay-{len(producer_starts)}-{clock.value}",
+                    rectangle=rectangle,
+                    executable_sha256=producer_sha256,
+                    owner_pid=process.pid,
+                    owner_process_start=_proc_start(process.pid) or "unknown",
+                    owner_ppid=os.getppid(),
+                    owner_pgid=os.getpgrp(),
+                    owner_exec_fd=-1,
+                    owner_branch="fixture",
+                    request_started=clock.value,
+                    lock_acquired=clock.value,
+                    ack_sent=ack_sent if ack_sent is not None else clock.value,
+                    capture_returned=clock.value,
+                    output_path_digest=digest,
+                    output_sha256=digest,
+                    output_bytes=path.stat().st_size,
+                    capture_started=sampled_shot["capture_started"],
+                    capture_epoch=0,
+                    attempt_retired=True,
+                )
+                backend.last_region_receipt = finalized_receipt
+                receipt_sink = _kwargs.get("_receipt_sink")
+                if receipt_sink is not None:
+                    if not callable(receipt_sink):
+                        raise AssertionError("replay receipt sink is not callable")
+                    receipt_sink(finalized_receipt)
+            finally:
+                process.kill()
+                process.wait()
+                observer_reaped(process.pid)
+                full.unlink(missing_ok=True)
+                # This glue is charged only after the actual producer release
+                # and source-artifact cleanup, never at admission.
+                diagnostic._charge("accepted_glue")
+            return identity
+
+        backend.capture_native_region = capture_native_region  # type: ignore[method-assign]
+        original_capability_match = daemon._native_update_capability_matches_locked
+
+        def timed_capability_match(*args: object, **kwargs: object) -> Any:
+            nonlocal capability_match_calls
+            result = original_capability_match(*args, **kwargs)
+            if charging:
+                capability_match_calls += 1
+                # This is the production validator itself, so every direct
+                # eligibility/poll/pre-ACK/final-ACK invocation is charged
+                # exactly once, including calls outside a diagnostic span.
+                diagnostic._charge("alignment_capability")
+            return result
+
+        daemon._native_update_capability_matches_locked = timed_capability_match  # type: ignore[method-assign]
+        original_check = daemon._check_native_poll_identity
+
+        def timed_check(*args: object, **kwargs: object) -> Any:
+            # Eligible capability validation is charged at each real
+            # production matcher/validator span.  Only the legacy fallback
+            # poll has no such span and is charged here.
+            if charging and kwargs.get("native_capability") is None:
+                diagnostic._charge("owner_validation")
+                diagnostic._charge("provider_poll")
+            return original_check(*args, **kwargs)
+
+        daemon._check_native_poll_identity = timed_check  # type: ignore[method-assign]
+        original_hold = driver.notify_native_hold_required
+        original_ready = driver.notify_native_memory_ready
+        original_resume = driver.notify_native_resume_required
+        driver.notify_native_hold_required = lambda identity: (
+            original_hold(identity),
+            backend.request_agent_command("hold", delayed_captures=0),
+        )
+
+        def ready(identity: WindowIdentity, pending: Any) -> None:
+            nonlocal charging, phase_setup_wait_ms, next_publication_ms
+            original_ready(identity, pending)
+            charging = True
+            backend.suppress_fresh_capture_clock = True
+            backend.request_agent_command("measure", delayed_captures=0)
+            if phase_age_ms > phase_reference_startup_ms:
+                # This is external device startup before the first provider
+                # sample, rather than consumer work.  Service Measure and
+                # publish its first frame at that real command boundary, then
+                # let the selected phase age elapse before Runner starts.
+                if backend.agent_client is None:
+                    backend.load_agent()
+                    backend._load_real_agent()
+                    normalize_agent_wall_time()
+                backend._service_agent_operator()
+                phase_setup_wait_ms = phase_age_ms - phase_reference_startup_ms
+                advance_clock(phase_setup_wait_ms / 1000.0)
+
+        driver.notify_native_memory_ready = ready
+        driver.notify_native_resume_required = lambda identity, boundary: (
+            original_resume(identity, boundary),
+            backend.request_agent_command("resume", delayed_captures=0),
+        )
+
+        original_wait = daemon._native_update_alignment_wait
+        original_alignment_sleep = getattr(daemon, "_native_alignment_sleep", None)
+        original_alignment_target = daemon._native_update_alignment_target
+        original_provider_sleep_hook = getattr(daemon, "_native_provider_sleep_hook", None)
+        original_eligibility = driver._native_identity_budget_eligibility
+        try:
+            with daemon._native_construction_lock:
+                daemon._native_construction_handshake = {"state": "running"}
+                daemon._native_construction_reset_history_locked()
+                # Every timing mode exercises the same deferred owner,
+                # reservation and construction proof.  The old mode disables
+                # only the eligibility witness below; it must retain the
+                # actual deferred-owner validation costs.
+                _prime_native_update_budget_owner(daemon, driver, backend.identity)
+                extended_deadline = clock.value + 200.0
+                daemon._native_construction_operation_deadline = extended_deadline
+                assert daemon._native_construction_reservation is not None
+                daemon._native_construction_reservation["expiresMonotonic"] = extended_deadline
+                construction_capability = daemon._native_construction_capability_locked()
+            daemon._native_bootstrap_capture(
+                expected_generation=4, construction_capability=construction_capability
+            )
+            if mode == "old":
+                driver._native_identity_budget_eligibility = lambda *_args: None
+            elif mode == "reduced":
+                # Keep the real capability/anchor/final-ACK path, but remove
+                # only its intentional publisher wait.  The target helper is
+                # test-local and leaves the immutable publisher origin intact;
+                # physical samples therefore occur back-to-back without
+                # reclassifying a sleep as active work.
+                daemon._native_update_alignment_target = (  # type: ignore[method-assign]
+                    lambda _origin, _elapsed: clock.value
+                )
+            else:
+
+                def tracked_alignment_wait(**kwargs: object) -> None:
+                    nonlocal alignment_waiting
+                    alignment_waiting = True
+                    try:
+                        original_wait(**kwargs)
+                    finally:
+                        alignment_waiting = False
+
+                daemon._native_update_alignment_wait = tracked_alignment_wait  # type: ignore[method-assign]
+            runner = NativeCalibrationRunner(driver, monotonic=clock.monotonic, diagnostic=diagnostic)
+
+            def virtual_sleep(seconds: float) -> None:
+                nonlocal intentional_wait_ms
+                if seconds < 0:
+                    raise AssertionError("negative virtual sleep")
+                if charging and alignment_waiting:
+                    intentional_wait_ms += seconds * 1000.0
+                # Provider retry polling is a wait and remains outside the
+                # active-work budget.  The provider-to-backend glue charge is
+                # recorded at the real eligible capture edge, not here; a
+                # retry must not double-charge that edge.
+                advance_clock(seconds)
+
+            # Inject only the daemon's alignment wait.  The process-wide
+            # ``time.sleep`` binding remains untouched for Guardian and
+            # subprocess lifecycle threads.
+            process_sleep = time.sleep
+            daemon._native_alignment_sleep = virtual_sleep  # type: ignore[attr-defined]
+            daemon._native_provider_sleep_hook = virtual_sleep  # type: ignore[attr-defined]
+            evidence = runner.run()
+            assert time.sleep is process_sleep
+            transitions = [
+                accepted_marks[index] - accepted_marks[index - 1]
+                for index in range(2, 100)
+                if index in accepted_marks and index - 1 in accepted_marks
+            ]
+            return {
+                "mode": mode,
+                "evidence": evidence,
+                "error": None,
+                "accepted": sorted(accepted_marks),
+                "producer_starts": producer_starts,
+                "pre_ack_calls": pre_ack_calls,
+                "capability_match_calls": capability_match_calls,
+                "publisher_history": publisher_history,
+                "publisher_times": publisher_times,
+                "publisher_intervals": publisher_intervals,
+                "requested_phase_age_ms": phase_age_ms,
+                "phase_setup_wait_ms": phase_setup_wait_ms,
+                "ack_tail_ms": ack_tail_ms,
+                "active_transitions": transitions,
+                "active_total_ms": charge_total,
+                "intentional_wait_ms": intentional_wait_ms,
+                "charge_names": charge_names,
+                "accepted_wait_marks": accepted_wait_marks,
+                "shot_records": shot_records,
+                "captures": backend.captures,
+                "agent_loaded": backend.agent_client is not None,
+            }
+        except BaseException as exc:
+            transitions = [
+                accepted_marks[index] - accepted_marks[index - 1]
+                for index in range(2, 100)
+                if index in accepted_marks and index - 1 in accepted_marks
+            ]
+            return {
+                "mode": mode,
+                "evidence": None,
+                "error": exc,
+                "accepted": sorted(accepted_marks),
+                "producer_starts": producer_starts,
+                "pre_ack_calls": pre_ack_calls,
+                "capability_match_calls": capability_match_calls,
+                "publisher_history": publisher_history,
+                "publisher_times": publisher_times,
+                "publisher_intervals": publisher_intervals,
+                "requested_phase_age_ms": phase_age_ms,
+                "phase_setup_wait_ms": phase_setup_wait_ms,
+                "ack_tail_ms": ack_tail_ms,
+                "active_transitions": transitions,
+                "active_total_ms": charge_total,
+                "intentional_wait_ms": intentional_wait_ms,
+                "charge_names": charge_names,
+                "accepted_wait_marks": accepted_wait_marks,
+                "shot_records": shot_records,
+                "captures": backend.captures,
+                "agent_loaded": backend.agent_client is not None,
+            }
+        finally:
+            driver._native_identity_budget_eligibility = original_eligibility
+            daemon._native_update_alignment_wait = original_wait
+            daemon._native_update_alignment_target = original_alignment_target  # type: ignore[method-assign]
+            if original_alignment_sleep is None:
+                try:
+                    del daemon._native_alignment_sleep
+                except AttributeError:
+                    pass
+            else:
+                daemon._native_alignment_sleep = original_alignment_sleep  # type: ignore[attr-defined]
+            if original_provider_sleep_hook is None:
+                try:
+                    del daemon._native_provider_sleep_hook
+                except AttributeError:
+                    pass
+            else:
+                daemon._native_provider_sleep_hook = original_provider_sleep_hook  # type: ignore[attr-defined]
+            daemon._native_update_capability_matches_locked = original_capability_match  # type: ignore[method-assign]
+            daemon.request_shutdown()
+            driver.close()
+
+    def persist_timeline(label: str, result: dict[str, Any], root: Path) -> tuple[Path, str]:
+        destination = Path(os.environ.get("NATIVE_ALIGNMENT_EVIDENCE_DIR", root))
+        destination.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(destination, 0o700)
+        payload = {
+            "schema": "native-identity-budget-replay-v2",
+            "label": label,
+            "mode": result["mode"],
+            "error": repr(result["error"]) if result["error"] is not None else None,
+            "accepted": result["accepted"],
+            "captures": result["captures"],
+            "publisher_history": result["publisher_history"],
+            "publisher_times": result["publisher_times"],
+            "publisher_intervals": result["publisher_intervals"],
+            "requested_phase_age_ms": result["requested_phase_age_ms"],
+            "phase_setup_wait_ms": result["phase_setup_wait_ms"],
+            "ack_tail_ms": result["ack_tail_ms"],
+            "active_transitions": result["active_transitions"],
+            "active_total_ms": result["active_total_ms"],
+            "intentional_wait_ms": result["intentional_wait_ms"],
+            "accepted_wait_marks": result["accepted_wait_marks"],
+            "pre_ack_calls": result["pre_ack_calls"],
+            "capability_match_calls": result["capability_match_calls"],
+            "charge_names": result["charge_names"],
+            "shot_records": result["shot_records"],
+        }
+        timeline = destination / f"{label}-timeline.json"
+        timeline.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
+        os.chmod(timeline, 0o600)
+        return timeline, hashlib.sha256(timeline.read_bytes()).hexdigest()
+
+    case_specs: dict[str, dict[str, Any]] = {
+        "reference": {
+            "jitter": "reference",
+            "publisher_intervals": (1000.0,),
+            "phase_age_ms": 0.0,
+            "ack_tail_ms": 1.0,
+            "expected": "pass",
+        },
+        "slower": {
+            "jitter": "slower",
+            "publisher_intervals": (1007.0,),
+            "phase_age_ms": 500.0,
+            "ack_tail_ms": 1.0,
+            "expected": "pass",
+        },
+        "alternating": {
+            "jitter": "alternating",
+            "publisher_intervals": (1000.0, 1014.0),
+            "phase_age_ms": 0.0,
+            "ack_tail_ms": 1.0,
+            "expected": "pass",
+        },
+        "phase900": {
+            "jitter": "reference",
+            "publisher_intervals": (1007.0,),
+            "phase_age_ms": 900.0,
+            "ack_tail_ms": 5.0,
+            "expected": "pass",
+        },
+        "overbudget": {
+            "jitter": "overbudget",
+            "publisher_intervals": (1000.0,),
+            "phase_age_ms": 0.0,
+            "ack_tail_ms": 1.0,
+            "expected": "fail",
+        },
+        "phase951": {
+            "jitter": "reference",
+            "publisher_intervals": (1000.0,),
+            "phase_age_ms": 951.0,
+            "ack_tail_ms": 1.0,
+            "expected": "fail",
+        },
+        "publisher1100": {
+            "jitter": "reference",
+            "publisher_intervals": (1100.0,),
+            "phase_age_ms": 0.0,
+            "ack_tail_ms": 1.0,
+            "expected": "fail",
+        },
+    }
+
+    def assert_case(label: str, result: dict[str, Any], spec: dict[str, Any]) -> None:
+        timeline, timeline_sha256 = persist_timeline(label, result, tmp_path / label)
+        first_phase_age = next(
+            (
+                shot["phase_age_ms"]
+                for shot in result["shot_records"]
+                if shot["phase"] == "updates" and shot["ordinal"] == 1
+            ),
+            None,
+        )
+        print(
+            "NATIVE-ALIGNMENT-CASE",
+            json.dumps(
+                {
+                    "case": label,
+                    "error": repr(result["error"]) if result["error"] is not None else None,
+                    "accepted": result["accepted"],
+                    "max_active_transition_ms": max(result["active_transitions"], default=0.0),
+                    "requested_phase_age_ms": result["requested_phase_age_ms"],
+                    "first_phase_age_ms": first_phase_age,
+                    "timeline": str(timeline),
+                    "timeline_sha256": timeline_sha256,
+                },
+                sort_keys=True,
+            ),
+        )
+        if spec["expected"] == "pass":
+            assert result["error"] is None, repr(result)
+            assert result["accepted"] == list(range(1, 100)), repr(result)
+            assert result["evidence"].render["updateCount"] >= 100
+            assert result["evidence"].resume_sequence == result["evidence"].sequence + 1
+            assert max(result["active_transitions"], default=1000.0) <= 900.0, repr(result)
+            assert result["intentional_wait_ms"] > 0.0
+            first_shot = next(
+                shot for shot in result["shot_records"] if shot["phase"] == "updates" and shot["ordinal"] == 1
+            )
+            assert first_shot["phase_age_ms"] is not None
+            assert first_shot["phase_age_ms"] == pytest.approx(spec["phase_age_ms"], abs=0.01)
+            assert first_shot["phase_age_ms"] <= 900.0
+        else:
+            # Negative cases must fail through the real runner/provider graph
+            # or visibly exceed active work; they may not be converted into a
+            # synthetic protocol result by the fixture.
+            assert (
+                result["error"] is not None
+                or len(result["accepted"]) < 99
+                or max(result["active_transitions"], default=0.0) > 900.0
+            ), repr(result)
+            if label == "phase951":
+                assert first_phase_age == pytest.approx(spec["phase_age_ms"], abs=0.01)
+                assert result["error"] is not None
+                assert "returned" in str(result["error"]) or "sequence" in str(result["error"])
+        assert result["pre_ack_calls"] or spec["expected"] == "fail"
+        assert result["charge_names"].count("alignment_capability") == result["capability_match_calls"]
+        if spec["expected"] == "pass":
+            assert result["capability_match_calls"] >= 4 * 99
+            assert result["capability_match_calls"] == 1085
+            assert result["charge_names"].count("poll_backend_glue") == 99
+            # The production graph has 98 update waits after the initial
+            # publication, while the old-owner fallback performs exactly two
+            # real validation/poll attempts during the held/100 and
+            # resume/0 phases. Keep these counts tied to the actual charge
+            # stream so a names-only replay cannot satisfy the model.
+            assert result["charge_names"].count("ack_admission") == 98
+            assert result["charge_names"].count("alignment_target") == 98
+            assert result["charge_names"].count("owner_validation") == 2
+            assert result["charge_names"].count("provider_poll") == 2
+        shot_keys = {
+            (shot["attempt"], shot["capture_started"], shot["sequence"]) for shot in result["shot_records"]
+        }
+        assert len(shot_keys) == len(result["shot_records"])
+
+    selected_case = os.environ.get("NATIVE_ALIGNMENT_CASE")
+    if selected_case == "baseline":
+        old = run_case(mode="old", root=tmp_path / "baseline-old")
+        reduced = run_case(mode="reduced", root=tmp_path / "baseline-reduced")
+        aligned = run_case(mode="aligned", root=tmp_path / "baseline-aligned")
+        for label, result in (("old", old), ("reduced", reduced)):
+            error_text = str(result["error"]) if result["error"] is not None else None
+            print(
+                "NATIVE-ALIGNMENT-BASELINE",
+                json.dumps(
+                    {
+                        "case": label,
+                        "error": error_text,
+                        "accepted": len(result["accepted"]),
+                        "max_active_transition_ms": max(result["active_transitions"], default=0.0),
+                        "poll_backend_glue": result["charge_names"].count("poll_backend_glue"),
+                    },
+                    sort_keys=True,
+                ),
+            )
+            if label == "old":
+                assert error_text is not None
+                assert "returned" in error_text, repr(result)
+                assert len(result["accepted"]) < 99, repr(result)
+            else:
+                assert error_text is None, repr(result)
+                assert max(result["active_transitions"], default=0.0) > 900.0, repr(result)
+        assert aligned["error"] is None
+        return
+    if selected_case is not None:
+        if selected_case not in case_specs:
+            raise pytest.UsageError(f"NATIVE_ALIGNMENT_CASE must be one of {sorted(case_specs)} or baseline")
+        spec = case_specs[selected_case]
+        selected = run_case(
+            mode="aligned",
+            root=tmp_path / selected_case,
+            jitter=spec["jitter"],
+            publisher_intervals=spec["publisher_intervals"],
+            phase_age_ms=spec["phase_age_ms"],
+            ack_tail_ms=spec["ack_tail_ms"],
+        )
+        assert_case(selected_case, selected, spec)
+        return
+
+    for label, spec in case_specs.items():
+        selected = run_case(
+            mode="aligned",
+            root=tmp_path / label,
+            jitter=spec["jitter"],
+            publisher_intervals=spec["publisher_intervals"],
+            phase_age_ms=spec["phase_age_ms"],
+            ack_tail_ms=spec["ack_tail_ms"],
+        )
+        assert_case(label, selected, spec)
+    return
+
+
+def test_runtime_native_budget_rejects_fabricated_bound_witness(tmp_path: Path) -> None:
+    """A truthy witness from a same-owner fabricated trio cannot skip guards."""
+
+    backend = _NativeProviderBackend(tmp_path, load_after_captures=0)
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-fabricated-witness.lock",
+    )
+    try:
+        identity = backend.identity
+        runner = NativeCalibrationRunner(driver)
+        provider = driver.native_measurement_provider
+        original_eligibility = driver._native_identity_budget_eligibility
+        original_verifier = driver._native_identity_budget_capability_valid
+
+        def fabricated_eligibility(*_args: object) -> object:
+            return object()
+
+        def fabricated_verifier(*_args: object) -> bool:
+            return True
+
+        # Bind both fabricated methods to the real daemon so owner identity
+        # alone cannot make this pass; implementation identity is required.
+        driver._native_identity_budget_eligibility = fabricated_eligibility.__get__(daemon, type(daemon))
+        driver._native_identity_budget_capability_valid = fabricated_verifier.__get__(daemon, type(daemon))
+        try:
+            assert runner._native_update_budget_capability(provider, identity, 1) is None
+        finally:
+            driver._native_identity_budget_eligibility = original_eligibility
+            driver._native_identity_budget_capability_valid = original_verifier
+    finally:
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_runtime_native_budget_rejects_same_shape_foreign_owner(tmp_path: Path) -> None:
+    """Matching private method names on another owner are not daemon proof."""
+
+    backend = _NativeProviderBackend(tmp_path, load_after_captures=0)
+    daemon, _backend, driver, _controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
+        lease_path=tmp_path / "native-foreign-witness.lock",
+    )
+
+    class ForeignOwner:
+        def __init__(self, bound_driver: DesktopDriver) -> None:
+            self.driver = bound_driver
+
+        def _native_measurement_provider(self, *_args: object) -> object:
+            return object()
+
+        def _native_update_identity_budget_capability(self, *_args: object) -> object:
+            return object()
+
+        def _native_update_identity_budget_capability_valid(self, *_args: object) -> bool:
+            return True
+
+    try:
+        foreign = ForeignOwner(driver)
+        runner = NativeCalibrationRunner(driver)
+        provider = foreign._native_measurement_provider
+        driver._native_identity_budget_eligibility = foreign._native_update_identity_budget_capability
+        driver._native_identity_budget_capability_valid = (
+            foreign._native_update_identity_budget_capability_valid
+        )
+        assert runner._native_update_budget_capability(provider, backend.identity, 1) is None
+        assert foreign.driver is driver
+    finally:
         daemon.request_shutdown()
         driver.close()
 

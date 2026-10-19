@@ -24,7 +24,10 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from .driver import WindowIdentity
 
 from .input_events import (
     RAW_MOTION_DETAIL,
@@ -4276,6 +4279,23 @@ class NativeCalibrationRunner:
         self.diagnostic = diagnostic
         self.memory_meter: LinuxProcStatusVmHwmReset5 | None = getattr(driver, "native_memory_meter", None)
 
+    def _publish_resume_required_boundary(
+        self, identity: WindowIdentity, boundary: Any, path: Path
+    ) -> Callable[[WindowIdentity, Any, Any], None]:
+        """Validate and publish the held/100 boundary immediately before resume."""
+
+        resume_required = getattr(self.driver, "notify_native_resume_required", None)
+        if not callable(resume_required):
+            raise CalibrationError("native resume-required callback is not configured")
+        resume = getattr(self.driver, "notify_native_resume_ready", None)
+        if not callable(resume):
+            raise CalibrationError("native resume-ready callback is not configured")
+        resume_required(identity, boundary)
+        diagnostic = self.diagnostic
+        if diagnostic is not None and callable(getattr(diagnostic, "mark_release", None)):
+            diagnostic.mark_release(path)
+        return resume
+
     @contextmanager
     def _diagnostic_span(
         self,
@@ -4294,6 +4314,58 @@ class NativeCalibrationRunner:
             requested_ordinal=requested_ordinal,
         ):
             yield
+
+    def _native_update_budget_capability(
+        self,
+        provider: Any,
+        identity: WindowIdentity,
+        ordinal: int,
+    ) -> Any | None:
+        """Return a witness only from the exact daemon-owned provider path."""
+
+        eligibility = getattr(self.driver, "_native_identity_budget_eligibility", None)
+        verifier = getattr(self.driver, "_native_identity_budget_capability_valid", None)
+        provider_owner = getattr(provider, "__self__", None)
+        eligibility_owner = getattr(eligibility, "__self__", None)
+        verifier_owner = getattr(verifier, "__self__", None)
+        provider_function = getattr(provider, "__func__", None)
+        eligibility_function = getattr(eligibility, "__func__", None)
+        verifier_function = getattr(verifier, "__func__", None)
+        # A caller can manufacture an object whose three private methods have
+        # the same names and return a truthy object.  The witness is closed
+        # only when these are the installed SessionDaemon implementations and
+        # their owner is the exact driver being calibrated.
+        from .daemon import SessionDaemon
+
+        installed_provider = getattr(self.driver, "native_measurement_provider", None)
+        installed_owner = getattr(installed_provider, "__self__", None)
+
+        if (
+            getattr(provider_owner, "driver", None) is not self.driver
+            or provider_owner is not installed_owner
+            or provider_function is not SessionDaemon._native_measurement_provider
+            or eligibility_function is not SessionDaemon._native_update_identity_budget_capability
+            or verifier_function is not SessionDaemon._native_update_identity_budget_capability_valid
+        ):
+            return None
+        owner_type = type(provider_owner) if provider_owner is not None else None
+        if not (
+            callable(eligibility)
+            and callable(verifier)
+            and provider_owner is not None
+            and eligibility_owner is provider_owner
+            and verifier_owner is provider_owner
+            and provider_function is getattr(owner_type, "_native_measurement_provider", None)
+            and eligibility_function is getattr(owner_type, "_native_update_identity_budget_capability", None)
+            and verifier_function
+            is getattr(owner_type, "_native_update_identity_budget_capability_valid", None)
+        ):
+            return None
+        with self._diagnostic_span("alignment_capability"):
+            candidate = eligibility(provider, identity, "updates", ordinal)
+        if candidate is None or not verifier(candidate, provider, identity, "updates", ordinal):
+            return None
+        return candidate
 
     @staticmethod
     def _validate_cells(path: Path) -> None:
@@ -4573,9 +4645,15 @@ class NativeCalibrationRunner:
             raise failure
         pending_captures: set[Path] = set()
         success = False
+        alignment_owner = getattr(provider, "__self__", None)
+        alignment_enter = getattr(alignment_owner, "_native_update_alignment_enter", None)
+        alignment_exit = getattr(alignment_owner, "_native_update_alignment_exit", None)
+        alignment_token: object | None = None
         last_capture_monotonic = -1.0
         last_publisher_uptime_ms: int | None = None
         try:
+            if callable(alignment_enter):
+                alignment_token = alignment_enter(provider, identity)
             try:
                 construction = provider(identity, "construct", 0)
             except Exception as exc:
@@ -4741,14 +4819,23 @@ class NativeCalibrationRunner:
 
             update_window_start = updates_window.reset_completed_monotonic
             for update in range(1, 100):
-                with self._diagnostic_span(
-                    "identity_pre_provider",
-                    requested_stage="updates",
-                    requested_ordinal=update,
-                ):
-                    current = self.driver.resolve_identity()
-                if current.fingerprint != identity.fingerprint:
-                    raise CalibrationError("native client identity changed during updates")
+                try:
+                    identity_budget_capability = self._native_update_budget_capability(
+                        provider, identity, update
+                    )
+                except Exception as exc:
+                    raise CalibrationError(
+                        f"native update {update} identity-budget eligibility failed"
+                    ) from exc
+                if identity_budget_capability is None:
+                    with self._diagnostic_span(
+                        "identity_pre_provider",
+                        requested_stage="updates",
+                        requested_ordinal=update,
+                    ):
+                        current = self.driver.resolve_identity()
+                    if current.fingerprint != identity.fingerprint:
+                        raise CalibrationError("native client identity changed during updates")
                 try:
                     observation = provider(identity, "updates", update)
                 except Exception as exc:
@@ -4819,13 +4906,11 @@ class NativeCalibrationRunner:
                 render=dict(metrics),
             )
             boundary.verify()
-            resume_required = getattr(self.driver, "notify_native_resume_required", None)
-            if not callable(resume_required):
-                raise CalibrationError("native resume-required callback is not configured")
-            resume = getattr(self.driver, "notify_native_resume_ready", None)
-            if not callable(resume):
-                raise CalibrationError("native resume-ready callback is not configured")
-            resume_required(identity, boundary)
+            # The held/100 crop is the durable terminal evidence.  It must be
+            # delivered to the real diagnostic observer before the subsequent
+            # resume provider begins a new attempt, while remaining retained
+            # for the sealed resume boundary and final receipt.
+            resume = self._publish_resume_required_boundary(identity, boundary, final_path)
             try:
                 resumed = provider(identity, "resume", 0)
             except Exception as exc:
@@ -4892,6 +4977,8 @@ class NativeCalibrationRunner:
                 ) from restore_exc
             raise
         finally:
+            if callable(alignment_exit):
+                alignment_exit(alignment_token)
             if not success:
                 if active_window:
                     try:

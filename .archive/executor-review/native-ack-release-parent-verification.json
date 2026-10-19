@@ -1,0 +1,47 @@
+{
+  "status": "PASS",
+  "qualification": "Reviewed source installed and daemon restarted at verified quiescent boundary. Native live/input/autonomous qualification still pending.",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "946e02bd467cecb7d720181e032bb54c2fc280076c884e406f680b51ab085d50",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6",
+    "tests/test_session_runtime.py": "d7da65ad2f1704357ef94e15c2acffb93dfdc5481df494fee5a403801723c96e"
+  },
+  "importOrigins": {
+    "daemon": "/home/dev/repos/pegasus/src/crowley/session/daemon.py",
+    "calibration": "/home/dev/repos/pegasus/src/crowley/session/calibration.py",
+    "driver": "/home/dev/repos/pegasus/src/crowley/session/driver.py"
+  },
+  "service": {
+    "mainPid": 1566769,
+    "activeState": "active",
+    "subState": "running"
+  },
+  "controller": {
+    "state": "PAUSED",
+    "generation": 39,
+    "nativeCalibration": false,
+    "inputCalibration": false
+  },
+  "privateArtifactSha256": {
+    "promotion-admission.json": "57cfd812ec981e6785dfa4bc1674a15c139d12246ce02d5b108a3f1d6c6eae27",
+    "before.json": "f65c2eac2650ebc3f7cb1c251a170ed4ba1dd2911c26a90a323b7653fa4ce59f",
+    "after.json": "09929eefcbd601f29a1f8f8ac1a7d86da88a29c14b2a793abfc77b336f58c162",
+    "installed-status-before-promotion.json": "a3f528da83f86a60c24d76a589283348fc27506100fa59f4e1763a5d73609ef1",
+    "installed-status-after-promotion.json": "cc2f402b637e9188c760c52fe24cecc4e2927295ba2d248ac347a4fa5909b6d2",
+    "promote.py": "9e24acd101c9edc025b872bc3a6a1e950d475b266ca4a1b30440b54307cd38bc"
+  },
+  "reviews": [
+    "native-capture-ack-sol-source-r3-review.json",
+    "native-capture-ack-opus-source-r2-review.md",
+    "native-capture-ack-sol-test-safety-r4-review.json",
+    "native-capture-ack-opus-test-safety-r3-review.md"
+  ],
+  "parentEvidence": [
+    "native-ack-final-r2-parent-verification.json",
+    "native-ack-test-safety-parent-verification.json",
+    "native-ack-release-quiescence-parent-verification.json"
+  ]
+}

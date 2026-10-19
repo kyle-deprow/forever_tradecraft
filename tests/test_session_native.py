@@ -23,6 +23,7 @@ from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from PIL import Image
@@ -1371,16 +1372,17 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
 
             client.update_agent(1.0)
             fresh_identity = driver.resolve_identity()
-            sample, capture_sha256, retained_capture = daemon._capture_native_frame_with_capture(
-                fresh_identity,
-                driver.new_native_decoder(),
-                deadline=time.monotonic() + 10.0,
+            sample, capture_sha256, retained_capture, native_receipt = (
+                daemon._capture_native_frame_with_capture(
+                    fresh_identity,
+                    driver.new_native_decoder(),
+                    deadline=time.monotonic() + 10.0,
+                )
             )
             assert sample.kind == "FRESH" and sample.frame is not None
             assert sample.frame.sequence > motion.sequence
             assert len(capture_sha256) == 64
             assert retained_capture.is_file()
-            native_receipt = backend.last_region_receipt
             assert native_receipt is not None
             assert native_receipt.rectangle == rectangle
             assert native_receipt.output_sha256 == capture_sha256
@@ -1715,6 +1717,107 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
             assert driver.guardian.lease.held
             assert not driver.guardian._watchdog_failed
 
+            # Exercise the real X11Backend pre-ACK contract on the retained
+            # compiled producer.  Failed hooks must leave the prior receipt
+            # untouched; a hook that dispatched once may have started one
+            # ScreenshotArea call, but it can never publish accepted evidence.
+            hook_cases = (
+                ("success", lambda _pid, dispatch: dispatch(), False),
+                ("no-dispatch", lambda _pid, _dispatch: None, True),
+                (
+                    "raise-before",
+                    lambda _pid, _dispatch: (_ for _ in ()).throw(DriverError("hook failed")),
+                    True,
+                ),
+                (
+                    "double-dispatch",
+                    lambda _pid, dispatch: (dispatch(), dispatch()),
+                    True,
+                ),
+                (
+                    "dispatch-then-raise",
+                    lambda _pid, dispatch: (
+                        dispatch(),
+                        (_ for _ in ()).throw(DriverError("late hook failure")),
+                    ),
+                    True,
+                ),
+            )
+            for hook_label, hook, expect_failure in hook_cases:
+                hook_target = session_dir / f"hook-{hook_label}.png"
+                prior_receipt = backend.last_region_receipt
+                prior_area_count = len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                compositor["area_started_path"].unlink(missing_ok=True)
+                pre_dispatch_gate = hook_label in {"no-dispatch", "raise-before"}
+                if pre_dispatch_gate:
+                    compositor["area_release_path"].unlink(missing_ok=True)
+                    compositor["area_block_path"].unlink(missing_ok=True)
+                    compositor["area_block_path"].touch(mode=0o600)
+                if expect_failure:
+                    try:
+                        with pytest.raises(DriverError):
+                            driver.capture_native_region_for_identity(
+                                identity,
+                                destination=hook_target,
+                                deadline_monotonic=time.monotonic() + 8.0,
+                                observer_admission=driver.guardian.observer_dispatch_admission,
+                                observer_reaped=driver.guardian.unregister_observer_process,
+                                _pre_ack_admission=hook,
+                            )
+                    finally:
+                        # If a regression enters ScreenshotArea despite a
+                        # pre-dispatch hook failure, release the real gate so
+                        # cleanup cannot hang while the test reports it.
+                        if pre_dispatch_gate:
+                            compositor["area_release_path"].touch(mode=0o600)
+                    assert not hook_target.exists()
+                    assert backend.last_region_receipt is prior_receipt
+                    area_count = len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                    attempt = backend.last_region_attempt
+                    assert attempt["attempt_retired"] is True
+                    assert not list(hook_target.parent.glob(f".{hook_target.name}.telemetry-*"))
+                    assert not backend._active_processes
+                    assert not backend.active_process_groups
+                    assert not driver.guardian.observer_process_groups
+                    if hook_label in {"no-dispatch", "raise-before"}:
+                        # The hook failed before the one-shot ACK boundary;
+                        # no ACK, producer ScreenshotArea entry, or area-log
+                        # row may exist for this attempt.
+                        assert attempt["ack_sent"] is None
+                        assert not compositor["area_started_path"].exists()
+                        assert area_count == prior_area_count
+                        compositor["area_block_path"].unlink(missing_ok=True)
+                        compositor["area_release_path"].unlink(missing_ok=True)
+                    else:
+                        # Once dispatch was attempted, the producer may have
+                        # entered ScreenshotArea before the late hook error.
+                        # It still cannot publish a receipt or crop, and only
+                        # one real ACK/area invocation is permitted.
+                        assert attempt["ack_sent"] is not None
+                        assert area_count <= prior_area_count + 1
+                        if area_count == prior_area_count:
+                            assert not compositor["area_started_path"].exists()
+                else:
+                    driver.capture_native_region_for_identity(
+                        identity,
+                        destination=hook_target,
+                        deadline_monotonic=time.monotonic() + 8.0,
+                        observer_admission=driver.guardian.observer_dispatch_admission,
+                        observer_reaped=driver.guardian.unregister_observer_process,
+                        _pre_ack_admission=hook,
+                    )
+                    assert hook_target.is_file()
+                    assert backend.last_region_receipt is not None
+                    assert backend.last_region_receipt is not prior_receipt
+                    attempt = backend.last_region_attempt
+                    assert attempt["attempt_retired"] is True
+                    assert not list(hook_target.parent.glob(f".{hook_target.name}.telemetry-*"))
+                    assert attempt["ack_sent"] <= attempt["capture_started"] <= attempt["capture_returned"]
+                    hook_target.unlink()
+                assert not backend._active_processes
+                assert not backend.active_process_groups
+                assert not driver.guardian.observer_process_groups
+
             # Stop wins at a barrier after the daemon snapshots controller
             # state but before DesktopDriver enters the atomic admission
             # section. The barrier is outside both owner locks; no producer
@@ -1866,20 +1969,60 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
 
 
 @pytest.mark.parametrize(
-    ("phase", "revoke_before_admission"),
+    ("phase", "revoke_before_admission", "typed_fault"),
     [
-        ("paused", True),
-        ("paused", False),
-        ("native", True),
-        ("native", False),
+        ("paused", True, None),
+        ("paused", False, None),
+        ("native", True, "reservation"),
+        ("native", False, "success"),
+        ("native", False, "deadline"),
+        ("native", False, "watchdog"),
+        ("native", False, "lease"),
+        ("native", False, "wrong-pid"),
+        ("native", False, "epoch"),
+        ("native", False, "producer-deadline"),
+        ("native", False, "reservation-expiry"),
+        ("native", False, "cap-expiry"),
+        ("native", False, "dead-process"),
+        ("native", False, "generation"),
+        ("native", False, "controller-stop"),
+        ("native", False, "capture-race"),
+        ("native", False, "final-lock-deadline"),
+        ("native", False, "final-lock-shutdown"),
+        ("native", False, "held-input"),
+        ("native", False, "active-groups"),
+        ("native", False, "release-failed"),
     ],
-    ids=["paused-revoke-first", "paused-admission-first", "native-revoke-first", "native-admission-first"],
+    ids=[
+        "paused-revoke-first",
+        "paused-admission-first",
+        "native-reservation-revoke",
+        "native-admission-success",
+        "native-deadline-expiry",
+        "native-watchdog-unhealthy",
+        "native-lease-lost",
+        "native-wrong-pid",
+        "native-capture-epoch",
+        "native-producer-deadline",
+        "native-reservation-expiry",
+        "native-capability-expiry",
+        "native-dead-admitted-process",
+        "native-generation-revoke",
+        "native-controller-stop",
+        "native-capture-race-after-ack",
+        "native-final-lock-deadline",
+        "native-final-lock-shutdown",
+        "native-held-input",
+        "native-active-groups",
+        "native-release-failed",
+    ],
 )
 def test_compiled_private_owner_guardian_generation_revoke_orders(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     phase: str,
     revoke_before_admission: bool,
+    typed_fault: str | None,
 ) -> None:
     """Exercise public owner creation and both real Guardian race orders.
 
@@ -1938,7 +2081,12 @@ def test_compiled_private_owner_guardian_generation_revoke_orders(
     assert codex_path.is_file()
     _install_private_shell_compositor_bus(monkeypatch, tmp_path)
     with harness.private_shell_compositor(
-        payloads=[png_bytes(first_status), png_bytes(second_status), png_bytes(second_status)],
+        payloads=[
+            png_bytes(first_status),
+            png_bytes(second_status),
+            png_bytes(second_status),
+            png_bytes(second_status),
+        ],
         full_desktop=full_bytes,
         rectangle=rectangle,
         allow_area_gate=True,
@@ -2003,6 +2151,8 @@ def test_compiled_private_owner_guardian_generation_revoke_orders(
         release_admission = threading.Event()
         barrier_owner: dict[str, object] = {}
         captured_epochs: list[int] = []
+        watchdog_test_holder: subprocess.Popen[bytes] | None = None
+        watchdog_original_state: tuple[bool, bool, set[int], bool] | None = None
         try:
             started = daemon.controller.start()
             assert started.state is ControllerState.NATIVE_CALIBRATION
@@ -2050,6 +2200,423 @@ def test_compiled_private_owner_guardian_generation_revoke_orders(
             assert capability["reservationId"] == reservation_id
             assert capability["guardianGeneration"] == driver.guardian.generation
             assert owner_before is not None
+
+            if phase == "native":
+                # Exercise the update-specific typed witness on the real
+                # configured X11/compiled producer.  The first capture is an
+                # ordinary ordinal-1 publication; its fresh receipt is the
+                # only origin used to admit ordinal 2 below.
+                provider = driver.native_measurement_provider
+                alignment_token = daemon._native_update_alignment_enter(provider, identity)
+                assert alignment_token is not None
+                original_pre_ack = daemon._native_update_alignment_pre_ack
+                try:
+                    first_update_path = daemon._capture_native_region_for_identity(
+                        identity,
+                        destination=session_dir / "captures" / "typed-update-1.png",
+                        expected_generation=expected_generation,
+                        expected_state=ControllerState.NATIVE_CALIBRATION,
+                        deadline=time.monotonic() + 15.0,
+                    )
+                    first_receipt = backend.last_region_receipt
+                    assert first_receipt is not None
+                    first_digest = hashlib.sha256(first_update_path.read_bytes()).hexdigest()
+                    first_decoded = driver.decode_native_capture(
+                        first_update_path,
+                        identity=identity,
+                        decoder=driver.new_native_decoder(),
+                    )
+                    assert first_decoded.frame is not None
+                    assert first_decoded.frame.sequence > 0
+
+                    # The final-lock cases use finite deadlines that are
+                    # installed before the update witness is minted.  The
+                    # origin capture supplies the real publisher anchor; the
+                    # half-second tail leaves alignment room and lets the
+                    # final Guardian lock be the rejection boundary.
+                    final_lock_expiry: float | None = None
+                    original_typed_deadline = daemon._native_construction_operation_deadline
+                    initial_typed_reservation_expiry = float(
+                        (daemon._native_construction_reservation or {})["expiresMonotonic"]
+                    )
+                    if typed_fault in {
+                        "producer-deadline",
+                        "reservation-expiry",
+                        "cap-expiry",
+                        "final-lock-deadline",
+                        "final-lock-shutdown",
+                    }:
+                        final_lock_expiry = float(first_receipt.capture_started) + 2.60
+                        if typed_fault == "final-lock-deadline":
+                            with daemon._native_construction_lock:
+                                daemon._native_construction_operation_deadline = final_lock_expiry
+                        if typed_fault in {"reservation-expiry", "cap-expiry"}:
+                            with daemon._native_construction_lock:
+                                reservation_live = daemon._native_construction_reservation
+                                assert reservation_live is not None
+                                reservation_live["expiresMonotonic"] = final_lock_expiry
+
+                    update_capability = daemon._native_update_identity_budget_capability(
+                        provider, identity, "updates", 2
+                    )
+                    assert update_capability is not None
+                    daemon._native_update_alignment_record(
+                        provider=provider,
+                        identity=identity,
+                        capability=update_capability,
+                        ordinal=1,
+                        capture_monotonic=float(first_receipt.capture_started),
+                        publisher_uptime_ms=first_decoded.frame.uptime_ms,
+                        receipt=first_receipt,
+                        capture_digest=first_digest,
+                        previous_uptime_ms=None,
+                    )
+                    daemon._remove_native_capture(first_update_path)
+                    prior_area = (
+                        len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                        if compositor["area_log"].exists()
+                        else 0
+                    )
+                    prior_receipt = first_receipt
+                    compositor["area_started_path"].unlink(missing_ok=True)
+                    pre_ack_entered = threading.Event()
+                    release_pre_ack = threading.Event()
+                    alignment_wait_done = threading.Event()
+                    capability_checks: list[bool] = []
+
+                    original_alignment_wait = daemon._native_update_alignment_wait
+                    original_capability_matches = daemon._native_update_capability_matches_locked
+
+                    def traced_alignment_wait(**kwargs: object) -> float:
+                        result = original_alignment_wait(**kwargs)
+                        alignment_wait_done.set()
+                        return result
+
+                    def traced_capability_matches(*args: object, **kwargs: object) -> bool:
+                        result = original_capability_matches(*args, **kwargs)
+                        capability_checks.append(result)
+                        return result
+
+                    daemon._native_update_alignment_wait = traced_alignment_wait  # type: ignore[method-assign]
+                    daemon._native_update_capability_matches_locked = traced_capability_matches  # type: ignore[method-assign]
+
+                    class GuardianFinalLockGate:
+                        def __init__(self, inner: Any) -> None:
+                            self.inner = inner
+                            self.block_next = False
+                            self.entered = threading.Event()
+                            self.allow_acquire = threading.Event()
+                            self.real_acquire_started = threading.Event()
+                            self.final_code = original_pre_ack.__func__.__code__
+                            self.capture_thread_id: int | None = None
+                            self.used = False
+
+                        def __enter__(self) -> GuardianFinalLockGate:
+                            caller = sys._getframe(1)
+                            direct_final_lock = (
+                                self.block_next
+                                and not self.used
+                                and caller.f_code is self.final_code
+                                and self.capture_thread_id == threading.get_ident()
+                            )
+                            if self.block_next and not direct_final_lock:
+                                # Earlier capability/poll checks also take
+                                # Guardian._lock.  They must remain ordinary
+                                # production acquisitions; only the direct
+                                # final pre-ACK admission is gated here.
+                                return self.inner.__enter__()
+                            if direct_final_lock:
+                                self.used = True
+                                self.block_next = False
+                                assert alignment_wait_done.is_set(), (
+                                    "final Guardian lock reached before alignment wait completed"
+                                )
+                                assert capability_checks and all(capability_checks), (
+                                    f"initial capability check missing/failed: {capability_checks!r}"
+                                )
+                                self.entered.set()
+                                if not self.allow_acquire.wait(8.0):
+                                    raise AssertionError("final Guardian lock fixture barrier timed out")
+                                self.real_acquire_started.set()
+                            self.inner.acquire()
+                            return self
+
+                        def __exit__(self, exc_type: object, exc: object, tb: object) -> bool:
+                            self.inner.release()
+                            return False
+
+                        def acquire(self, *args: object, **kwargs: object) -> bool:
+                            return bool(self.inner.acquire(*args, **kwargs))
+
+                        def release_lock(self) -> None:
+                            self.inner.release()
+
+                    def wait_at_update_pre_ack(**kwargs: object) -> None:
+                        pre_ack_entered.set()
+                        if not release_pre_ack.wait(8.0):
+                            raise AssertionError("typed update pre-ACK barrier timed out")
+                        if typed_fault == "wrong-pid":
+                            producer_pid = kwargs.get("producer_pid")
+                            if not isinstance(producer_pid, int):
+                                raise AssertionError("typed producer PID was not an integer")
+                            kwargs["producer_pid"] = producer_pid + 1
+                        return original_pre_ack(**kwargs)
+
+                    daemon._native_update_alignment_pre_ack = wait_at_update_pre_ack  # type: ignore[method-assign]
+                    typed_target = session_dir / "captures" / "typed-update-2.png"
+                    typed_deadline = (
+                        final_lock_expiry if final_lock_expiry is not None else time.monotonic() + 15.0
+                    )
+                    typed_errors: list[BaseException] = []
+                    typed_pre_dispatch_gate = typed_fault not in {None, "capture-race"}
+                    if typed_pre_dispatch_gate:
+                        compositor["area_release_path"].unlink(missing_ok=True)
+                        compositor["area_block_path"].unlink(missing_ok=True)
+                        compositor["area_block_path"].touch(mode=0o600)
+                    if typed_fault == "capture-race":
+                        compositor["area_block_path"].touch(mode=0o600)
+
+                    def capture_typed_update() -> None:
+                        try:
+                            result_path = daemon._capture_native_region_for_identity(
+                                identity,
+                                destination=typed_target,
+                                expected_generation=expected_generation,
+                                expected_state=ControllerState.NATIVE_CALIBRATION,
+                                native_capability=update_capability,
+                                native_update_ordinal=2,
+                                deadline=typed_deadline,
+                            )
+                            assert result_path == typed_target
+                        except BaseException as exc:
+                            typed_errors.append(exc)
+
+                    typed_thread = threading.Thread(target=capture_typed_update, daemon=True)
+                    typed_thread.start()
+                    assert pre_ack_entered.wait(8.0), {
+                        "errors": [str(error) for error in typed_errors],
+                        "attempt": backend.last_region_attempt,
+                    }
+                    assert backend.last_region_attempt["ack_sent"] is None
+                    assert not compositor["area_started_path"].exists()
+                    assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == prior_area
+                    original_typed_reservation_id: str | None = None
+                    original_typed_reservation_expiry: float | None = None
+                    original_watchdog_failed = driver.guardian._watchdog_failed
+                    original_lease_held = driver.guardian.lease.held
+                    original_guardian_held = driver.guardian._held
+                    original_guardian_groups = set(driver.guardian._active_process_groups)
+                    original_release_failed = driver.guardian._release_failed
+                    if typed_fault in {"held-input", "active-groups", "release-failed"}:
+                        watchdog_original_state = (
+                            original_watchdog_failed,
+                            original_guardian_held,
+                            original_guardian_groups,
+                            original_release_failed,
+                        )
+                    if typed_fault == "reservation":
+                        # Change the live consumed owner after the typed
+                        # capability has passed cheap admission.  Restore it
+                        # after this isolated attempt so the surrounding
+                        # Guardian generation race remains independent.
+                        with daemon._native_construction_lock:
+                            reservation_live = daemon._native_construction_reservation
+                            assert reservation_live is not None
+                            original_typed_reservation_id = str(reservation_live["reservationId"])
+                            original_typed_reservation_expiry = float(reservation_live["expiresMonotonic"])
+                            reservation_live["reservationId"] = "typed-update-handover"
+                    elif typed_fault == "deadline":
+                        with daemon._native_construction_lock:
+                            original_typed_deadline = daemon._native_construction_operation_deadline
+                            daemon._native_construction_operation_deadline = time.monotonic() - 1.0
+                    elif typed_fault == "watchdog":
+                        driver.guardian._watchdog_failed = True
+                    elif typed_fault == "lease":
+                        driver.guardian.lease.release()
+                    elif typed_fault == "epoch":
+                        with backend._process_lock:
+                            backend._capture_revocation_epoch += 1
+                    elif typed_fault == "dead-process":
+                        backend.release_held_input()
+                    elif typed_fault == "generation":
+                        driver.guardian.revoke("typed update generation handover")
+                    elif typed_fault == "controller-stop":
+                        daemon.controller.stop()
+                    elif typed_fault == "held-input":
+                        with driver.guardian._lock:
+                            driver.guardian._held = True
+                    elif typed_fault == "active-groups":
+                        watchdog_test_holder = subprocess.Popen(
+                            ["/bin/sleep", "30"],
+                            start_new_session=True,
+                        )
+                        assert watchdog_test_holder.pid > 0
+                        with driver.guardian._lock:
+                            driver.guardian._active_process_groups.add(watchdog_test_holder.pid)
+                    elif typed_fault == "release-failed":
+                        with driver.guardian._lock:
+                            driver.guardian._release_failed = True
+                    final_lock_gate: GuardianFinalLockGate | None = None
+                    original_guardian_lock: Any | None = None
+                    if typed_fault in {
+                        "producer-deadline",
+                        "reservation-expiry",
+                        "cap-expiry",
+                        "final-lock-deadline",
+                        "final-lock-shutdown",
+                    }:
+                        original_guardian_lock = driver.guardian._lock
+                        final_lock_gate = GuardianFinalLockGate(original_guardian_lock)
+                        final_lock_gate.block_next = True
+                        final_lock_gate.capture_thread_id = None
+                        driver.guardian._lock = final_lock_gate
+                    release_pre_ack.set()
+                    if final_lock_gate is not None:
+                        # Assign the capture thread id before releasing the
+                        # pre-ACK wrapper.  Earlier Guardian acquisitions are
+                        # delegated directly; the exact final call is gated.
+                        final_lock_gate.capture_thread_id = typed_thread.ident
+                        assert final_lock_gate.entered.wait(8.0), (
+                            "final Guardian direct-lock seam was not reached"
+                        )
+                        if typed_fault == "final-lock-shutdown":
+                            daemon._shutdown_event.set()
+                        elif final_lock_expiry is not None:
+                            while time.monotonic() < final_lock_expiry:
+                                time.sleep(min(0.01, final_lock_expiry - time.monotonic()))
+                        original_guardian_lock.acquire()
+                        final_lock_gate.allow_acquire.set()
+                        assert final_lock_gate.real_acquire_started.wait(8.0)
+                        original_guardian_lock.release()
+                    if typed_fault == "capture-race":
+                        assert wait_for(lambda: compositor["area_started_path"].exists(), timeout=8.0)
+                        backend.release_held_input()
+                        compositor["area_release_path"].touch(mode=0o600)
+                    typed_area_entry_seen = False
+                    if typed_pre_dispatch_gate:
+                        gate_deadline = time.monotonic() + 8.0
+                        while (
+                            typed_thread.is_alive()
+                            and not compositor["area_started_path"].exists()
+                            and time.monotonic() < gate_deadline
+                        ):
+                            time.sleep(0.01)
+                        if compositor["area_started_path"].exists():
+                            typed_area_entry_seen = True
+                            compositor["area_release_path"].touch(mode=0o600)
+                        elif typed_thread.is_alive():
+                            # Never leave an unexpected producer blocked in the
+                            # fixture while surfacing the real test failure.
+                            compositor["area_release_path"].touch(mode=0o600)
+                    typed_thread.join(timeout=12.0)
+                    assert not typed_thread.is_alive()
+                    if final_lock_gate is not None:
+                        assert final_lock_gate.used
+                        assert final_lock_gate.entered.is_set()
+                        assert final_lock_gate.real_acquire_started.is_set()
+                    assert not backend._active_processes
+                    assert not backend.active_process_groups
+                    assert not driver.guardian.observer_process_groups
+                    if typed_fault == "capture-race":
+                        assert typed_errors and isinstance(typed_errors[0], DriverError)
+                        assert not typed_target.exists()
+                        assert backend.last_region_receipt is prior_receipt
+                        assert backend.last_region_attempt["attempt_retired"] is True
+                        assert not list(typed_target.parent.glob(f".{typed_target.name}.telemetry-*"))
+                        assert (
+                            len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                            <= prior_area + 1
+                        )
+                        compositor["area_started_path"].unlink(missing_ok=True)
+                        compositor["area_block_path"].unlink(missing_ok=True)
+                        compositor["area_release_path"].unlink(missing_ok=True)
+                    elif typed_fault not in {None, "success"}:
+                        assert typed_errors and isinstance(typed_errors[0], (DriverError, GuardianError))
+                        if typed_fault in {
+                            "producer-deadline",
+                            "reservation-expiry",
+                            "cap-expiry",
+                            "final-lock-deadline",
+                            "final-lock-shutdown",
+                        }:
+                            assert str(typed_errors[0]) == "native pre-ACK deadline or shutdown was revoked"
+                        if typed_fault in {"held-input", "active-groups", "release-failed"}:
+                            assert str(typed_errors[0]) == "native pre-ACK Guardian admission is not ready"
+                        assert not typed_target.exists()
+                        assert backend.last_region_receipt is prior_receipt
+                        assert backend.last_region_attempt["ack_sent"] is None
+                        assert backend.last_region_attempt["attempt_retired"] is True
+                        assert not list(typed_target.parent.glob(f".{typed_target.name}.telemetry-*"))
+                        if typed_pre_dispatch_gate:
+                            assert not typed_area_entry_seen
+                        else:
+                            assert not compositor["area_started_path"].exists()
+                        assert (
+                            len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == prior_area
+                        )
+                    else:
+                        assert not typed_errors, [str(error) for error in typed_errors]
+                        assert typed_target.is_file()
+                        assert backend.last_region_receipt is not prior_receipt
+                        assert backend.last_region_attempt["ack_sent"] is not None
+                        assert (
+                            len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                            == prior_area + 1
+                        )
+                        typed_target.unlink()
+                        compositor["area_started_path"].unlink(missing_ok=True)
+                        compositor["area_block_path"].unlink(missing_ok=True)
+                        compositor["area_release_path"].unlink(missing_ok=True)
+                    if typed_pre_dispatch_gate:
+                        compositor["area_block_path"].unlink(missing_ok=True)
+                        compositor["area_release_path"].unlink(missing_ok=True)
+                        compositor["area_started_path"].unlink(missing_ok=True)
+                    if final_lock_gate is not None and original_guardian_lock is not None:
+                        driver.guardian._lock = original_guardian_lock
+                    if original_typed_deadline is not None:
+                        with daemon._native_construction_lock:
+                            daemon._native_construction_operation_deadline = original_typed_deadline
+                    if typed_fault in {"reservation-expiry", "cap-expiry"}:
+                        with daemon._native_construction_lock:
+                            if daemon._native_construction_reservation is not None:
+                                daemon._native_construction_reservation["expiresMonotonic"] = (
+                                    initial_typed_reservation_expiry
+                                )
+                    driver.guardian._watchdog_failed = original_watchdog_failed
+                    with driver.guardian._lock:
+                        driver.guardian._held = original_guardian_held
+                        driver.guardian._active_process_groups.clear()
+                        driver.guardian._active_process_groups.update(original_guardian_groups)
+                        driver.guardian._release_failed = original_release_failed
+                    if original_lease_held and not driver.guardian.lease.held:
+                        driver.guardian.lease.acquire()
+                    if original_typed_reservation_id is not None:
+                        with daemon._native_construction_lock:
+                            assert daemon._native_construction_reservation is not None
+                            daemon._native_construction_reservation["reservationId"] = (
+                                original_typed_reservation_id
+                            )
+                    if original_typed_reservation_expiry is not None:
+                        with daemon._native_construction_lock:
+                            assert daemon._native_construction_reservation is not None
+                            daemon._native_construction_reservation["expiresMonotonic"] = (
+                                original_typed_reservation_expiry
+                            )
+                    if typed_fault in {
+                        "generation",
+                        "controller-stop",
+                        "capture-race",
+                        "dead-process",
+                        "final-lock-shutdown",
+                    }:
+                        return
+                finally:
+                    daemon._native_update_alignment_pre_ack = original_pre_ack  # type: ignore[method-assign]
+                    daemon._native_update_alignment_wait = original_alignment_wait  # type: ignore[method-assign]
+                    daemon._native_update_capability_matches_locked = (  # type: ignore[method-assign]
+                        original_capability_matches
+                    )
+                    daemon._native_update_alignment_exit(alignment_token)
 
             def record_epoch_snapshot() -> int:
                 value = original_epoch_snapshot()
@@ -2184,10 +2751,48 @@ def test_compiled_private_owner_guardian_generation_revoke_orders(
                 capture_thread.join(timeout=15.0)
             if "revoker" in locals() and revoker.is_alive():
                 revoker.join(timeout=15.0)
+            cleanup_exception = sys.exc_info()[1]
+            watchdog_cleanup_error: BaseException | None = None
+            watchdog_was_failed = watchdog_original_state[0] if watchdog_original_state is not None else False
+            try:
+                if watchdog_original_state is not None or watchdog_test_holder is not None:
+                    with driver.guardian._lock:
+                        if watchdog_original_state is not None:
+                            (
+                                original_watchdog_failed,
+                                driver.guardian._held,
+                                original_guardian_groups,
+                                driver.guardian._release_failed,
+                            ) = watchdog_original_state
+                            driver.guardian._watchdog_failed = original_watchdog_failed
+                            driver.guardian._active_process_groups.clear()
+                            driver.guardian._active_process_groups.update(original_guardian_groups)
+                        elif watchdog_test_holder is not None:
+                            driver.guardian._active_process_groups.discard(watchdog_test_holder.pid)
+                        published = driver.guardian._watchdog_state()
+                        if not watchdog_was_failed:
+                            assert published
+            except BaseException as exc:
+                watchdog_cleanup_error = exc
+            finally:
+                if watchdog_test_holder is not None:
+                    try:
+                        if watchdog_test_holder.poll() is None:
+                            watchdog_test_holder.terminate()
+                        try:
+                            watchdog_test_holder.wait(timeout=5.0)
+                        except subprocess.TimeoutExpired:
+                            watchdog_test_holder.kill()
+                            watchdog_test_holder.wait(timeout=5.0)
+                    except BaseException as exc:
+                        if watchdog_cleanup_error is None:
+                            watchdog_cleanup_error = exc
             monkeypatch.setattr(driver.guardian, "observer_dispatch_admission", original_guardian_admission)
             monkeypatch.setattr(backend, "_capture_epoch_snapshot", original_epoch_snapshot)
             daemon._cleanup_native_owned_captures()
             driver.close()
+            if watchdog_cleanup_error is not None and cleanup_exception is None:
+                raise watchdog_cleanup_error
 
 
 def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples(
@@ -7152,7 +7757,12 @@ class _NativeRunnerHarness:
         self.driver.notify_native_hold_required = hold_required  # type: ignore[attr-defined]
         self.driver.notify_native_memory_ready = updates_ready  # type: ignore[attr-defined]
         self.driver.notify_native_resume_required = resume_required  # type: ignore[attr-defined]
-        self.driver.notify_native_resume_ready = lambda *_args: None  # type: ignore[attr-defined]
+
+        def resume_ready(*_args: object) -> None:
+            if self.fault == "resume_ready_failure":
+                raise RuntimeError("resume-ready callback rejected")
+
+        self.driver.notify_native_resume_ready = resume_ready  # type: ignore[attr-defined]
 
         def preconstruction(
             identity: WindowIdentity, *, baseline_reader: object, baseline_ready: object
@@ -7266,6 +7876,8 @@ class _NativeRunnerHarness:
                 # held/100 timer publication; no metadata is fabricated.
                 self.client.slash("agent resume")
         elif phase == "resume":
+            if self.fault == "resume_provider_failure":
+                raise RuntimeError("resume provider failed after retained boundary")
             self.clock[0] += 0.1
             if self.fault == "early_slow_late_resume":
                 # Publish one additional real normal/0 Agent frame before the
@@ -7352,6 +7964,32 @@ def test_native_runner_rejects_lifecycle_matrix_and_cleans_artifacts(tmp_path: P
             harness.run()
         assert harness.meter._pending_window is None
         assert harness.released
+        assert all(not path.exists() for path in harness.created)
+    finally:
+        harness.close()
+
+
+def test_native_runner_resume_provider_failure_cleans_after_retained_boundary(tmp_path: Path) -> None:
+    """A resume provider failure cleans the held image after notification retention."""
+
+    harness = _NativeRunnerHarness(tmp_path, fault="resume_provider_failure")
+    marked: list[tuple[Path, str]] = []
+
+    class Diagnostic:
+        def mark_release(self, path: Path) -> None:
+            assert path.is_file()
+            marked.append((path, hashlib.sha256(path.read_bytes()).hexdigest()))
+
+    try:
+        with pytest.raises(CalibrationError, match="resume provider failed"):
+            harness.run(diagnostic=Diagnostic())
+        assert len(marked) == 1
+        marked_path, marked_digest = marked[0]
+        assert marked_path.name.endswith("-held-100.png")
+        assert not marked_path.exists()
+        assert marked_digest
+        assert marked_path in harness.released
+        assert harness.meter._pending_window is None
         assert all(not path.exists() for path in harness.created)
     finally:
         harness.close()
