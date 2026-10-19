@@ -1,0 +1,57 @@
+{
+  "status": "NEEDS_WORK",
+  "reviewer": "gpt-5.6-sol",
+  "round": "Formal frozen-source R1",
+  "reviewed_source_pin_record": "native-capture-ack-parent-r2-compiled100-failure.json",
+  "accepted_musts": [
+    {
+      "id": "M1",
+      "files": [
+        "src/crowley/session/daemon.py:942",
+        "src/crowley/session/calibration.py:4898",
+        "tests/test_native_calibration_operator.py:6358"
+      ],
+      "correction": "Notify retained held100 after all boundary/resume-required checks and before resume; require exact retained terminal image/digest, released other attempts."
+    },
+    {
+      "id": "M2",
+      "files": [
+        "src/crowley/session/daemon.py:4947",
+        "src/crowley/session/daemon.py:5269"
+      ],
+      "correction": "Carry exact locally validated receipt into anchor; no mutable last-receipt reread. Test same-digest concurrent substitution."
+    },
+    {
+      "id": "M3",
+      "files": [
+        "src/crowley/session/daemon.py:5069",
+        "src/crowley/session/daemon.py:5134",
+        "src/crowley/session/daemon.py:6078",
+        "src/crowley/session/daemon.py:2233"
+      ],
+      "correction": "One original bounded attempt deadline, preserve15s producer upper bound and earliest limits; final locked shutdown/expiry recheck after lock contention."
+    },
+    {
+      "id": "M4",
+      "files": [
+        "tests/test_session_runtime.py:2818",
+        "tests/test_session_runtime.py:3151",
+        "tests/test_session_runtime.py:3544"
+      ],
+      "correction": "Charge actual old deferred owner validation142.073ms and separate final ACK admission0.500ms; exact counts. Phase951 must naturally protocol-fail, not merely overrun."
+    },
+    {
+      "id": "M5",
+      "files": [
+        "tests/test_session_native.py:1718",
+        "tests/test_session_native.py:2137"
+      ],
+      "correction": "Arm actual ScreenshotArea entry marker; actual decoded origin, full typed eligible success/deadline/expiry/unhealthy/PID/process/epoch/finalrace matrix and exact cleanup."
+    }
+  ],
+  "should": [],
+  "nits": [],
+  "discarded_findings": [],
+  "parent_closure_plan_sha256": "113a3513af6e15c169da1d6363f1192b5e81fb15ec59a54d3b6ebb7a682c3759",
+  "qualification": "No source approval, installation or live qualification; actual Opus source review not started."
+}

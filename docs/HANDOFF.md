@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:31 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:36 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -202,6 +202,15 @@ retained held100 capture before resume replaces its current attempt; a minimal
 explicit retained-evidence notification is under review. Sol is reviewing the
 same frozen source, including prior R1 findings. No source edits yet. No actual Opus source
 review, source promotion, installation or live qualification yet.
+
+Sol's formal frozen-source R1 review is NEEDS WORK with5 accepted Musts and no
+Should/Nits: retained-terminal notification, exact local receipt binding,
+original producer/frame deadlines plus final locked shutdown/expiry check,
+complete model cost accounting and phase951 protocol oracle, and actual typed
+compiled pre-ACK matrix/armed entry markers. [Accepted findings](../.archive/executor-review/native-capture-ack-sol-source-r1-review.json).
+Parent approved a [staged closure checklist](../.archive/PLAN-native-ack-review-closure.md)
+within the same six-file scope. Luna will implement that consolidated set;
+Sol re-review and actual Opus remain required before installation.
 
 ## Accepted installed release
 
