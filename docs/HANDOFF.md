@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:16 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:21 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -188,6 +188,14 @@ coverage, and the exact long compiled-native100 success node. Luna owns these
 bounded fixes; no paid source review or installation has started. An old piped
 WT replay/Guardian process was identified separately from the completed parent
 check and assigned bounded identity-checked cleanup.
+
+R2 candidate is frozen. Parent again passed8 semantic checks with unchanged six
+hashes; worker15 focused checks including corrected timing cases passed145.01s.
+The exact long compiled-native100 success node then FAILED132.53s: retained
+accepted-attempt sequence omits held/100 before resume/0. [R2 failure record](../.archive/executor-review/native-capture-ack-parent-r2-compiled100-failure.json).
+Luna is preserving and diagnosing the artifacts without edits; Sol is reviewing
+the same frozen source, including prior R1 findings. No actual Opus source
+review, source promotion, installation or live qualification yet.
 
 ## Accepted installed release
 

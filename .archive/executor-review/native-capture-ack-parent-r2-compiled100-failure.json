@@ -1,0 +1,27 @@
+{
+  "status": "FAILED_COMPILED100_GATE",
+  "source_hashes": {
+    "src/crowley/session/daemon.py": "885c01dfc70e5fcd5fe7c07ecad5f0b6fc9d9c978413c39999371beacb09e91a",
+    "src/crowley/session/calibration.py": "a0771e25218ccb0505032d348641e55c2e3f8770b9c555cc569ffff6e70a739c",
+    "src/crowley/session/driver.py": "a11da8a20f7d008fde4422cab6729d382539e739b0d1edd583aa2e9ddde9eb96",
+    "tests/test_session_runtime.py": "24f400919a783ff307285d16c9e8ebb1c50b667343417b64db9b06df11f0cff2",
+    "tests/test_session_native.py": "97f7e81fc80f627c714e2cc2765ad39e497c5c4df67abf8ae17e0383b59cc9d3",
+    "tests/test_native_calibration_operator.py": "9935bc20b1e7beeaea8bdde9b0ba251fb476c84a5fba89e0854a9fe9fb681f92"
+  },
+  "parent_focused": {
+    "cases": 8,
+    "returncode": 0,
+    "source_unchanged": true,
+    "log_sha256": "a036a06c2dc2b86198cf87cffd1b12c6c7dfe7e3e8374bf6817f42ae2f458f3a"
+  },
+  "compiled100": {
+    "node": "tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]",
+    "worker_reported_seconds": 132.53,
+    "log_sha256": "bfc1f64d27610d7a838e2519029f738910afbea46417bab62627187a613c7bd5",
+    "parent_read_full_failure_log": true,
+    "failure": "Accepted-attempt list omits held/100; resume/0 appears at index101 instead.",
+    "diagnosis": "Pending; no assumption that terminal proof may be omitted."
+  },
+  "next": "Read-only frozen-source Sol review and retained-artifact diagnosis; no unchanged repeat.",
+  "qualification": "No source approval, installation, live native/input qualification or autonomous cycles."
+}
