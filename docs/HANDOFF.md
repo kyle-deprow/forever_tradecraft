@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 17:53 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 18:08 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -44,34 +44,36 @@ Stable game identity: PID644491/start15495385, xid0x02e00001,
 child0x2000011, fingerprint
 `e84a459bda54c891092f049af9c523eb171588ce566a44123723d733baf6918a`.
 1920x1080 client, telemetry crop80,48,256,256. DISPLAY:0; obtain fresh authority
-and controller generation before mutation. Last native recovery was PAUSED38,
+and controller generation before mutation. Latest verified native recovery was PAUSED44,
 nativefalse/inputfalse; do not treat this historical generation as fresh.
 
-Daemon service `crowley-session` is active, NEW PID2443858 after reviewed release
-diagnostic release installation at17:36:54UTC. Latest status after recovery PAUSED44/nativefalse/inputfalse. Exact final
+Daemon service `crowley-session` is active, PID2443858 after the reviewed
+diagnostic release installation at17:36:54UTC. Latest recovery status is
+PAUSED44/nativefalse/inputfalse. Exact final
 identity-budget/ACK-alignment correction is installed and committed/pushedbe71895.
 Live40 and43 both reached held100, then failed the unchanged process-memory
 gate. Gen43 required publicpause44 and separate canonical recovery, nowcomplete.
 Ordinary AH reopened; assisted125 began1792431816 (89slate). No physical-input
 gate yet. Diagnostic release is committed/pushed8277ec1.
 
-Latest fully parent-verified cycle **#125**:
+Latest fully parent-verified cycle **#126**:
 
-- UID `beta-normal-alliance-1792431816-Arthur-2330`;
-- start1792431816, finish1792432290:474s;428 observations/1,892 rows;
+- UID `beta-normal-alliance-1792432716-Arthur-7884`;
+- start1792432716, finish1792433189:473s;428 observations/1,910 rows;
 - 412 full/16 bounded, all428 `ok`, zero query failures;
-- 989s after124 (89s calibration delay);34.060940s finish-to-server receipt;
+- exact900s after125;26.919874s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredtwentyfifth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentyfifth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredtwentysixth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentysixth-ah-reopen-parent-verification.json).
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 actually began1792431816:989s after124 (89slate), nextdue1792432716
-(17:58:36UTC). Its full-chain proof is now parent-verified. After122, parent decoded fresh closedAH/pending0/ordinary
+Assisted125 began1792431816:989s after124 (89slate). Assisted126 completed
+exact900s later; nextdue1792433616 (18:13:36UTC). Full chains125/126 are parent
+verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
 MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
