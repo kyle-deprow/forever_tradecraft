@@ -1,19 +1,17 @@
 # Separate native correctness from whole-client resource targets
 
-Status: proposal only; Sol plan review READY, no Must-Fix. User policy
-preference is pending; no implementation or qualification change is authorized
-by this document. Assisted collection continues under the installed release.
+Status: USER AUTHORIZED 2026-10-19 20:07UTC: proceed with the recommended
+resource-policy separation and qualification steps. Sol plan review READY,
+no Must-Fix. Assisted collection continues while implementation/review runs.
 
 ## Decision
 
-Keep either current hard limits, or explicitly separate resource performance
-from protocol qualification. The proposed separation keeps construction128MiB
+Separate resource performance from protocol qualification. Keep construction128MiB
 and updates16MiB as exact recorded whole-WoW targets. An overage is always
-`target_exceeded`, never a resource pass. It permits operation with that unresolved
-performance overage after all independent correctness and input gates pass.
-If either whole-process ceiling is itself a launch requirement, retain the hard
-block instead and profile a concrete allocation target. Do not silently choose
-a larger limit, substitute netRSS, or subtract the unmatched ordinary sample.
+`target_exceeded`, never a resource pass. Operation with that unresolved
+performance overage is permitted only after all independent correctness and
+input gates pass. Do not choose a larger limit, substitute netRSS, or subtract
+the unmatched ordinary sample.
 
 Evidence: live40 and43 reached accepted held100, then failed update peaks of
 48,644,096 and20,414,464 bytes against16,777,216. FinalRSS fell in both runs.
@@ -23,7 +21,7 @@ late16 texture counts were2048; late p99 about23ms; metrics cannot rule out an
 earlier transient. See native-memory-failure-gen40/gen43-parent-verification.json
 and ordinary-scan123-passive-memory-parent-verification.json.
 
-## Implementation fence if separation is selected
+## Authorized implementation fence
 
 Only production calibration.py, controller.py, daemon.py under src/crowley/session;
 only tests/test_session_native.py, tests/test_session_runtime.py and
@@ -95,3 +93,24 @@ fresh native100 under the selected explicit policy. Verify native correctness,
 resource classification and canonical ordinary recovery separately. Only then
 request human input calibration, followed by three autonomous900s full cycles.
 A target_exceeded result remains visibly over target even if correctness passes.
+
+## Exact implementation checks
+
+Create an isolated worktree from current HEAD948ff2c (or descendant with identical
+source) and a private editable environment; prove imports resolve to that worktree.
+Run focused resource/memory/assessment tests first. Then run:
+
+```text
+uv run pytest -q tests/test_session_native.py tests/test_session_runtime.py tests/test_session_native_regressions.py -k 'not native_update_fast_trace_replay' --tb=short
+uv run pytest -q 'tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]' --tb=short
+uv run ruff check src/crowley/session/calibration.py src/crowley/session/controller.py src/crowley/session/daemon.py tests/test_session_native.py tests/test_session_runtime.py tests/test_session_native_regressions.py
+uv run ruff format --check src/crowley/session/calibration.py src/crowley/session/controller.py src/crowley/session/daemon.py tests/test_session_native.py tests/test_session_runtime.py tests/test_session_native_regressions.py
+git diff --check
+```
+
+Keep full private0600 logs and0700 evidence directory, exact six-file hashes,
+unchanged driver/helper/operator-test hashes, and retained fixture receipts.
+No live kernel accounting writes, desktop input/captures, services, configuration,
+DB mutation, Git commits/resets/stashes, or edits outside the six-file fence.
+Owned harmless-process fixtures and private compositors are permitted.
+No new native live run until parent verification plus Sol/actual Opus approval.

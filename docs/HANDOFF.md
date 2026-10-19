@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 19:53 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 20:14 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -56,23 +56,23 @@ gate. Gen43 required publicpause44 and separate canonical recovery, nowcomplete.
 Ordinary AH reopened; assisted125 began1792431816 (89slate). No physical-input
 gate yet. Diagnostic release is committed/pushed8277ec1.
 
-Latest fully parent-verified cycle **#133**:
+Latest fully parent-verified cycle **#134**:
 
-- UID `beta-normal-alliance-1792439016-Arthur-6172`;
-- start1792439016, finish1792439491:475s;428 observations/2,000 rows;
-- 411 full/17 bounded, all428 `ok`, zero query failures;
-- exact900s after132;31.573559s finish-to-server receipt;
+- UID `beta-normal-alliance-1792439916-Arthur-9260`;
+- start1792439916, finish1792440391:475s;428 observations/1,971 rows;
+- 414 full/14 bounded, all428 `ok`, zero query failures;
+- exact900s after133;26.588499s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredthirtythird-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredthirtythird-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredthirtyfourth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredthirtyfourth-ah-reopen-parent-verification.json).
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 began1792431816:989s after124 (89slate). Assisted126..133 completed at
-exact900s intervals; nextdue1792439916 (19:58:36UTC). Full chains125..133 are
+Assisted125 began1792431816:989s after124 (89slate). Assisted126..134 completed at
+exact900s intervals; nextdue1792440816 (20:13:36UTC). Full chains125..134 are
 parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
@@ -274,11 +274,11 @@ Full124chain and fresh quiescence parent-verified;2-file diagnostic release
 installed17:36:54UTC with imports/pins checked and service restarted:
 [release proof](../.archive/executor-review/native-memory-visibility-release-parent-verification.json).
 The one instrumented chain from42 completed as native43 and failed; separate
-canonicalrecover44 succeeded. Details and current user-policy question below.
+canonicalrecover44 succeeded. Details and authorized policy implementation below.
 No standalone recovery when checkpoint absent, no unchanged native retry.
-Keep16MiB gate and GC behavior unchanged. No user physical input requested yet.
+Installed16MiB gate and GC behavior remain unchanged pending reviewed release. No user physical input requested yet.
 
-## Instrumented43 result and pending policy choice
+## Instrumented43 result and authorized policy separation
 
 [Parent verified failure](../.archive/executor-review/native-memory-failure-gen43-parent-verification.json).
 Fresh42preflight passed; native43 ran135s, source driftfalse, accepted through
@@ -298,31 +298,41 @@ SHA48e1aa133e3b0a674cd226ab925e2c4e2ec018c56a3d2730ed57e1fed3f711ab.
 Helper ended with reservation_cancel_failed/actor retained. Sole operator made
 one publicpause43→44, then canonicalrecover44 SUCCEEDED; parent checked the
 separate original receipt and independently decoded fresh ordinary normal0/AH
-closed/pending0/inactive/speed0 frame. AH subsequently reopened and assisted125
-is running. No further native attempts authorized against this unchanged gate.
+closed/pending0/inactive/speed0 frame. AH subsequently reopened for assisted125. No further native attempts authorized against this unchanged gate.
 
-User async policy preference asked: keep16MiB whole-game peak hardblock, or
-record resource overages while reviewing independent native-correctness policy.
-Answer pending. [Concrete proposed separation plan](../.archive/PLAN-native-resource-policy.md)
-is written and [Sol plan review READY](../.archive/executor-review/native-resource-policy-sol-plan-review.json).
-No policy or threshold changed; no failed run reclassified. Continue assisted
-collection while resolving this product requirement. Sole operator has a bounded
-leash continues through assisted134..137;20:12UTC backup runner prepared.
-19:12UTC backup completed and parent independently validated. Preserve
-original receipts and report to parent, no source/service/policy changes. Do not synthesize human
-input, skip capture guards or erase either failed measurement.
+User authorized the resource-policy separation with “proceed with these steps”
+at20:07UTC. [Implementation plan](../.archive/PLAN-native-resource-policy.md) has
+[Sol plan approval](../.archive/executor-review/native-resource-policy-sol-plan-review.json).
+Luna is implementing in isolated worktree
+`/home/dev/.cache/crowley/worktrees/native-resource-policy-20261019`.
+Owned production files: calibration/controller/daemon; three scoped tests.
+Exact reset5 memory measurements and128MiB/16MiB targets remain. Verified
+resource overages receive separate durable assessments; correctness qualification
+still requires a fresh100-update run and all existing identity/cadence/ownership/
+recovery guards. Old failure archives remain byte-exact and unqualified.
+No new policy is installed yet. Parent reproduction, Sol and actual Opus source
+review precede promotion. Human input remains a separate genuine-human gate.
+
+Collection continues through assisted134..137 while implementation runs.
+Scan134 reopened through a separate fresh tooltip-verified Auctioneer target;
+the stale-target failure is retained unchanged and its hash plus the recovery
+hash appear in the parent reopen proof. The20:12UTC backup is complete and
+independently validated. [Host operations plan](../.archive/PLAN-session-host-operations.md)
+is under Sol review for hourly backups and two-minute read-only health timers.
+These timers do not trigger game scans; the addon900s timer remains the scan clock.
+No timers are installed yet. Do not synthesize human input or bypass capture guards.
 
 ## Next live gates, in order
 
 1. COMPLETE: Parent offline gates, Sol/actual Opus approval, full122 chain,
    fresh quiescence, exact accepted six-file promotion and service restart.
-2. Resolve resource-policy preference and review the concrete separation plan
-   before any policy/source change. Keep original failures unchanged. If strict
-   cap retained, profile a concrete allocation target before a new run. Any new
-   implementation uses Luna/Sol and actual Opus plus parent verification.
-   Only a fresh reviewed release with a justified live plan permits another
-   native100; do not reclassify old43. Native qualification must include all
-   current identity/cadence/ordinal/ownership/cleanup/recovery evidence.
+2. Implement the authorized resource-policy separation in the isolated worktree;
+   parent reproduces scoped regressions and real compiled100 composition, then
+   Sol and actual Opus review the frozen source. Promote only after all pass,
+   after an independently decoded quiescent game boundary. Perform one fresh
+   native100 and preserve its correctness and resource assessments separately.
+   Never reclassify old40/43. Qualification retains all current identity/cadence/
+   ordinal/ownership/cleanup/recovery evidence.
 3. Public pause then canonical ordinary recovery: PAUSED/native true/inputfalse,
    checkpoint clear, no stale operation/action. **Only then ask user availability**
    for physical input calibration.
@@ -345,11 +355,11 @@ Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use exact returned generations and canonical ownership/fence/recovery protocol.
 
-Latest validated private backup: `beta-20261019T191227Z-5078cb7f2b01`, through130
+Latest validated private backup: `beta-20261019T201228Z-e8af917a0db2`, through134
 ingestion; directory0700, manifestSHA
-`520b9796c762873836ad48ec1ed0448e913af85c302613e51fe3bb6deb414941`.
-[Backup verification](../.archive/executor-review/market-backup-20261019T1912Z-parent-verification.json).
-Parent independently revalidated the manifest. Next hourly backup about20:12UTC. Prior isolated restore drill remains accepted.
+`0e321c3bf97edf685e97d2f8eee7a08df01539d511f1b4ad6631c30d28f76186`.
+[Backup verification](../.archive/executor-review/market-backup-20261019T2012Z-parent-verification.json).
+Parent independently revalidated the manifest. Next hourly backup about21:12UTC; replace manual scheduling only after reviewed timer installation. Prior isolated restore drill remains accepted.
 API: `tools.market_backup.snapshot` then `validate_snapshot`; retain full
 invocation output privately and publish only sanitized hash/coverage/mode proof.
 
