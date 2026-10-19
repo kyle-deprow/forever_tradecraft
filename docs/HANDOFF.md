@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:23 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:31 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -52,7 +52,7 @@ observations; no buying, posting or cancelling is part of this task.
   on exact900s deadlines. After #106 the client disconnected (WOW51900319).
   Normal reconnect succeeded without credentials. Parent decoded retained reopen
   bytes: #107 started1792415211,350s late, and is now fully parent-verified.
-  #108 through #111 are fully parent-verified after exact900s starts. Latest111 start1792418811; nextdue1792419711.
+  #108 through #112 are fully parent-verified after exact900s starts. Latest112 start1792419711; nextdue1792420611.
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -62,19 +62,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #111 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792418811-Arthur-7512`:
+Parent verification #112 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792419711-Arthur-9122`:
 
-- 428 observations, 2,148 rows, 410 full and 18 bounded, all `ok`;
-- 475-second scan, 26.288931 seconds from finish to server receipt;
-- exact900-second start interval after #110;
+- 428 observations, 2,132 rows, 414 full and 14 bounded, all `ok`;
+- 498-second scan, 28.238854 seconds from finish to server receipt;
+- exact900-second start interval after #111;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-onehundredeleventh-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-onehundredeleventh-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-onehundredtwelfth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-onehundredtwelfth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792419711 (14:21:51 UTC).
+Next ordinary deadline1792420611 (14:36:51 UTC).
+#111 is fully verified:428observations/2,148rows/410full18bounded/allok,
+475s scan,26.288931s finish-to-serverreceipt,exact900s after110.
 #110 is fully verified:428observations/2,132rows/413full15bounded/allok,
 478s scan,28.383301s finish-to-serverreceipt,exact900s after109.
 #109 is fully verified:428observations/2,139rows/413full15bounded/allok,
