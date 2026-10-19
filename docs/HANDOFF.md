@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 17:24 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 17:29 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -258,8 +258,15 @@ runtime test7bae80b98b08d13b193ea1472e734724ad4b8e275ead206e9fc7d832a6fe9857.
 Parent9focusedPASS2.07s plus static; outside2private methods AST unchanged:
 [proof](../.archive/executor-review/native-memory-visibility-parent-verification.json).
 [Sol READY](../.archive/executor-review/native-memory-visibility-sol-r1-review.json),
-actual Opus running at `native-memory-visibility-opus-r1-20261019/`.
-No promotion or new native attempt yet; exactlyone instrumented retry is planned.
+[Actual Opus READY](../.archive/executor-review/native-memory-visibility-opus-r1-review.md)
+(exit0 claude-opus-5-5). Both source reviews have no Must/Should findings.
+Reviewer wrote scratch/plan notes outside repo; parent retained them privately,
+source unchanged. Nonblocking nits: P99 also lags and is zero before100updates;
+redundant privacy assertion harmless. Do not change frozen source for these.
+Private Opus evidence: `native-memory-visibility-opus-r1-20261019/`.
+PROMOTION READY sent for AFTER full124chain (started1792430827 exact900s).
+Sole operator must finish124thenfreshclosedAHquiescence before125. No new
+measurement yet; exactlyone instrumented retry after2-filepromotion/restart.
 Keep16MiB gate and GC behavior unchanged. No user physical input requested yet.
 
 ## Next live gates, in order

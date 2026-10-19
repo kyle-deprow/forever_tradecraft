@@ -1,6 +1,8 @@
 # Native memory visibility before another live measurement
 
-Status: Sol plan review READY. Bounded diagnostic correction; no resource-policy change.
+Status: COMPLETE offline: parent9focused/static PASS, Sol source READY and
+actual Opus5.5 READY exit0. Quiescent promotion and one live instrumented retry
+remain. No resource-policy change.
 
 The installed release reaches accepted held100, then the bound whole-Wine-process
 reset5 window rejects48,644,096-byte peak growth above16MiB. Final RSS is lower
@@ -60,3 +62,7 @@ Any resource-policy revision requires a separate concrete plan and review.
 Only one instrumented retry: metric drift yields a concrete optimization target;
 stable metrics plus another whole-process breach requires a separate resource-
 policy decision. A pass proceeds to qualification with variability retained.
+
+Review interpretation: updateP99Ms also lags one publication and is a zero
+placeholder until100publications since addon load. Use recorded update_count;
+late stable metrics cannot exonerate earlier transient whole-process peaks.
