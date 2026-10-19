@@ -116,6 +116,31 @@ The two calibration commands are supervised single-flight starts and return
 within the normal five-second socket timeout. Poll `calibration-status` for the
 readiness, completion result, or durable error before issuing the next gate.
 
+For deferred construction, the daemon also exposes a reservation-based public
+protocol. `native-construction-control-preflight --generation <generation>`
+requires an idle, unarmed `PAUSED` owner; `native-construction-prepare` requires
+`NATIVE_CALIBRATION`. Both capture the ordinary addon frame and retain its boot
+in a durable checkpoint. Use the returned reservation ID and generation for
+subsequent calls. The reservation expires; a new model turn does not renew it.
+
+The addon command `/crowley agent defer` creates the actual Construct and Restore
+controls and blocks scheduled scans. A preflight leaves the addon loaded;
+measurement crosses a reload to the deferred, absent-surface boundary, then uses
+`native-construction-bootstrap` with the returned expected constructor boot.
+The normal hold/measure/resume gates still apply. After finalize readiness,
+`native-construction-finalize-admit` admits the final fresh-frame transaction.
+
+Public recovery starts with `native-construction-recovery-begin` while `PAUSED`.
+A live preflight hands off its exact reservation ID; recovery after a revoked
+measurement uses an empty ID and the current generation. Follow the returned
+recovery kind: `restore` uses `/crowley agent recover` and the verified Restore
+control; `ordinary_reload` uses a reload. Complete with
+`native-construction-recovery-complete` and the new recovery reservation ID.
+Completion requires a fresh ordinary boot and inactive schedule fence and clears
+the durable checkpoint. A recovered error remains a failed calibration attempt.
+These commands establish native calibration and recovery evidence; the separate
+physical input gate is still required before autonomous input can be armed.
+
 Before `native-calibrate`, the authorized sole operator leaves the verified
 client at the external bootstrap boundary where the new Agent surface has not
 been constructed. While the controller remains in its unarmed
