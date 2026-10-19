@@ -154,6 +154,10 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   PATH does not override an explicit configured executable: inject the authentic
   pin through the fixture's configuration. Give fake desktop fixtures a private
   0700 XDG_RUNTIME_DIR so their leases cannot contend with the live daemon.
+  Xvfb and a private bus do not isolate per-user screenshot locks. Bind the
+  fixture's GNOME_CAPTURE_LOCK_PATH to its private directory before real backend
+  creation, preserving the actual lock implementation. Never unlink the live lock
+  to clear contention; identify its owner and clean up only the owned fixture.
 
 Update the relevant existing skill when live evidence disproves guidance; keep
 incident dumps and transient client facts in the handoff/evidence files.

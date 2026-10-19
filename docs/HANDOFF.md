@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 00:26 UTC. Repository: `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 00:41 UTC. Repository: `/home/dev/repos/pegasus`.
 Origin: https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley
 package, addon and configuration names remain intentional.
 
@@ -39,13 +39,14 @@ recipe economics, useful shopping lists and launch monitoring remain later work.
 - Canonical daemon is **PAUSED/gen23/unqualified**, neither candidate promoted.
   Collection has been **operator-assisted**; repeated900s starts do not qualify
   autonomous save/upload/ACK/reopen.
-- Latest independently verified sweep **63**:
-  `beta-normal-alliance-1792369010-Arthur-5815`, start00:16:50UTC,
-  428 observations/2476rows/406full/22bounded/zero incomplete.
+- Latest independently verified sweep **64**:
+  `beta-normal-alliance-1792369910-Arthur-9006`, start00:31:50UTC,
+  428 observations/2467rows/406full/22bounded/zero incomplete; start interval900s.
   Parent checked source hash, logical DB digest and production-decoded exact ACK.
-  Server receipt24.53701s after finish; loaded ACK boot1792369540-767017/pending0.
-- Read-only totals:71 sweeps/30388 observations/169974rows, latest receipt
-  2026-10-19T00:25:14.53701UTC. Historical sweeps included.
+  Server receipt39.601865s after finish; loaded ACK boot1792370441-981586/pending0.
+  AH reopened; next natural scan due00:46:50UTC.
+- Read-only totals:72 sweeps/30816 observations/172441rows, latest receipt
+  2026-10-19T00:40:27.601865UTC. Historical sweeps included.
 - GNOME login-keyring modal blocked AH reopen and dimmed the binary HUD. A typed
   targetexact command was NOT submitted; receipt records open_chat and typing, so
   do not repeat the worker's inaccurate no-input claim. One Xwayland Cancel click
@@ -61,8 +62,13 @@ recipe economics, useful shopping lists and launch monitoring remain later work.
   using fresh exact Buckler target-frame/tooltip evidence. The addon automatically
   began scan63 at00:16:50UTC (startedAt1792369010),428-item plan; next due00:31:50.
   Original SavedVariables SHAe900d30e949e47fefdbfbcd66abd3678b25ab6023381706e4b2044d40213fc72
-  and DB/loaded ACK now independently verified. Luna is reopening ordinary AH.
+  and DB/loaded ACK independently verified. Ordinary collection continued with64.
   No native workflow started.
+- Private helper pytest2709333 briefly held the production per-user GNOME capture
+  lock, aborting one live watcher poll. Its exit released the unchanged inode;
+  the bounded watcher retry recovered before64's scheduled start. Worker is
+  isolating GNOME_CAPTURE_LOCK_PATH in the fixture, preserving real lock code.
+  Xvfb/private D-Bus alone do not isolate that shared resource; skill updated.
 
 Only `/root/luna_live_continuation` operates the actual game/desktop. Root may
 inspect retained screenshots and run isolated Xvfb tests. Preserve that ownership.
