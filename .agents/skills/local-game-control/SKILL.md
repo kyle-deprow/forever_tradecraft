@@ -242,6 +242,8 @@ within existing authorization; respect any current movement limits.
   Pointer position can change during Wine capture. Compare actual positions before
   and after capture; a tooltip in the image does not prove the current pointer
   stayed there. Diagnose the change before any guarded final reposition/click.
+  After the final scene capture/focus, reposition, query the current endpoint and
+  target window, then press immediately; an intervening capture can reset it.
   A first post-click image can still carry the previous one-Hz addon payload.
   Wait for advancing, settled post-action frames before declaring failure or
   retrying an interaction.

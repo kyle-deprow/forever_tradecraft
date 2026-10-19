@@ -117,3 +117,13 @@ helper test baseline. Do not edit the older helper test file before that handoff
 No full-helper claim, final review, deployment or live use until the exact final
 proof tests and deadline method are incorporated and run. The two worktrees do
 not share editable source files. This preparation changes ordering only.
+
+## Frozen review may overlap validation
+
+After parent inspected the combined delta and independently passed22 focused
+checks on exact frozen helper877642/testa9625/runtimeedc524/test302f74, the
+read-only Sol review may overlap the unchanged full94-test run. This saves idle
+time without changing acceptance: the full combined run, parent actual workflow
+reproduction and final Opus review must all pass before installation. Any source
+change invalidates its previous frozen review until the changed delta is reviewed.
+No live qualification is inferred from this scheduling change.

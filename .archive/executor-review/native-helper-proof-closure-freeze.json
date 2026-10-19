@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "status": "focused_causal_pass_parent_combined_review_pending",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-helper-proof-closure-20261019",
+  "base_commit": "59046b1",
+  "owned_files": {
+    "tools/native_calibration_operator.py": {
+      "sha256": "47afeda449fb9eab695c33c239c1909ea45e2c05d5d16df36b95dd63df3d5cce",
+      "baseline_sha256": "6f8f87efad4e818d3c401d600d7fabe34d8ba48c405832ff20e53924bb5ddbac"
+    },
+    "tests/test_native_calibration_operator.py": {
+      "sha256": "a38bd17d8d55386697f3de5ecc6b3588cd31ffaca2eb6f9d5bf1535d0ec259b6",
+      "baseline_sha256": "39f7c5c769e9769561f44d45b9cd6b759ae329fec45ef9aa6ba4a0ae45503bee"
+    }
+  },
+  "readonly_dependencies": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/guardian.py": "e73128de1e6fdf38beda8256b11f77d66b2b666eb8b1499018c70781217a2efa",
+    "src/crowley/session/input_tool.py": "7d4edcc9094a813a2d8d87d0e94257493c11f5740f297eb0aefa7798b22a9ed6",
+    "src/crowley/session/config.py": "976717d23d18d6c37d7a3a280d532ba0cdc15e6d086896fc4781b6efdf6b94cb",
+    "src/crowley/session/decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "12ed6f14abbb7dae5bb68f12f1fac904badfcfc32a87eeb765a47553fbd0ef2a",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "scope": {
+    "allowed_files": ["tools/native_calibration_operator.py", "tests/test_native_calibration_operator.py"],
+    "forbidden": ["native seven files", "driver", "Guardian", "addon", "config", "service", "GUI", "deployment", "Git", "live input"]
+  },
+  "focused_final_runs": {
+    "success": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-helper-proof-closure-20261019/success-causal-r3.log",
+      "sha256": "e9afa77eb2edbf7cfe91067809e231c0efc0fa1fa6175e8f36a865c2cb5102ed",
+      "command": "pytest -q tests/test_native_calibration_operator.py -k 'actual_operator_measure_composes_x11_screen_daemon_and_agent and success' --disable-warnings --maxfail=1",
+      "result": "1 passed in 147.16s"
+    },
+    "control_preflight": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-helper-proof-closure-20261019/control-preflight-causal-r2.log",
+      "sha256": "787cc0c1c562283132685188973eb67d2131a2686586166cb42beaff408c018c",
+      "command": "pytest -q tests/test_native_calibration_operator.py -k 'actual_operator_measure_composes_x11_screen_daemon_and_agent and control-preflight' --disable-warnings --maxfail=1",
+      "result": "1 passed in 27.73s"
+    },
+    "measurement_failure": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-helper-proof-closure-20261019/measurement-failure-causal-r3.log",
+      "sha256": "1fda8e04a1975e3d9ee591925e617a6e3c00fe5c89fd618c00f8594673adc04f",
+      "command": "pytest -q tests/test_native_calibration_operator.py -k 'actual_operator_measure_composes_x11_screen_daemon_and_agent and measurement-failure' --disable-warnings --maxfail=1",
+      "result": "1 passed in 42.51s"
+    }
+  },
+  "superseded_matrix": {
+    "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-helper-proof-closure-20261019/full-helper-final-r3.log",
+    "sha256": "9520186ae2f1f842d8b704ba31f03ca46e1479b722ec7b773a91cbeb70a6aed0",
+    "result": "8 passed in 328.08s on superseded test hash 6abbea8664ef6a3edc17e0884b02e45470a3508e31abadf32b592a92c265ca07"
+  },
+  "interrupted_full_module": {
+    "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-helper-proof-closure-20261019/full-helper-77-final-r2.log",
+    "sha256": "2351351de58b3a5ecb9d863adcdfeeed6e13052484f6fc52dbf3d9a4aeb2c452",
+    "result": "61 passed, 4 warnings before intentional KeyboardInterrupt; not authoritative"
+  },
+  "static_checks": {
+    "ruff_format_check": "pass: 2 files already formatted",
+    "ruff_check": "pass: All checks passed!",
+    "compileall": "pass",
+    "git_diff_check": "pass"
+  },
+  "import_origins": {
+    "tools.native_calibration_operator": "/home/dev/.cache/crowley/worktrees/native-helper-proof-closure-20261019/tools/native_calibration_operator.py",
+    "crowley.session.cli": "/home/dev/repos/pegasus/src/crowley/session/cli.py",
+    "crowley.session.controller": "/home/dev/repos/pegasus/src/crowley/session/controller.py",
+    "crowley.session.daemon": "/home/dev/repos/pegasus/src/crowley/session/daemon.py"
+  },
+  "evidence_directory": {
+    "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-helper-proof-closure-20261019",
+    "mode": "0700",
+    "logs_mode": "0600"
+  },
+  "causal_corrections": [
+    "kept compositor payload files base64 and wrote raw PNG only to the requested output path",
+    "kept actual ordinary VM unarmed until dispatched agent defer, asserted armed fence/token/no reload",
+    "bound Construct, Hold, update, Resume, and Finalize payloads to the live reloaded Lua VM",
+    "expected deferred lifecycle on first measurement reload and ordinary lifecycle on recovery reloads"
+  ],
+  "limitations": [
+    "Parent combined helper/runtime final suite and independent review remain pending",
+    "Offline evidence only; no live GUI, addon, deployment, native promotion, or service qualification is claimed",
+    "The full module run was intentionally interrupted after parent started the combined final suite"
+  ]
+}

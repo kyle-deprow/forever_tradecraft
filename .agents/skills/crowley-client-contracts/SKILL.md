@@ -25,6 +25,13 @@ In composed Lua/desktop fixtures, derive every served frame from the current
 client, including initial captures. Change clients only after the actual accepted
 reload action, using its written SavedVariables; assert deliberate inactive-control
 refusals separately. Fixed frame indexes or uncaused scene swaps can hide broken modes.
+Keep static-image seed clients separate from the active ordinary client; the
+helper's emitted defer must perform the real unarmed-to-armed transition.
+Bind recovery checkpoints to the active client's persisted marker token.
+Retain accepted/refused command and control actions with actual boot and reload
+changes. Compare their exact order at each phase boundary: post-pause recovery
+cannot appear in a pre-pause expectation, and an empty expectation must prove
+an empty history rather than skip assertions.
 Derive phase deadlines and terminal controller states from the real producer's
 lifecycle, not field names or scripted replies that preserve an earlier state.
 Trace integration failures to the actual guard before blaming development inputs;

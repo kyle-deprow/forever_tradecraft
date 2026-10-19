@@ -1,0 +1,54 @@
+{
+  "sourceBefore": {
+    "tools/native_calibration_operator.py": "8776425736b81d0c130380f96f673a0010b79d1382c36e9681cbbfb1b02b1169",
+    "tests/test_native_calibration_operator.py": "a9625c490ade29474250582dc01060a976b80dca8256a3f060cf781eb92e2a2a",
+    "tools/template_matcher_runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "tests/test_template_matcher_runtime.py": "302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69"
+  },
+  "sourceAfter": {
+    "tools/native_calibration_operator.py": "8776425736b81d0c130380f96f673a0010b79d1382c36e9681cbbfb1b02b1169",
+    "tests/test_native_calibration_operator.py": "a9625c490ade29474250582dc01060a976b80dca8256a3f060cf781eb92e2a2a",
+    "tools/template_matcher_runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "tests/test_template_matcher_runtime.py": "302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69"
+  },
+  "runnerSha256": "fa456590f96e572d416b3929e791bbce7829ad9b6717b52ecac51436cd78f294",
+  "referenceHelperSha256": "ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5",
+  "frameSha256": "bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2",
+  "templateManifestSha256": "1866fe230e8a49104c2a126501b585c31a8279dc0f172389413b225de26425ec",
+  "setupVerificationMs": 0.8579640125390142,
+  "timings": {
+    "exclusive-construct": {
+      "samplesMs": [
+        207.08161799120717,
+        206.9757359859068,
+        209.57624600850977
+      ],
+      "medianMs": 207.08161799120717
+    },
+    "exclusive-restore": {
+      "samplesMs": [
+        207.10019700345583,
+        206.5203880192712,
+        205.64785398892127
+      ],
+      "medianMs": 206.5203880192712
+    },
+    "dual": {
+      "samplesMs": [
+        237.7236899919808,
+        238.52701002033427,
+        241.4427869953215
+      ],
+      "medianMs": 238.52701002033427
+    }
+  },
+  "sourceBindings": {
+    "template-matcher-runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "template-matcher-binary": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+    "template-matcher-Cargo.toml": "3307fd9c7503479a443bbd23554958cda94343596985f9772ceba4187aeb7cd8",
+    "template-matcher-Cargo.lock": "ea23646a59c8a3956ede087e8fea60643cbd016771f435fe84c24c467861a9b2",
+    "template-matcher-src/main.rs": "bb3647dc12804670d391170563284799fce7b931a07f663726767e95402b47a3"
+  },
+  "scope": "Parent actual final TemplateMatcher wrappers include PNG read/decode/RGB, SHA, actual verified-FD Rust child+IPC+score+parse and exclusive/dual logic. Independent original Python reference decisions equal. Live capture and whole helper qualification excluded.",
+  "qualification": "Exact stated frozen-source focused/benchmark proof only. Full helper workflow and final test fixes/reviews are separate; no live or autonomous qualification."
+}
