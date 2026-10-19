@@ -72,6 +72,9 @@ within existing authorization; respect any current movement limits.
 - Verify the foreground screen before a click or command; inspect the result before
   the next dependent action. Tool exit code zero proves input dispatch, not success.
   Resolve actual controls rather than guessing a keybinding from an action name.
+  Stage and verify commands before acquiring short-lived recovery tickets;
+  ticket expiry permits the existing public recovery retry, not a new approval
+  requirement. Complete a bounded owned chain without model-turn delays.
   Recovery may intentionally have no telemetry surface. Use the public daemon
   recovery admission and fresh verified scene/chat/control evidence for that
   boundary; requiring an ordinary decoded HUD can make recovery unreachable.

@@ -1,0 +1,12 @@
+{
+  "kind": "addon-restore-diagnostic-retention-parent-verification",
+  "verifiedAt": "2026-10-19T03:23:58.356093+00:00",
+  "sourceSha256": "b46e679f22b5f26a27975d71c4e6d04c396ae56686a7588cb2b225137d2bb4f0",
+  "testSha256": "af761acb9af4525e66aabc9adc210cf43fa6e6f3943109aec33d6f330c7b4d77",
+  "worker": "9passed232deselected; scopedruff/format/diff green",
+  "parent": "9passed232deselected1.84s; delta inspected",
+  "sol": "READY/no findings",
+  "installedSourceMatches": true,
+  "serviceRestarted": false,
+  "liveQualification": "Pending next owned reload and one diagnostic recovery; optional failure string is not an admission signal or scan payload."
+}

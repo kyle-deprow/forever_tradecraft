@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 03:11 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 03:33 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -22,7 +22,9 @@ Later work: verified Forever recipe economics, strategies and launch monitoring.
 
 ## Live game/data
 
-Only `/root/luna_live_continuation` operates actual GUI/game. Root may read retained
+Only `/root/luna_live_recovery` operates actual GUI/game. Previous operator
+`/root/luna_live_continuation` confirmed all inputs/tools closed and is inactive.
+Root may read retained
 screenshots, run isolated Xvfb and coordinate source/service work. Arthur remains
 stationary at Ironforge AH; no movement or trading. Sunshine/Moonlight disabled.
 WoW PID644491/procstart15495385/XID0x02e00001; fingerprint
@@ -54,13 +56,25 @@ Root found restore_pending startup discards allocation and first/second checked
 publication errors before permanently clearing surface/markingfailed. Root model
 unavailable UnitPosition atADDON_LOADED reproduces permanent failure even after
 native API becomes available, but exact LIVE CAUSE IS UNKNOWN. No timing fix yet.
-Diagnostic-only Agent6985b8a7/testd82141fd in isolated addon-restore-diagnostic WT
-passed worker8 and parent8 native_restore tests1.81s plus SolREADY; exact source
-COPIED to main+installed addon, no service restart. See
-addon-restore-diagnostic-parent-verification.json and diagnostic plan.
-Sole GUI worker prepares one owned reload to load diagnostic then one source-
-approved absent-surface recovery/Restore with IMMEDIATE chat/screenshot before
-45s poll; awaiting exact `agent restore failed: <phase>: <causal reason>`.
+Initial diagnostic-only Agent6985b8a7/testd82141fd passed worker8/parent8/SolREADY
+but startup chat was not observed. Follow-up RETENTION Agentb46e679f/testaf761acb
+passed worker9/parent9(1.84s)/SolREADY and is COPIED main+installed and LOADED.
+It clears `ns.db.agentRestoreFailure` at fresh restore_pending initialization,
+then retains exact phase+cause after any existing failure cleanup. Other startup
+paths preserve it. No lifecycle/admission/timing change. Source plan and both
+parent verification/ review records in executor-review.
+One subsequent reviewed-source Restore reached handler+reload, but cause still
+not visible. `/run print(...)` had malformed shifted punctuation; `/dump` was
+staged under GameMenu and never executed. Current GameMenu open, chatinactive;
+all old operator input closed. Last on-disk marker restore_pending/token
+recovery:10650bfc6c32450ce73c8025, no persisted errorfield YET.
+NEW sole GUI Luna has compact current task: close GameMenu normally, stage and
+visuallyverify short `/reload`, submit with real observed key action, flush
+CURRENT in-memory failedmarker+retained diagnostic for ROOT offline parse.
+No additional Restore/ticket needed merely to read the field. Normal nonrestore
+reload should preserve it. Never edit SavedVariables to repair it. Alternative
+short `/dump CrowleyDB.agentRestoreFailure` is localread-only, but no more
+punctuation/historyquery dead ends. Root waiting ACTUAL cause before timingfix.
 No blind repeated clicks, no ordinary HUD requirement at deliberate absence.
 
 Actual private controls manifest:
@@ -70,8 +84,11 @@ Retained actual WoW panel source SHA bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077
 on retained real frame costs2.5531s Construct/2.5208s Restore in region220x84.
 Root wrote bounded PLAN-rust-template-matching.md, Sol reviewed revised exact
 SEARCH/SCORE_AT/SAD/protocol/build-trust/benchmark contract READY. No Rust
-implementation/toolchain install yet; rustc/cargo absent on PATH. Prioritize
-restoring scans. Actual-image performance evidence is computation-only.
+matcher implementation yet. Parent installed official manifest-verified Rust/Cargo
+1.85.1 plus rustfmt PRIVATELY under
+~/.cache/crowley/rust-toolchain-1.85.1/toolchain; no global PATH/game/service changes.
+See rust-toolchain-parent-verification.json and private installation.json.
+Prioritize restoring scans. Actual-image evidence is computation-only.
 
 Private receipts/images/original payloads:
 `~/.local/state/crowley/executor-evidence/runtime-relink`.
@@ -219,9 +236,9 @@ c0221 reports61pass3fail remain history. Do not resurrect them.
 
 ## Preservation and working rules
 
-Latest hourly backup `beta-20261019T021427Z-40cef19170e3`, parentvalidate PASS,
-manifest SHA552a2eeb7a8c627251e3cf6438d200f003da7b039d8fbd51b69db38eb2f6d0fe,
-0700 directory, data through70. Next hourly03:14UTC. Run
+Latest hourly backup `beta-20261019T031301Z-0fa0a2c4a55c`, parentvalidate PASS,
+manifest SHA71025454b869771ea221a9d7bc1e97437dd48736aca05bb7826b1ee3d4eb5bea,
+0700 directory, data through73. Next hourly04:13UTC. Run
 `uv run python tools/market_backup.py snapshot`; independentlyvalidate_snapshot.
 Prior isolated restore drill passed; no repeat without reason. Raw/private files
 stay out of git. Historical handoff: handoff-history-before-consolidation-

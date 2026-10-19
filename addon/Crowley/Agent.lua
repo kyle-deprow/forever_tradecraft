@@ -770,6 +770,7 @@ local function initializeLoad()
     -- recoverable through Restore until a fresh ordinary boot is proven.
     lifecycle = "restore_only"
   elseif state == "restore_pending" then
+    ns.db.agentRestoreFailure = nil
     local ok, failure = createSurface()
     if ok then
       attachSurfaceScript()
@@ -787,6 +788,7 @@ local function initializeLoad()
         lifecycle = "failed"
         restoreInFlight = false
         if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+        ns.db.agentRestoreFailure = "first publication: " .. tostring(firstFailure)
         if ns.Print then ns.Print("agent restore failed: first publication: " .. tostring(firstFailure)) end
       else
         if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
@@ -812,6 +814,7 @@ local function initializeLoad()
           restoreInFlight = false
           recoveryAdmitted, recoveryMode = false, false
           if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+          ns.db.agentRestoreFailure = "second publication: " .. tostring(secondFailure)
           if ns.Print then ns.Print("agent restore failed: second publication: " .. tostring(secondFailure)) end
         end
       end
@@ -824,6 +827,7 @@ local function initializeLoad()
       lifecycle = "failed"
       restoreInFlight = false
       if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+      ns.db.agentRestoreFailure = "createSurface: " .. tostring(failure)
       if ns.Print then ns.Print("agent restore failed: createSurface: " .. tostring(failure)) end
     end
   end

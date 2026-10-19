@@ -1,0 +1,41 @@
+{
+  "kind": "private-pinned-rust-toolchain-parent-verification",
+  "at": "2026-10-19T03:27:08.864776+00:00",
+  "versions": {
+    "rustc": "rustc 1.85.1 (4eb161250 2025-03-15)",
+    "cargo": "cargo 1.85.1 (d73d2caf9 2024-12-31)",
+    "rustfmt": "rustfmt 1.8.0-stable (4eb161250e 2025-03-15)"
+  },
+  "manifestSha256": "1e7dae690cd12e27405a97e64704917489a27c650201bf47780a936055d67909",
+  "components": [
+    {
+      "component": "rustc",
+      "archiveBytes": 72901032,
+      "sha256": "92a5c532b9e87912190128704e0d65825912e3b08a6ee9203c4068d6d1df62c4"
+    },
+    {
+      "component": "cargo",
+      "archiveBytes": 9177052,
+      "sha256": "7373132c13e394755d15f01bda4374af59b4daef01b12a83cb3df3f3be38e289"
+    },
+    {
+      "component": "rust-std",
+      "archiveBytes": 30609224,
+      "sha256": "0aaeffba85359503f874315cd08e0ae8490275d14b41470d36d4fa57fd085916"
+    },
+    {
+      "component": "rustfmt-preview",
+      "archiveBytes": 2532916,
+      "sha256": "6e6e7d094a2d756dc223d3246fc8978a75195b289d5860f99f9c492c2fd409fa"
+    }
+  ],
+  "globalPathModified": false,
+  "gameOrServiceModified": false,
+  "logSha256": "6ed21d91de38f4b2503b76e61321707b6dcba218f2abbcfd92340ca32fbcb94f",
+  "binarySha256": {
+    "rustc": "f8d033fd72e878ec60493788c8bffec2e6c154dcab6f0cb4c145af8ada26a7ed",
+    "cargo": "87e9ff02f95ea17d877e7c4eeb0f365f50fe3827f5afec132131ff3b8031a57e",
+    "rustfmt": "6102f0471eaf05de4a5f8311b209e904a1605784a8e421cf8572ec36bce5085d"
+  },
+  "qualification": "Private build prerequisite only. No Rust matcher implemented or installed into running helper."
+}

@@ -31,3 +31,17 @@ Then sole GUI owner can deploy exact reviewed diagnostic source and perform
 one bounded source-approved Restore with fresh public recovery ticket while
 capturing the earliest post-reload chat. Root arbitrates a separate behavioral
 fix against that actual error. No repeated blind Restore attempts.
+
+## Diagnostic retention correction after live attempt
+
+Three diagnostic chat messages alone were not observable after reload/trade
+scroll. Root authorizes retaining plain-string `ns.db.agentRestoreFailure` with
+exact phase+cause in the same three failure branches AFTER cleanup BEFOREprint.
+Clear it when a fresh restore_pending initialization begins, preventing stale
+error after successful restoration. Do not alter other startup paths, native
+marker, fence, retry/timing/admission or scan payload. This is optional private
+SavedVariables diagnostic metadata, not a success flag. Tests retain all3phase
+failure guarantees and successful fresh restoration clears stale diagnostic.
+Then soleGUI may issue short local `/run print(CrowleyDB.agentRestoreFailure)`
+to expose exact error without a fragile startup-chat capture/long history query.
+Same two owned files, checks and scope fence. Parent + Sol review before install.
