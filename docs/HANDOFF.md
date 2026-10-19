@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 20:37 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 20:54 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -56,23 +56,23 @@ gate. Gen43 required publicpause44 and separate canonical recovery, nowcomplete.
 Ordinary AH reopened; assisted125 began1792431816 (89slate). No physical-input
 gate yet. Diagnostic release is committed/pushed8277ec1.
 
-Latest fully parent-verified cycle **#136**:
+Latest fully parent-verified cycle **#137**:
 
-- UID `beta-normal-alliance-1792441716-Arthur-3625`;
-- start1792441716, finish1792442188:472s;428 observations/1,978 rows;
+- UID `beta-normal-alliance-1792442616-Arthur-0904`;
+- start1792442616, finish1792443090:474s;428 observations/1,931 rows;
 - 411 full/17 bounded, all428 `ok`, zero query failures;
-- exact900s after135;28.333380s finish-to-server receipt;
+- exact900s after136;33.291662s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredthirtysixth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredthirtysixth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredthirtyseventh-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredthirtyseventh-ah-reopen-parent-verification.json).
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 began1792431816:989s after124 (89slate). Assisted126..136 completed at
-exact900s intervals; nextdue1792442616 (20:43:36UTC). Full chains125..136 are
+Assisted125 began1792431816:989s after124 (89slate). Assisted126..137 completed at
+exact900s intervals; nextdue1792443516 (20:58:36UTC). Full chains125..137 are
 parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
@@ -303,7 +303,7 @@ closed/pending0/inactive/speed0 frame. AH subsequently reopened for assisted125.
 User authorized the resource-policy separation with “proceed with these steps”
 at20:07UTC. [Implementation plan](../.archive/PLAN-native-resource-policy.md) has
 [Sol plan approval](../.archive/executor-review/native-resource-policy-sol-plan-review.json).
-Luna is implementing in isolated worktree
+Luna completed the first candidate in isolated worktree
 `/home/dev/.cache/crowley/worktrees/native-resource-policy-20261019`.
 Owned production files: calibration/controller/daemon; three scoped tests.
 Exact reset5 memory measurements and128MiB/16MiB targets remain. Verified
@@ -313,13 +313,20 @@ recovery guards. Old failure archives remain byte-exact and unqualified.
 No new policy is installed yet. Parent reproduction, Sol and actual Opus source
 review precede promotion. Human input remains a separate genuine-human gate.
 
-Collection continues through assisted134..137 while implementation runs.
+First candidate:337 native/regression tests,38 runtime tests and the real compiled
+100-update operator test passed. Parent reproduced23 focused and6 runtime cases;
+compiled reproduction is running. A missing composed over-target runner regression
+is being added before source review. No candidate installed yet.
+
+Collection continues through assisted138..140 while validation runs.
 Scan134 reopened through a separate fresh tooltip-verified Auctioneer target;
 the stale-target failure is retained unchanged and its hash plus the recovery
 hash appear in the parent reopen proof. The20:12UTC backup is complete and
 independently validated. [Host operations plan](../.archive/PLAN-session-host-operations.md)
 has [Sol plan approval](../.archive/executor-review/host-operations-sol-plan-review.json)
-for hourly backups and two-minute read-only health timers.
+for hourly backups and two-minute read-only health timers. Luna began that
+independent implementation in `/home/dev/.cache/crowley/worktrees/host-operations-20261019`;
+it pauses briefly for the core test addition.
 These timers do not trigger game scans; the addon900s timer remains the scan clock.
 No timers are installed yet. Do not synthesize human input or bypass capture guards.
 
@@ -360,7 +367,8 @@ Latest validated private backup: `beta-20261019T201228Z-e8af917a0db2`, through13
 ingestion; directory0700, manifestSHA
 `0e321c3bf97edf685e97d2f8eee7a08df01539d511f1b4ad6631c30d28f76186`.
 [Backup verification](../.archive/executor-review/market-backup-20261019T2012Z-parent-verification.json).
-Parent independently revalidated the manifest. Next hourly backup about21:12UTC; replace manual scheduling only after reviewed timer installation. Prior isolated restore drill remains accepted.
+Parent independently revalidated the manifest. Next hourly backup about21:12UTC; sole operator has its prepared fallback runner.
+Replace manual scheduling only after reviewed timer installation. Prior isolated restore drill remains accepted.
 API: `tools.market_backup.snapshot` then `validate_snapshot`; retain full
 invocation output privately and publish only sanitized hash/coverage/mode proof.
 
