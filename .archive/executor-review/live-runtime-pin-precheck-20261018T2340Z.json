@@ -1,0 +1,25 @@
+{
+  "kind": "parent-read-only-live-pin-precheck",
+  "utc": "2026-10-18T23:40:26.111974+00:00",
+  "config_raw_sha256": "0dde50b95ad0e992a53d3cfa86e02cbba7e60af2d6d722db86804bb77c12c3a1",
+  "configured_cli": {
+    "version": "codex-cli 0.162.1",
+    "expected_version": "codex-cli 0.162.1",
+    "matches_expected": true,
+    "sha256": "628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1"
+  },
+  "configured_producer": {
+    "sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+    "matches_expected": true,
+    "uid": 1000,
+    "mode": "0o700"
+  },
+  "live_daemon": {
+    "state": "PAUSED",
+    "generation": 23,
+    "nativeCalibration": false,
+    "inputCalibration": false
+  },
+  "calibration_operation_state": "idle",
+  "limits": "Read-only snapshot of canonical daemon/config, not candidate source acceptance or native/input qualification. No service/config/input changes."
+}

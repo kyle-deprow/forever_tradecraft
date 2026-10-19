@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "status": "bounded_helper_closure_incomplete_production_composition",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-operator-final-closure-20261018",
+  "owned_files": {
+    "tools/native_calibration_operator.py": "3cb57dad6b586f7bf1b8b197a70f662689994568c09f7e45c668aa70012b54fa",
+    "tests/test_native_calibration_operator.py": "c0221bdea14d4aeba788500a761e2fdb6c19f50aadbea838cb4b9b1ed61c1b49"
+  },
+  "read_only_development_inputs": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "e36b11f88f2385d4221cb870afe357c0a0980d7681cc6f09e20a1936b460490d",
+    "tests/test_session_native.py": "9b965c678bea35f6cd86231ed407e4433bead0a196093f702f09c602787b6292",
+    "tests/test_session_native_regressions.py": "b41d10014bac75b1f36c47c3ad5f5718bfe71a7648fbb82658bef89b6b7208e7",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "tests": {
+    "focused": "10 passed",
+    "cleanup": "4 passed",
+    "owned_noncomposition": "57 passed, 7 deselected",
+    "unfiltered_final": "61 passed, 3 failed",
+    "unfiltered_failures": [
+      "test_control_preflight_operator_uses_actual_daemon_admissions: actor_admission_invalid during R7 recheck",
+      "test_recover_operator_uses_actual_empty_id_recovery_admission: actor_admission_invalid during R7 recheck",
+      "test_actual_bootstrap_reply_loss_after_prepare_expiry_cancels_known_id: R7 actor exited before committed-bootstrap horizon assertion"
+    ],
+    "static": ["ruff format --check", "ruff check", "compileall", "git diff --check"]
+  },
+  "limitations": [
+    "R7 development daemon/IPC inputs are unaccepted and caused the three unfiltered failures.",
+    "No stable discovered game window exists in the allowed private compositor, so production X11Screen/stock-decoder composition was not claimed.",
+    "Live UI geometry and template timing remain unverified; no optimization or Rust migration was attempted."
+  ],
+  "git_commit": null
+}

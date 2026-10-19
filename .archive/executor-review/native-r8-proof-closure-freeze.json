@@ -1,0 +1,49 @@
+{
+  "artifact": "native-r8-proof-closure",
+  "base": "a74297c4e28c66fa87d53b507a169326037c3c25",
+  "checks": {
+    "compileall": "passed",
+    "git_diff_check": "passed",
+    "import_origins": {
+      "crowley.session.cli": "/home/dev/.cache/crowley/worktrees/native-final-commit-r8-proof-20261018/src/crowley/session/cli.py",
+      "crowley.session.controller": "/home/dev/.cache/crowley/worktrees/native-final-commit-r8-proof-20261018/src/crowley/session/controller.py",
+      "crowley.session.daemon": "/home/dev/.cache/crowley/worktrees/native-final-commit-r8-proof-20261018/src/crowley/session/daemon.py"
+    },
+    "py_compile": "passed",
+    "ruff_check": "passed",
+    "ruff_format_check": "passed"
+  },
+  "focused_command": "PYTHONPATH=<worktree>/src:/home/dev/repos/pegasus XDG_RUNTIME_DIR=<private-0700> /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_session_native_regressions.py::test_native_worker_prepare_pause_three_way_lock_barrier tests/test_session_native_regressions.py::test_native_resume_ready_malformed_facts_refuse_before_publication tests/test_session_native_regressions.py::test_native_finalize_transaction_wait_expiry_refuses_before_mutation --tb=short",
+  "focused_log": {
+    "mode": "0600",
+    "parent_directory_mode": "0700",
+    "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r8-proof-closure-20261018/focused-proof-tests-final2.log",
+    "sha256": "ba419e2b7110054413adccf49a2eab53c30e44bf639c8e086aa3faa760bf1fdb",
+    "xdg_runtime_directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-r8-proof-closure-20261018/xdg-final2-fDRSHp",
+    "xdg_runtime_directory_mode": "0700"
+  },
+  "focused_result": "6 passed in 65.92s",
+  "original_r8_evidence": {
+    "named_runtime_log_sha256": "17e27749bdbc49b9a6cebd270f230b266ebaad4868cb8493074b89f85c7b3548",
+    "named_runtime_result": "1 passed, 14 deselected in 0.58s",
+    "native_three_suites_log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-final-commit-r8-final-20261018/full-native-three-suites-final.log",
+    "native_three_suites_log_sha256": "729f127604cd9fbc13b9c20d53aa2f5a2f8cdc126b9e67ea582a8cfe287df35f",
+    "native_three_suites_result": "334 passed in 443.09s"
+  },
+  "owned_changed_file": {
+    "path": "tests/test_session_native_regressions.py",
+    "r8_baseline_sha256": "093b97e15d81c407d40564815ee3eb867003bbd43146acb85a0ed7a1fdd4bba5",
+    "sha256": "6447c6a4470334650034ae277dc00d30e67c2ce29179f812a14c52f3dae042a8"
+  },
+  "readonly_r8_files": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "b727b4df2516691c7071156788649af7fae9f3c8bf8db4be1426593af757fceb",
+    "tests/test_session_native.py": "329900e05141f0ea9622d3c128d2392eeb2a2bb6d602e13e9044dc8a0f56acd9",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "scope": "No production source changes; no broad rerun because the six readonly R8 bytes remain unchanged. Parent must independently verify and obtain Sol/actual Opus review before promotion.",
+  "status": "focused_proofs_complete_incremental",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-final-commit-r8-proof-20261018"
+}

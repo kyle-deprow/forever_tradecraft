@@ -1,0 +1,117 @@
+Resolved model: claude-opus-5-5
+Resolved model ID: **claude-opus-5-5**
+
+# R8 review: native finalize commit and capture admission (full diff from `7ac5c85`)
+
+R8 needs one more correction before acceptance. Its finalize commit no longer re-checks the reservation's identity and Guardian binding after the final capture, which R7 did. The other R8 goals are implemented correctly, and lock order is sound.
+
+This was a read-only review. I made no repository edits, ran no tests, made no git changes and sent no input; my only write was the plan scratch file. I didn't open the separate proof tree.
+
+**Scope and fence**
+- All seven hashes match the frozen map.
+- `controller.py`, `cli.py` and `test_session_transitions.py` are byte-identical to R7 final. R8's own changes are in:
+  - `daemon.py`;
+  - one fake-controller insert in `test_session_native.py:821-828`;
+  - the regressions file;
+  - the named runtime test.
+- The runtime test change has three parts:
+  - the keyword-accepting test double;
+  - the `replace` import;
+  - a `codex_path` pin to the private 0.162.1 binary (`test_session_runtime.py:1816`). This goes slightly beyond "test-double correction only", but it is inside the named function and follows the skill's guidance on pinning the authentic CLI.
+
+**What holds up**
+- **Lock order.** It is controller → construction → calibration-state, plus the existing bootstrap → construction and bootstrap → controller. I scanned the source for nested locks and found no reverse nesting. Guardian runs its callbacks after releasing its own lock.
+- **Cancel vs finalize.** They are serialized correctly:
+  - If cancel wins, the commit refuses: the context is closed, and the error path skips because of `closed` (`daemon.py:7454`).
+  - If finalize wins, cancel returns "reservation is unknown" and publishes no competing terminal.
+- **Expiry and recheck revocation** also serialize correctly under the construction lock.
+- **Deadlines.** The final, hook, operation and reservation deadlines are re-checked under both locks before the rebind. They are also re-checked before and after every capture and sleep.
+- **PAUSED without a producer** is refused after controller admission and before any stock capture.
+- **The configured producer** re-checks the exact owner capability at Guardian's execution gate (`4545-4548`). The PAUSED cancel-before-admission test exercises that gate for real.
+- **Removed fallbacks.** The `native_calibrated` TypeError retry and the guessed resume sequence/time are gone.
+- **Worker completion** takes its status snapshot before the calibration-state lock.
+- **Durable recovery.** The recovery journal-write test now fails `journal.write` itself and asserts that history rolls back.
+- **Checkpoint after success.** Success keeps the "prepared" checkpoint; the PNG-runner test asserts this.
+
+## Must-Fix
+
+**1. R8 removed the final identity/lease/Guardian binding check from the finalize commit** (`daemon.py:7387-7404`, `1864-1912`).
+- **What changed.** R7 called `_native_construction_validate_snapshot(reservation_snapshot)` after selecting the final frame and before the rebind. R8 replaced it with two checks, and neither covers the binding:
+  - `_native_construction_revalidate_finalize_owner` (`1818-1862`) checks only owner, epoch and deadlines;
+  - the transaction checks only owner, deadlines and the constructor boot.
+- **What is no longer checked:** `identityFingerprint`, `desktopLeaseHeld`, `guardianGeneration`/`guardianArmed`, owner PID/start and profile.
+- **Where binding was last checked.** That was `_revalidate_run_owner` at `7302`, before the finalize loop. That loop can run for up to 10 seconds while the operator is actively using the client.
+- **The captured frame isn't compared either.** `_native_construction_capture` resolves the *current* identity (`1532`), and the candidate's `identityFingerprint` is never compared with the reservation's.
+- **How it is reached.** A window move changes the fingerprint, because it includes outer and child geometry (`driver.py:2360-2378`). So can a child-XID re-creation within the same process. In both cases the addon keeps publishing `native-construction:B0` frames.
+- **Effect.**
+  - The transaction makes the durable `native_calibrated` commit and publishes `finalized` against a stale binding.
+  - Every other construction boundary refuses and revokes on exactly this drift: `1803`, `2142`, `2219`, `2262` and `3875`.
+  - Separately, a Guardian revoke whose generation bump lands just before the commit, but whose callback is waiting on the construction lock, now commits. R7's `guardianGeneration` check refused it.
+- **What correct looks like.**
+  - After choosing the final frame, outside the locks, run `_native_construction_validate_snapshot`. This is the outside-the-lock identity acquisition the plan calls for.
+  - Require the candidate's `identityFingerprint`, its `captureIdentity` and the reservation's `identityFingerprint` to be equal.
+  - Inside the transaction, repeat the pure comparisons: candidate identity against the reservation, `guardian.generation` equal to the reservation's `guardianGeneration`, and Guardian not armed.
+  - Add a barrier test that changes the identity between the final capture and the commit, and asserts refusal before the rebind.
+
+## Should-Fix
+
+**1. `native_calibrated` has no rollback when its durable write fails, and the deferred error path then persists the half-applied state** (`controller.py:1757-1775`; `daemon.py:7449-7474`).
+- **The gap.** `native_calibrated` changes in-memory state before writing anything durable:
+  - in-memory changes: `_native_calibrated`, evidence, history, and `_state=INPUT_CALIBRATION`;
+  - the writes that follow: `_archive` (which is a `journal.write`) and then `_save`.
+- **Effect.**
+  - When a JournalError escapes the transaction, the worker's error path does three things:
+    - records the immutable `error` terminal;
+    - sets the calibration operation to `error`;
+    - calls `mark_native_construction_recovery_required()` (`controller.py:1297`).
+  - That last call runs `_save`. If the write failure was transient, the save succeeds and durably records INPUT_CALIBRATION with `nativeCalibration=True`. If the archive append was the step that failed, no `native_calibration` archive record exists.
+  - `start_calibration("input")` is then admitted, because it checks only the state (`7509`).
+  - This contradicts the rule that archive failures are real durability failures (`controller.py:452-453`) and the exactly-one-terminal requirement.
+- **Origin.** The legacy path already had this gap, but the deferred path now makes it deterministic.
+- **What correct looks like.** Snapshot and restore the in-memory fields if `_archive` or `_save` fails, as `commit_native_construction_recovery` does (`controller.py:1376+`). Add a finalize-boundary `journal.write` failure test: run the original owner through its normal error handling, then a fresh driver and owner.
+
+**2. Proof gap that is not one of the three known omissions: the commit's own cancel-wins guard is never exercised.**
+- **Unreached guard.** No test reaches `daemon.py:1901` ("deferred finalize owner was revoked before commit"). The cancel-after-capture variant is caught earlier, at `1838-1849`.
+- **Weak serialization barrier.** The rebind-barrier variant proves only that finalization wins. It orders the threads with `time.sleep(0.05)` (`tests/test_session_native_regressions.py:5980`) and never observes the cancel thread blocked on `controller.lock`. A regression that released the locks early would be caught only if that thread happened to run within 50ms.
+- **Loose assertion.** Line `5992` checks only that `"error"` is present, not the exact owner-revoked reason or the terminal state on a later recheck.
+- **What correct looks like.**
+  - Cancel after the last revalidation (`7389`) and before the commit takes its locks.
+  - Assert the exact guard fired and nothing was rebound or committed.
+  - Use an event that proves the cancel thread is actually blocked.
+
+## Nits
+
+1. **The capability is ignored on the stock path** (`daemon.py:4504-4509`).
+   - **The gap.** With no producer configured, the NATIVE_CALIBRATION stock branch ignores `native_capability`. A cancel that lands after the capability lookup can therefore still produce one read-only stock capture. That capture is discarded by the next revalidation.
+   - **Related.** Measurement-phase captures (`3623`) carry no capability at all.
+   - **Consequence.** The closure's statement that "cancellation cannot dispatch a revoked process" holds only for the configured producer.
+   - **Fix.** Check the capability before the stock dispatch, or record this as a legacy residual.
+2. **STOPPED admission was relaxed** (`daemon.py:4495-4498`).
+   - **What changed.** STOPPED captures are now admitted whenever `expected_state is None`, including on the configured-producer path, which HEAD and R7 refused.
+   - **Reach.** Only the fresh-daemon fixture at `tests/test_session_native.py:957-960` reaches it. In production, STOPPED normally carries `stop_requested`.
+   - **Fix.** Restore the {BLOCKED, STOPPED} refusal and update that test instead.
+3. **The resume-ready fact check can be masked** (`daemon.py:3128`, which runs before `3151`).
+   - **How.** A missing `sequence` gives "not a fresh same-boot proof", and a `None` sequence raises TypeError, both before the named "facts are malformed" guard.
+   - **Impact.** Both fail closed, but they could mask pending proof #3.
+   - **Fix.** Validate the types first.
+4. **The worker can write into a newer operation record** (`daemon.py:1308-1322`).
+   - **The race.** Once `_finish_calibration` releases the calibration lock, interaction-mode `run_once` (`7695-7701`) can start the next gate. The old worker then writes its result into the new record. Its `finally` block can also flip the new "starting" record to "error".
+   - **Origin.** This was already possible in HEAD; R8 slightly widens the result window.
+   - **Fix.** Bind the writes to the original record object.
+5. **Remaining live-ID guard coverage.**
+   - "recovery restart cannot overlap a live reservation" (`2337`) has no test.
+   - Of the deferred callbacks' "out of order" guards, only hold-required is tested.
+   - The NATIVE_CALIBRATION execution-gate capability branch (`4522-4529`, `4545-4548`) isn't run through the real method, because the PNG test replaces it (`5900`).
+   - The no-producer refusal is tested for preflight only, not recovery begin.
+
+## Known pending proofs (not verified here)
+
+These three are still pending, as you described:
+- the worker / prepare / pause three-way lock barrier;
+- deadline expiry while the commit waits for the controller lock;
+- malformed resume facts rejected before `resume_ready` is published.
+
+Their source paths look correct, apart from the ordering caveat in Nit 3. None of this is a live, native100 or input qualification.
+
+STATUS: NEEDS WORK
+CLAUDE_EXIT:0

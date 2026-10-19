@@ -1,0 +1,17 @@
+{
+  "kind": "parent-system-modal-recovery-verification",
+  "receipt_sha256": "59d0aa2905af356bfc3f1c4270c0ed228e37211da0fbbd0d590f7adc3a8a6e97",
+  "post_png_sha256": "5337c870c576812c9ad7de18461acc0a8c1e4e4d83ee31dfe01bc369d6775019",
+  "tool_sha256": "8b7dde4c037445a72710ac92f7a45b9521f267256b493429900211a62623213a",
+  "tool_package": "0.1.8-3build1",
+  "action": [
+    "/usr/bin/ydotool",
+    "key",
+    "ESC"
+  ],
+  "child_reaped": true,
+  "returncode": 0,
+  "parent_visual_check": "Retained post PNG independently viewed: GNOME keyring modal gone; Arthur selected at character-select, Enter World available. Does not prove world entry.",
+  "semantics": "One source-defined KEY_ESC press/release via existing uinput permissions; no persistent daemon/service, password, settings or permissions changes.",
+  "limits": "No independent evdev trace; no native/input calibration or autonomous-scan qualification. Subsequent Enter World/world-HUD evidence is separate."
+}

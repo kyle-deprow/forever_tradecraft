@@ -19,6 +19,12 @@ For helper composition, drive the actual SessionDaemon/SessionIPC handlers;
 scripted client replies cannot establish that the three production modes compose.
 Pinned development dependencies permit offline composition before live acceptance;
 finish assigned composition tests instead of deferring them as parent verification.
+Before claiming completion, map each assigned race/deadline requirement to its
+actual regression and result; a broad green total does not cover an omitted case.
+Derive phase deadlines and terminal controller states from the real producer's
+lifecycle, not field names or scripted replies that preserve an earlier state.
+Trace integration failures to the actual guard before blaming development inputs;
+verify the exact constructor call before claiming an unavailable-resource blocker.
 For restart checks, create a fresh driver and owner without process-local evidence.
 For owner-death tests, signal the actual helper owner PID, not its emitter child.
 Prove independent release and reservation cancellation while that owner is dead;
@@ -53,6 +59,8 @@ bypasses the failed helper does not prove crash recovery.
 For a post-side-effect failure test, assert the side effect and pending ownership
 exist at the injection point. A guessed callback count may fail before the reset
 or dispatch and leave the intended cleanup branch untested.
+For transaction-expiry tests, observe actual transaction entry; an identical
+deadline error from an earlier outer check does not establish the inner guard.
 Keep the failing owner alive through its normal error handler before recreating
 it from disk. Immediate owner destruction can hide a catch path that persists
 partly mutated counters over the recoverable checkpoint.

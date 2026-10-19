@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-18, 23:38 UTC. Repository: `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 00:16 UTC. Repository: `/home/dev/repos/pegasus`.
 Origin: https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley
 package, addon and configuration names remain intentional.
 
@@ -34,30 +34,33 @@ recipe economics, useful shopping lists and launch monitoring remain later work.
 
 ## Live status and immediate blocker
 
-- WoW runs locally through Wine. Sunshine/Moonlight is disabled. Arthur is
-  stationary at the Ironforge AH; no trading or movement is authorized here.
-- Canonical runtime daemon remains **PAUSED, generation23, unqualified**. Neither
-  current native/helper candidate has been promoted or installed into that service.
-- Collection has been **operator-assisted** by the sole GUI Luna worker. Many
-  consecutive starts were exactly900s apart; that is not autonomous qualification.
-- Latest independently verified sweep is **62**:
-  `beta-normal-alliance-1792364753-Arthur-8911`, started23:05:53UTC,
-  428 observations /2640 rows /404 full /23 bounded /one incomplete.
-  Item12692 timed out. Receipt arrived20.782144s after finish. Parent verified
-  SavedVariables hash, logical DB digest and exact loaded ACK using production
-  PixelDecoder on the retained PNG.
-- Fresh read-only DB totals: **70 sweeps,29960 observations,167498 captured rows**;
-  latest receipt2026-10-18T23:14:45.782144UTC. Historical sweeps are included.
-- Reopening the AH is now blocked by GNOME's **login-keyring authentication
-  modal**. It dims the whole display and invalidates the strict binary HUD.
-  `/targetexact Auctioneer Buckler` is typed behind it; Return was not sent.
-  The failed receipt records open_chat and typing, so do not claim zero input.
-- One guarded Cancel click through the game/Xwayland input path had no effect on
-  the compositor-owned dialog. Available accessibility/D-Bus paths cannot cancel
-  it; no requester can be attributed to our own process. No credentials, keyring
-  service changes or repeated clicks. User was asked asynchronously to click
-  **Cancel**; no reply yet. Scan63's23:20:53 due time has therefore been missed.
-  After dismissal require fresh exact identity/HUD/chat-buffer proof before Return.
+- WoW runs locally through Wine; Sunshine/Moonlight is disabled. Arthur was left
+  stationary at the Ironforge AH. No trading or movement is authorized here.
+- Canonical daemon is **PAUSED/gen23/unqualified**, neither candidate promoted.
+  Collection has been **operator-assisted**; repeated900s starts do not qualify
+  autonomous save/upload/ACK/reopen.
+- Latest independently verified sweep **62**:
+  `beta-normal-alliance-1792364753-Arthur-8911`, start23:05:53UTC,
+  428 observations/2640rows/404full/23bounded/one incomplete(item12692 timeout).
+  Parent checked source hash, logical DB digest and production-decoded exact ACK.
+  Server receipt20.782144s after finish.
+- Read-only totals:70 sweeps/29960 observations/167498rows, latest receipt
+  2026-10-18T23:14:45.782144UTC. Historical sweeps included.
+- GNOME login-keyring modal blocked AH reopen and dimmed the binary HUD. A typed
+  targetexact command was NOT submitted; receipt records open_chat and typing, so
+  do not repeat the worker's inaccurate no-input claim. One Xwayland Cancel click
+  had no effect. AFK logout later cleared that buffer. Scan63's23:20:53 due time
+  was missed; record its actual delayed start when collection resumes.
+- At00:13 one owned installed `ydotool key ESC` invoked the verified GNOME Cancel
+  binding. Child exited/reaped0; root viewed retained after.png and confirms modal
+  gone/Arthur selected at character select. No password/settings/service changes.
+  Native pointer-click attempt refused BEFORE dispatch when Cancel became blank.
+  Uinput is system-wide and not isolated by Xvfb DISPLAY. User dismissal is no
+  longer needed; the earlier asynchronous question is obsolete.
+- At00:14:52 sole GUI Luna matched the actual EnterWorld control(MAE0), clicked
+  [960,1002] with150ms release and verified loading screen. Await settled world
+  HUD/plan/queue, exact target-frame+tooltip and AH reopen. Do not reuse old chat
+  or infer world readiness from the loading screen. No native workflow started.
 
 Only `/root/luna_live_continuation` operates the actual game/desktop. Root may
 inspect retained screenshots and run isolated Xvfb tests. Preserve that ownership.
@@ -89,15 +92,39 @@ proofs were missing despite the initial closure claim. Worker
 `native-final-commit-r8-proof-20261018` (basea74297c, all7 exactR8files copied).
 Read [the proof-closure plan](../.archive/PLAN-native-r8-proof-closure.md): actual
 three-way lock barrier, deadline expiry while waiting for final lock, and malformed
-resume facts before publication. Other6 files are read-only. No duplicate broad
-rerun if production bytes remain identical. No source acceptance/native100/live gate.
+resume facts before publication. Other6 files are read-only. Worker6pass65.92s and
+parent6pass65.43s now complete; all pre-existing named test/helper ASTs unchanged,
+six exact read-only hashes/log permissions verified. Sol focused review found a
+false-positive: deadline cases expire at a fourth outer revalidation before entering
+the transaction; they do NOT establish its inner guard. R9 now includes correcting
+the barrier to actual transaction entry and asserting calibration-worker termination
+in the three-way case. Malformed-resume cases passed focused review. No combined
+340-test invocation is claimed.
 
-**Helper final closure:** worker `/root/luna_runtime_instrumentation`, worktree
-`/home/dev/.cache/crowley/worktrees/native-operator-final-closure-20261018`,
-basea74297c. Owns ONLY tools/native_calibration_operator.py and its test file.
-Read [the closure plan](../.archive/PLAN-native-operator-final-closure.md) and
+Sol full R8 source review found a capability/Guardian-dispatch race with
+non-controller-serialized replay/recheck/expiry revocation, plus None-ID wildcard
+and ignored kind. Root accepted. Active native worker is in
+`native-capability-transaction-r9-20261018`, base2d63777, exact7R8-proof files copied.
+Read [R9 plan](../.archive/PLAN-native-capability-transaction-r9.md), INCLUDING final
+Opus arbitration. Writable fence: daemon.py; controller.py ONLY native_calibrated
+rollback; native_regressions tests; test_session_native.py ONLY compiled-default
+STOPPED fixture correction. Other3read-only. Final R8 Opus completed NEEDS WORK;
+no review hold remains. Accepted additions: final identity/lease/Guardian binding,
+transient durable-write rollback before error-handler save, actual transaction
+cancel-wins/deterministic final-wins, strict STOPPED refusal, resume type ordering,
+async old-worker operation identity, corrected transaction-expiry/worker-completion
+proofs and named remaining guard cases. Legacy stock-capture dispatch residual is
+explicitly deferred. Focused proof then final suites once; no source acceptance,
+native100 or live qualification.
+
+**Helper causal composition:** worker `/root/luna_runtime_instrumentation`, worktree
+`/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018`,
+base2d63777. Owns ONLY tools/native_calibration_operator.py and its test file.
+Read [the current plan](../.archive/PLAN-native-operator-causal-composition.md),
+[Sol's concrete repair prescription](../.archive/executor-review/native-operator-final-closure-failure-triage-sol.md),
+[the preceding plan](../.archive/PLAN-native-operator-final-closure.md) and
 [Sol's findings](../.archive/executor-review/native-operator-production-proofs-sol-review.md).
-Six copied R7 native files are read-only development inputs, not accepted code.
+Seven exact frozen R8 native files are read-only development inputs, not accepted code.
 Actual helper Opus completed exit0/claude-opus-5-5, STATUS: MAJOR ISSUES.
 Final root arbitration is appended to the closure plan; no review hold remains.
 It supersedes the original Sol prescription: providerDeadline belongs ONLY to
@@ -105,6 +132,16 @@ initial construction, not later hold/measure/resume phases. Additional accepted
 fixes include actual INPUT_CALIBRATION success, error detection at any wait,
 genuine Guardian-generation increase on new PAUSED handoff, private pipe reply
 correlation, no unpressed release input, and complete GO-time action budgets.
+
+Previous helper3cb57dad/testc0221bde froze RED:61 pass/3 fail, no required causal
+fixture. Root rejected the completion claim and independently reproduced two
+failures. Normal recovery is misclassified by the helper actor itself, not an
+R7 compatibility failure. Reply-loss tests conflate incomplete private reply
+(valid early exact cancellation) with a complete server-indeterminate private
+reply (RPC unusable, owner retained through cleanup horizon). Sol triage provides
+the exact repairs and allowed external-device factory seam. Neither X11Screen
+nor X11Backend constructor discovers a game window; no live WoW interface blocker
+exists for this offline composition. Keep the failed tree/reports as evidence.
 
 The preceding helper candidate passed58 parent tests, but full measurement
 success/production-screen composition was unproved. Accepted fixes address the
@@ -120,12 +157,23 @@ Actual pinned-tool tests on fresh isolated Xvfb independently proved exact23-key
 command typing in3.272824s within3.99s and key release/reap0.562473s after actual
 helper SIGKILL while a key was held. These do not establish the full workflow.
 
-No root exec currently running. Helper Opus22003 is CLOSED0/MAJOR ISSUES; native
-R7 Opus2839 CLOSED0/NEEDS WORK. Parent native checks3947 and representative-template
-benchmark42539 CLOSED0, as are helper tests42012, typing76434, death6947,
-backup30667 and push50795. No model fallback. New actual CLI review sessions must
-stay attached and be polled at most30s; raw JSONL0600 stays private.
-Main last pushed **a74297c** before this consolidation.
+No active root exec. Native R8 actual Opus28192 CLOSED0/claude-opus-5-5/NEEDS WORK;
+final arbitration is in R9 plan. Sol full R8 source review and added-proof review
+also NEEDS WORK, accepted corrections above. Earlier six passing cases do not
+establish transaction proof. Helper Opus22003 CLOSED0/MAJOR ISSUES; R7Opus2839
+CLOSED0/NEEDS WORK. Parent3947/42539/42012/76434/6947/41048 and backups30667/73320,
+checkpoint push53971 all CLOSED0. New actual CLI review sessions must remain
+attached/polled <=30s, no fallback; rawJSONL0600 stays private.
+Checkpoint **2d63777** contains the consolidated handoff; use git log for latest HEAD.
+Frozen candidate SOURCE is also pushed as `checkpoint/executor-20261018` commit
+`dacefb9`: exact seven R8-proof files plus failed helper pair, nine curated files
+only. It is an UNACCEPTED recovery checkpoint with the native race/helper red suite
+explicit in its commit message; canonical main source/runtime is not promoted.
+
+Read-only live pin precheck23:40: configured authentic CLI0.162.1 SHA628e3548,
+producer SHAcb938cab matches config/user1000/mode0700; live daemonPAUSED/gen23,
+nativeCalibration=false/inputCalibration=false, calibration operationidle.
+No service/config/input mutation was needed or performed.
 
 Representative offline matcher benchmark on frozen helper715:1920x1080 capture,
 220x84 region, synthetic100x28 templates, exclusive2.606132s/dual5.058175s.
@@ -154,9 +202,9 @@ No matcher rewrite is authorized by this benchmark or the unrelated runtime Rust
 
 ## Data preservation and operating references
 
-Hourly snapshot `beta-20261018T231325Z-166c0ce4fbc3` independently validates;
-manifest SHA256 `8cb835d02d5c50b1973d2cbb2de42d59c69de0661b6a5c53b85837e7413cf1b5`.
-It contains scan61, before62 ingestion. Next hourly due00:13UTC. Use
+Hourly snapshot `beta-20261019T001252Z-099a6adfaad4` independently validates;
+manifest SHA256 `01bb962b4846077935d8eb8532e69e89e824f61e5ea2c13d86525f1d08b9ceb9`.
+It includes scan62. Next hourly due01:13UTC. Use
 `uv run python tools/market_backup.py snapshot` and independently validate it.
 Keep backups and raw game/private evidence out of git. An earlier isolated
 restore drill already passed; no need to repeat without a reason.

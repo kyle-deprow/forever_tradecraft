@@ -1,0 +1,24 @@
+{
+  "kind": "unaccepted-source-recovery-checkpoint",
+  "branch": "checkpoint/executor-20261018",
+  "commit": "dacefb98646c39a89e1a0a8443c54d4cd051e165",
+  "source_sha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "b727b4df2516691c7071156788649af7fae9f3c8bf8db4be1426593af757fceb",
+    "tests/test_session_native.py": "329900e05141f0ea9622d3c128d2392eeb2a2bb6d602e13e9044dc8a0f56acd9",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293",
+    "tests/test_session_native_regressions.py": "6447c6a4470334650034ae277dc00d30e67c2ce29179f812a14c52f3dae042a8",
+    "tools/native_calibration_operator.py": "3cb57dad6b586f7bf1b8b197a70f662689994568c09f7e45c668aa70012b54fa",
+    "tests/test_native_calibration_operator.py": "c0221bdea14d4aeba788500a761e2fdb6c19f50aadbea838cb4b9b1ed61c1b49"
+  },
+  "files": 9,
+  "private_raw_evidence_included": false,
+  "known_status": {
+    "native": "R8 source with334 broad passes plus separate6 new proof cases; known capability race under R9 repair",
+    "helper": "61 passing3 failing tests; no complete causal composition",
+    "proof_tests": "Six passing incremental tests; Sol later found deadline false-positive before transaction. Preserved unaccepted checkpoint includes that test version; R9 repairs it."
+  },
+  "qualification": "Recovery checkpoint only; not merged into main source, installed or accepted."
+}

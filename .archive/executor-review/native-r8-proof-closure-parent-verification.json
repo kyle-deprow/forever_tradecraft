@@ -1,0 +1,76 @@
+{
+  "kind": "parent-native-r8-proof-closure-verification",
+  "base_commit": "a74297c4e28c66fa87d53b507a169326037c3c25",
+  "source_hashes": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "b727b4df2516691c7071156788649af7fae9f3c8bf8db4be1426593af757fceb",
+    "tests/test_session_native.py": "329900e05141f0ea9622d3c128d2392eeb2a2bb6d602e13e9044dc8a0f56acd9",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293",
+    "tests/test_session_native_regressions.py": "6447c6a4470334650034ae277dc00d30e67c2ce29179f812a14c52f3dae042a8"
+  },
+  "readonly_r8_hashes_worker_log_permissions": "verified",
+  "existing_named_tests_ast": "unchanged; only new helpers/tests added",
+  "checks": [
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "check",
+        "tests/test_session_native_regressions.py"
+      ],
+      "returncode": 0,
+      "seconds": 0.016,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "summary": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "format",
+        "--check",
+        "tests/test_session_native_regressions.py"
+      ],
+      "returncode": 0,
+      "seconds": 0.016,
+      "log_sha256": "fd2299c9f1c6dc869070883e281051bfe93aacf66c1a3b0069f45b4aa410ca50",
+      "summary": [
+        "1 file already formatted"
+      ]
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "seconds": 0.032,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "summary": []
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "tests/test_session_native_regressions.py::test_native_worker_prepare_pause_three_way_lock_barrier",
+        "tests/test_session_native_regressions.py::test_native_resume_ready_malformed_facts_refuse_before_publication",
+        "tests/test_session_native_regressions.py::test_native_finalize_transaction_wait_expiry_refuses_before_mutation"
+      ],
+      "returncode": 0,
+      "seconds": 65.718,
+      "log_sha256": "93375ec421b2b0e2546dd27eb641e0e424615a7d27b0829f874bbfcb77c4f23b",
+      "summary": [
+        "......                                                                   [100%]",
+        "6 passed in 65.43s (0:01:05)"
+      ]
+    }
+  ],
+  "limits": "Six incremental proof cases on unchanged R8 production. R9 capture capability race accepted separately; R8 remains unaccepted and no live/native100 claim.",
+  "subsequent_focused_review": "Sol NEEDS WORK: three deadline cases stop at fourth outer revalidation before entering transaction; passed behavior does not prove inner transaction deadlines. R9 repairs actual-entry barrier plus explicit calibration-worker termination; malformed-resume cases adequate."
+}

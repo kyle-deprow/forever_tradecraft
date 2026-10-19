@@ -50,6 +50,10 @@ within existing authorization; respect any current movement limits.
 - Focus alone may leave a Wine window covered or minimized. Raise/activate the
   verified game window, then inspect a fresh screenshot before entering input.
   Launcher news, trailers, and broadcasts are not evidence of game state.
+  A GNOME system modal can dim the binary HUD and ignore Xwayland XTEST input.
+  Verify its installed Cancel binding before one owned native dismissal; uinput
+  is system-wide and is not isolated by an Xvfb DISPLAY. Revalidate the game scene
+  afterward: an AFK logout invalidates any previously staged chat command.
 - Use current screenshot dimensions and visible controls. Coordinates from a
   previous resolution or window position are stale.
 - A worker shell can lack the graphical environment while the game is running.
