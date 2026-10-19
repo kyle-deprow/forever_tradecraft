@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 23:06 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 23:13 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -94,22 +94,26 @@ Native throughput correction is scoped in the
 Replace CLI fanout with one fresh pinned observer per existing identity boundary;
 preserve all three boundaries and all calibration guards. Cheaper /proc filtering
 and Pillow cell checks were measured privately but were insufficient alone. No
-new observer is installed yet. Luna implements in an isolated worktree; parent,
-Sol and actual CLI Opus must approve before live promotion. Rust component
-(10 cases), driver actions(30), config subset(6) and the legacy composed
-reference-path control have passed in the worker checkout. These totals do not
-qualify the new integrated path. Sol diagnostic readback confirms the moving
-Rust/default-factory fixture reached construct0/held0/updates1..99/held100/resume0
-and sealed nativeCalibration=True in its TEST daemon. The post-finalize test
-failure is now narrowed to a real daemon recheck race: active reservation is
-snapshotted, real finalize moves it to the terminal map during unlocked
-validation, then the second lock incorrectly reports unknown. A lucky r5 pass
-does not close it. Root extended the plan/fence to the daemon recheck seam and
-native regression file for exact-generation canonical terminal reread and a
-barrier-controlled real-finalize regression. Three fresh observer nonces per
-update and maximum active<900ms assertions must also be completed before freeze. This is not live qualification. Luna and
-Sol coordinate the fixture fix; formal reviews wait for a frozen parent-tested
-candidate. No Rust observer is installed.
+new observer is installed yet. Luna froze a13-file candidate in the isolated
+worktree. Parent independently reproduced the actual Rust/default-factory
+operator/daemon/Agent composition:1 passed in148.57s, including real independent
+1Hz updates1..99, held100/resume0 and the three fresh identity-boundary/active
+work<900ms assertions. This is fixture evidence, not live qualification.
+Parent source inspection found required corrections before formal review:
+concurrent bounded output/deadline cleanup, strict protocol duplicate-key refusal,
+closed-production no-fallback refusal, both WM_CLASS values/reference identity
+parity, immutable build-input/linker provenance and all3 Rust source pins in the
+sealed helper evidence. Actual Xvfb mutation coverage and retained numerical
+performance measurements also need completion. Luna has planned the corrections;
+parent forced-race regression passed1 case in23.11s. The broad check reached
+149passed/0failed257.40s before deliberateSIGINT/exit2 because source corrections
+were already required; this is NOT a full-suite pass. Luna now implements the
+accepted consolidated corrections with a longer leash.
+[Parent development proof](../.archive/executor-review/native-observer-r1-parent-verification.json).
+Sol and actual CLI Opus source review have not started. The narrow
+finalize/recheck terminal-reread patch remains within the approved plan extension;
+its forced real-finalize regression passed independently as recorded above.
+No unchanged live native retry is authorized.
 The compact client-contract skill now explicitly distinguishes separate component
 and mocked-identity composition evidence.
 
@@ -475,3 +479,6 @@ contents private under existing state directories. Logs/files0600, directories
 source/import/process pins and truthful assisted/model/compiled/live labels.
 Repository skills stay small and source controlled: client contracts and local
 game control contain the demonstrated timing/fixture lessons.
+
+The23:12UTC hourly backup also fired automatically and passed independent full
+snapshot/hash/private-mode validation: [recurrence proof](../.archive/executor-review/market-backup-20261019T2312Z-parent-verification.json).

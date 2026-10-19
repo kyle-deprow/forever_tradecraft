@@ -1,0 +1,65 @@
+{
+  "status": "NEEDS_CORRECTIONS",
+  "stage": "Parent pre-review development verification; no formal source review yet",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "5a1c2446bde68896cbe94895ec65008875afb794046a9b1a0ec5da660dce4cf4",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "35563c91ef75408dd48ca4843cc45aa779c22e60686a78f18fe74240dc017d0f",
+    "src/crowley/session/driver.py": "50a9af0049b759d01d99ccff647aa365fea75c0c2140ffd45f4b9b52469b3bde",
+    "tests/test_native_calibration_operator.py": "da5d6204c7170a8209a4c33286168e8330c6d9d7fd2aa9c1112f078eed7b8ee1",
+    "tests/test_session_driver_actions.py": "503d4cbf16cdef644355208523ef4d3a4dbd1b16ab4728e4e61b421ba389433a",
+    "tests/test_session_native.py": "8a2eb509900435d5966f7aa2b2b9b12238dea12b645d38bae986c7359576d6f7",
+    "tests/test_session_native_regressions.py": "480b9ebb9eaae22ae13676057329d908102c07ce7be100ea6abc9b355c21d430",
+    "tests/test_x11_identity_observer.py": "10a4cbcdf5a98b968ab9722b0158aaff279b33a651111fd425c1039be731b23d",
+    "tools/build_x11_identity_observer.py": "26043c14bc5803fe649d1a73df1aa0bff9c95674b95ad0f57d89820954e7c8e2",
+    "tools/native_calibration_operator.py": "91fc68df8c730d974826dc847d879c2773d0a3c7c161be425c5ab44110740262"
+  },
+  "checks": {
+    "actualRustComposition": "PASS:1 passed148.57s; strict1Hz ordinals/held100/resume0/threefreshboundaries/active<900ms",
+    "forcedRealFinalizeRace": "PASS:1 passed23.11s",
+    "scopedRuff": "PASS",
+    "componentDriverFullNative": "INTERRUPTED deliberately after149passed/0failed257.40s; SIGINT exit2. Fullcheckmustbererun on corrected candidate.",
+    "imports": "Verified isolated worktree module path"
+  },
+  "logSha256": {
+    "composition.log": "fb81ed1a66c42ea705232cdb77b709e688b031ff94218ff3c96f83af9573b803",
+    "component-driver-native.log": "fc07d4f89fc1b9d58397ac53c48d064930c5fc57f0d686a4f56837c5161d92c6",
+    "finalize-race.log": "dd5a51c69ea232f4d6d4b9e68101ebefe0bd14fbc8c1ae83576c57581dd58aa0",
+    "ruff.log": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+  },
+  "findings": [
+    {
+      "file": "src/crowley/session/driver.py",
+      "issue": "Observer pipes are not concurrently drained; communicate is unbounded and can exceed deadline on inherited descriptors. Output bounds are checked after allocation. Duplicate JSON response keys are accepted."
+    },
+    {
+      "file": "src/crowley/session/driver.py",
+      "issue": "Production close removes observer object then resolve_identity selects reference resolver."
+    },
+    {
+      "file": "native/x11_identity_observer/src/main.rs",
+      "issue": "Only res_class checked; reference requires res_name and res_class. Accepted WindowIdentity class differs. Handwritten request parser does not validate full strict JSON/key/type contract."
+    },
+    {
+      "file": "tools/build_x11_identity_observer.py",
+      "issue": "Two independent copies then post-build hashes of mutable originals do not prove exact build-input manifest. Missing exact linker provenance and private atomic-publication checks."
+    },
+    {
+      "file": "tools/native_calibration_operator.py",
+      "issue": "Receipt adds binary/resolver pins but omits the required three observer source pins."
+    },
+    {
+      "file": "tests/test_x11_identity_observer.py",
+      "issue": "Real X11 test covers happy path only; accepted reference parity and decisive actual-window mutation proof absent."
+    },
+    {
+      "file": "tests/test_native_calibration_operator.py",
+      "issue": "900ms assertion present but numerical maximum and retained per-boundary/per-attempt performance evidence not published."
+    }
+  ],
+  "decision": "Luna authorized bounded corrections in existing13-file fence and approveddaemonrecheckseam. Sol and actualCLI Opus reviews follow parentfinalchecks.",
+  "liveInstallation": false,
+  "autonomousQualificationCycles": 0
+}

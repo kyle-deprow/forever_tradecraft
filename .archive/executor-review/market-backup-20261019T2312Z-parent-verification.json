@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "trigger": "Enabled systemd hourly timer; no manual backup invocation",
+  "snapshot": "beta-20261019T231201Z-18c004dd5baa",
+  "manifestSha256": "8a961ed0052a05785d8adb0a8b47305b55ca1056f5a9da5e7b31d7f6d446b4c4",
+  "completedUtc": "2026-10-19T23:12:11Z",
+  "independentValidation": "tools.market_backup.validate_snapshot",
+  "directoryMode": "0700",
+  "fileModes": "0600",
+  "qualification": "Backup recurrence only; no autonomous scan qualification."
+}
