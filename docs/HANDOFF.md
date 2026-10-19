@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 09:02 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 09:11 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -42,7 +42,11 @@ observations; no buying, posting or cancelling is part of this task.
   proof and holds a quiescent ordinary scene for helper installation/calibration.
   The editor-state fix is installed in MAIN after full89 tests, parent focused
   and recorded-frame proof passes, Sol READY and actual Opus5.5 READY.
-  No service restart was needed. Luna is released for the fresh native chain.
+  No service restart was needed. Gen29 fresh preflight passed; resume returned30. Native measurement then
+  failed at requested update4 observing update5; pause returned31. Native/input
+  remain false. Parent independently decoded the ordinary post-failure frame. Sole GUI
+  reopened AH and #92 is active, start1792400969, interval1773s/873s late.
+  Its final save/ACK/reopen is pending. Offline observation-budget plan underway.
   Read actual status before every transition.
   Do not restart merely to inspect this handoff.
 - Current work must preserve fresh evidence generations, exact commands, and
@@ -90,11 +94,11 @@ closed for calibration with exact #91 ACK, pending 0, normal/0, inactive fence,
 closed chat, zero movement and released controls. Public state is PAUSED29.
 Record the resulting calibration-related gap; do not count these as autonomous.
 
-The latest private backup is `beta-20261019T081155Z-5ce06f7c778f`, independently
-validated after #88 ingestion, directory mode 0700. Manifest SHA256:
-`f767cb84f4f83c0055725595d289ee5c8535490caafc1cd04badf983805a08eb`.
-See [backup verification](../.archive/executor-review/market-backup-20261019T081155Z-parent-verification.json).
-Next hourly backup: 09:12 UTC. Prior isolated restore drill passed; repeat only
+The latest private backup is `beta-20261019T091215Z-d03dd43917af`, independently
+validated after #91 ingestion, directory mode 0700. Manifest SHA256:
+`dc45d044a1c680253292a9d66b400403a27206bd2d6249be77420bae7ec1966f`.
+See [backup verification](../.archive/executor-review/market-backup-20261019T091215Z-parent-verification.json).
+Next hourly backup: 10:12 UTC. Prior isolated restore drill passed; repeat only
 if new evidence warrants it. Raw backup data stays private.
 
 ## Accepted installed release
@@ -294,7 +298,21 @@ is installed without a service restart. Current helper SHA256:
 tests `90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75`.
 The earlier native159 checks and installed calibration20fe remain unchanged.
 
-Luna is released from the closed-AH scene after #91 into the fresh native chain. No live
+The live chain reached update3, then refused requested4 observing5 at gen30.
+Public pause returned31. See [live failure evidence](../.archive/executor-review/native-live-skipped-update-gen30-parent-verification.json).
+Existing daemon cleanup removed per-update provider captures, so timings/root
+cause cannot be reconstructed from those images. No blind retry: Luna verifies
+ordinary recovery/assisted collection while offline diagnosis proposes bounded
+private timing and failure-evidence retention before another native attempt.
+The [observation-budget plan](../.archive/PLAN-native-observation-budget.md) is
+approved by Sol and parent for diagnostic-only implementation. Removing
+identity work requires actual instrumented timings and a separate reviewed delta.
+Five synchronous full identity resolutions are present per update; prior component
+measurements bound each near0.193..0.223s. This is a budget hypothesis, not direct
+gen30 full-path timing proof. Assisted #92 resumed at1792400969 (09:09:29 UTC),
+a1773s interval/873s late after #91. Parent decoded ordinary post-failure state;
+loaded ACK list was cleared by native reload, so do not claim current #91 ACK.
+No live
 native100 success is claimed, and no human input is needed until native100 and
 ordinary recovery pass.
 

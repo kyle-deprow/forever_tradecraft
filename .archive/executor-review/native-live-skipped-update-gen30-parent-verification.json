@@ -1,0 +1,62 @@
+{
+  "status": "NATIVE_FAILED_ORDINARY_VERIFIED_ASSISTED_COLLECTION_RESUMED",
+  "helperSourceSha256": "4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b",
+  "controlPreflight": {
+    "generation": 29,
+    "outcome": "success",
+    "receiptSha256": "61cef1214b3df5aea54c711ecd3c92f95e7b39b948508d3d9f3ae3ec3d577143"
+  },
+  "measurement": {
+    "generation": 30,
+    "outcome": "failure",
+    "failureCode": "native_admission_refused",
+    "receiptSha256": "e7891db61295f6e15474d3b286670e5fb8c7c5a63e369c5ee366175d570f14b6",
+    "error": "native update 4 measurement failed: native updates/4 returned 'updates'/5",
+    "native100Passed": false,
+    "operationPausedGeneration": 31,
+    "nativeCalibration": false,
+    "inputCalibration": false
+  },
+  "evidenceLimit": "Per-update provider captures were deleted by existing release/cleanup code. No per-stage timing reconstruction or measured cause is claimed. Retained helper GUI frames and memory/construction archives are separate evidence.",
+  "next": "Sole GUI verifies ordinary recovery and restores assisted collection. Offline bounded diagnosis proposes timing/failure retention before another native attempt.",
+  "qualification": "No autonomous qualification.",
+  "ordinaryAfterFailure": {
+    "parentIndependentRetainedFrameDecode": true,
+    "receiptSha256": "afa82c0cec633889564779374b80ef9e93e6134f9d7f88b69ebdbe0881f91956",
+    "frameSha256": "6f520647635ec588c04efbcaa136c46545c7f9972f3b9e0bc1efa99f5b76e8f7",
+    "boot": "1792400729-401200",
+    "sequence": 192,
+    "ahOpen": false,
+    "pending": 0,
+    "nativePhase": "normal",
+    "nativeOrdinal": 0,
+    "fence": "inactive",
+    "speed": 0,
+    "chatClosedEmpty": true,
+    "loadedAckIds": [],
+    "note": "Native reload cleared loaded ACK set. Earlier #91 exact ACK evidence remains preserved; this frame does not claim it."
+  },
+  "assistedCollection": {
+    "scan": 92,
+    "startedAt": 1792400969,
+    "previousStartedAt": 1792399196,
+    "intervalSeconds": 1773,
+    "lateSeconds": 873,
+    "source": "Sole live operator fresh watcher report; final scan payload/server/ACK verification pending"
+  },
+  "diagnosis": {
+    "identityResolutionsPerUpdate": 5,
+    "sites": [
+      "calibration.py pre-provider loop",
+      "daemon._check_native_poll_identity",
+      "backend pre-capture identity",
+      "backend post-capture identity",
+      "calibration capture_observation post-capture identity"
+    ],
+    "componentTimingBoundSeconds": [
+      0.193,
+      0.223
+    ],
+    "rootCauseQualification": "Plausible synchronous budget exhaustion; component timing evidence, not direct gen30 full-stage timing proof. Instrumentation required before next attempt."
+  }
+}

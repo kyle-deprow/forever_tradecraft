@@ -272,6 +272,10 @@ within existing authorization; respect any current movement limits.
   verify the installed implementation rather than guessing from total latency.
   For nested timings, subtract every included stage before labeling a residual;
   outer-minus-backend time can include identity checks as well as crop/decode.
+  Count repeated identity and decode work across the complete consumer loop;
+  a fast producer alone does not establish the publication sampling budget.
+  Before retrying a skipped update, retain bounded per-attempt timing and the
+  offending crop before normal cleanup removes transient evidence.
 - If an action has no visible effect, diagnose foreground, coordinates, and input
   delivery before repeating it. Repeated Play clicks can create duplicate clients.
   Another player's bar can physically hide an NPC label; OCR filtering cannot

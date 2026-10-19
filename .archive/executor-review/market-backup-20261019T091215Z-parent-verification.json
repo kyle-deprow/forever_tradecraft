@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "snapshot": "beta-20261019T091215Z-d03dd43917af",
+  "manifestSha256": "dc45d044a1c680253292a9d66b400403a27206bd2d6249be77420bae7ec1966f",
+  "directoryMode": "0700",
+  "validatedBy": "tools.market_backup.validate_snapshot",
+  "coverage": "Includes ingestion through scan91. Scan92 is still active.",
+  "qualification": "Integrity validation only; prior isolated restore drill remains accepted."
+}
