@@ -23,5 +23,16 @@
     "diagnosis": "Pending; no assumption that terminal proof may be omitted."
   },
   "next": "Read-only frozen-source Sol review and retained-artifact diagnosis; no unchanged repeat.",
-  "qualification": "No source approval, installation, live native/input qualification or autonomous cycles."
+  "qualification": "No source approval, installation, live native/input qualification or autonomous cycles.",
+  "parent_retained_journal_metadata": {
+    "journal_sha256": "5df42de8878eb6df8ac9c1208eda7f26b108afc4ac7acc94885660f5e081bc21",
+    "terminal_phase": "held",
+    "terminal_ordinal": 100,
+    "terminal_update_count": 101,
+    "terminal_sequence": 102,
+    "resume_phase": "normal",
+    "resume_ordinal": 0,
+    "resume_sequence": 103,
+    "scope": "Independent journal field inspection only; full compiled100 gate still failed and no live qualification."
+  }
 }

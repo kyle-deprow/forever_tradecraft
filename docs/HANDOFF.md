@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:21 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:23 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -193,8 +193,12 @@ R2 candidate is frozen. Parent again passed8 semantic checks with unchanged six
 hashes; worker15 focused checks including corrected timing cases passed145.01s.
 The exact long compiled-native100 success node then FAILED132.53s: retained
 accepted-attempt sequence omits held/100 before resume/0. [R2 failure record](../.archive/executor-review/native-capture-ack-parent-r2-compiled100-failure.json).
-Luna is preserving and diagnosing the artifacts without edits; Sol is reviewing
-the same frozen source, including prior R1 findings. No actual Opus source
+Parent independently checked the journal: held/100 updateCount101 sequence102,
+resume normal/0 sequence103. Parent privately preserved71 regular artifacts
+outside pytest retention. The observer notifies released captures but misses the
+retained held100 capture before resume replaces its current attempt; a minimal
+explicit retained-evidence notification is under review. Sol is reviewing the
+same frozen source, including prior R1 findings. No source edits yet. No actual Opus source
 review, source promotion, installation or live qualification yet.
 
 ## Accepted installed release
