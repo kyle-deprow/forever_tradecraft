@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 19:08 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 19:13 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -307,8 +307,8 @@ Answer pending. [Concrete proposed separation plan](../.archive/PLAN-native-reso
 is written and [Sol plan review READY](../.archive/executor-review/native-resource-policy-sol-plan-review.json).
 No policy or threshold changed; no failed run reclassified. Continue assisted
 collection while resolving this product requirement. Sole operator has a bounded
-leash now continues through assisted130..133;19:12UTC backup runner prepared.
-18:12UTC backup completed and parent validated. Preserve
+leash continues through assisted130..133;19:12UTC backup completed and
+parent independently validated. Preserve
 original receipts and report to parent, no source/service/policy changes. Do not synthesize human
 input, skip capture guards or erase either failed measurement.
 
@@ -345,11 +345,11 @@ Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use exact returned generations and canonical ownership/fence/recovery protocol.
 
-Latest validated private backup: `beta-20261019T181203Z-6a7cef602a2f`, through126
+Latest validated private backup: `beta-20261019T191227Z-5078cb7f2b01`, through130
 ingestion; directory0700, manifestSHA
-`a70ddf180ccd35fdb71a69458f71cfb0bfd118ba14134ed3ee11ddf277b4f0dd`.
-[Backup verification](../.archive/executor-review/market-backup-20261019T1812Z-parent-verification.json).
-Parent independently revalidated the manifest. Next hourly backup about19:12UTC. Prior isolated restore drill remains accepted.
+`520b9796c762873836ad48ec1ed0448e913af85c302613e51fe3bb6deb414941`.
+[Backup verification](../.archive/executor-review/market-backup-20261019T1912Z-parent-verification.json).
+Parent independently revalidated the manifest. Next hourly backup about20:12UTC. Prior isolated restore drill remains accepted.
 API: `tools.market_backup.snapshot` then `validate_snapshot`; retain full
 invocation output privately and publish only sanitized hash/coverage/mode proof.
 
