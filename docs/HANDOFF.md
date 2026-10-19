@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 00:16 UTC. Repository: `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 00:26 UTC. Repository: `/home/dev/repos/pegasus`.
 Origin: https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley
 package, addon and configuration names remain intentional.
 
@@ -39,28 +39,30 @@ recipe economics, useful shopping lists and launch monitoring remain later work.
 - Canonical daemon is **PAUSED/gen23/unqualified**, neither candidate promoted.
   Collection has been **operator-assisted**; repeated900s starts do not qualify
   autonomous save/upload/ACK/reopen.
-- Latest independently verified sweep **62**:
-  `beta-normal-alliance-1792364753-Arthur-8911`, start23:05:53UTC,
-  428 observations/2640rows/404full/23bounded/one incomplete(item12692 timeout).
+- Latest independently verified sweep **63**:
+  `beta-normal-alliance-1792369010-Arthur-5815`, start00:16:50UTC,
+  428 observations/2476rows/406full/22bounded/zero incomplete.
   Parent checked source hash, logical DB digest and production-decoded exact ACK.
-  Server receipt20.782144s after finish.
-- Read-only totals:70 sweeps/29960 observations/167498rows, latest receipt
-  2026-10-18T23:14:45.782144UTC. Historical sweeps included.
+  Server receipt24.53701s after finish; loaded ACK boot1792369540-767017/pending0.
+- Read-only totals:71 sweeps/30388 observations/169974rows, latest receipt
+  2026-10-19T00:25:14.53701UTC. Historical sweeps included.
 - GNOME login-keyring modal blocked AH reopen and dimmed the binary HUD. A typed
   targetexact command was NOT submitted; receipt records open_chat and typing, so
   do not repeat the worker's inaccurate no-input claim. One Xwayland Cancel click
   had no effect. AFK logout later cleared that buffer. Scan63's23:20:53 due time
-  was missed; record its actual delayed start when collection resumes.
+  was missed; the recovered scan63 started70m57s after62, not900s.
 - At00:13 one owned installed `ydotool key ESC` invoked the verified GNOME Cancel
   binding. Child exited/reaped0; root viewed retained after.png and confirms modal
   gone/Arthur selected at character select. No password/settings/service changes.
   Native pointer-click attempt refused BEFORE dispatch when Cancel became blank.
   Uinput is system-wide and not isolated by Xvfb DISPLAY. User dismissal is no
   longer needed; the earlier asynchronous question is obsolete.
-- At00:14:52 sole GUI Luna matched the actual EnterWorld control(MAE0), clicked
-  [960,1002] with150ms release and verified loading screen. Await settled world
-  HUD/plan/queue, exact target-frame+tooltip and AH reopen. Do not reuse old chat
-  or infer world readiness from the loading screen. No native workflow started.
+- Sole GUI Luna reentered Arthur, verified settled world HUD and reopened AH
+  using fresh exact Buckler target-frame/tooltip evidence. The addon automatically
+  began scan63 at00:16:50UTC (startedAt1792369010),428-item plan; next due00:31:50.
+  Original SavedVariables SHAe900d30e949e47fefdbfbcd66abd3678b25ab6023381706e4b2044d40213fc72
+  and DB/loaded ACK now independently verified. Luna is reopening ordinary AH.
+  No native workflow started.
 
 Only `/root/luna_live_continuation` operates the actual game/desktop. Root may
 inspect retained screenshots and run isolated Xvfb tests. Preserve that ownership.
@@ -71,51 +73,34 @@ Requested workflow: Luna implements/operates, Sol reviews, actual Claude CLI Opu
 reviews executor changes. Workers have bounded tasks and may continue without
 per-action approvals. Root owns arbitration, final verification and git.
 
-**Native R8:** original frozen worktree
-`/home/dev/.cache/crowley/worktrees/native-final-commit-r8-20261018`, base7ac5c85.
-Read [the authoritative R8 plan](../.archive/PLAN-native-final-commit-r8.md),
-including final Opus arbitration. Seven-file fence: session/controller.py,
-daemon.py, cli.py; native/native_regressions/transitions tests; ONLY the named
-runtime-meter test-double correction in test_session_runtime.py. Do not expand it.
+**Active native R9:** worker `/root/luna_profiler_schema_fix`, worktree
+`/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018`,
+base2d63777. Read [R9 plan](../.archive/PLAN-native-capability-transaction-r9.md),
+INCLUDING final Opus arbitration. Four writable files: daemon.py; controller.py
+ONLY native_calibrated rollback; native_regressions tests; test_session_native.py
+ONLY compiled-default STOPPED fixture correction. Copied cli.py, transitions tests
+and runtime tests are read-only. No review hold remains.
 
-R7 independently passed330 tests but was rejected by Sol and actual Opus. R8 fixes
-finalize/cancel/expiry ownership serialization, admission before PAUSED capture,
-a three-lock liveness cycle, unsafe guessed observation/admission fallbacks, and
-real predecessor/journal-write coverage. Root additionally identified deadlines
-expiring while waiting for the final lock: every applicable deadline must be
-rechecked inside the final transaction, plus before/after capture and sleep.
-Worker334 native passes443.09s plus named runtime pass are independently hash-bound.
-Parent scoped checks and10 targeted tests passed58.53s, including both actual PNG
-runner cancel/finalize interleavings and compiled configured capture. Three assigned
-proofs were missing despite the initial closure claim. Worker
-`/root/luna_profiler_schema_fix` now owns ONLY native_regressions tests in separate
-`native-final-commit-r8-proof-20261018` (basea74297c, all7 exactR8files copied).
-Read [the proof-closure plan](../.archive/PLAN-native-r8-proof-closure.md): actual
-three-way lock barrier, deadline expiry while waiting for final lock, and malformed
-resume facts before publication. Other6 files are read-only. Worker6pass65.92s and
-parent6pass65.43s now complete; all pre-existing named test/helper ASTs unchanged,
-six exact read-only hashes/log permissions verified. Sol focused review found a
-false-positive: deadline cases expire at a fourth outer revalidation before entering
-the transaction; they do NOT establish its inner guard. R9 now includes correcting
-the barrier to actual transaction entry and asserting calibration-worker termination
-in the three-way case. Malformed-resume cases passed focused review. No combined
-340-test invocation is claimed.
+R9 closes the capability/Guardian-dispatch race, exact owner comparisons, final
+identity/lease/Guardian binding, transient durable-write rollback before the normal
+error-handler save, actual transaction cancel-wins/deterministic final-wins, strict
+STOPPED refusal, resume type ordering and async old-worker operation identity.
+Rollback includes write-affected history. Tests must reach actual transaction
+entry, not an earlier guard with the same exception. Focused proofs precede final
+three native suites plus named runtime once; root then verifies and obtains focused
+Sol and actual Opus review. No source acceptance/native100/live qualification yet.
+Legacy read-only stock-capture dispatch remains explicitly deferred; strong input
+fencing claims apply to the configured producer used for qualification.
 
-Sol full R8 source review found a capability/Guardian-dispatch race with
-non-controller-serialized replay/recheck/expiry revocation, plus None-ID wildcard
-and ignored kind. Root accepted. Active native worker is in
-`native-capability-transaction-r9-20261018`, base2d63777, exact7R8-proof files copied.
-Read [R9 plan](../.archive/PLAN-native-capability-transaction-r9.md), INCLUDING final
-Opus arbitration. Writable fence: daemon.py; controller.py ONLY native_calibrated
-rollback; native_regressions tests; test_session_native.py ONLY compiled-default
-STOPPED fixture correction. Other3read-only. Final R8 Opus completed NEEDS WORK;
-no review hold remains. Accepted additions: final identity/lease/Guardian binding,
-transient durable-write rollback before error-handler save, actual transaction
-cancel-wins/deterministic final-wins, strict STOPPED refusal, resume type ordering,
-async old-worker operation identity, corrected transaction-expiry/worker-completion
-proofs and named remaining guard cases. Legacy stock-capture dispatch residual is
-explicitly deferred. Focused proof then final suites once; no source acceptance,
-native100 or live qualification.
+Preserved R8 baseline: `native-final-commit-r8-20261018`, base7ac5c85,
+334 worker passes plus named runtime pass; parent10 targeted passes58.53s.
+Its separate proof tree `native-final-commit-r8-proof-20261018` had worker/parent
+six passing cases, but Sol showed three deadline cases refused at an outer guard
+before entering the transaction. Those passes are not transaction proof; corrected
+barriers and explicit worker termination are assigned in R9. Malformed-resume cases
+passed review. Full Sol and actual Opus R8 reviews both NEEDS WORK; all accepted
+findings are in the R9 plan. Original source/proof trees remain frozen and no
+combined340-test invocation is claimed.
 
 **Helper causal composition:** worker `/root/luna_runtime_instrumentation`, worktree
 `/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018`,
@@ -164,7 +149,8 @@ establish transaction proof. Helper Opus22003 CLOSED0/MAJOR ISSUES; R7Opus2839
 CLOSED0/NEEDS WORK. Parent3947/42539/42012/76434/6947/41048 and backups30667/73320,
 checkpoint push53971 all CLOSED0. New actual CLI review sessions must remain
 attached/polled <=30s, no fallback; rawJSONL0600 stays private.
-Checkpoint **2d63777** contains the consolidated handoff; use git log for latest HEAD.
+Main **0a2624f** is pushed, including the consolidated handoff and curated current
+plans/review/recovery evidence. Use git log for later HEADs.
 Frozen candidate SOURCE is also pushed as `checkpoint/executor-20261018` commit
 `dacefb9`: exact seven R8-proof files plus failed helper pair, nine curated files
 only. It is an UNACCEPTED recovery checkpoint with the native race/helper red suite
@@ -187,8 +173,8 @@ No matcher rewrite is authorized by this benchmark or the unrelated runtime Rust
 1. Finish both bounded fixes, focused proof and final scoped suites; parent
    independently checks final bytes/fences, runs meaningful tests, and obtains
    Sol plus actual Opus acceptance. Avoid repeating broad suites without a change.
-2. Verify the final helper against the exact accepted seven native R8 files;
-   development R7 passes cannot substitute. Confirm the deliberate post-success
+2. Verify the final helper against the exact accepted native R9 files;
+   development R8 passes cannot substitute. Confirm the deliberate post-success
    prepared-checkpoint and ordinary recovery contract before live use.
 3. Coordinate a quiet GUI window before promotion or PAUSED service restart;
    never mix changed source with a daemon still holding old imports.
