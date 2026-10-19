@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 10:10 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 10:23 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -40,10 +40,15 @@ observations; no buying, posting or cancelling is part of this task.
   #96 for installation; parent independently decoded exact #95 ACK/pending0,
   normal0/inactive fence/closedchat/zeromovement/released controls. Its ordinary
   deadline1792404569 (10:09:29 UTC) may be replaced by calibration. Record gap.
-- Fresh gen32 preflight succeeded; public resume returned generation33,
-  NATIVE_CALIBRATION. Sole GUI is running the first instrumented measurement. If it fails, preserve private trace/image and recover ordinary
-  collection. No blind retry, no synthetic human gate. Native100, physical input
-  and three autonomous900s cycles remain unqualified.
+- Fresh gen32 preflight succeeded; resume returned33. The helper then refused
+  typed `/reload` OCR before the native runner started. Parent reproduced
+  `reload` from the visible `/reload` crop. No native sampling trace was made.
+  Fresh visible Restore at gen35 reloaded the addon; parent decoded ordinary
+  normal0/inactive/pending0/AHreopened/zeromovement/released. Assisted #96
+  started1792404927, interval1258s/358s late after #95; finalverificationpending.
+- Current service state is PAUSED35/nativefalse/inputfalse; soleGUI continues
+  assisted collection while the helper-only contrast plan is reviewed. Native100,
+  physical input and three autonomous900s cycles remain unqualified.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
   screenshot, a private fixture, or an external OCR crop.
@@ -94,11 +99,11 @@ closed for calibration with exact #91 ACK, pending 0, normal/0, inactive fence,
 closed chat, zero movement and released controls. Public state is PAUSED29.
 Record the resulting calibration-related gap; do not count these as autonomous.
 
-The latest private backup is `beta-20261019T091215Z-d03dd43917af`, independently
-validated after #91 ingestion, directory mode 0700. Manifest SHA256:
-`dc45d044a1c680253292a9d66b400403a27206bd2d6249be77420bae7ec1966f`.
-See [backup verification](../.archive/executor-review/market-backup-20261019T091215Z-parent-verification.json).
-Next hourly backup: 10:12 UTC. Prior isolated restore drill passed; repeat only
+The latest private backup is `beta-20261019T101203Z-c3c69ae2c976`, independently
+validated after #95 ingestion, directory mode0700. Manifest SHA256:
+`385e5af0e425da02254f7e84c8177e8fb7169275954d510067368a0b97e96ffe`.
+See [backup verification](../.archive/executor-review/market-backup-20261019T101203Z-parent-verification.json).
+Next hourly backup: 11:12 UTC. Prior isolated restore drill passed; repeat only
 if new evidence warrants it. Raw backup data stays private.
 
 ## Accepted installed release
@@ -328,6 +333,25 @@ loaded ACK list was cleared by native reload, so do not claim current #91 ACK.
 No live
 native100 success is claimed, and no human input is needed until native100 and
 ordinary recovery pass.
+
+## Current typed OCR blocker
+
+Gen33 `/crowley agent defer` was accepted, but typed `/reload` returned
+`reload` from the unchanged production OCR before native runner entry. See
+[refusal and ordinary recovery](../.archive/executor-review/native-chat-reload-refusal-gen33-parent-verification.json).
+The failed original fullframe was not retained; its exact460x37 crop is private.
+The parent independently reproduced the missing slash. The failed vs accepted
+full crop differs by at most4 grayscale levels, with the same2 cursor columns.
+
+The [contrast plan](../.archive/PLAN-native-chat-contrast.md) proposes uniform
+`ImageOps.autocontrast(cutoff=1)` on the400x13body AFTERcrop and BEFORE the
+unchanged threshold45 cursor probe. It changes no geometry, stateguard, resize,
+Tesseractmode, textnormalization or exactexpectedcomparison. The private matrix
+was independently reproduced: baseline8/9, proposed9/9 (all8 original typed
+fullframes plus the actualfailedcrop). This is an offline experiment, not an
+implemented or live-qualified fix. Sol and parent approved the plan. The implementation
+will also retain the last4 exactoriginalfullchatframes and private refusal OCR.
+Only helper+helpertests are in scope; no service restart is required.
 
 ## Next live gates
 

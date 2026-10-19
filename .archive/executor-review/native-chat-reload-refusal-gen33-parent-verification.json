@@ -1,0 +1,48 @@
+{
+  "status": "PRE_RUN_CHAT_REFUSAL_RECOVERED_ASSISTED_COLLECTION_RESUMED",
+  "helperSourceSha256": "4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b",
+  "preflight": {
+    "generation": 32,
+    "outcome": "success",
+    "receiptSha256": "300c856a4c5bce322437b0e697e273e3e9b413b0c56c9c9caaafd41b264334fc"
+  },
+  "measurement": {
+    "generation": 33,
+    "failureCode": "chat_readback_refused",
+    "receiptSha256": "9b425b2face5ed2cb20f41083069ae5c76ef77138ab2539c3bb3c46b55190005",
+    "nativeRunnerStarted": false,
+    "nativeTraceProduced": false,
+    "failedCommand": "/reload",
+    "actualProductionOCR": "reload",
+    "parentIndependentlyReproducedOCR": true,
+    "cropSha256": "b273ce0fa7e38508139851fda14352a9fa81a3a2175f3252492bf3c0c6749f72",
+    "failedOriginalFullFrameAvailable": false
+  },
+  "recovery": {
+    "publicGeneration": 35,
+    "canonicalRestoreVisualRefused": true,
+    "manualFreshVisibleRestoreReceiptSha256": "052f9e895bd3584178f3faac9c519eb96b8fee1e35a22f9936c982de641eecbe",
+    "ordinaryFreshDecoderReceiptSha256": "8acbba7e4429c3e5b2311b0173399111a8ff2cc0605b895344a828cd431d82c0",
+    "reopenReceiptSha256": "adfa21f3a9db5481053ebdb7a4c3710dbc226304e9454846c2adaf9e192586e4",
+    "parentIndependentReopenFrameDecode": true,
+    "frameSha256": "5392b31f3796dde60a02d0dc3f3473fafecbd1eec1a46b7180127c2f649ca56d",
+    "boot": "1792404829-126289",
+    "sequence": 104,
+    "ahOpen": true,
+    "pending": 0,
+    "nativePhase": "normal",
+    "nativeOrdinal": 0,
+    "fence": "inactive",
+    "speed": 0,
+    "inputReleased": true,
+    "currentAckIds": []
+  },
+  "assistedScan96": {
+    "operatorObservedStartedAt": 1792404927,
+    "priorStartedAt": 1792403669,
+    "intervalSeconds": 1258,
+    "lateSeconds": 358,
+    "finalVerification": "PENDING"
+  },
+  "qualification": "No new native100, physical input or autonomous qualification; no blind measurement retry. Uniform image-normalization proposal remains unimplemented."
+}
