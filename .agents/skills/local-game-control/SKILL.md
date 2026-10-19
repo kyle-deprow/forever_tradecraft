@@ -286,6 +286,8 @@ within existing authorization; respect any current movement limits.
   For modeled cadence tests, advance the publisher clock at actual production
   call boundaries. Subtracting a precomputed latency sum cannot prove the
   optimization works; the test must fail when that optimization is removed.
+  Audit inherited fixture clock advances too; every virtual advance must be
+  charged active work or an actual production wait, never hidden phase tuning.
 - If an action has no visible effect, diagnose foreground, coordinates, and input
   delivery before repeating it. Repeated Play clicks can create duplicate clients.
   Another player's bar can physically hide an NPC label; OCR filtering cannot
