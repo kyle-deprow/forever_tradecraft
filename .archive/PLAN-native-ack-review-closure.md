@@ -141,3 +141,40 @@ Run focused seam/callback/typed tests first, then exact compiled100 and the
 relevant actual-run timing vectors if the modeled seam changes. Map the three
 requirements to named results, run scoped checks and freeze six hashes. Parent
 reproduces changed gates before Sol and actual Opus review of the new snapshot.
+
+## Actual Opus R1 closure (parent approved)
+
+Actual claude-opus-5-5 review exited0 with NEEDS WORK on unchanged R7. Preserve
+that report. Its retained-boundary and eligible-ownership findings overlap
+Sol R2. Complete the following existing-requirement corrections in the new
+`native-ack-source-r2-20261019` worktree before final freeze:
+
+- Keep a local per-call backend receipt through final cleanup, then deliver
+  its finalized retirement value. Do not derive proof from the diagnostic
+  global. Forward the private receipt keyword only on the eligible path so
+  generic/custom backend signatures remain unchanged.
+- Exercise same-digest replacement through the actual eligible provider and
+  backend-to-daemon seam, rather than calling the anchor directly.
+- Run missing/rejecting resume-required failures through the real runner;
+  verify causal error, no premature retained result and actual capture cleanup.
+  Also cover a resume-provider failure after the successful notification, with
+  original notified path/hash preserved and owned captures cleaned.
+- Reduced-mode characterization must retain the real binding checks while
+  disabling alignment timing only. Require a natural duplicate/protocol or
+  visible budget outcome, never the fixture's missing waitingOrdinal.
+- Charge the declared0.167ms poll/backend glue at its real edge. Advance local
+  virtual time for provider retry sleeps as wait, never active work; no global
+  stdlib clock patch. Assert exact actual admission/target/old-owner charge
+  counts. Preserve all previously pinned intervals, phases and numeric vectors.
+- Restore `test_runtime_native_observation_couples_provider_and_runner_spans`
+  from base, adapting only genuinely changed contract behavior.
+- Remove broad construct/error-message DriverError retry. If the original
+  frame deadline has elapsed, end with canonical no-fresh-frame refusal;
+  otherwise preserve the original capture failure.
+
+Other Opus nits are nonblocking, with reasons in the parent arbitration. Do not
+add unrelated architecture or claim isolated expiry/mid-sleep proofs not run.
+Run focused correctness first, all seven model vectors and genuine baseline,
+then exact compiled100. Freeze final six hashes and mapping, parent reproduce
+changed tests, and review the bounded R7-to-final correction plus affected
+context with Sol and actual Opus. R7 source is preserved for comparison.

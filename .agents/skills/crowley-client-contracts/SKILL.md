@@ -67,6 +67,12 @@ Include a later pause/stop checkpoint in replay tests. Repairing an old outcome
 must preserve newer operator state, even when its outcome commit number matches.
 Inject real write failures at the first durable boundary; a duplicate writer that
 bypasses the failed helper does not prove crash recovery.
+Capture proof must carry the finalized per-call receipt through cleanup; a
+callback that rereads a mutable last-receipt field still permits substitution.
+Test that seam before consumption with identical pixels and different nonce/time.
+Exercise terminal callback failures through the real runner and cleanup, not only
+a newly extracted helper; successful notification does not prove failure ordering.
+
 For a post-side-effect failure test, assert the side effect and pending ownership
 exist at the injection point. A guessed callback count may fail before the reset
 or dispatch and leave the intended cleanup branch untested.

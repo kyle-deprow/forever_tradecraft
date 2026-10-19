@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 15:32 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 15:39 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -212,9 +212,9 @@ resume-required callback, and eligible held/active/release-failure retirement
 coverage. [R2 findings](../.archive/executor-review/native-capture-ack-sol-source-r2-review.json).
 The closure plan is amended. Luna is implementing all three corrections in
 NEW isolated worktree `native-ack-source-r2-20261019` (base1cbaadf plus exact
-R7 six files). The original `native-identity-budget-20261019` remains frozen
-for actual Opus R1. Do not confuse those source bindings. Parent will test and
-review the new final six hashes. No installation.
+R7 six files). The original `native-identity-budget-20261019` remains frozen for comparison.
+Actual Opus R1 completed NEEDS WORK; see below. Parent will test and review
+the new final six hashes. No installation.
 
 Required exact long node after final focused checks, pins and milestone:
 
@@ -227,12 +227,17 @@ observer's exact construct0,held0,updates1..99,retained held100,resume0 sequence
 No fixture-manual spans/finish calls or unlogged test pipelines. Full private
 logs and six-file pins before every long test; no unchanged blind reruns.
 
-Sol R2 is NEEDS WORK as above. Actual Opus R1 is running and resolved actual
-`claude-opus-5-5`; no verdict or approval is claimed yet. Private runner/prompt
-are under `native-identity-budget-opus-r1-20261019/`; input pins and prompt
-include the final six-file scope and current closure plan. Requires actual
-claude-opus-5-5/exit0/STATUS, no fallback; monitor attached process at most30s
-intervals. Parent must inspect/reproduce relevant final checks and compiled100.
+Sol R2 and actual Opus R1 both returned NEEDS WORK. Opus resolved actual
+`claude-opus-5-5`, exit0, all six R7 pins unchanged. [Full review](../.archive/executor-review/native-capture-ack-opus-source-r1-review.md)
+and [parent arbitration](../.archive/executor-review/native-capture-ack-opus-source-r1-arbitration.json).
+Its retained/ownership findings overlap Sol. Other accepted corrections: genuine
+reduced-mode baseline,0.167ms glue and retry-wait modeling, restored diagnostic
+regression, provider-level receipt test, removal of broad/error-text retry, and
+exact timing-charge counts. Three nonblocking nits deferred with reasons.
+Luna owns all bounded corrections in the new R2 worktree; read the amended
+closure plan. Parent must reproduce final focused/model/compiled100 and obtain
+Sol plus actual Opus review of the correction delta and affected context.
+Private first Opus runner/evidence: `native-identity-budget-opus-r1-20261019/`.
 
 ## Next live gates, in order
 

@@ -1,0 +1,34 @@
+{
+  "status": "NEEDS WORK",
+  "reviewer": "Actual Claude Code CLI claude-opus-5-5",
+  "returncode": 0,
+  "rawSha256": "02f5ae304bc0df2b269d5ea074394489970428376b8ca39be4bfe82105f10ebf",
+  "reviewSha256": "e00aa16df0803835be7cd499683ab531ec3095559baad47b4f3a2513a646d0a4",
+  "sourceUnchanged": true,
+  "sourceProof": "native-ack-final-r7-parent-verification.json",
+  "accepted": [
+    "Must1 retained notification/failure cleanup",
+    "Should1 genuine reduced-mode baseline",
+    "Should2 poll glue charge and provider retry sleep fidelity",
+    "Should3 provider-level receipt-substitution regression",
+    "Should4 restore overwritten diagnostic regression",
+    "Should5 eligible unresolved ownership refusal",
+    "Should6 remove error-text/broad DriverError retry",
+    "Nit3 exact actual timing charge counts"
+  ],
+  "nonblockingDeferred": [
+    {
+      "id": "Nit1",
+      "reason": "Overlapping earliest deadline cases exercise real final-lock refusal. No production defect identified; do not claim they isolate every expiry clause."
+    },
+    {
+      "id": "Nit2",
+      "reason": "Pass-through preACK hook recorder does not replace exact configured measurement provider or driver/protocol. No current correctness defect established."
+    },
+    {
+      "id": "Nit4",
+      "reason": "Source wait loop holds no authority lock and rechecks each chunk; existing boundary coverage is partial. No new reachable production defect identified; do not claim a mid-sleep lock regression was run."
+    }
+  ],
+  "parentClarification": "Opus calls earlier receipt fix source-closed, but SolR2 identified the preceding backend-to-daemon mutable-global seam. That reachable race remains accepted and is being fixed with exact finalized per-call receipt delivery. R7 positive tests remain genuine offline results, not source approval."
+}
