@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 11:57 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 12:12 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -48,8 +48,8 @@ observations; no buying, posting or cancelling is part of this task.
   fence/pending0/zero movement/released controls. Assisted #100 started1792408561,
   934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
   2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
-  parent-verified. #101 and #102 are also fully parent-verified; both started
-  on exact900s deadlines. Nextdue1792411261 (12:01:01 UTC).
+  parent-verified. #101, #102 and #103 are also fully parent-verified; all started
+  on exact900s deadlines. Nextdue1792412161 (12:16:01 UTC).
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -59,19 +59,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #102 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792410361-Arthur-9812`:
+Parent verification #103 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792411261-Arthur-6801`:
 
-- 428 observations, 2,091 rows, 416 full and 12 bounded, all `ok`;
-- 479-second scan, 55.017523 seconds from finish to server receipt;
-- exact900-second start interval after #101;
+- 428 observations, 2,074 rows, 414 full and 14 bounded, all `ok`;
+- 479-second scan, 61.907489 seconds from finish to server receipt;
+- exact900-second start interval after #102;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-onehundredsecond-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-onehundredsecond-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-onehundredthird-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-onehundredthird-ah-reopen-parent-verification.json).
 
-#103 nextdue1792411261.
+#104 nextdue1792412161.
+#102 is fully verified:428observations/2,091rows/416full12bounded/allok,
+479s scan,55.017523s finish-to-serverreceipt,exact900s after101.
 #101 is fully verified:428observations/2,054rows/416full12bounded/allok,
 480s scan,53.081652s finish-to-serverreceipt,exact900s after100.
 #100 is fully verified:428observations/2,015rows/417full11bounded/allok,
@@ -436,6 +438,16 @@ had been reduced. Luna is correcting these in the same four-file scope. This
 candidate is not installed or source-reviewed; its passing integration alone
 does not qualify it. Preserve the first-run evidence separately from the fix.
 
+Sol independently confirmed that the intermediate replay still inserted a
+fixture-only alignment wait and bypassed `NativeCalibrationRunner.run()`.
+It also added a non-evidence10ms charge and dropped0.040ms residual glue. The
+correct reduced vector is876.026ms. An unaligned consumer can capture a duplicate,
+then pay active retry costs exceeding900ms. Luna is replacing that replay with
+the actual runner lifecycle and independent1000ms publisher, preserving its
+genuine outcome. The [alignment amendment](../.archive/PLAN-native-identity-budget-alignment.md)
+is a draft under Sol review. No production alignment edits, long integration
+rerun or source approval until that plan is settled. Assisted collection continues.
+
 ## Next live gates
 
 Run these gates in order, preserving the fresh generation and the exact command
@@ -480,7 +492,8 @@ release, source, review, and verification pins. Relevant records include:
 - [OCR R2 production verification](../.archive/executor-review/native-chat-ocr-r2-final-parent-verification.json);
 - [#85 scan verification](../.archive/executor-review/build-70450-eightyfifth-scan-parent-verification.json);
 - [#85 reopen verification](../.archive/executor-review/build-70450-eightyfifth-ah-reopen-parent-verification.json);
-- [latest backup verification](../.archive/executor-review/market-backup-20261019T071147Z-parent-verification.json).
+- [latest backup verification](../.archive/executor-review/market-backup-20261019T121141Z-parent-verification.json),
+  independently validated through scan103; next hourly backup due about13:11 UTC.
 
 Private raw frames, receipts, process logs, command histories, and backup
 contents stay under their existing private evidence directories and must not be
