@@ -1,6 +1,6 @@
 # Host scheduling for backups and collection health
 
-Status: proposed within the user's20:07UTC instruction to proceed to unattended
+Status: authorized within the user's20:07UTC instruction to proceed to unattended
 operation. Parallel scope, independent of the native resource-policy correction.
 Current game scans remain on the addon900s clock; no cron-driven game input.
 
@@ -33,9 +33,11 @@ and the repository's .venv Python. Reuse tools.market_backup.snapshot and
 validate_snapshot without changing their implementation. Hold a nonblocking
 process-lifetime flock for this task to prevent overlapping scheduled/manual ops
 runs. A busy lock skips safely, preserving the previous successful record.
-Capture full backup output privately; emit only bounded success/failure metadata.
+Retain bounded private operation receipts and fixed error categories; do not
+retain raw child stderr/database output. Emit only bounded success/failure metadata.
 Retain the current0700directories/0600files. Atomically record latest valid
-snapshot name, manifest digest and completion timestamp after validation. A
+snapshot name, manifest digest and completion timestamp after an explicit second
+validate_snapshot call on the returned path. Snapshot itself already validates. A
 failed/incomplete snapshot must not replace last-known-good backup metadata.
 Do not prune, restore, delete backups or change the server. Failure returns a
 nonzero code to systemd with an actionable fixed category; no secret/raw dump.
@@ -48,23 +50,43 @@ drill is accepted; do not run a restore drill for this scheduler change.
 
 ## Health operation
 
-Read existing session config, request read-only daemon status via bounded IPC,
-read companion-state uploaded timestamps, and inspect only the two Crowley user
-service states. No captures, input, recovery/restart, model calls or Docker writes.
-Use a fixed bounded schema with observation time, service/controller state,
-calibration flags, most recent upload age, pending/deadline facts when present,
-last backup age and concrete local issues. Keep full raw status private if retained;
-public stdout/journal must not dump arbitrary daemon fields or configuration.
+Use crowley.session.config.load_config, evidence.read_uploads and bounded
+cli._socket_request(config.socket, {"command":"status"}, timeout=5.0). Require
+ok is True and a bounded typed status. Inspect only the two Crowley user services
+in one allowlisted systemctl --user show call with fixed LoadState, ActiveState,
+SubState, Result and ExecMainStatus fields and a5s subprocess timeout. No captures,
+input, recovery/restart, model calls or Docker writes. Unit TimeoutStartSec=30s,
+below the120s timer interval. Avoid retaining arbitrary daemon/config data.
 
-Distinguish deliberately PAUSED/STOPPED/calibration states from an operational
-stall: report their facts without marking an expected scan pause as a failure.
-Inactive/unreachable required services, invalid/unreadable input, BLOCKED state,
-expired active operation deadline or uploads stale by more than two900s periods
-while the controller expects operational progress produce an attention result
-and nonzero exit. No upload history is explicitly unknown, never fresh. Future or
-malformed timestamps cannot be treated as fresh success. A missing/old backup is
-reported independently; threshold should cover hourly cadence plus a modest
-completion grace, documented in code/docs rather than hidden magic.
+Use fixed classification operational | gated | attention and operational:boolean.
+Valid PAUSED/STOPPED/NATIVE_CALIBRATION/INPUT_CALIBRATION are gated, exit0,
+operational:false and summary GATED. Initial idle calibration awaiting an operator
+is legitimate; do not flag it solely for idle (daemon initializes it that way).
+Starting/running calibration is gated. Validate operation kind/state/error shape;
+a reported error, impossible operation/controller combination, BLOCKED,
+LOGIN_REQUIRED, invalid/unreachable services/inputs or an expired active deadline
+is attention/nonzero. Active scan/save/reload/upload operations require a valid
+unexpired deadline where the controller defines one. WAIT_DUE requires a valid
+dueAt; allow a bounded240s overdue transition grace, then attention. Operational
+requires current nativeCalibration/inputCalibration flags. This classification
+states controller progress, never substitutes for the three-cycle acceptance test.
+
+Read uploads strictly. Reject future timestamps; missing history is unknown,
+never fresh. Expose most-recent upload age for visibility but bind cycle freshness
+to exact status.lastUid. During SCANNING/save/reload/UPLOAD_WAIT before its valid
+deadline, the current UID can legitimately be absent. After upload/ACK/qualification/
+reopen/cleanup/WAIT_DUE a nonempty lastUid must exist in uploads; unrelated recent
+uploads cannot cover its absence. Apply the1800s stale threshold only when the
+controller would otherwise be operational; first-cycle unknown remains explicit.
+Include bounded pending/deadline/calibration facts and concrete issues.
+
+Health validates the last-good backup record schema, safe snapshot basename,
+private directory/file modes, snapshot existence and COMPLETE marker digest
+matching its manifest before using completion age. Missing/invalid/old backups
+are independent attention issues even while gated. Maximum age75minutes covers
+hourly cadence plus15minutes completion grace; document this constant. Never
+read a forged future timestamp as fresh. Health does not perform a full DB restore
+or recurring full archive validation.
 
 Write an atomic private latest-health JSON and bounded journal summary. The
 health service is read-only apart from its own state files. Timer every two
@@ -75,7 +97,8 @@ are displayed truthfully without redefining current native qualification.
 ## Verification and release
 
 Meaningful tests cover stale/fresh/future/malformed/missing timestamps, expected
-pause versus operational stall, unavailable services/IPC, atomic last-good backup
+pause versus operational stall, unavailable services/IPC, current-UID binding, initial idle calibration,
+missing/altered COMPLETE or manifest, service-query timeout, atomic last-good backup
 preservation and real process flock exclusion. No live DB or GUI in tests.
 Run `uv run pytest -q tests/test_crowley_ops.py`, scoped Ruff/format/compile/diff,
 and systemd-analyze verify/calendar on the new units (no activation).

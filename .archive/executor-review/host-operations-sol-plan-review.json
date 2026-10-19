@@ -1,0 +1,11 @@
+{
+  "reviewer": "Sol",
+  "type": "plan review",
+  "rounds": 2,
+  "status": "READY",
+  "r1ReportSha256": "4b7f0f3eed4fe1608d4fe4eb355be41163c0db0afdda61ec2aa443f28d4fa906",
+  "r2ReportSha256": "11d70e946dbb99aaf00edc7034bcdc2b988da01b2fcc9f0a4a23328143b0a73c",
+  "planSha256": "7b594d590c9da9de4f473c40b9030313f6030925245e63d604d28fb150ae24e7",
+  "arbitration": "Accepted four scoped corrections; initial idle calibration is a legitimate gated state. No source implementation or live timer activation is inferred.",
+  "scope": "Hourly validated backups and two-minute bounded read-only health; no scan trigger change."
+}

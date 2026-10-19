@@ -318,7 +318,8 @@ Scan134 reopened through a separate fresh tooltip-verified Auctioneer target;
 the stale-target failure is retained unchanged and its hash plus the recovery
 hash appear in the parent reopen proof. The20:12UTC backup is complete and
 independently validated. [Host operations plan](../.archive/PLAN-session-host-operations.md)
-is under Sol review for hourly backups and two-minute read-only health timers.
+has [Sol plan approval](../.archive/executor-review/host-operations-sol-plan-review.json)
+for hourly backups and two-minute read-only health timers.
 These timers do not trigger game scans; the addon900s timer remains the scan clock.
 No timers are installed yet. Do not synthesize human input or bypass capture guards.
 
