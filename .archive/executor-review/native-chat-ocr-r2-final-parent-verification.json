@@ -1,0 +1,129 @@
+{
+  "status": "ACCEPTED_AND_INSTALLED",
+  "installedSource": {
+    "tools/native_calibration_operator.py": "1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211",
+    "tests/test_native_calibration_operator.py": "56a5c50e6ebf071e7cb77defcf0ca28a6bcba01802386f192112ad5fa23d3314"
+  },
+  "reviewedTestedHelperSha256": "0dda3012e14ac8665fbd5bef02e665fbf875419056479cb06a5c9f347c54a3a2",
+  "commentOnlyCorrection": {
+    "executableAstIdentical": true,
+    "acceptedOpusShould": "Describe actual empirical ROI: label x17..39, text begins45, border440; y7 rule retained and glyph rows20..21 cut; cursor13/13 vs glyph/rule11/13 and erase>=12.",
+    "testsUnchanged": true
+  },
+  "parentAllEightOriginalFrames": {
+    "status": "PASS",
+    "source": {
+      "tools/native_calibration_operator.py": "0dda3012e14ac8665fbd5bef02e665fbf875419056479cb06a5c9f347c54a3a2",
+      "tests/test_native_calibration_operator.py": "56a5c50e6ebf071e7cb77defcf0ca28a6bcba01802386f192112ad5fa23d3314"
+    },
+    "originalSuiteReceiptSha256": "84646abcb14d86c8141c3f08e9ac0b31ab117ecf78cfa5cb0bae09d15d2a081c",
+    "productionCrop": [
+      30,
+      938,
+      460,
+      37
+    ],
+    "commands": [
+      {
+        "command": "/crowley agent defer",
+        "stagedFullSha256": "7b355d6441da957da7af351ea6bbbd3c1057eb7eb3811acb53a546c6abf224cf",
+        "closedFullSha256": "54b2cd592d119440f250521bf9d1ce604002f2613f1a821e9c5f90245b5eee42",
+        "closedOcr": "",
+        "typedOcr": "/crowley agent defer",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      },
+      {
+        "command": "/crowley agent release",
+        "stagedFullSha256": "31ec3039896b4c8ed467fe5da6f54e9375c1ef424af87e21f5176daa2205cd26",
+        "closedFullSha256": "1163c56f98c3e10cdd154ee3ee6620df6328c3369d7deeb0917acbfcfa36d03f",
+        "closedOcr": "",
+        "typedOcr": "/crowley agent release",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      },
+      {
+        "command": "/crowley agent recover",
+        "stagedFullSha256": "15efc8cf82af70b879674070d888e535cbaf1255c1dcabbc7ebf4b9e4ec32f56",
+        "closedFullSha256": "30a7f846a5e00968c15ebe33557b3754c054904846510c5dcdb27097122de735",
+        "closedOcr": "",
+        "typedOcr": "/crowley agent recover",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      },
+      {
+        "command": "/crowley agent hold",
+        "stagedFullSha256": "5e6ae9a0280792bf6fcf94fc376b88f71431a46a0efafb93be2e92f0107275bd",
+        "closedFullSha256": "39196e2cd169102672d1918d39280780ba756024e85998373ccff5c22fd3520d",
+        "closedOcr": "",
+        "typedOcr": "/crowley agent hold",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      },
+      {
+        "command": "/crowley agent measure",
+        "stagedFullSha256": "f72408c58a33a63cc6966622591d21ce769f049c634fc1ec2cf848f8f61e4aac",
+        "closedFullSha256": "03ce22df53fa51509b983c4250329a73e13269f302c2c479aa0224abb158f954",
+        "closedOcr": "",
+        "typedOcr": "/crowley agent measure",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      },
+      {
+        "command": "/crowley agent resume",
+        "stagedFullSha256": "720be541be56396267be4b2acf61b8f47c27b3759de361919b8473ae28b55b21",
+        "closedFullSha256": "c05c672866388d1fee8efc84691d71aa3a90e0e10cf882e8d7e7a369e078f865",
+        "closedOcr": "",
+        "typedOcr": "/crowley agent resume",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      },
+      {
+        "command": "/crowley agent finalize",
+        "stagedFullSha256": "80a18a7b3d15a7d0489d4f1fbddde0fd47baab0cad4c15329ddfd6f39234d37b",
+        "closedFullSha256": "6b69aad64db4a68746b3fe90125690b1adca0161c0c15328d62149f7b3206a8f",
+        "closedOcr": "",
+        "typedOcr": "/crowley agent finalize",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      },
+      {
+        "command": "/reload",
+        "stagedFullSha256": "d277c94a63604b7dc169e1ccc932167477b4b518b039586db0e172932f6ca94f",
+        "closedFullSha256": "7eaeffe78077918e7e5196ddebf582280cf967f3285f929a949e85bcdac0b6f3",
+        "closedOcr": "",
+        "typedOcr": "/reload",
+        "exactChatGuardPassed": true,
+        "nonemptyRefusedBeforeInput": true
+      }
+    ],
+    "qualification": "Original retained full-frame screenshots through actual production crop/OCR/normalize/_chat; external capture,identity,IPC and input replaced. No root GUI input; no native100 qualification."
+  },
+  "workerFullHelper": {
+    "passed": 84,
+    "warnings": 5,
+    "seconds": 348.83,
+    "logSha256": "66a19f58bbec926a3ee011ca0d4a883828cf525e069fb7cf1ff1a29246f2d945"
+  },
+  "parentFocused": {
+    "passed": 4,
+    "seconds": 0.92,
+    "sourceUnchanged": true
+  },
+  "sol": {
+    "verdict": "READY",
+    "mustFix": [],
+    "shouldFix": []
+  },
+  "opus": {
+    "model": [
+      "claude-opus-5-5"
+    ],
+    "verdict": "READY",
+    "rawSha256": "80a8d2b83bd521893cf5a7762df499e90cbbf2ea32c15a4dd530aa90f3ec29af",
+    "acceptedCommentShouldFixed": true,
+    "deferredNonblockingNit": "Specific historical closed-alias rejection cases; actual nonempty guard tested for all eight commands."
+  },
+  "assumption": "Measured1920x1080 client with sticky Say header. Different channel label/UI scale needs fresh measured qualification; refuse on mismatch.",
+  "qualification": "Retained-frame and offline helper acceptance. Actual live preflight/native100/ordinary recovery and physical GTK/autonomous900s qualification still required."
+}

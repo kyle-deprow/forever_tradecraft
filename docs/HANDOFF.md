@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 06:36 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 07:05 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -479,6 +479,97 @@ stationary/released. Publicbuild-70450-eightysecond-{scan,ah-reopen}-parent-veri
 Compactlocal-game-control skilladdsfullframeOCRborderlesson; skillvalidatePASS.
 Solread-onlyderivingpublichumanGTKsequence afterpause/recover; awaitingreport.
 No activeOpusprocess (10716closed0), no ownedoldOCRexperimentleft.
+
+## R2 live command readback blocker — supersedes R1 OCR success scope
+
+83fullyparentverified428/2121rows/412full16bounded0incomplete,900s after82,
+finish→server27.143005s, exactACK/pending0/AHtrue/ordinary0/inactive/released.
+Original/DB/ACK/AH publicbuild-70450-eightythird-{scan,ah-reopen}-parent-verification.
+Then canonicalrecovergen24 ordinary_reload FAILED typed `/reload` readback:
+productionOCR `Say {reload`, mismatch→Escape, no submitReturn. Receipt private
+native-calibration-operator/native-calibration-recover-20261019T064156080979Z-
+2947204-483521d6/receipt.json,
+SHA4f5d5d29635098c628baaaee1c7634a0223d669304d78c229f8216db12924787.
+PublicPAUSEDgen24/recovery_required; no native100 proof. TypedcropSHA2bfe86436b66f20596833222200cc123001763f622a36b3b37ca8123d61a8666.
+R1 had onlyactualrecovercommandproof; do notclaimallcommandsfixed.
+SameLunaRustworker R2 twofilesprivateWT; readplanR2appendix. SoleGUIcapturing ALL
+FIXED_COMMANDS originalfullframes+independentexactchatEdit, noSubmit, closesaftereach.
+Needone deterministic measuredpreproc (or explicitbody-onlyOCRcontract withupdated
+tests), allactualfixedcommands+empty/nonempty throughproductionpath before new
+Sol/actualOpus narrowreview/install/retry. No unchangedOCRretry. Keep84assisted
+at1792392463 (06:47:43)ifpatchpending, no midscaninput.
+
+Solpublichumansequence: failedprepare cancellation leavescheckpointrecovery_required;
+FIRSThelperrecover24 ->preflight24 ->publicresume24 returnsNATIVE_CALIBRATION25 ->
+measure-deferred25 ->verifyINPUT_CALIBRATION/nativeTRUE/opcomplete/finalized ->
+publicpause25 returnsPAUSED26 ->freshhelperrecover26(expectedrestore) ->verify
+PAUSED26/nativeTRUE/inputFALSE/invalidatedblank/recovered ordinarycheckpointcleared.
+Nativeproofsurvivesplannedpause/recover. Actualreturnedgenerationsauthoritative.
+SoleGUIauthorizedwholepublicCLIchain; rootwon'tmutatecontrollerconcurrently.
+Stopbeforehuman gate foruseravailability. Laterresume26 ->INPUT_CALIBRATION27,
+input-calibrate27 async ->readinessrunning/kindinput/readytrue +visibleownedGTKprompt.
+Ask realphysicalpointermotion+keypress/release+click/releaseinsideownedwindow ONLY
+whenready. FirsthumaneventPAUSED/gen28 isNOTcomplete; wait~120.5s staleaction rejection
+and operationcomplete+nativeTRUE/inputTRUE/evidencefingerprint. Thenresume28 should
+RECONCILE. Never resume early whileoperationrunning. No humanfake/no autonomyclaim.
+
+## Current R2 candidate/review handles (06:54 UTC)
+
+Frozen PRIVATE helper0dda3012e14ac8665fbd5bef02e665fbf875419056479cb06a5c9f347c54a3a2,
+test56a5c50e6ebf071e7cb77defcf0ca28a6bcba01802386f192112ad5fa23d3314.
+MAINstill9db5d47/e6+7aae; do NOT retrymainuntilR2accepted/promoted.
+R2 reads only measured command body, preserves grayscale, exacttypedslashcommand;
+closedguardnowrequiresstrictEMPTY (oldSay/aliasesremoved). No fuzzyfix/whitelist.
+All8GUIstage/noSubmit suite originalreceiptSHA84646abcb14d86c8141c3f08e9ac0b31ab117ecf78cfa5cb0bae09d15d2a081c,
+private runtime-relink/chat-fixed-command-suite-20261019T064358713755Z/receipt.json.
+Parent FINALALL8 productionX11Screen.chat_crop->originalfullframes->_capture/OCR/
+normalize/_chat acceptedexactbody andALL8nonemptyclosedrefusal/noinput PASS,
+private native-chat-ocr-parent-r2-final-20261019/{verify.py,result.json}.
+Parentfocused4PASS0.92s exact0dda/56a5 sourcepre/postunchanged, private
+native-chat-ocr-parent-r2-20261019/{focused.log,focused-result.json}.
+Earlierfullframeproof294/b3 preformat retainedseparately; NOTfinalevidence.
+WorkerfullhelperpytestPID3175315 running~06:50:47; outputownedanonymousfile, workerwill
+preservecompletedlog. Source0dda/56a5 stable. FullaffectedhelpergateBEFOREinstall.
+SolnarrowR2reviewrunning; ACTUALOpusR2 CLI session63095/PID3248122 running,
+private native-chat-ocr-review-r2-20261019/{run.py,review-input.json,opus-stream.jsonl,
+process.json}; review.txtcreatedonexit. Pollattachedsession<=30s, inspectactualverdict,
+sourcepre/post,resolvedmodel/no fallback. Runtimeedc/artifact75/native7 unchanged.
+Onlysource2filespromotionafterreviewsREADY+fullhelpergreen, no unrelatedsuite reruns.
+GUIowns84wholeassistedscheduled06:47:43 (do not inputmidscan); thenacceptedR2recoverfirst
+checkpoint->preflight->resume/measure100->pause->freshrecoverordinary. No humanyet.
+SolfeasibilityNOallbinarychatEdit: release hasabsentAgentpreConstruct; measure/resume
+areheldwithpausedpublisher; recovermayrestore_onlynosurface. Exactvisualreadback
+needed; nohybridfallback/redesign. No physicalGTK/autonomousproofyet.
+
+## Current installed R2 — latest state supersedes pending gates above
+
+ALL R2 offline/review gates PASSED. Installed MAIN helper
+1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211,
+test56a5c50e6ebf071e7cb77defcf0ca28a6bcba01802386f192112ad5fa23d3314.
+Parent independently AST-equal to tested/reviewed0dda (only factualcommentsupdated),
+exacttestunchanged. Fullhelper84PASS348.83s/5warnings, parentfocused4PASS0.92s,
+ALL8originalfullframes throughproductionX11Screen.crop/_capture/OCR/normalize/_chat
+PASS exactbody+empty+nonemptyrefusal. Publicnative-chat-ocr-r2-final-parent-verification.
+SolREADYnofindings; actualclaude-opus-5-5 R2 READY/noMust,
+rawSHA80a8d2b83bd521893cf5a7762df499e90cbbf2ea32c15a4dd530aa90f3ec29af.
+OneShouldfactualcommentsfixed (label/body/border/rule/clipping/probemargins), noASTchange.
+Specificclosed-alias testcase nit DEFERRED. StickySay/headerlayout is an explicit
+measuredclientassumption: labelx17..39/body45/rightborder440, y7ruleretained,
+glyphrows20..21clipped. Changedchannel/scale/layout mustrefuseuntilremeasured.
+Private native-chat-ocr-review-r2-20261019/{review.txt,process.json,
+reviewed-helper-0dda.py}; session63095CLOSED0, noactiveOpusreview.
+MainactualCLIhelp0; runtimeedc/testruntime302/artifact75 unchanged. No service restart.
+GUI RELEASED wholeactualrecoverfirst/preflight/resume/native100/pause/freshrecover
+chain AFTER85saved+ACKed ifactive. Rootwon'tmutatecontrollerconcurrently.
+No physicalGTKbeforeactualnative100+ordinaryclearedcheckpointproof/userreadiness.
+
+Latestparentverified84: UIDbeta-normal-alliance-1792392463-Arthur-6323,
+428/2089rows/412full16bounded0incomplete,900s after83,finish→server25.055801s,
+exactACK/pending0/AHtrue/ordinary0/inactive/stationary/released.
+Boot1792392984-179966/seq14. Publicbuild-70450-eightyfourth-{scan,ah-reopen}-parent-verification.
+85scheduled1792393363 (07:02:43); soleGUIownscompletion/ACKbeforecalibration.
+Latestbackup06:12beta...fc30b9ff6d72 validated; NEXT07:12UTC (after85ingestionifready).
+No autonomousqualificationyet: recentcadenceisoperator-assisted.
 
 ## Remaining live gates
 

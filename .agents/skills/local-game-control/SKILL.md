@@ -202,7 +202,8 @@ within existing authorization; respect any current movement limits.
   exact command; then require the actual boot/file transition for a reload.
   Chat borders and insertion cursors can become OCR letters even in an empty
   editor. Retain original full frames and verify production cropping/OCR against
-  both empty and exactly typed buffers; preserve refusal before input. Do not
+  empty buffers and every fixed command, including short commands; preserve
+  refusal before input. Do not
   whitelist OCR junk to make a closed-buffer check pass.
   For a timed confirmation, stage a bounded local capture/recognition helper
   before Apply and complete Apply plus the measured confirmation within that

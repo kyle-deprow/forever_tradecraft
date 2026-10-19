@@ -63,13 +63,15 @@ FIXED_COMMANDS = (
 )
 FIXED_COMMAND_SET = frozenset(FIXED_COMMANDS)
 # The production profile captures this fixed chat editor rectangle from the
-# 1920x1080 client.  OCR uses only its measured text interior; the surrounding
-# frame contains the border pixels that produced the closed-buffer false hit.
+# 1920x1080 client.  In the measured crop the Say label spans x17..39, the
+# command body begins at x45, and the right border is at x440.  The body box
+# starts at x40 to retain the leading slash and ends before that border; y7
+# intentionally includes the top rule.  Rows 20..21 are clipped by this
+# empirically qualified geometry, which passes every fixed command capture.
 CHAT_CROP_SIZE = (460, 37)
-# Exclude the frame rules and leave the one-pixel insertion cursor for the
-# bounded preprocessing below to remove.  The box is measured from the
-# retained full-frame captures, rather than inferred from OCR output.
-CHAT_OCR_BOX = (12, 8, 428, 13)
+# Read the command body directly, excluding the channel label and frame rules.
+# The cursor is removed by bounded preprocessing.
+CHAT_OCR_BOX = (40, 7, 400, 13)
 CHAT_OCR_THRESHOLD = 45
 CHAT_OCR_SCALE = 3
 IPC_COMMANDS = frozenset(
@@ -2949,14 +2951,13 @@ class NativeCalibrationOperator:
                 ):
                     raise OperatorError("fixed chat OCR interior geometry is malformed")
                 prepared = image.crop((left, top, left + width, top + height))
-                prepared = prepared.point(lambda value: 255 if value > CHAT_OCR_THRESHOLD else 0)
                 # The focused chat editor draws a two-column insertion cursor
-                # through the interior.  It is taller than every command glyph
-                # and otherwise becomes a trailing `]` in psm 7 output.  Drop
-                # only such full-height columns; command text remains governed
-                # by the exact readback comparison below.
+                # through the body.  Its probe height is 13/13; the tallest
+                # glyph/rule probe is 11/13.  Drop columns at >=12/13, leaving
+                # a one-row margin, while preserving grayscale command pixels.
+                foreground_probe = prepared.point(lambda value: 255 if value > CHAT_OCR_THRESHOLD else 0)
                 for column in range(width):
-                    foreground = sum(prepared.getpixel((column, row)) // 255 for row in range(height))
+                    foreground = sum(foreground_probe.getpixel((column, row)) // 255 for row in range(height))
                     if foreground >= height - 1:
                         for row in range(height):
                             prepared.putpixel((column, row), 0)
@@ -3558,7 +3559,7 @@ class NativeCalibrationOperator:
             deadline_monotonic=deadline,
         )
         closed_text = normalize_ocr(self.ocr(closed_path))
-        if closed_text not in {"", "say:", "chat closed", "chat: closed"}:
+        if closed_text != "":
             raise OperatorError("chat buffer is not closed and empty")
         self._recheck(expected_state, deadline_monotonic=deadline)
         self._identity_guard(deadline)
@@ -3586,7 +3587,7 @@ class NativeCalibrationOperator:
             deadline_monotonic=deadline,
         )
         observed = normalize_ocr(self.ocr(buffer_path))
-        expected = normalize_ocr(f"say: {command}")
+        expected = normalize_ocr(command)
         self._event("chat_readback", command=command, accepted=observed == expected)
         if observed != expected:
             try:

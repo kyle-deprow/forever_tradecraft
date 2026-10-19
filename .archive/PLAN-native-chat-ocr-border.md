@@ -31,3 +31,20 @@ shows the right border at x445..447 and horizontal rules at y4,23,25.
 Acceptance: actual closed crop yields empty with deterministic OCR, actual typed
 commands retain exact equality, no guard bypass or guessed coordinates, bounded
 small change and focused review. Distinguish real live evidence and synthetic tests.
+
+## R2 live finding: qualify every fixed command
+
+R1 e6cde...340f fixed empty and `/crowley agent recover`, but actual `/reload`
+reads `Say {reload`; exact guard refused and escaped before submission. Preserve
+private recovery receipt SHA4f5d5d29635098c628baaaee1c7634a0223d669304d78c229f8216db12924787.
+Do not retry unchanged OCR. Sole GUI stages and retains ORIGINAL full frames plus
+independent exact chatEdit for ALL FIXED_COMMANDS, no submission, and closes each.
+R2 must run actual production capture/crop/OCR and exact guard across this entire
+measured set, closed empty, and nonempty refusal before review/install/live retry.
+Investigate one deterministic measured preprocessing approach; no per-command
+fallback, fuzzy replacement or junk whitelist. A measured body-only crop excluding
+channel-label decoration is an option only with explicit command-buffer contract
+and all affected tests updated; preserve exact actual slash-command text equality.
+If that changes `_chat` contract, run full affected helper suite once stable;
+otherwise focused tests suffice. No native/Rust/controller/GUI ownership changes.
+Parent independently reproduces all full frames; Sol+actualOpus bounded delta.
