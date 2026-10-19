@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 10:32 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 10:41 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -56,22 +56,24 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #96 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792404927-Arthur-7595`:
+Parent verification #97 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792405827-Arthur-9764`:
 
-- 428 observations, 2,083 rows, 416 full, 10 bounded and 2 incomplete;
-  426 `ok` observations and 2 explicit `query_timeout` observations;
-- 543-second scan, 25.491240 seconds from finish to the server receipt;
-- 1,258-second start interval after #95, 358 seconds late due to calibration
-  refusal and recovery; next ordinary deadline1792405827;
-- exact saved-variable/server digest agreement and independently decoded
-  exact loaded ACK/pending0. The first reopening refused a player tooltip;
-  a fresh Auctioneer hover and guarded click succeeded. Both original receipts
-  remain unchanged and are linked in the compound parent verification;
-- reopened AH, ordinary normal0/inactive fence, released controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-ninetysixth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-ninetysixth-ah-reopen-parent-verification.json).
+- 428 observations, 2,070 rows, 417 full and 11 bounded, all `ok`;
+- 483-second scan, 62.376083 seconds from finish to server receipt;
+- exact900-second start interval after #96; next ordinary deadline1792406727;
+- exact saved-variable/server digest agreement and independently decoded exact
+  loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
+  controls and zero movement;
+- [scan verification](../.archive/executor-review/build-70450-ninetyseventh-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-ninetyseventh-ah-reopen-parent-verification.json).
 
+#96 is fully verified: 428 observations, 2,083 rows, 416 full/10 bounded and
+2 incomplete (`query_timeout`), with426 `ok` observations. It took543s and
+25.491240s finish-to-serverreceipt. Its1258s start interval was358s late due
+to calibration refusal/recovery. First reopen refused a player tooltip;
+a separate fresh Auctioneer hover and guarded click succeeded. Both original
+receipts remain unchanged and linked by compound parent proof.
 #95 is fully verified: 428 observations, 2,077 rows, 419 full/9 bounded,
 all `ok`, 480-second scan and exact900s interval after #94.
 
@@ -368,7 +370,7 @@ Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
 1. Finish the current assisted save/upload/ACK/reopen chain and verify ordinary
-   state before installing the accepted helper-only contrast fix. #96 is fully
+   state before installing the accepted helper-only contrast fix. #97 is fully
    parent-verified. Keep collection running until that controlled boundary.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.
