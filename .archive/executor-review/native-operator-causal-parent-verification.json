@@ -1,0 +1,31 @@
+{
+  "kind": "parent-helper-causal-composition-verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018",
+  "result": "66 passed, 2 warnings in 188.77s",
+  "returncode": 0,
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-vv",
+    "tests/test_native_calibration_operator.py"
+  ],
+  "hashes": {
+    "tools/native_calibration_operator.py": "ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5",
+    "tests/test_native_calibration_operator.py": "d4834f543333a66e9bc9d31e150ef9e085195a27cc93656df5c8d81683fd8b48",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "b727b4df2516691c7071156788649af7fae9f3c8bf8db4be1426593af757fceb",
+    "tests/test_session_native.py": "329900e05141f0ea9622d3c128d2392eeb2a2bb6d602e13e9044dc8a0f56acd9",
+    "tests/test_session_native_regressions.py": "093b97e15d81c407d40564815ee3eb867003bbd43146acb85a0ed7a1fdd4bba5",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "log_sha256": "3c026e3f41c5881edfa0bafa83e6400fefd7a39471f2a40384b26443631effea",
+  "log_mode": "0o600",
+  "evidence_directory_mode": "0o700",
+  "warnings": "Two multiprocessing fork DeprecationWarnings in explicit subprocess fixture cases; no unhandled-thread/test failures.",
+  "source_unchanged_during_run": true,
+  "development_dependency_limit": "Seven frozen R8 native files remain development inputs. Exact final native integration and post-success ordinary recovery require separate verification.",
+  "qualification": "Offline parent pass, no source promotion/live qualification. Worker admitted raw terminal logs absent; this parent run retains complete0600 log."
+}

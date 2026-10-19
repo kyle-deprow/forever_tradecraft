@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import os
+import secrets
 import shutil
 import stat
 import tempfile
@@ -48,6 +49,7 @@ from .driver import (
     _identity_latency_instant,
     _identity_latency_mark,
     _identity_latency_span,
+    _proc_start,
     _reset_identity_latency_sink,
     _set_identity_latency_sink,
 )
@@ -126,6 +128,109 @@ def _canonical_semantic_value(value: Any) -> Any:
     if value is None or isinstance(value, (str, int, float, bool)):
         return value
     raise TypeError(f"unsupported session config value: {type(value).__name__}")
+
+
+def _strict_native_absence_image(path: Path, *, expected_size: tuple[int, int]) -> bool:
+    """Return true only for an ordinary crop with no encoded Agent grid."""
+
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            image.load()
+            if image.size != expected_size or image.mode not in {"RGB", "RGBA", "L"}:
+                return False
+            # The wire format starts with the protocol magic.  Recover each
+            # bit from the physical-cell majority, so a damaged or occluded
+            # payload cannot be relabelled as an ordinary absence crop while
+            # a genuine ordinary screenshot remains outside the protocol
+            # shape.  A fully binary grid remains an encoded-looking malformed
+            # surface even when its header was destroyed.
+            bits: list[int | None] = []
+            flat_bits: list[int | None] = []
+            flat_cells = 0
+            black_cells = 0
+            white_cells = 0
+            for y in range(128):
+                for x in range(128):
+                    raw_pixels = [image.getpixel((x * 2 + dx, y * 2 + dy)) for dy in (0, 1) for dx in (0, 1)]
+                    pixels = [
+                        value if isinstance(value, tuple) else (value, value, value) for value in raw_pixels
+                    ]
+                    colors = [pixel[:3] for pixel in pixels]
+                    black = sum(color == (0, 0, 0) for color in colors)
+                    white = sum(color == (255, 255, 255) for color in colors)
+                    if black == 4:
+                        flat_cells += 1
+                        black_cells += 1
+                        bits.append(0)
+                        flat_bits.append(0)
+                    elif white == 4:
+                        flat_cells += 1
+                        white_cells += 1
+                        bits.append(1)
+                        flat_bits.append(1)
+                    elif black >= 3 and black > white:
+                        bits.append(0)
+                        flat_bits.append(None)
+                    elif white >= 3 and white > black:
+                        bits.append(1)
+                        flat_bits.append(None)
+                    else:
+                        bits.append(None)
+                        flat_bits.append(None)
+
+            def recovered_byte(offset: int) -> int | None:
+                """Recover one protocol byte when all eight cells survived."""
+
+                group = bits[offset * 8 : (offset + 1) * 8]
+                if len(group) != 8 or any(bit is None for bit in group):
+                    return None
+                return sum(int(bit) << index for index, bit in enumerate(group))
+
+            header_bits = bits[:32]
+            # Treat damaged cells as erasures, but require one complete
+            # protocol-magic byte to survive.  CRS1's four fixed bytes are a
+            # structural proof tied to the wire format, rather than a global
+            # intact-cell percentage: the parent counterexample erases the
+            # first byte while leaving the remaining three available.
+            encoded_header = False
+            for offset, expected in enumerate(b"CRS1"):
+                group = header_bits[offset * 8 : (offset + 1) * 8]
+                if any(bit is None for bit in group):
+                    continue
+                value = sum(int(bit) << index for index, bit in enumerate(group))
+                if value == expected:
+                    encoded_header = True
+                    break
+            # The fixed geometry/version bytes immediately follow the magic.
+            # They remain useful evidence when an occlusion erases every magic
+            # byte: unlike an arbitrary binary-cell percentage, this checks
+            # the exact protocol shape and its 256-cell physical canvas.
+            encoded_geometry = (
+                recovered_byte(4) == 1
+                and recovered_byte(5) == 1
+                and recovered_byte(6) == 128
+                and recovered_byte(7) == 128
+            )
+            # Each protocol byte occupies one aligned group of eight logical
+            # cells in row-major wire order.  A complete group of exact flat
+            # 2x2 black/white cells containing both values is an encoded
+            # fragment even when all fixed header bytes were occluded.  This
+            # is a geometry-derived local proof, not a global intact-cell
+            # percentage or a guessed threshold.
+            encoded_fragment = any(
+                all(bit is not None for bit in group) and len({int(bit) for bit in group}) == 2
+                for start in range(0, len(flat_bits), 8)
+                if len(group := flat_bits[start : start + 8]) == 8
+            )
+            encoded_grid = flat_cells == 128 * 128 and black_cells > 0 and white_cells > 0
+            loading_surface = flat_cells == 128 * 128 and (black_cells == 0 or white_cells == 0)
+            return not (
+                encoded_header or encoded_geometry or encoded_fragment or encoded_grid or loading_surface
+            )
+    except (OSError, ValueError, TypeError, IndexError):
+        return False
 
 
 def _canonical_dataclass_json(value: Any) -> bytes:
@@ -584,6 +689,14 @@ class SessionDaemon:
     # Agent publication after a readiness signal becomes visible.
     _NATIVE_FRAME_TIMEOUT_SECONDS = 30.0
     _NATIVE_POLL_INTERVAL_SECONDS = 0.05
+    # One construction attempt makes 103 provider calls: construct/0, held/0,
+    # updates/1..99, held/100, and resume/0.  Add the existing ten-second
+    # entry and thirty-second finalize bounds.  This is an admission bound
+    # only; each provider retains its independent 30-second deadline, and the
+    # seven-second constructor reserve remains inside its provider deadline.
+    _NATIVE_CONSTRUCTION_OPERATION_SECONDS = 10.0 + (103 * _NATIVE_FRAME_TIMEOUT_SECONDS) + 30.0
+    _NATIVE_CONSTRUCTION_HISTORY_LIMIT = 16
+    _NATIVE_CONSTRUCTION_TERMINAL_LIMIT = 32
     _MIN_CAMERA_DRAG_PIXELS = MIN_CAMERA_CALIBRATION_PIXELS
 
     @staticmethod
@@ -659,6 +772,25 @@ class SessionDaemon:
             "restored": None,
             "archiveReceipts": [],
         }
+        # Deferred construction admission is private process-local state.  It
+        # is deliberately separate from the legacy operator-visible handshake
+        # returned by status_dict so B0, reservation IDs, and identity fields
+        # cannot leak through public status.
+        self._native_construction_lock = threading.RLock()
+        self._native_construction_reservation: dict[str, Any] | None = None
+        self._native_construction_ticket: dict[str, Any] | None = None
+        self._native_construction_handshake: dict[str, Any] = {}
+        self._native_construction_state_history: list[dict[str, Any]] = []
+        self._native_construction_operation_deadline: float | None = None
+        self._native_construction_finalize_event = threading.Event()
+        self._native_construction_epoch = 0
+        self._native_construction_inflight: dict[str, Any] | None = None
+        # Every native runner, including the legacy path, gets an immutable
+        # callback owner.  Callbacks never infer legacy/deferred mode from the
+        # mutable reservation after a worker has started.
+        self._native_construction_run_context: dict[str, Any] | None = None
+        self._native_construction_terminals: dict[str, dict[str, Any]] = {}
+        self._native_construction_expired = False
         # A bounded private diagnostic for a failed rejected-measurement
         # audit append.  It is intentionally absent from IPC and status.
         self._native_memory_archive_diagnostic: str | None = None
@@ -791,21 +923,357 @@ class SessionDaemon:
         on_revoke = getattr(self.driver, "on_revoke", None)
         if callable(on_revoke):
             on_revoke(lambda _reason, _generation: self.model.cancel())
+            on_revoke(self._on_native_construction_revocation)
 
-    def _begin_calibration(self, kind: str, generation: int | None) -> None:
-        if not self._calibration_lock.acquire(blocking=False):
-            raise DriverError("a calibration operation is already running")
-        with self._calibration_state_lock:
-            self._calibration_operation = {
-                "state": "running",
-                "kind": kind,
-                "generation": generation if generation is not None else -1,
-                "startedAt": int(time.time()),
-                "finishedAt": 0,
-                "error": "",
-                "readiness": None,
-                "result": None,
-            }
+    def _on_native_construction_revocation(self, reason: str, _generation: int) -> None:
+        with self._native_construction_lock:
+            active = (
+                self._native_construction_reservation is not None
+                or self._native_construction_ticket is not None
+                or self._native_construction_inflight is not None
+            )
+            if active:
+                self._native_construction_epoch += 1
+                context = self._native_construction_run_context
+                reservation_snapshot = copy.deepcopy(self._native_construction_reservation)
+                if reservation_snapshot is not None:
+                    self._native_construction_publish_state_locked("recovery_required", failure=str(reason))
+                    self._native_construction_record_terminal_locked(
+                        reservation_snapshot,
+                        state="recovery_required",
+                        failure=str(reason),
+                    )
+                if context is not None:
+                    closed = copy.deepcopy(context)
+                    closed["closed"] = True
+                    closed["stateHistory"] = copy.deepcopy(self._native_construction_state_history)
+                    self._native_construction_run_context = closed
+                self._native_construction_reservation = None
+                self._native_construction_ticket = None
+                self._native_construction_inflight = None
+                self._native_construction_operation_deadline = None
+                self._native_construction_finalize_event.clear()
+        # Controller.pause holds its mutex while Guardian invokes this
+        # callback.  Never acquire the construction lock while making this
+        # durable transition; doing so deadlocks against prepare/recheck.
+        if active:
+            try:
+                self.controller.mark_native_construction_recovery_required()
+            except RuntimeError:
+                pass
+
+    def _native_construction_revoke_owner(self, reservation_id: str | None, reason: str) -> None:
+        """Invalidate exactly one local owner and retain durable B0."""
+
+        changed = False
+        with self._native_construction_lock:
+            reservation = self._native_construction_reservation
+            if reservation_id is None or (
+                reservation is not None and reservation.get("reservationId") == reservation_id
+            ):
+                changed = reservation is not None or self._native_construction_inflight is not None
+                self._native_construction_epoch += 1
+                context = self._native_construction_run_context
+                reservation_snapshot = copy.deepcopy(reservation)
+                if reservation_snapshot is not None:
+                    self._native_construction_publish_state_locked("recovery_required", failure=str(reason))
+                    self._native_construction_record_terminal_locked(
+                        reservation_snapshot,
+                        state="recovery_required",
+                        failure=str(reason),
+                    )
+                if context is not None and (
+                    reservation_id is None or context.get("reservationId") == reservation_id
+                ):
+                    closed = copy.deepcopy(context)
+                    closed["closed"] = True
+                    closed["stateHistory"] = copy.deepcopy(self._native_construction_state_history)
+                    self._native_construction_run_context = closed
+                self._native_construction_reservation = None
+                self._native_construction_ticket = None
+                self._native_construction_inflight = None
+                self._native_construction_operation_deadline = None
+                self._native_construction_finalize_event.clear()
+        if changed:
+            try:
+                self.controller.mark_native_construction_recovery_required()
+            except RuntimeError:
+                pass
+
+    def _native_construction_flush_expiry(self) -> None:
+        with self._native_construction_lock:
+            # Expiry checks are part of every competing admission boundary,
+            # rather than only the IPC method that happens to consume the
+            # reservation.  The durable Guardian/controller callbacks remain
+            # outside this lock.
+            self._native_construction_expire_locked()
+            expired = self._native_construction_expired
+            self._native_construction_expired = False
+        if expired:
+            try:
+                self.driver.guardian.cancel_calibration_operation()
+            except (AttributeError, GuardianError):
+                pass
+            try:
+                self.controller.mark_native_construction_recovery_required()
+            except RuntimeError:
+                pass
+
+    def _native_construction_blocks_competing_entry(self, *, native_calibration: bool = False) -> bool:
+        with self._native_construction_lock:
+            reservation = self._native_construction_reservation
+            inflight = self._native_construction_inflight
+            if reservation is None and self._native_construction_ticket is None and inflight is None:
+                return False
+            if native_calibration and reservation is not None:
+                return (
+                    reservation.get("reservationKind") == "preflight"
+                    or reservation.get("reservationState") != "consumed"
+                )
+            return True
+
+    def _native_construction_callback_context_locked(self) -> dict[str, Any]:
+        """Return the immutable owner for a runner callback.
+
+        A callback arriving after revoke/failure must fail its original run. It
+        must never fall through to the legacy handshake or clear a later
+        reservation. The caller holds ``_native_construction_lock``.
+        """
+
+        context = self._native_construction_run_context
+        if context is None or context.get("closed"):
+            raise DriverError("native callback has no active run owner")
+        reservation = self._native_construction_reservation
+        if context.get("deferred"):
+            if (
+                reservation is None
+                or reservation.get("reservationId") != context.get("reservationId")
+                or context.get("epoch") != self._native_construction_epoch
+            ):
+                raise DriverError("native deferred callback owner was revoked")
+        return copy.deepcopy(context)
+
+    def _native_construction_capability_locked(self) -> dict[str, Any] | None:
+        """Return the exact owner capability for a producer admission gate."""
+
+        owner = self._native_construction_inflight or self._native_construction_reservation
+        if not isinstance(owner, dict):
+            return None
+        return {
+            "epoch": self._native_construction_epoch,
+            "generation": owner.get("generation", owner.get("controllerGeneration")),
+            "guardianGeneration": owner.get("guardianGeneration"),
+            "reservationId": owner.get("reservationId"),
+            "kind": owner.get("kind", owner.get("reservationKind")),
+        }
+
+    def _native_construction_capability_matches(self, capability: dict[str, Any]) -> bool:
+        """Check an immutable capability while holding construction lock.
+
+        Every caller must hold ``_native_construction_lock``.  The producer
+        admission gate keeps that lock through Guardian admission so owner
+        revocation cannot clear the exact capability between this comparison
+        and process registration.
+        """
+
+        if not isinstance(capability, dict):
+            return False
+        if capability.get("epoch") != self._native_construction_epoch:
+            return False
+        owner = self._native_construction_inflight or self._native_construction_reservation
+        if not isinstance(owner, dict):
+            return False
+        expected_generation = capability.get("generation")
+        current_generation = owner.get("generation", owner.get("controllerGeneration"))
+        if expected_generation != current_generation:
+            return False
+        if capability.get("guardianGeneration") != owner.get("guardianGeneration"):
+            return False
+        expected_kind = capability.get("kind")
+        current_kind = owner.get("kind", owner.get("reservationKind"))
+        if expected_kind != current_kind:
+            return False
+        expected_id = capability.get("reservationId")
+        current_id = owner.get("reservationId")
+        return expected_id == current_id
+
+    def _native_construction_record_terminal_locked(
+        self,
+        reservation: dict[str, Any] | None,
+        *,
+        state: str,
+        failure: str = "",
+        handshake: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        """Retain one immutable, bounded terminal receipt before owner clear."""
+
+        if not isinstance(reservation, dict):
+            return None
+        reservation_id = reservation.get("reservationId")
+        if not isinstance(reservation_id, str) or not reservation_id:
+            return None
+        existing = self._native_construction_terminals.get(reservation_id)
+        if existing is not None:
+            return copy.deepcopy(existing)
+        terminal_reservation = copy.deepcopy(reservation)
+        terminal_reservation["reservationState"] = state
+        terminal_handshake = copy.deepcopy(handshake or self._native_construction_handshake)
+        terminal_handshake["state"] = state
+        if failure:
+            terminal_handshake["failure"] = str(failure)
+        terminal = {
+            "reservation": terminal_reservation,
+            "handshake": terminal_handshake,
+            "stateHistory": copy.deepcopy(self._native_construction_state_history),
+        }
+        self._native_construction_terminals[reservation_id] = terminal
+        while len(self._native_construction_terminals) > self._NATIVE_CONSTRUCTION_TERMINAL_LIMIT:
+            self._native_construction_terminals.pop(next(iter(self._native_construction_terminals)))
+        return copy.deepcopy(terminal)
+
+    def _native_construction_publish_state_locked(self, state: str, **updates: Any) -> None:
+        """Publish one private construction state and retain its bounded history.
+
+        The history is deliberately separate from the handshake payload: it is
+        returned only by construction IPC and terminal rechecks, while public
+        status remains byte-compatible.  Repeated polling or field updates in
+        the same state never append another event.
+        """
+
+        if not isinstance(state, str) or not state:
+            raise DriverError("native construction state is malformed")
+        current = self._native_construction_handshake.get("state")
+        history = self._native_construction_state_history
+        if current != state:
+            now = float(self._native_clock())
+            if not math.isfinite(now):
+                raise DriverError("native construction state clock is malformed")
+            if history and now < float(history[-1]["nativeClock"]):
+                raise DriverError("native construction state clock moved backwards")
+            if len(history) >= self._NATIVE_CONSTRUCTION_HISTORY_LIMIT:
+                raise DriverError("native construction state history is full")
+            history = [*history, {"state": state, "nativeClock": now}]
+            self._native_construction_state_history = history
+        self._native_construction_handshake.update(updates)
+        self._native_construction_handshake["state"] = state
+        context = self._native_construction_run_context
+        if context is not None and not context.get("closed"):
+            updated_context = copy.deepcopy(context)
+            updated_context["stateHistory"] = copy.deepcopy(history)
+            self._native_construction_run_context = updated_context
+
+    def _native_construction_reset_history_locked(self) -> None:
+        self._native_construction_state_history = []
+
+    def _native_construction_start_context_locked(
+        self, *, generation: int, deferred: bool, reservation_id: str | None = None
+    ) -> dict[str, Any]:
+        """Seal one callback context while the admission lock is held."""
+
+        self._native_construction_epoch += 1
+        owner = self._native_construction_inflight or self._native_construction_reservation
+        if owner is None:
+            # A legacy ownerless start creates its binding here while the
+            # construction lock is held.  Once an owner exists, however, a
+            # missing original generation is malformed and must fail closed;
+            # sampling the current Guardian generation would let stale state
+            # borrow a newer owner.
+            guardian_generation = self._native_construction_guardian_generation()
+        elif not isinstance(owner, dict) or "guardianGeneration" not in owner:
+            raise DriverError("native construction owner is missing Guardian generation")
+        else:
+            guardian_generation = owner["guardianGeneration"]
+        context = {
+            "runId": secrets.token_hex(16),
+            "epoch": self._native_construction_epoch,
+            "generation": generation,
+            "guardianGeneration": guardian_generation,
+            "deferred": deferred,
+            "reservationId": reservation_id,
+            "closed": False,
+            "stateHistory": copy.deepcopy(self._native_construction_state_history),
+        }
+        self._native_construction_run_context = context
+        return copy.deepcopy(context)
+
+    def _native_construction_close_context_locked(self, context: dict[str, Any]) -> None:
+        current = self._native_construction_run_context
+        if current is not None and current.get("runId") == context.get("runId"):
+            closed = copy.deepcopy(current)
+            closed["closed"] = True
+            closed["stateHistory"] = copy.deepcopy(self._native_construction_state_history)
+            self._native_construction_run_context = closed
+
+    def _begin_calibration(
+        self,
+        kind: str,
+        generation: int | None,
+        *,
+        admitted_context: dict[str, Any] | None = None,
+    ) -> None:
+        if kind not in {"native", "input"}:
+            raise DriverError("unknown calibration operation")
+        self._native_construction_flush_expiry()
+        with self._native_construction_lock:
+            reservation = self._native_construction_reservation
+            if kind == "native":
+                if self._native_construction_inflight is not None:
+                    raise DriverError("another native construction admission is already active")
+                if reservation is not None and reservation.get("reservationState") != "consumed":
+                    raise DriverError("native construction admission is already active")
+            if not self._calibration_lock.acquire(blocking=False):
+                raise DriverError("a calibration operation is already running")
+            try:
+                with self._calibration_state_lock:
+                    current = self._calibration_operation.get("state")
+                    if current == "running":
+                        raise DriverError("a calibration operation is already running")
+                    if current == "starting" and self._calibration_operation.get("kind") != kind:
+                        raise DriverError("a calibration operation is already starting")
+                    deferred = False
+                    if kind == "native" and admitted_context is not None:
+                        current_context = self._native_construction_run_context
+                        if (
+                            current_context is None
+                            or current_context.get("closed")
+                            or current_context.get("runId") != admitted_context.get("runId")
+                            or current_context.get("epoch") != admitted_context.get("epoch")
+                        ):
+                            raise DriverError("native calibration admission owner was revoked")
+                        deferred = bool(admitted_context.get("deferred"))
+                        if deferred:
+                            if reservation is None or reservation.get(
+                                "reservationId"
+                            ) != admitted_context.get("reservationId"):
+                                raise DriverError("native deferred calibration admission was revoked")
+                    else:
+                        deferred = (
+                            kind == "native"
+                            and reservation is not None
+                            and reservation.get("reservationState") == "consumed"
+                        )
+                        self._native_construction_start_context_locked(
+                            generation=generation if generation is not None else -1,
+                            deferred=deferred,
+                            reservation_id=reservation.get("reservationId") if deferred else None,
+                        )
+                    updated_operation = {
+                        "state": "running",
+                        "kind": kind,
+                        "generation": generation if generation is not None else -1,
+                        "startedAt": int(time.time()),
+                        "finishedAt": 0,
+                        "error": "",
+                        "readiness": None,
+                        "result": None,
+                    }
+                    if current == "starting" and self._calibration_operation.get("kind") == kind:
+                        self._calibration_operation.update(updated_operation)
+                    else:
+                        self._calibration_operation = updated_operation
+            except Exception:
+                self._calibration_lock.release()
+                raise
 
     def start_calibration(self, kind: str, *, expected_generation: int | None = None) -> dict[str, Any]:
         """Start one supervised long-running gate and return immediately.
@@ -817,40 +1285,68 @@ class SessionDaemon:
 
         if kind not in {"native", "input"}:
             raise DriverError("unknown calibration operation")
-        with self._calibration_state_lock:
-            current = self._calibration_operation.get("state")
-            if current in {"starting", "running"}:
-                raise DriverError("a calibration operation is already running")
-            self._calibration_operation = {
-                "state": "starting",
-                "kind": kind,
-                "generation": expected_generation if expected_generation is not None else -1,
-                "startedAt": int(time.time()),
-                "finishedAt": 0,
-                "error": "",
-                "readiness": None,
-                "result": None,
-            }
+        # The construction lock and calibration-state lock form one admission
+        # point. Prepare/recovery re-check the same state while holding the
+        # construction lock, so a competing thread cannot slip between the
+        # old check and publication of ``starting``.
+        self._native_construction_flush_expiry()
+        admitted_context: dict[str, Any] | None = None
+        with self._native_construction_lock:
+            if self._native_construction_blocks_competing_entry(native_calibration=kind == "native"):
+                raise DriverError("another native construction admission is already active")
+            with self._calibration_state_lock:
+                current = self._calibration_operation.get("state")
+                if current in {"starting", "running"}:
+                    raise DriverError("a calibration operation is already running")
+                self._calibration_operation = {
+                    "state": "starting",
+                    "kind": kind,
+                    "generation": expected_generation if expected_generation is not None else -1,
+                    "startedAt": int(time.time()),
+                    "finishedAt": 0,
+                    "error": "",
+                    "readiness": None,
+                    "result": None,
+                }
+                if kind == "native":
+                    reservation = self._native_construction_reservation
+                    deferred = reservation is not None and reservation.get("reservationState") == "consumed"
+                    admitted_context = self._native_construction_start_context_locked(
+                        generation=expected_generation if expected_generation is not None else -1,
+                        deferred=deferred,
+                        reservation_id=reservation.get("reservationId") if deferred else None,
+                    )
+                operation_record = self._calibration_operation
 
         def worker() -> None:
             try:
                 if kind == "native":
-                    self.run_native_calibration(expected_generation=expected_generation)
+                    self.run_native_calibration(
+                        expected_generation=expected_generation,
+                        admitted_context=admitted_context,
+                    )
                 else:
                     self.run_input_calibration(expected_generation=expected_generation)
+                result_snapshot = self.status_dict()
                 with self._calibration_state_lock:
-                    # The direct runner's return is assembled before its
-                    # operation lock is released.  Pollers need the final
-                    # complete/error state, so take a fresh status snapshot.
-                    self._calibration_operation["result"] = self.status_dict()
+                    # Pollers need the final complete/error state, but the
+                    # status snapshot takes the controller lock.  Compute it
+                    # before taking the calibration-state lock to preserve the
+                    # controller -> construction -> calibration lock order.
+                    if self._calibration_operation is operation_record:
+                        operation_record["result"] = result_snapshot
             except Exception as exc:
                 with self._calibration_state_lock:
-                    self._calibration_operation["error"] = str(exc)
+                    if self._calibration_operation is operation_record:
+                        operation_record["error"] = str(exc)
             finally:
                 with self._calibration_state_lock:
-                    if self._calibration_operation.get("state") == "starting":
-                        self._calibration_operation["state"] = "error"
-                        self._calibration_operation["finishedAt"] = int(time.time())
+                    if (
+                        self._calibration_operation is operation_record
+                        and operation_record.get("state") == "starting"
+                    ):
+                        operation_record["state"] = "error"
+                        operation_record["finishedAt"] = int(time.time())
 
         thread = threading.Thread(target=worker, name=f"crowley-{kind}-calibration", daemon=True)
         self._calibration_thread = thread
@@ -894,7 +1390,1485 @@ class SessionDaemon:
         result["ready"] = True
         return result
 
-    def native_bootstrap(self, *, expected_generation: int | None = None) -> dict[str, Any]:
+    # ------------------------------------------------------------------
+    # Deferred native-construction admission
+
+    @staticmethod
+    def _native_construction_profile_fingerprint(profile: Any) -> str:
+        try:
+            payload = json.dumps(
+                _canonical_semantic_value(asdict(profile)),
+                sort_keys=True,
+                separators=(",", ":"),
+                allow_nan=False,
+            ).encode("utf-8")
+        except (TypeError, ValueError) as exc:
+            raise DriverError("native construction profile cannot be canonicalized") from exc
+        return hashlib.sha256(payload).hexdigest()
+
+    @staticmethod
+    def _native_construction_positive_generation(value: Any) -> bool:
+        return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+    @staticmethod
+    def _native_construction_reservation_id(value: Any, *, allow_empty: bool = False) -> bool:
+        return (
+            isinstance(value, str)
+            and (allow_empty or bool(value))
+            and len(value) <= 128
+            and "\x00" not in value
+        )
+
+    def _native_construction_guardian_generation(self) -> int:
+        """Capture the current Guardian generation as an owner fact."""
+
+        guardian = getattr(self.driver, "guardian", None)
+        guardian_lock = getattr(guardian, "_lock", None)
+        if guardian is None or guardian_lock is None:
+            raise DriverError("native construction Guardian binding is unavailable")
+        with guardian_lock:
+            generation = getattr(guardian, "generation", None)
+        if not isinstance(generation, int) or isinstance(generation, bool) or generation < 0:
+            raise DriverError("native construction Guardian generation is malformed")
+        return generation
+
+    def _native_construction_binding(
+        self,
+        *,
+        reservation_id: str,
+        reservation_kind: str,
+        reservation_state: str,
+        controller_generation: int,
+        expected_boot: str,
+        identity: WindowIdentity,
+        expires_monotonic: float,
+        guardian_generation: int | None = None,
+        guardian_armed: bool | None = None,
+        desktop_lease_held: bool | None = None,
+    ) -> dict[str, Any]:
+        guardian = getattr(self.driver, "guardian", None)
+        lease = getattr(guardian, "lease", None)
+        owner_start = _proc_start(os.getpid())
+        if not owner_start:
+            raise DriverError("native construction owner process start is unavailable")
+        if not isinstance(expected_boot, str) or not expected_boot:
+            raise DriverError("native construction boot is malformed")
+        expected_constructor_boot = f"native-construction:{expected_boot}"
+        if len(expected_constructor_boot.encode("utf-8")) > 96:
+            raise DriverError("native construction boot is too long")
+        if guardian_armed is None or desktop_lease_held is None:
+            guardian_lock = getattr(guardian, "_lock", None)
+            if guardian is None or guardian_lock is None:
+                raise DriverError("native construction Guardian binding is unavailable")
+            # The owner generation is supplied by the owner-creation
+            # transaction.  Only the auxiliary armed/lease facts are sampled
+            # here; a missing or stale generation is never replaced with a
+            # later current value.
+            with guardian_lock:
+                if guardian_armed is None:
+                    guardian_armed = bool(getattr(guardian, "armed", False))
+                if desktop_lease_held is None:
+                    desktop_lease_held = bool(getattr(lease, "held", False))
+        if (
+            not isinstance(guardian_generation, int)
+            or isinstance(guardian_generation, bool)
+            or guardian_generation < 0
+        ):
+            raise DriverError("native construction Guardian generation is malformed")
+        return {
+            "reservationId": reservation_id,
+            "reservationKind": reservation_kind,
+            "reservationState": reservation_state,
+            "controllerGeneration": controller_generation,
+            "desktopLeaseHeld": bool(desktop_lease_held),
+            "guardianGeneration": guardian_generation,
+            "guardianArmed": bool(guardian_armed),
+            "ownerPid": os.getpid(),
+            "ownerProcessStart": owner_start,
+            "profileFingerprint": self._native_construction_profile_fingerprint(self.driver.profile),
+            "identityFingerprint": identity.fingerprint,
+            "B0": expected_boot,
+            "expectedConstructorBoot": expected_constructor_boot,
+            "expiresMonotonic": float(expires_monotonic),
+        }
+
+    @staticmethod
+    def _native_construction_public_handshake(handshake: dict[str, Any]) -> dict[str, Any]:
+        """Return only non-secret state for private IPC callers.
+
+        The reservation record is returned separately.  This function is used
+        only by the private construction IPC replies and never by status_dict.
+        """
+
+        return {
+            key: copy.deepcopy(value)
+            for key, value in handshake.items()
+            if key
+            not in {
+                "B0",
+                "expectedConstructorBoot",
+                "reservationId",
+                "ownerProcessStart",
+                "profileFingerprint",
+                "identityFingerprint",
+            }
+        }
+
+    def _native_construction_reply(self, *, include_reservation: bool = True) -> dict[str, Any]:
+        result: dict[str, Any] = {
+            "handshake": self._native_construction_public_handshake(self._native_construction_handshake),
+            "nativeClock": self._native_clock(),
+            "stateHistory": copy.deepcopy(self._native_construction_state_history),
+        }
+        if include_reservation and self._native_construction_reservation is not None:
+            result["reservation"] = copy.deepcopy(self._native_construction_reservation)
+        return result
+
+    def _native_construction_terminal_reply(self, reservation_id: str) -> dict[str, Any] | None:
+        with self._native_construction_lock:
+            terminal = self._native_construction_terminals.get(reservation_id)
+            if terminal is None:
+                return None
+            return {
+                "reservation": copy.deepcopy(terminal["reservation"]),
+                "handshake": self._native_construction_public_handshake(copy.deepcopy(terminal["handshake"])),
+                "nativeClock": self._native_clock(),
+                "stateHistory": copy.deepcopy(terminal["stateHistory"]),
+            }
+
+    def _native_construction_expire_locked(self) -> None:
+        reservation = self._native_construction_reservation
+        if reservation is None:
+            return
+        expires = reservation.get("expiresMonotonic")
+        if isinstance(expires, (int, float)) and self._native_clock() < float(expires):
+            operation_deadline = self._native_construction_operation_deadline
+            if operation_deadline is None or self._native_clock() < operation_deadline:
+                return
+        # Expiry is fail-closed.  A durable checkpoint remains for recovery.
+        reservation_snapshot = copy.deepcopy(reservation)
+        self._native_construction_publish_state_locked(
+            "error", failure="native construction reservation expired"
+        )
+        self._native_construction_record_terminal_locked(
+            reservation_snapshot,
+            state="error",
+            failure="native construction reservation expired",
+        )
+        self._native_construction_reservation = None
+        self._native_construction_ticket = None
+        self._native_construction_operation_deadline = None
+        self._native_construction_finalize_event.clear()
+        self._native_construction_expired = True
+        self._native_construction_epoch += 1
+        context = self._native_construction_run_context
+        if context is not None:
+            closed = copy.deepcopy(context)
+            closed["closed"] = True
+            closed["stateHistory"] = copy.deepcopy(self._native_construction_state_history)
+            self._native_construction_run_context = closed
+
+    def _native_construction_capture(
+        self,
+        *,
+        deadline: float,
+        expected_generation: int | None = None,
+        expected_state: ControllerState | None = None,
+        native_capability: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Capture one fresh strict frame through the production provider.
+
+        Offline tests may supply a capture fixture through the same method
+        boundary by setting ``_native_construction_observation_provider``;
+        no private handshake state is advanced by that fixture.
+        """
+
+        provider = getattr(self, "_native_construction_observation_provider", None)
+        if callable(provider):
+            value = provider()
+            if not isinstance(value, dict):
+                raise DriverError("native construction observation is malformed")
+            return copy.deepcopy(value)
+        if not isinstance(self.driver.backend, X11Backend):
+            raise DriverError("native construction requires the configured X11 backend")
+        identity = self.driver.resolve_identity()
+        decoder = self.driver.new_native_decoder()
+        capture_started = self._native_clock()
+        capture_path = None
+        try:
+            capture_path = self._capture_native_region_for_identity(
+                identity,
+                deadline=deadline,
+                expected_generation=expected_generation,
+                expected_state=expected_state,
+                native_capability=native_capability,
+            )
+            capture_id = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+            try:
+                sample = self.driver.decode_native_capture(capture_path, identity=identity, decoder=decoder)
+            except ProtocolError as exc:
+                if not self._strict_native_absence_capture(capture_path):
+                    raise DriverError(
+                        "native construction capture contains a malformed encoded surface"
+                    ) from exc
+                return {
+                    "surface": "absent",
+                    "boot": "",
+                    "sequence": 0,
+                    "crc32": 0,
+                    "snapshot": {},
+                    "identityFingerprint": identity.fingerprint,
+                    "captureIdentity": identity.fingerprint,
+                    "captureMonotonic": capture_started,
+                    "captureSha256": capture_id,
+                }
+            if sample.frame is None or sample.kind != "FRESH":
+                raise DriverError("native construction capture is not fresh")
+            frame = sample.frame
+            return {
+                "surface": "present",
+                "boot": frame.boot,
+                "sequence": frame.sequence,
+                "crc32": frame.crc32,
+                "snapshot": frame.snapshot.value,
+                "identityFingerprint": identity.fingerprint,
+                "captureIdentity": identity.fingerprint,
+                "captureMonotonic": sample.capture_monotonic,
+                "captureSha256": capture_id,
+            }
+        finally:
+            if capture_path is not None:
+                self.release_native_capture(capture_path)
+
+    def _strict_native_absence_capture(self, path: Path) -> bool:
+        """Return true only for an ordinary crop with no encoded Agent grid."""
+        expected_size = (
+            self.config.profile.canvas_crop[2],
+            self.config.profile.canvas_crop[3],
+        )
+        return _strict_native_absence_image(path, expected_size=expected_size)
+
+    def _retain_native_absence_capture(
+        self, identity: WindowIdentity, *, deadline: float | None = None
+    ) -> dict[str, Any]:
+        """Capture and retain one independently sealed ordinary absence crop."""
+
+        capture_started = self._native_clock()
+        path = self._capture_native_region_for_identity(
+            identity,
+            deadline=deadline,
+            expected_generation=self.controller.status().generation,
+            expected_state=ControllerState.NATIVE_CALIBRATION,
+        )
+        try:
+            decoder = self.driver.new_native_decoder()
+            try:
+                sample = self.driver.decode_native_capture(path, identity=identity, decoder=decoder)
+            except ProtocolError as exc:
+                if not self._strict_native_absence_capture(path):
+                    raise DriverError("post-reset capture contains a malformed encoded surface") from exc
+                sample = None
+            if sample is not None:
+                raise DriverError("native surface was constructed before post-reset absence proof")
+            evidence_dir = self.config.journal.expanduser().parent / "native-evidence"
+            evidence_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(evidence_dir, 0o700)
+            retained = evidence_dir / f"postconstruction-{time.monotonic_ns()}.png"
+            shutil.copyfile(path, retained)
+            os.chmod(retained, 0o600)
+            digest = hashlib.sha256(retained.read_bytes()).hexdigest()
+            with self._native_bootstrap_lock:
+                self._native_owned_capture_paths.add(retained)
+            return {
+                "identity": identity.fingerprint,
+                "captureDigest": digest,
+                "capturePath": str(retained),
+                "surface": "absent",
+                # Keep the producer-boundary timestamp. Copy/decode/hash work
+                # after the capture must age the proof rather than refresh it.
+                "capture": capture_started,
+                "provenance": "owned-live",
+            }
+        finally:
+            self._remove_native_capture(path)
+
+    @staticmethod
+    def _native_construction_decoded_frame_facts(
+        observation: dict[str, Any],
+    ) -> tuple[str, int, int, dict[str, Any]]:
+        if observation.get("surface", "present") != "present":
+            raise DriverError("native construction capture has no Agent frame")
+        boot = observation.get("boot")
+        sequence = observation.get("sequence")
+        crc32 = observation.get("crc32")
+        snapshot = observation.get("snapshot")
+        if (
+            not isinstance(boot, str)
+            or not boot
+            or len(boot.encode("utf-8")) > 96
+            or isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence < 0
+            or isinstance(crc32, bool)
+            or not isinstance(crc32, int)
+            or crc32 < 0
+            or not isinstance(snapshot, dict)
+        ):
+            raise DriverError("native construction frame identity is malformed")
+        render = snapshot.get("render")
+        if not isinstance(render, dict):
+            raise DriverError("native construction frame render facts are malformed")
+        phase = render.get("nativePhase")
+        ordinal = render.get("nativeOrdinal")
+        if (
+            phase not in {"normal", "held", "updates"}
+            or isinstance(ordinal, bool)
+            or not isinstance(ordinal, int)
+            or ordinal < 0
+            or ordinal > 100
+        ):
+            raise DriverError("native construction frame phase facts are malformed")
+        return boot, sequence, crc32, snapshot
+
+    @staticmethod
+    def _native_construction_frame_facts(observation: dict[str, Any]) -> tuple[str, int, int, dict[str, Any]]:
+        boot, sequence, crc32, snapshot = SessionDaemon._native_construction_decoded_frame_facts(observation)
+        render = snapshot["render"]
+        if render.get("nativePhase") != "normal" or render.get("nativeOrdinal") != 0:
+            raise DriverError("native construction requires a strict normal/0 frame")
+        return boot, sequence, crc32, snapshot
+
+    @staticmethod
+    def _native_construction_observation_identity(
+        observation: dict[str, Any], identity: WindowIdentity
+    ) -> None:
+        for key in ("identityFingerprint", "captureIdentity"):
+            if observation.get(key) != identity.fingerprint:
+                raise DriverError(f"native construction capture {key} is stale")
+
+    def _native_construction_validate_snapshot(
+        self, reservation: dict[str, Any], *, expected_generation: int
+    ) -> WindowIdentity:
+        if expected_generation != self.controller.status().generation:
+            raise DriverError("native construction generation was revoked")
+        if reservation.get("controllerGeneration") != expected_generation:
+            raise DriverError("native construction reservation generation is stale")
+        lease = getattr(getattr(self.driver, "guardian", None), "lease", None)
+        if not bool(getattr(lease, "held", False)):
+            raise DriverError("native construction desktop lease is not held")
+        original_guardian_generation = reservation.get("guardianGeneration")
+        if (
+            not isinstance(original_guardian_generation, int)
+            or isinstance(original_guardian_generation, bool)
+            or original_guardian_generation < 0
+        ):
+            raise DriverError("native construction reservation Guardian generation is malformed")
+        # The immutable generation captured at owner creation is passed into
+        # the binding snapshot above.  Separately read the live Guardian
+        # generation under its real lock so a revoked owner cannot validate
+        # merely by comparing the reservation back to itself.
+        current_guardian_generation = self._native_construction_guardian_generation()
+        if current_guardian_generation != original_guardian_generation:
+            raise DriverError("native construction Guardian binding changed (generation)")
+        identity = self.driver.resolve_identity()
+        guardian = self.driver.guardian
+        current = self._native_construction_binding(
+            reservation_id=reservation["reservationId"],
+            reservation_kind=reservation["reservationKind"],
+            reservation_state=reservation["reservationState"],
+            controller_generation=expected_generation,
+            expected_boot=reservation["B0"],
+            identity=identity,
+            expires_monotonic=reservation["expiresMonotonic"],
+            guardian_generation=reservation.get("guardianGeneration"),
+        )
+        for key in (
+            "desktopLeaseHeld",
+            "guardianGeneration",
+            "guardianArmed",
+            "ownerPid",
+            "ownerProcessStart",
+            "profileFingerprint",
+            "identityFingerprint",
+            "B0",
+            "expectedConstructorBoot",
+        ):
+            if current[key] != reservation[key]:
+                raise DriverError(f"native construction reservation binding changed: {key}")
+        if self._native_clock() >= float(reservation["expiresMonotonic"]):
+            raise DriverError("native construction reservation expired")
+        if bool(getattr(guardian, "armed", False)):
+            raise DriverError("native construction requires an unarmed Guardian")
+        return identity
+
+    # Kept as a compatibility seam for existing barrier fixtures.  Despite
+    # the historical name this method must be called only after the caller
+    # has released the construction lock.
+    def _native_construction_validate_current_locked(
+        self, reservation: dict[str, Any], *, expected_generation: int
+    ) -> WindowIdentity:
+        return self._native_construction_validate_snapshot(
+            reservation, expected_generation=expected_generation
+        )
+
+    def _native_construction_revalidate_owner(
+        self,
+        reservation_snapshot: dict[str, Any],
+        ticket_snapshot: dict[str, Any],
+        *,
+        expected_generation: int,
+    ) -> tuple[WindowIdentity, dict[str, Any]]:
+        """Revalidate a recovery owner without holding both lock domains."""
+
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.state is not ControllerState.PAUSED or status.generation != expected_generation:
+                raise DriverError("native recovery completion requires the current PAUSED generation")
+        with self._native_construction_lock:
+            current = self._native_construction_reservation
+            current_ticket = self._native_construction_ticket
+            if (
+                current is None
+                or current_ticket is None
+                or current.get("reservationId") != reservation_snapshot.get("reservationId")
+                or current_ticket.get("reservationId") != ticket_snapshot.get("reservationId")
+                or current_ticket.get("epoch") != ticket_snapshot.get("epoch")
+                or current_ticket.get("guardianGeneration") != ticket_snapshot.get("guardianGeneration")
+            ):
+                raise DriverError("native recovery owner was revoked during polling")
+            current_snapshot = copy.deepcopy(current)
+            capability = self._native_construction_capability_locked()
+        identity = self._native_construction_validate_current_locked(
+            current_snapshot, expected_generation=expected_generation
+        )
+        with self._native_construction_lock:
+            current = self._native_construction_reservation
+            current_ticket = self._native_construction_ticket
+            if (
+                current is None
+                or current_ticket is None
+                or current.get("reservationId") != reservation_snapshot.get("reservationId")
+                or current_ticket.get("reservationId") != ticket_snapshot.get("reservationId")
+                or current_ticket.get("epoch") != ticket_snapshot.get("epoch")
+                or current_ticket.get("guardianGeneration") != ticket_snapshot.get("guardianGeneration")
+            ):
+                raise DriverError("native recovery owner was revoked during validation")
+        return identity, capability or {}
+
+    def _native_construction_revalidate_run_owner(
+        self, run_context: dict[str, Any], *, expected_generation: int
+    ) -> dict[str, Any]:
+        """Revalidate a deferred calibration owner at each finalize wait edge."""
+
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.state is not ControllerState.NATIVE_CALIBRATION:
+                raise DriverError("deferred native finalize generation was revoked")
+            if status.generation != expected_generation:
+                raise DriverError("deferred native finalize generation was revoked")
+        with self._native_construction_lock:
+            current_context = self._native_construction_run_context
+            reservation = self._native_construction_reservation
+            if (
+                current_context is None
+                or current_context.get("closed")
+                or current_context.get("runId") != run_context.get("runId")
+                or current_context.get("epoch") != run_context.get("epoch")
+                or reservation is None
+                or reservation.get("reservationId") != run_context.get("reservationId")
+            ):
+                raise DriverError("deferred native finalize owner was revoked")
+            snapshot = copy.deepcopy(reservation)
+        self._native_construction_validate_snapshot(snapshot, expected_generation=expected_generation)
+        with self._native_construction_lock:
+            current_context = self._native_construction_run_context
+            reservation = self._native_construction_reservation
+            if (
+                current_context is None
+                or current_context.get("closed")
+                or current_context.get("runId") != run_context.get("runId")
+                or current_context.get("epoch") != run_context.get("epoch")
+                or reservation is None
+                or reservation.get("reservationId") != run_context.get("reservationId")
+            ):
+                raise DriverError("deferred native finalize owner changed during validation")
+            return copy.deepcopy(reservation)
+
+    def _native_construction_revalidate_finalize_owner(
+        self,
+        run_context: dict[str, Any],
+        *,
+        expected_generation: int,
+        finalize_deadline: float,
+        hook_deadline: float | None,
+    ) -> dict[str, Any]:
+        """Revalidate the deferred owner at every final-capture boundary."""
+
+        # Cancellation takes controller first, then construction.  Keep this
+        # order at every edge so a same-generation cancel cannot clear the
+        # owner after this check and before the next capture/sleep boundary.
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.state is not ControllerState.NATIVE_CALIBRATION:
+                raise DriverError("deferred native finalize generation was revoked")
+            if status.generation != expected_generation:
+                raise DriverError("deferred native finalize generation was revoked")
+            now = self._native_clock()
+            if now >= finalize_deadline:
+                raise DriverError("deferred finalize frame deadline expired")
+            if hook_deadline is not None and now >= hook_deadline:
+                raise DriverError("deferred finalize hook deadline expired")
+            with self._native_construction_lock:
+                current_context = self._native_construction_run_context
+                reservation = self._native_construction_reservation
+                if (
+                    current_context is None
+                    or current_context.get("closed")
+                    or current_context.get("runId") != run_context.get("runId")
+                    or current_context.get("epoch") != run_context.get("epoch")
+                    or reservation is None
+                    or reservation.get("reservationId") != run_context.get("reservationId")
+                    or reservation.get("reservationState") != "consumed"
+                ):
+                    raise DriverError("deferred native finalize owner was revoked")
+                if self._native_construction_epoch != run_context.get("epoch"):
+                    raise DriverError("deferred native finalize owner epoch changed")
+                operation_deadline = self._native_construction_operation_deadline
+                if operation_deadline is not None and now >= operation_deadline:
+                    raise DriverError("deferred finalize admission deadline expired")
+                if now >= float(reservation["expiresMonotonic"]):
+                    raise DriverError("deferred native finalize reservation expired")
+                return copy.deepcopy(reservation)
+
+    def _native_construction_finalize_transaction(
+        self,
+        *,
+        run_context: dict[str, Any],
+        reservation_snapshot: dict[str, Any],
+        expected_generation: int,
+        finalize_deadline: float,
+        hook_deadline: float | None,
+        final_boot: str,
+        final_sequence: int,
+        final_crc32: int,
+        final_identity_fingerprint: str,
+        final_capture_identity: str,
+        evidence: Any,
+    ) -> Any:
+        """Commit the final frame and deferred gate under one owner fence."""
+
+        # The external frame capture is complete before entering this closed
+        # transaction.  Keep controller-first ownership through every durable
+        # controller mutation and the private terminal/owner clear.
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.state is not ControllerState.NATIVE_CALIBRATION:
+                raise DriverError("deferred finalize generation/state was revoked")
+            if status.generation != expected_generation:
+                raise DriverError("deferred finalize generation/state was revoked")
+            with self._native_construction_lock:
+                context = self._native_construction_run_context
+                reservation = self._native_construction_reservation
+                now = self._native_clock()
+                if (
+                    context is None
+                    or context.get("closed")
+                    or context.get("runId") != run_context.get("runId")
+                    or context.get("epoch") != run_context.get("epoch")
+                    or reservation is None
+                    or reservation.get("reservationId") != run_context.get("reservationId")
+                    or reservation.get("reservationState") != "consumed"
+                    or self._native_construction_epoch != run_context.get("epoch")
+                ):
+                    raise DriverError("deferred finalize owner was revoked before commit")
+                if (
+                    reservation.get("identityFingerprint") != reservation_snapshot.get("identityFingerprint")
+                    or final_identity_fingerprint != final_capture_identity
+                    or final_identity_fingerprint != reservation.get("identityFingerprint")
+                    or final_capture_identity != reservation.get("identityFingerprint")
+                ):
+                    raise DriverError("deferred finalize capture identity binding changed")
+                guardian = self.driver.guardian
+                if getattr(guardian, "generation", None) != reservation.get("guardianGeneration") or bool(
+                    getattr(guardian, "armed", False)
+                ):
+                    raise DriverError("deferred finalize Guardian binding changed")
+                if now >= finalize_deadline:
+                    raise DriverError("deferred finalize frame deadline expired")
+                if hook_deadline is not None and now >= hook_deadline:
+                    raise DriverError("deferred finalize hook deadline expired")
+                operation_deadline = self._native_construction_operation_deadline
+                if operation_deadline is None or now >= operation_deadline:
+                    raise DriverError("deferred finalize admission deadline expired")
+                if now >= float(reservation["expiresMonotonic"]):
+                    raise DriverError("deferred finalize reservation expired")
+                if final_boot != reservation.get("expectedConstructorBoot"):
+                    raise DriverError("deferred finalize frame boot is stale")
+                terminal_reservation = copy.deepcopy(reservation)
+                rebind_status = self.controller.rebind_native_construction_frame(
+                    boot=final_boot,
+                    sequence=final_sequence,
+                    crc32=final_crc32,
+                    reason="native_construction_finalize",
+                    expected_generation=expected_generation,
+                    expected_state=ControllerState.NATIVE_CALIBRATION,
+                )
+                if (
+                    rebind_status.generation != expected_generation
+                    or rebind_status.state is not ControllerState.NATIVE_CALIBRATION
+                ):
+                    raise DriverError("deferred finalize frame rebind was not admitted")
+                observe_status = self.controller.observe_frame(
+                    boot=final_boot,
+                    sequence=final_sequence,
+                    crc32=final_crc32,
+                    expected_generation=expected_generation,
+                    expected_state=ControllerState.NATIVE_CALIBRATION,
+                )
+                if (
+                    observe_status.generation != expected_generation
+                    or observe_status.state is not ControllerState.NATIVE_CALIBRATION
+                ):
+                    raise DriverError("deferred finalize frame observation was not admitted")
+                status = self.controller.native_calibrated(
+                    evidence,
+                    preconstruction_proof=self._native_bootstrap_proof,
+                    expected_generation=expected_generation,
+                    expected_state=ControllerState.NATIVE_CALIBRATION,
+                )
+                if (
+                    status.generation != expected_generation
+                    or status.state is not ControllerState.INPUT_CALIBRATION
+                ):
+                    raise DriverError("native calibration admission was not finalized")
+                self._native_construction_publish_state_locked(
+                    "finalized", controllerGeneration=status.generation
+                )
+                terminal = self._native_construction_record_terminal_locked(
+                    terminal_reservation,
+                    state="finalized",
+                    handshake=copy.deepcopy(self._native_construction_handshake),
+                )
+                if terminal is None:
+                    raise DriverError("deferred finalize terminal receipt could not be retained")
+                self._native_construction_reservation = None
+                self._native_construction_ticket = None
+                self._native_construction_operation_deadline = None
+                self._native_construction_finalize_event.clear()
+                self._native_construction_close_context_locked(run_context)
+                return status
+
+    def _native_construction_prepare(self, *, expected_generation: int, kind: str) -> dict[str, Any]:
+        if kind not in {"measure", "preflight"}:
+            raise DriverError("unknown native construction reservation kind")
+        self._native_construction_flush_expiry()
+        with self._native_bootstrap_lock:
+            if (
+                self._native_bootstrap_observation is not None
+                or self._native_bootstrap_ready.is_set()
+                or self._native_baseline_ready.is_set()
+            ):
+                raise DriverError("native bootstrap evidence is already pending")
+        required = ControllerState.NATIVE_CALIBRATION if kind == "measure" else ControllerState.PAUSED
+        # Snapshot controller admission before the construction lock.  The
+        # pause/revoke path takes the controller lock first and invokes the
+        # native callback synchronously, so the reverse order is forbidden.
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.state is not required or status.generation != expected_generation:
+                raise DriverError(f"native construction prepare requires {required.value}")
+            if status.mode.value == "interaction":
+                raise DriverError("native construction is unavailable in interaction mode")
+            if not self.controller.native_construction_checkpoint_valid():
+                raise DriverError("malformed native construction checkpoint requires recovery")
+            if self.controller.native_construction_checkpoint() is not None:
+                raise DriverError("native construction checkpoint already exists")
+        guardian = getattr(self.driver, "guardian", None)
+        lease = getattr(guardian, "lease", None) if guardian is not None else None
+        if (
+            guardian is None
+            or not bool(getattr(lease, "held", False))
+            or guardian.armed
+            or getattr(guardian, "_calibration_ticket", None) is not None
+        ):
+            raise DriverError("native construction requires an idle unarmed owner")
+        with self._native_construction_lock:
+            self._native_construction_expire_locked()
+            if (
+                self._native_construction_reservation is not None
+                or self._native_construction_ticket is not None
+                or self._native_construction_inflight is not None
+            ):
+                raise DriverError("a native construction reservation is already active")
+            with self._calibration_state_lock:
+                operation = self._calibration_operation.get("state")
+                if operation in {"starting", "running"} or (
+                    self._calibration_operation.get("generation") == expected_generation
+                    and operation != "idle"
+                ):
+                    raise DriverError("native calibration is already running")
+            self._native_construction_epoch += 1
+            epoch = self._native_construction_epoch
+            guardian_generation = self._native_construction_guardian_generation()
+            self._native_construction_inflight = {
+                "epoch": epoch,
+                "generation": expected_generation,
+                "guardianGeneration": guardian_generation,
+                "kind": kind,
+            }
+            capability = self._native_construction_capability_locked()
+        deadline = self._native_clock() + min(float(self.config.reload_deadline_seconds), 600.0)
+        try:
+            observation = self._native_construction_capture(
+                deadline=deadline,
+                expected_generation=expected_generation,
+                expected_state=required,
+                native_capability=capability,
+            )
+            identity = self.driver.resolve_identity()
+            self._native_construction_observation_identity(observation, identity)
+            boot, _sequence, _crc32, snapshot = self._native_construction_frame_facts(observation)
+            if boot.startswith("native-construction:") or len(boot.encode("utf-8")) > 64:
+                raise DriverError("native construction B0 boot identity is malformed")
+            scanner = snapshot.get("scanner")
+            fence = scanner.get("scheduleFence") if isinstance(scanner, dict) else None
+            if not isinstance(fence, dict) or fence.get("state") != "inactive":
+                raise DriverError("native construction requires an unarmed projected schedule fence")
+            with self.controller.lock:
+                status = self.controller.status()
+                if status.generation != expected_generation or status.state is not required:
+                    raise DriverError("native construction prepare generation/state changed")
+            with self._native_construction_lock:
+                if (
+                    not self._native_construction_inflight
+                    or self._native_construction_inflight.get("epoch") != epoch
+                ):
+                    raise DriverError("native construction prepare was revoked")
+            reservation_id = secrets.token_hex(16)
+            record = self._native_construction_binding(
+                reservation_id=reservation_id,
+                reservation_kind=kind,
+                reservation_state="prepared",
+                controller_generation=expected_generation,
+                expected_boot=boot,
+                identity=identity,
+                expires_monotonic=deadline,
+                guardian_generation=guardian_generation,
+            )
+            checkpoint = {
+                "schema": 1,
+                "B0": boot,
+                "expectedConstructorBoot": f"native-construction:{boot}",
+                "ownerGeneration": expected_generation,
+                "kind": kind,
+                "phase": "prepared",
+            }
+            checkpoint_status = self.controller.set_native_construction_checkpoint(
+                checkpoint,
+                expected_generation=expected_generation,
+                expected_state=required,
+            )
+            if checkpoint_status.generation != expected_generation or checkpoint_status.state is not required:
+                raise DriverError("native construction checkpoint admission was revoked")
+            with self._native_construction_lock:
+                if (
+                    not self._native_construction_inflight
+                    or self._native_construction_inflight.get("epoch") != epoch
+                ):
+                    # A revoke raced the durable write.  Leave B0 for
+                    # recovery, but never hand the stale local owner back.
+                    raise DriverError("native construction prepare was revoked")
+                self._native_construction_inflight = None
+                self._native_construction_reservation = record
+                self._native_construction_handshake = {
+                    "reservationKind": kind,
+                    "controllerGeneration": expected_generation,
+                    "operationBoundSeconds": self._NATIVE_CONSTRUCTION_OPERATION_SECONDS,
+                }
+                self._native_construction_reset_history_locked()
+                self._native_construction_publish_state_locked("construction_prepared")
+                return self._native_construction_reply()
+        except Exception as exc:
+            with self._native_construction_lock:
+                if (
+                    self._native_construction_inflight
+                    and self._native_construction_inflight.get("epoch") == epoch
+                ):
+                    self._native_construction_inflight = None
+            raise exc
+
+    def native_construction_prepare(self, *, expected_generation: int) -> dict[str, Any]:
+        return self._native_construction_prepare(expected_generation=expected_generation, kind="measure")
+
+    def native_construction_control_preflight(self, *, expected_generation: int) -> dict[str, Any]:
+        return self._native_construction_prepare(expected_generation=expected_generation, kind="preflight")
+
+    def native_construction_bootstrap(
+        self, *, expected_generation: int, reservation_id: str, expected_constructor_boot: str
+    ) -> dict[str, Any]:
+        reason: str | None = None
+        expired = False
+        with self._native_construction_lock:
+            self._native_construction_expire_locked()
+            expired = self._native_construction_expired
+            reservation = self._native_construction_reservation
+            if expired:
+                reason = "native construction reservation expired"
+            elif reservation is None or reservation.get("reservationId") != reservation_id:
+                raise DriverError("native construction reservation is unknown")
+            elif reservation.get("reservationKind") != "measure":
+                reason = "control preflight cannot bootstrap"
+            elif reservation.get("reservationState") != "prepared":
+                reason = "native bootstrap was replayed"
+            elif self._native_construction_handshake.get("state") != "construction_prepared":
+                reason = "native bootstrap predecessor is invalid"
+            elif expected_constructor_boot != reservation.get("expectedConstructorBoot"):
+                reason = "native construction boot echo is stale"
+            if reason:
+                pass
+            else:
+                epoch = self._native_construction_epoch
+                snapshot = copy.deepcopy(reservation)
+        if expired:
+            self._native_construction_flush_expiry()
+            raise DriverError(reason or "native construction reservation expired")
+        if reason:
+            self._native_construction_revoke_owner(reservation_id, reason)
+            raise DriverError(reason)
+        try:
+            self._native_construction_validate_snapshot(snapshot, expected_generation=expected_generation)
+        except Exception as exc:
+            self._native_construction_revoke_owner(reservation_id, str(exc))
+            raise
+        revoke_reason: str | None = None
+        expired = False
+        with self._native_construction_lock:
+            self._native_construction_expire_locked()
+            expired = self._native_construction_expired
+            reservation = self._native_construction_reservation
+            if expired:
+                revoke_reason = "native construction reservation expired"
+            elif reservation is None or reservation.get("reservationId") != reservation_id:
+                raise DriverError("native construction reservation is unknown")
+            elif (
+                self._native_construction_epoch != epoch or reservation.get("reservationState") != "prepared"
+            ):
+                revoke_reason = "native construction bootstrap was revoked"
+            else:
+                reservation["reservationState"] = "consumed"
+                self._native_construction_operation_deadline = self._native_clock() + (
+                    self._NATIVE_CONSTRUCTION_OPERATION_SECONDS
+                )
+                reservation["expiresMonotonic"] = self._native_construction_operation_deadline
+                self._native_construction_start_context_locked(
+                    generation=expected_generation,
+                    deferred=True,
+                    reservation_id=reservation_id,
+                )
+                self._native_construction_finalize_event.clear()
+                self._native_construction_handshake = {
+                    "controllerGeneration": expected_generation,
+                    "operationDeadline": self._native_construction_operation_deadline,
+                    "operationBoundSeconds": self._NATIVE_CONSTRUCTION_OPERATION_SECONDS,
+                }
+                self._native_construction_publish_state_locked("running")
+                return self._native_construction_reply()
+        if expired:
+            self._native_construction_flush_expiry()
+        self._native_construction_revoke_owner(
+            reservation_id, revoke_reason or "native bootstrap was revoked"
+        )
+        raise DriverError(revoke_reason or "native bootstrap was revoked")
+
+    def native_construction_recheck(self, *, expected_generation: int, reservation_id: str) -> dict[str, Any]:
+        failure: str | None = None
+        result: dict[str, Any] | None = None
+        expired = False
+        with self._native_construction_lock:
+            self._native_construction_expire_locked()
+            expired = self._native_construction_expired
+            reservation = self._native_construction_reservation
+            if expired:
+                failure = "native construction reservation expired"
+            elif reservation is None or reservation.get("reservationId") != reservation_id:
+                terminal = self._native_construction_terminals.get(reservation_id)
+                if terminal is not None:
+                    if terminal["reservation"].get("controllerGeneration") != expected_generation:
+                        raise DriverError("native construction terminal generation is stale")
+                    result = {
+                        "reservation": copy.deepcopy(terminal["reservation"]),
+                        "handshake": self._native_construction_public_handshake(
+                            copy.deepcopy(terminal["handshake"])
+                        ),
+                        "nativeClock": self._native_clock(),
+                        "stateHistory": copy.deepcopy(terminal["stateHistory"]),
+                    }
+                else:
+                    failure = "native construction reservation is unknown"
+            else:
+                snapshot = copy.deepcopy(reservation)
+        if failure:
+            self._native_construction_flush_expiry()
+            raise DriverError(failure)
+        if result is not None:
+            return result
+        try:
+            self._native_construction_validate_snapshot(snapshot, expected_generation=expected_generation)
+        except Exception as exc:
+            self._native_construction_revoke_owner(reservation_id, str(exc))
+            raise
+        with self._native_construction_lock:
+            reservation = self._native_construction_reservation
+            if reservation is None or reservation.get("reservationId") != reservation_id:
+                raise DriverError("native construction reservation is unknown")
+            result = self._native_construction_reply()
+            result["handshake"] = {
+                **result["handshake"],
+                "state": self._native_construction_handshake.get("state", ""),
+            }
+            return result
+
+    def native_construction_finalize_admit(
+        self, *, expected_generation: int, reservation_id: str
+    ) -> dict[str, Any]:
+        snapshot: dict[str, Any]
+        expired = False
+        already_admitted = False
+        with self._native_construction_lock:
+            self._native_construction_expire_locked()
+            expired = self._native_construction_expired
+            reservation = self._native_construction_reservation
+            if expired:
+                pass
+            elif reservation is None or reservation.get("reservationId") != reservation_id:
+                raise DriverError("native construction reservation is unknown")
+            elif reservation.get("reservationState") != "consumed":
+                raise DriverError("native construction finalize admission is out of order")
+            elif self._native_construction_handshake.get("state") not in {
+                "resume_ready",
+                "finalize_required",
+            }:
+                raise DriverError("native construction finalize requires resume_ready")
+            else:
+                snapshot = copy.deepcopy(reservation)
+                already_admitted = self._native_construction_handshake.get("state") == "finalize_required"
+        if expired:
+            self._native_construction_flush_expiry()
+            raise DriverError("native construction reservation expired")
+        try:
+            self._native_construction_validate_snapshot(snapshot, expected_generation=expected_generation)
+        except Exception as exc:
+            self._native_construction_revoke_owner(reservation_id, str(exc))
+            raise
+        with self._native_construction_lock:
+            reservation = self._native_construction_reservation
+            if reservation is None or reservation.get("reservationId") != reservation_id:
+                raise DriverError("native construction reservation was revoked")
+            if already_admitted:
+                return self._native_construction_reply()
+            hook_deadline = float(
+                self._native_construction_handshake.get("finalizeHookDeadline", self._native_clock())
+            )
+            if self._native_clock() >= hook_deadline:
+                raise DriverError("native construction finalize hook deadline expired")
+            deadline = min(
+                float(self._native_construction_operation_deadline or float("inf")),
+                hook_deadline,
+                self._native_clock() + 10.0,
+            )
+            self._native_construction_publish_state_locked("finalize_required", finalizeDeadline=deadline)
+            self._native_construction_finalize_event.set()
+            return self._native_construction_reply()
+
+    def native_construction_recovery_begin(
+        self, *, expected_generation: int, reservation_id: str
+    ) -> dict[str, Any]:
+        """Capture and seal one generation-bound PAUSED recovery ticket."""
+
+        self._native_construction_flush_expiry()
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.state is not ControllerState.PAUSED or status.generation != expected_generation:
+                raise DriverError("native construction recovery requires the current PAUSED generation")
+            if status.mode.value == "interaction":
+                raise DriverError("native construction recovery is unavailable in interaction mode")
+            if not self.controller.native_construction_checkpoint_valid():
+                raise DriverError("malformed native construction checkpoint requires recovery")
+            checkpoint = copy.deepcopy(self.controller.native_construction_checkpoint())
+            if checkpoint is None:
+                raise DriverError("native construction recovery checkpoint is missing")
+        with self._calibration_state_lock:
+            if self._calibration_operation.get("state") in {"starting", "running"}:
+                raise DriverError("native construction recovery overlaps a live calibration worker")
+        with self._native_bootstrap_lock:
+            if self._native_bootstrap_observation is not None or self._native_bootstrap_ready.is_set():
+                raise DriverError("native construction recovery has a pending legacy bootstrap")
+        guardian = getattr(self.driver, "guardian", None)
+        lease = getattr(guardian, "lease", None) if guardian is not None else None
+        if (
+            guardian is None
+            or not bool(getattr(lease, "held", False))
+            or guardian.armed
+            or getattr(guardian, "_calibration_ticket", None) is not None
+        ):
+            raise DriverError("native construction recovery requires an unarmed owner")
+
+        self._native_construction_flush_expiry()
+        expired = False
+        with self._native_construction_lock:
+            self._native_construction_expire_locked()
+            expired = self._native_construction_expired
+            reservation = self._native_construction_reservation
+            if expired:
+                handoff = None
+            elif self._native_construction_inflight is not None:
+                raise DriverError("native construction recovery admission is already in flight")
+            elif reservation_id:
+                if reservation is None or reservation.get("reservationId") != reservation_id:
+                    raise DriverError("preflight reservation is unavailable for recovery handoff")
+                if reservation.get("reservationKind") != "preflight":
+                    raise DriverError("only a control preflight reservation can hand off to recovery")
+                handoff = copy.deepcopy(reservation)
+            else:
+                if reservation is not None or self._native_construction_ticket is not None:
+                    raise DriverError("recovery restart cannot overlap a live reservation")
+                handoff = None
+            if not expired:
+                self._native_construction_epoch += 1
+                epoch = self._native_construction_epoch
+                guardian_generation = self._native_construction_guardian_generation()
+                self._native_construction_inflight = {
+                    "epoch": epoch,
+                    "generation": expected_generation,
+                    "guardianGeneration": guardian_generation,
+                    "kind": "recovery",
+                    "reservationId": reservation_id or None,
+                }
+                capability = self._native_construction_capability_locked()
+
+        if expired:
+            self._native_construction_flush_expiry()
+            raise DriverError("native construction reservation expired")
+
+        deadline = self._native_clock() + min(float(self.config.reload_deadline_seconds), 600.0)
+        ticket_id: str | None = None
+        try:
+            if handoff is not None:
+                self._native_construction_validate_snapshot(handoff, expected_generation=expected_generation)
+            observation = self._native_construction_capture(
+                deadline=deadline,
+                expected_generation=expected_generation,
+                expected_state=ControllerState.PAUSED,
+                native_capability=capability,
+            )
+            identity = self.driver.resolve_identity()
+            self._native_construction_observation_identity(observation, identity)
+            surface = observation.get("surface", "present")
+            if surface not in {"present", "absent"}:
+                raise DriverError("native recovery begin surface is malformed")
+            begin_boot = str(observation.get("boot", "")) if surface == "present" else ""
+            recovery_kind = "restore"
+            if surface == "present":
+                decoded_boot, _sequence, _crc32, decoded_snapshot = (
+                    self._native_construction_decoded_frame_facts(observation)
+                )
+                if decoded_boot == checkpoint["expectedConstructorBoot"]:
+                    # Restore can begin while the addon is still in its
+                    # held/100 (or held/update) construction phase.  The
+                    # constructor boot identity is the strict recovery
+                    # discriminator; normal/0 is reserved for B0/ordinary
+                    # reload admission.
+                    boot = decoded_boot
+                    snapshot = decoded_snapshot
+                    recovery_kind = "restore"
+                else:
+                    boot, _sequence, _crc32, snapshot = self._native_construction_frame_facts(observation)
+                scanner = snapshot.get("scanner")
+                fence = scanner.get("scheduleFence") if isinstance(scanner, dict) else None
+                fence_state = fence.get("state") if isinstance(fence, dict) else None
+                if boot == checkpoint["expectedConstructorBoot"]:
+                    recovery_kind = "restore"
+                elif boot == checkpoint["B0"]:
+                    if fence_state == "armed":
+                        recovery_kind = "restore"
+                    elif fence_state == "inactive":
+                        recovery_kind = "ordinary_reload"
+                    else:
+                        raise DriverError("ordinary B0 recovery requires an unarmed schedule fence")
+                elif boot.startswith("native-construction:"):
+                    raise DriverError("native recovery begin observed an unrelated construction boot")
+                elif fence_state == "inactive":
+                    recovery_kind = "ordinary_reload"
+                else:
+                    raise DriverError("ordinary recovery requires an unarmed schedule fence")
+
+            ticket_id = secrets.token_hex(16)
+            with self._native_construction_lock:
+                inflight = self._native_construction_inflight
+                if (
+                    not isinstance(inflight, dict)
+                    or inflight.get("epoch") != epoch
+                    or inflight.get("generation") != expected_generation
+                ):
+                    raise DriverError("native recovery begin was revoked")
+                current_reservation = handoff
+                if current_reservation is None:
+                    current_reservation = self._native_construction_binding(
+                        reservation_id=ticket_id,
+                        reservation_kind="recovery",
+                        reservation_state="recovery",
+                        controller_generation=expected_generation,
+                        expected_boot=checkpoint["B0"],
+                        identity=identity,
+                        expires_monotonic=deadline,
+                        guardian_generation=guardian_generation,
+                    )
+                else:
+                    current_reservation = copy.deepcopy(current_reservation)
+                    current_reservation.update(
+                        reservationId=ticket_id,
+                        reservationKind="recovery",
+                        reservationState="recovery",
+                        controllerGeneration=expected_generation,
+                        expiresMonotonic=deadline,
+                    )
+                current_reservation["reservationId"] = ticket_id
+                self._native_construction_reservation = current_reservation
+                self._native_construction_ticket = {
+                    "reservationId": ticket_id,
+                    "beginBoot": begin_boot,
+                    "B0": checkpoint["B0"],
+                    "beginCaptureIdentity": observation.get(
+                        "captureIdentity", observation.get("identityFingerprint", "")
+                    ),
+                    "beginCaptureMonotonic": observation.get("captureMonotonic", self._native_clock()),
+                    "controllerGeneration": expected_generation,
+                    "guardianGeneration": current_reservation.get("guardianGeneration"),
+                    "recoveryKind": recovery_kind,
+                    "epoch": epoch,
+                }
+                self._native_construction_inflight = None
+                self._native_construction_handshake = {
+                    "controllerGeneration": expected_generation,
+                    "recoveryKind": recovery_kind,
+                }
+                self._native_construction_reset_history_locked()
+                self._native_construction_publish_state_locked("recovery_required")
+            # The durable transition is outside the construction lock. A pause
+            # callback may safely revoke the provisional owner while this runs.
+            recovery_status = self.controller.mark_native_construction_recovery_required()
+            with self.controller.lock:
+                current = self.controller.status()
+                if (
+                    recovery_status.generation != expected_generation
+                    or recovery_status.state is not ControllerState.PAUSED
+                    or current.generation != expected_generation
+                    or current.state is not ControllerState.PAUSED
+                ):
+                    raise DriverError("native recovery generation changed before ticket publication")
+            with self._native_construction_lock:
+                if (
+                    self._native_construction_ticket is None
+                    or self._native_construction_ticket.get("reservationId") != ticket_id
+                ):
+                    raise DriverError("native recovery ticket was revoked")
+                return self._native_construction_reply()
+        except Exception as exc:
+            with self._native_construction_lock:
+                inflight = self._native_construction_inflight
+                if isinstance(inflight, dict) and inflight.get("epoch") == epoch:
+                    self._native_construction_inflight = None
+                reservation = self._native_construction_reservation
+                if (
+                    ticket_id is not None
+                    and reservation is not None
+                    and reservation.get("reservationId") == ticket_id
+                ):
+                    self._native_construction_publish_state_locked("error", failure=str(exc))
+                    self._native_construction_record_terminal_locked(
+                        copy.deepcopy(reservation), state="error", failure=str(exc)
+                    )
+                    self._native_construction_reservation = None
+                    self._native_construction_ticket = None
+            raise exc
+
+    def native_construction_recovery_complete(
+        self, *, expected_generation: int, reservation_id: str
+    ) -> dict[str, Any]:
+        expired = False
+        with self._native_construction_lock:
+            self._native_construction_expire_locked()
+            expired = self._native_construction_expired
+            reservation = self._native_construction_reservation
+            ticket = self._native_construction_ticket
+            if expired:
+                pass
+            elif (
+                reservation is None
+                or ticket is None
+                or reservation.get("reservationId") != reservation_id
+                or ticket.get("reservationId") != reservation_id
+            ):
+                raise DriverError("native recovery ticket is unknown")
+            elif expected_generation != ticket.get("controllerGeneration"):
+                raise DriverError("native recovery generation is stale")
+            else:
+                reservation_snapshot = copy.deepcopy(reservation)
+                ticket_snapshot = copy.deepcopy(ticket)
+                epoch = ticket_snapshot.get("epoch")
+        if expired:
+            self._native_construction_flush_expiry()
+            raise DriverError("native construction reservation expired")
+        completion_deadline = min(
+            float(reservation_snapshot["expiresMonotonic"]), self._native_clock() + 45.0
+        )
+        observation: dict[str, Any] | None = None
+        identity: WindowIdentity | None = None
+        boot = ""
+        sequence = crc32 = 0
+        last_error: DriverError | None = None
+        while self._native_clock() < completion_deadline:
+            identity, native_capability = self._native_construction_revalidate_owner(
+                reservation_snapshot,
+                ticket_snapshot,
+                expected_generation=expected_generation,
+            )
+            try:
+                candidate = self._native_construction_capture(
+                    deadline=completion_deadline,
+                    expected_generation=expected_generation,
+                    expected_state=ControllerState.PAUSED,
+                    native_capability=native_capability,
+                )
+            except DriverError as exc:
+                # Loading/absent frames and decoder failures are not recovery
+                # evidence. Revalidate the owner, then keep polling within the
+                # existing reload/operation deadline.
+                self._native_construction_revalidate_owner(
+                    reservation_snapshot,
+                    ticket_snapshot,
+                    expected_generation=expected_generation,
+                )
+                last_error = exc
+                candidate = None
+            if candidate is not None:
+                identity_after, _ = self._native_construction_revalidate_owner(
+                    reservation_snapshot,
+                    ticket_snapshot,
+                    expected_generation=expected_generation,
+                )
+                self._native_construction_observation_identity(candidate, identity_after)
+                if candidate.get("surface") != "present":
+                    last_error = DriverError("native recovery completion is waiting for an ordinary frame")
+                elif (
+                    isinstance(candidate.get("boot"), str)
+                    and candidate["boot"].startswith("native-construction:")
+                    and candidate["boot"] != reservation_snapshot.get("expectedConstructorBoot")
+                ):
+                    # A construction-prefixed boot belongs to another
+                    # lifecycle and is an owner/boot violation, not a
+                    # transient reload frame. Refuse it immediately.
+                    raise DriverError("native recovery completion requires an ordinary boot")
+                else:
+                    try:
+                        candidate_boot, candidate_sequence, candidate_crc32, candidate_snapshot = (
+                            self._native_construction_frame_facts(candidate)
+                        )
+                        if candidate_boot in {
+                            ticket_snapshot.get("beginBoot"),
+                            ticket_snapshot.get("B0"),
+                            reservation_snapshot.get("expectedConstructorBoot"),
+                        }:
+                            raise DriverError(
+                                "native recovery completion did not observe a new ordinary boot"
+                            )
+                        capture_monotonic = candidate.get("captureMonotonic", -1)
+                        begin_monotonic = ticket_snapshot.get("beginCaptureMonotonic", -1)
+                        if not isinstance(capture_monotonic, (int, float)) or not isinstance(
+                            begin_monotonic, (int, float)
+                        ):
+                            raise DriverError("native recovery completion capture boundary is malformed")
+                        if float(capture_monotonic) <= float(begin_monotonic):
+                            raise DriverError(
+                                "native recovery completion capture is not newer than recovery begin"
+                            )
+                        scanner = candidate_snapshot.get("scanner")
+                        fence = scanner.get("scheduleFence") if isinstance(scanner, dict) else None
+                        if not isinstance(fence, dict) or fence.get("state") != "inactive":
+                            raise DriverError("native recovery completion requires an unarmed schedule fence")
+                        observation = candidate
+                        identity = identity_after
+                        boot, sequence, crc32, _candidate_snapshot = (
+                            candidate_boot,
+                            candidate_sequence,
+                            candidate_crc32,
+                            candidate_snapshot,
+                        )
+                        break
+                    except DriverError as exc:
+                        last_error = exc
+            remaining = completion_deadline - self._native_clock()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.05, remaining))
+            self._native_construction_revalidate_owner(
+                reservation_snapshot,
+                ticket_snapshot,
+                expected_generation=expected_generation,
+            )
+        if observation is None or identity is None:
+            raise last_error or DriverError("native recovery completion did not observe an ordinary boot")
+
+        # Controller.pause invokes the revocation callback while holding the
+        # controller mutex.  Take controller first, then construction, and
+        # keep both through owner revalidation and the closed journal commit;
+        # recovery-cancel therefore cannot clear the owner between the check
+        # and checkpoint removal.
+        with self.controller.lock:
+            current_status = self.controller.status()
+            if (
+                current_status.state is not ControllerState.PAUSED
+                or current_status.generation != expected_generation
+            ):
+                raise DriverError("native recovery generation changed before commit")
+            with self._native_construction_lock:
+                current = self._native_construction_reservation
+                current_ticket = self._native_construction_ticket
+                if (
+                    current is None
+                    or current_ticket is None
+                    or current.get("reservationId") != reservation_id
+                    or current_ticket.get("reservationId") != reservation_id
+                    or current_ticket.get("epoch") != epoch
+                ):
+                    raise DriverError("native recovery owner was revoked before commit")
+                committed = self.controller.commit_native_construction_recovery(
+                    boot=boot,
+                    sequence=sequence,
+                    crc32=crc32,
+                    expected_generation=expected_generation,
+                    expected_state=ControllerState.PAUSED,
+                )
+                observed = self.controller.validate_native_construction_recovery_commit(
+                    boot=boot,
+                    sequence=sequence,
+                    crc32=crc32,
+                    expected_generation=expected_generation,
+                    expected_state=ControllerState.PAUSED,
+                )
+                if (
+                    committed.generation != expected_generation
+                    or committed.state is not ControllerState.PAUSED
+                ):
+                    raise DriverError("native recovery commit was not admitted")
+                if observed.generation != expected_generation or observed.state is not ControllerState.PAUSED:
+                    raise DriverError("native recovery observation was not admitted")
+                self._native_construction_publish_state_locked("recovered")
+                terminal_reservation = copy.deepcopy(current)
+                terminal_handshake = {
+                    "state": "recovered",
+                    "recoveryKind": current_ticket.get("recoveryKind", "restore"),
+                }
+                captured_terminal = self._native_construction_record_terminal_locked(
+                    terminal_reservation,
+                    state="recovered",
+                    handshake=terminal_handshake,
+                )
+                if captured_terminal is None:
+                    raise DriverError("native recovery terminal receipt could not be retained")
+                self._native_construction_reservation = None
+                self._native_construction_ticket = None
+                self._native_construction_operation_deadline = None
+                self._native_construction_handshake = {"state": "recovered"}
+        try:
+            self.driver.guardian.cancel_calibration_operation()
+        except (AttributeError, GuardianError):
+            pass
+        return {
+            "status": self.status_dict(),
+            "reservation": copy.deepcopy(captured_terminal["reservation"]),
+            "handshake": self._native_construction_public_handshake(
+                copy.deepcopy(captured_terminal["handshake"])
+            ),
+            "nativeClock": self._native_clock(),
+            "stateHistory": copy.deepcopy(captured_terminal["stateHistory"]),
+        }
+
+    def native_construction_recovery_cancel(
+        self, *, expected_generation: int, reservation_id: str
+    ) -> dict[str, Any]:
+        terminal_reservation: dict[str, Any]
+        self._native_construction_flush_expiry()
+        with self.controller.lock:
+            if self.controller.status().generation != expected_generation:
+                raise DriverError("native recovery generation is stale")
+            with self._native_construction_lock:
+                reservation = self._native_construction_reservation
+                inflight = self._native_construction_inflight
+                if reservation is not None and reservation.get("reservationId") == reservation_id:
+                    terminal_reservation = copy.deepcopy(reservation)
+                elif (
+                    isinstance(inflight, dict)
+                    and inflight.get("generation") == expected_generation
+                    and inflight.get("reservationId") == (reservation_id or None)
+                ):
+                    # Recovery capture is an admission interval of its own.
+                    # Cancel it by revoking the exact epoch before capture can
+                    # hand back a ticket; no provisional reservation may be
+                    # synthesized after this point.
+                    terminal_reservation = {
+                        "reservationId": reservation_id,
+                        "reservationKind": "recovery",
+                        "reservationState": "inflight",
+                        "controllerGeneration": expected_generation,
+                        "epoch": inflight.get("epoch"),
+                    }
+                else:
+                    raise DriverError("native construction reservation is unknown")
+                self._native_construction_epoch += 1
+                self._native_construction_publish_state_locked("cancelled")
+                terminal = self._native_construction_record_terminal_locked(
+                    terminal_reservation, state="cancelled"
+                )
+                self._native_construction_reservation = None
+                self._native_construction_ticket = None
+                self._native_construction_inflight = None
+                self._native_construction_operation_deadline = None
+                captured_terminal = terminal or {
+                    "reservation": terminal_reservation,
+                    "handshake": {"state": "cancelled"},
+                    "stateHistory": copy.deepcopy(self._native_construction_state_history),
+                }
+                context = self._native_construction_run_context
+                if context is not None and not context.get("closed"):
+                    closed = copy.deepcopy(context)
+                    closed["closed"] = True
+                    closed["stateHistory"] = copy.deepcopy(self._native_construction_state_history)
+                    self._native_construction_run_context = closed
+        try:
+            self.driver.guardian.cancel_calibration_operation()
+        except (AttributeError, GuardianError):
+            pass
+        try:
+            self.controller.mark_native_construction_recovery_required()
+        except RuntimeError:
+            pass
+        return {
+            "status": self.status_dict(),
+            "reservation": copy.deepcopy(captured_terminal["reservation"]),
+            "handshake": self._native_construction_public_handshake(
+                copy.deepcopy(captured_terminal["handshake"])
+            ),
+            "nativeClock": self._native_clock(),
+            "stateHistory": copy.deepcopy(captured_terminal["stateHistory"]),
+        }
+
+    def _native_bootstrap_capture(
+        self,
+        *,
+        expected_generation: int | None = None,
+        construction_capability: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Capture the external absence boundary for the native calibration.
 
         This command only records the real, unconstructed client surface.  The
@@ -910,6 +2884,22 @@ class SessionDaemon:
                 raise DriverError("native bootstrap requires NATIVE_CALIBRATION")
             if expected_generation is not None and status.generation != expected_generation:
                 raise DriverError("native bootstrap generation was revoked")
+        with self._native_construction_lock:
+            context = self._native_construction_run_context
+            if construction_capability is None:
+                if (
+                    self._native_construction_reservation is not None
+                    or self._native_construction_inflight is not None
+                    or (context is not None and context.get("deferred") and not context.get("closed"))
+                ):
+                    raise DriverError("native bootstrap is blocked by another construction admission")
+            elif (
+                context is None
+                or context.get("closed")
+                or not context.get("deferred")
+                or not self._native_construction_capability_matches(construction_capability)
+            ):
+                raise DriverError("native bootstrap construction capability was revoked")
         if not isinstance(self.driver.backend, X11Backend):
             raise DriverError("native bootstrap requires the configured X11 backend")
         with self._native_bootstrap_lock:
@@ -924,7 +2914,7 @@ class SessionDaemon:
             # Bind the absence proof to the instant the owned capture was
             # returned.  Retaining/copying the artifact and waiting for the
             # runner must never restamp the evidence as a newer observation.
-            capture_observed = time.monotonic()
+            capture_observed = self._native_clock()
             retained: Path | None = None
             try:
                 try:
@@ -933,37 +2923,10 @@ class SessionDaemon:
                     # Before Agent construction the calibrated crop is ordinary
                     # client pixels and cannot decode as CRS1.  Keep the actual
                     # absence crop until the runner binds the HWM baseline.
-                    from PIL import Image
-
-                    with Image.open(path) as image:
-                        image.load()
-                        if image.size != (
-                            self.config.profile.canvas_crop[2],
-                            self.config.profile.canvas_crop[3],
-                        ):
-                            raise DriverError(
-                                "preconstruction capture has the wrong calibrated crop"
-                            ) from None
-                        encoded_grid = True
-                        for y in range(128):
-                            for x in range(128):
-                                pixels = [
-                                    image.getpixel((x * 2 + dx, y * 2 + dy))[:3]
-                                    for dy in (0, 1)
-                                    for dx in (0, 1)
-                                ]
-                                if len(set(pixels)) != 1 or pixels[0] not in {
-                                    (0, 0, 0),
-                                    (255, 255, 255),
-                                }:
-                                    encoded_grid = False
-                                    break
-                            if not encoded_grid:
-                                break
-                        if encoded_grid:
-                            raise DriverError(
-                                "preconstruction capture contains a malformed or stale status surface"
-                            ) from None
+                    if not self._strict_native_absence_capture(path):
+                        raise DriverError(
+                            "preconstruction capture contains a malformed or stale status surface"
+                        ) from None
                     sample = None
                 if sample is not None:
                     raise DriverError("native surface is already constructed before bootstrap")
@@ -1003,6 +2966,11 @@ class SessionDaemon:
         self._native_bootstrap_ready.set()
         return self.status_dict()
 
+    def native_bootstrap(self, *, expected_generation: int | None = None) -> dict[str, Any]:
+        """Capture the legacy bootstrap boundary without a construction owner."""
+
+        return self._native_bootstrap_capture(expected_generation=expected_generation)
+
     def notify_native_baseline_ready(self, identity: WindowIdentity, baseline_hwm: int) -> None:
         """Publish the ready boundary after the runner sampled the HWM."""
 
@@ -1017,10 +2985,36 @@ class SessionDaemon:
                 raise DriverError("native baseline-ready identity is stale")
             if observation.get("baselineHwm") is not None:
                 raise DriverError("native baseline-ready boundary was already published")
+            with self._native_construction_lock:
+                callback_context = self._native_construction_callback_context_locked()
+                deferred = bool(callback_context.get("deferred"))
+                if (
+                    deferred
+                    and self._native_construction_handshake.get("state") != "construction_reset_archived"
+                ):
+                    raise DriverError("deferred baseline-bound callback arrived out of order")
             observation["baselineHwm"] = baseline_hwm
             self._native_baseline_observation = dict(observation)
-            self._native_baseline_ready.set()
-            self._native_handshake.update({"state": "bootstrap_ready", "failure": "", "restored": None})
+            with self._native_construction_lock:
+                if deferred:
+                    if self._native_construction_handshake.get("state") != "construction_reset_archived":
+                        raise DriverError("deferred baseline-bound callback arrived out of order")
+                    self._native_construction_publish_state_locked(
+                        "baseline_bound",
+                        failure="",
+                        restored=None,
+                        baselineHwm=baseline_hwm,
+                        absenceCaptureIdentity=observation.get("identity"),
+                        absenceCaptureSha256=observation.get("captureDigest"),
+                        absenceCapturePath=observation.get("capturePath"),
+                        absenceCaptureMonotonic=observation.get("capture"),
+                        absenceCaptureDeleted=False,
+                    )
+                else:
+                    self._native_baseline_ready.set()
+                    self._native_handshake.update(
+                        {"state": "bootstrap_ready", "failure": "", "restored": None}
+                    )
 
     def notify_native_memory_ready(self, identity: WindowIdentity, pending: Any) -> None:
         """Bind the reset5 update window to the same live client identity."""
@@ -1041,9 +3035,18 @@ class SessionDaemon:
             raise DriverError("native memory-ready token is not bound to the client")
         if getattr(pending, "phase", None) != "updates" or getattr(pending, "ordinal", None) != 0:
             raise DriverError("native memory-ready token is not the held zero update boundary")
-        self._native_handshake.update(
-            {"state": "measure_ready", "measureReady": True, "failure": "", "restored": None}
-        )
+        with self._native_construction_lock:
+            callback_context = self._native_construction_callback_context_locked()
+            if callback_context.get("deferred"):
+                if self._native_construction_handshake.get("state") != "updates_reset_archived":
+                    raise DriverError("deferred measure-ready callback arrived out of order")
+                self._native_construction_publish_state_locked(
+                    "measure_ready", measureReady=True, failure="", restored=None
+                )
+            else:
+                self._native_handshake.update(
+                    {"state": "measure_ready", "measureReady": True, "failure": "", "restored": None}
+                )
 
     def notify_native_memory_reset_ready(
         self, identity: WindowIdentity, record: Any
@@ -1075,6 +3078,15 @@ class SessionDaemon:
             raise DriverError("native reset callback received no complete reset record")
         verify()
         payload = to_dict()
+        with self._native_construction_lock:
+            callback_context = self._native_construction_callback_context_locked()
+            if callback_context.get("deferred"):
+                phase = payload.get("phase")
+                expected = (
+                    "running" if phase == "construction" else "hold_required" if phase == "updates" else ""
+                )
+                if not expected or self._native_construction_handshake.get("state") != expected:
+                    raise DriverError("deferred memory-reset callback arrived out of order")
         archive_id = hashlib.sha256(
             json.dumps(
                 {"identity": identity.fingerprint, "record": payload},
@@ -1102,7 +3114,13 @@ class SessionDaemon:
                 }
             )
             self._native_handshake["archiveReceipts"] = receipts[-4:]
-            self._native_handshake["state"] = f"{payload.get('phase', 'native')}_reset_archived"
+            with self._native_construction_lock:
+                callback_context = self._native_construction_callback_context_locked()
+                if callback_context.get("deferred"):
+                    phase = payload.get("phase")
+                    self._native_construction_publish_state_locked(f"{phase}_reset_archived")
+                else:
+                    self._native_handshake["state"] = f"{payload.get('phase', 'native')}_reset_archived"
         return receipt
 
     def notify_native_hold_required(self, identity: WindowIdentity) -> None:
@@ -1113,9 +3131,18 @@ class SessionDaemon:
                 raise DriverError("native hold boundary generation was revoked")
         if identity.fingerprint != self.driver.resolve_identity().fingerprint:
             raise DriverError("native hold boundary identity changed")
-        self._native_handshake.update(
-            {"state": "hold_required", "holdRequired": True, "failure": "", "restored": None}
-        )
+        with self._native_construction_lock:
+            callback_context = self._native_construction_callback_context_locked()
+            if callback_context.get("deferred"):
+                if self._native_construction_handshake.get("state") != "construction_released":
+                    raise DriverError("deferred hold-required callback arrived out of order")
+                self._native_construction_publish_state_locked(
+                    "hold_required", holdRequired=True, failure="", restored=None
+                )
+            else:
+                self._native_handshake.update(
+                    {"state": "hold_required", "holdRequired": True, "failure": "", "restored": None}
+                )
 
     def notify_native_resume_required(self, identity: WindowIdentity, boundary: Any) -> None:
         """Publish the validated held/100 boundary before requesting resume."""
@@ -1140,9 +3167,16 @@ class SessionDaemon:
             or getattr(boundary, "update_count", -1) < 0
         ):
             raise DriverError("native resume-required boundary identity or phase is stale")
-        self._native_handshake.update(
-            {
-                "state": "resume_required",
+        with self._native_construction_lock:
+            callback_context = self._native_construction_callback_context_locked()
+            target = (
+                self._native_construction_handshake
+                if callback_context.get("deferred")
+                else self._native_handshake
+            )
+            if callback_context.get("deferred") and target.get("state") != "measure_ready":
+                raise DriverError("deferred resume-required callback arrived out of order")
+            resume_fields = {
                 "resumeRequired": True,
                 "resumeReady": False,
                 "resumeBoundary": {
@@ -1153,7 +3187,10 @@ class SessionDaemon:
                     "captureMonotonic": boundary.capture_monotonic,
                 },
             }
-        )
+            if callback_context.get("deferred"):
+                self._native_construction_publish_state_locked("resume_required", **resume_fields)
+            else:
+                target.update({"state": "resume_required", **resume_fields})
 
     def notify_native_resume_ready(
         self, identity: WindowIdentity, evidence: Any, resumed: Any | None = None
@@ -1163,8 +3200,15 @@ class SessionDaemon:
         with self.controller.lock:
             if self.controller.status().state != ControllerState.NATIVE_CALIBRATION:
                 raise DriverError("native resume-ready generation was revoked")
-        if not self._native_handshake.get("resumeRequired"):
-            raise DriverError("native resume-ready arrived before resume-required")
+        with self._native_construction_lock:
+            callback_context = self._native_construction_callback_context_locked()
+            deferred_target = (
+                self._native_construction_handshake
+                if callback_context.get("deferred")
+                else self._native_handshake
+            )
+            if not deferred_target.get("resumeRequired"):
+                raise DriverError("native resume-ready arrived before resume-required")
         if getattr(evidence, "native_identity_fingerprint", None) != identity.fingerprint:
             raise DriverError("native resume-ready evidence identity is stale")
         if getattr(evidence, "process_pid", None) != identity.pid:
@@ -1174,23 +3218,89 @@ class SessionDaemon:
         if getattr(resumed, "native_ordinal", None) != 0:
             raise DriverError("native resume-ready observation is not ordinal zero")
         resumed_metrics = getattr(resumed, "metrics", {})
-        boundary = self._native_handshake.get("resumeBoundary", {})
+        boundary = deferred_target.get("resumeBoundary", {})
+        resumed_sequence = getattr(resumed, "sequence", None)
+        resumed_update_count = (
+            resumed_metrics.get("updateCount") if isinstance(resumed_metrics, dict) else None
+        )
+        boundary_sequence = boundary.get("sequence") if isinstance(boundary, dict) else None
+        boundary_update_count = boundary.get("updateCount") if isinstance(boundary, dict) else None
+        if (
+            isinstance(resumed_sequence, bool)
+            or not isinstance(resumed_sequence, int)
+            or resumed_sequence < 0
+            or isinstance(resumed_update_count, bool)
+            or not isinstance(resumed_update_count, int)
+            or resumed_update_count < 0
+            or isinstance(boundary_sequence, bool)
+            or not isinstance(boundary_sequence, int)
+            or boundary_sequence < 0
+            or isinstance(boundary_update_count, bool)
+            or not isinstance(boundary_update_count, int)
+            or boundary_update_count < 0
+        ):
+            raise DriverError("native resume-ready observation facts are malformed")
         if (
             not isinstance(resumed_metrics, dict)
             or resumed_metrics.get("nativePhase") != "normal"
             or resumed_metrics.get("nativeOrdinal") != 0
-            or resumed_metrics.get("updateCount", -1) <= boundary.get("updateCount", -1)
+            or resumed_update_count <= boundary_update_count
             or getattr(resumed, "identity_fingerprint", None) != identity.fingerprint
             or getattr(resumed, "boot", None) != boundary.get("boot")
-            or getattr(resumed, "sequence", 0) <= boundary.get("sequence", 0)
+            or resumed_sequence <= boundary_sequence
         ):
             raise DriverError("native resume-ready observation is not a fresh same-boot proof")
         evidence_resume_count = getattr(evidence, "resume_update_count", None)
-        if evidence_resume_count != resumed_metrics.get("updateCount"):
+        if evidence_resume_count != resumed_update_count:
             raise DriverError("native resume-ready evidence count does not match the observation")
-        self._native_handshake.update(
-            {"state": "resume_ready", "resumeReady": True, "failure": "", "restored": True}
-        )
+        with self._native_construction_lock:
+            callback_context = self._native_construction_callback_context_locked()
+            target = (
+                self._native_construction_handshake
+                if callback_context.get("deferred")
+                else self._native_handshake
+            )
+            if callback_context.get("deferred") and target.get("state") != "resume_required":
+                raise DriverError("deferred resume-ready callback arrived out of order")
+            resume_updates: dict[str, Any] = {
+                "resumeReady": True,
+                "failure": "",
+                "restored": True,
+            }
+            if callback_context.get("deferred"):
+                resume_capture = getattr(resumed, "capture_monotonic", None)
+                resume_sequence = resumed_sequence
+                if (
+                    isinstance(resume_capture, bool)
+                    or not isinstance(resume_capture, (int, float))
+                    or not math.isfinite(float(resume_capture))
+                    or isinstance(resume_sequence, bool)
+                    or not isinstance(resume_sequence, int)
+                    or resume_sequence < 0
+                ):
+                    raise DriverError("native resume-ready observation facts are malformed")
+                boundary_capture = boundary.get("captureMonotonic")
+                if (
+                    isinstance(boundary_capture, bool)
+                    or not isinstance(boundary_capture, (int, float))
+                    or not math.isfinite(float(boundary_capture))
+                    or isinstance(boundary_sequence, bool)
+                    or not isinstance(boundary_sequence, int)
+                    or resume_sequence <= boundary_sequence
+                    or float(resume_capture) <= float(boundary_capture)
+                ):
+                    raise DriverError("native resume-ready observation is not newer than its boundary")
+                resume_updates.update(
+                    {
+                        "resumeSequence": resume_sequence,
+                        "resumeCaptureMonotonic": float(resume_capture),
+                        "finalizeHookDeadline": self._native_clock() + 30.0,
+                    }
+                )
+            if callback_context.get("deferred"):
+                self._native_construction_publish_state_locked("resume_ready", **resume_updates)
+            else:
+                target.update({"state": "resume_ready", **resume_updates})
 
     def notify_native_measurement_failed(
         self, identity: WindowIdentity, reason: str
@@ -1209,17 +3319,50 @@ class SessionDaemon:
         )
         receipt = NativeRestorationReceipt("restoration_required", False, message, durable=True)
         receipt.verify()
-        self._native_handshake.update(
-            {
-                "state": "restoration_required",
-                "failure": message,
-                "restored": False,
-                "holdRequired": False,
-                "measureReady": False,
-                "resumeRequired": False,
-                "resumeReady": False,
-            }
-        )
+        deferred = False
+        run_context: dict[str, Any] | None = None
+        with self._native_construction_lock:
+            run_context = self._native_construction_callback_context_locked()
+            deferred = bool(run_context.get("deferred"))
+            target = self._native_construction_handshake if deferred else self._native_handshake
+            if deferred:
+                self._native_construction_publish_state_locked(
+                    "restoration_required",
+                    failure=message,
+                    restored=False,
+                    holdRequired=False,
+                    measureReady=False,
+                    resumeRequired=False,
+                    resumeReady=False,
+                )
+                reservation = copy.deepcopy(self._native_construction_reservation)
+                self._native_construction_record_terminal_locked(
+                    reservation,
+                    state="restoration_required",
+                    failure=message,
+                )
+                self._native_construction_reservation = None
+                self._native_construction_ticket = None
+                self._native_construction_operation_deadline = None
+                self._native_construction_finalize_event.clear()
+                self._native_construction_close_context_locked(run_context)
+            else:
+                target.update(
+                    {
+                        "state": "restoration_required",
+                        "failure": message,
+                        "restored": False,
+                        "holdRequired": False,
+                        "measureReady": False,
+                        "resumeRequired": False,
+                        "resumeReady": False,
+                    }
+                )
+        if deferred:
+            try:
+                self.controller.mark_native_construction_recovery_required()
+            except RuntimeError:
+                pass
         return receipt
 
     def _ensure_native_memory_meter(self) -> LinuxProcStatusVmHwmReset5 | None:
@@ -1353,13 +3496,31 @@ class SessionDaemon:
         with self.controller.lock:
             if self.controller.status().state != ControllerState.NATIVE_CALIBRATION:
                 raise DriverError("native calibration generation was revoked")
+        with self._native_construction_lock:
+            callback_context = self._native_construction_callback_context_locked()
+            deferred = bool(callback_context.get("deferred"))
+            construction_capability = self._native_construction_capability_locked() if deferred else None
+            if deferred and self._native_construction_handshake.get("state") not in {
+                "running",
+                "construction_reset_archived",
+            }:
+                raise DriverError("deferred preconstruction entry arrived out of order")
+        if deferred and not self._native_bootstrap_ready.is_set():
+            # The deferred bootstrap consumes the reservation before reload;
+            # this capture is the sealed post-reset absence boundary.
+            with self.controller.lock:
+                generation = self.controller.status().generation
+            self._native_bootstrap_capture(
+                expected_generation=generation,
+                construction_capability=construction_capability,
+            )
         if not self._native_bootstrap_ready.is_set():
             raise DriverError("external preconstruction bootstrap handshake is not ready")
         with self._native_bootstrap_lock:
             observation = self._native_bootstrap_observation
             if not observation or observation.get("identity") != identity.fingerprint:
                 raise DriverError("preconstruction bootstrap identity is stale")
-            if time.monotonic() - float(observation.get("capture", 0)) > 10.0:
+            if self._native_clock() - float(observation.get("capture", 0)) > 10.0:
                 raise DriverError("preconstruction bootstrap observation is stale")
             capture_path = Path(str(observation.get("capturePath", "")))
             capture_sha256 = str(observation.get("captureDigest", ""))
@@ -1367,27 +3528,36 @@ class SessionDaemon:
                 raise DriverError("preconstruction absence capture is unavailable")
             if hashlib.sha256(capture_path.read_bytes()).hexdigest() != capture_sha256:
                 raise DriverError("preconstruction absence capture changed")
-            # The runner's baseline reader is deliberately called only after
-            # the real capture has proved that Agent is absent.  The ready
-            # callback then publishes the externally visible load boundary.
+            # baseline_reader performs reset5.  Preserve the entry absence
+            # evidence, then take an independently captured post-reset crop.
             baseline_hwm = baseline_reader(identity.pid)
             if not isinstance(baseline_hwm, int) or isinstance(baseline_hwm, bool) or baseline_hwm < 0:
                 raise DriverError("native baseline reader returned an invalid HWM")
+            entry_observation = dict(observation)
+            post_observation = self._retain_native_absence_capture(identity)
+            if post_observation.get("identity") != identity.fingerprint:
+                raise DriverError("post-reset absence identity is stale")
+            observation = post_observation
+            capture_path = Path(str(observation.get("capturePath", capture_path)))
+            capture_sha256 = str(observation.get("captureDigest", capture_sha256))
+            if (
+                not capture_path.is_file()
+                or hashlib.sha256(capture_path.read_bytes()).hexdigest() != capture_sha256
+            ):
+                raise DriverError("post-reset absence capture changed")
+            self._native_bootstrap_observation = observation
             baseline_ready(identity.pid, baseline_hwm)
+            observation["baselineHwm"] = baseline_hwm
             if observation.get("baselineHwm") != baseline_hwm:
                 raise DriverError("native baseline-ready callback did not publish the measured HWM")
-            # The absence capture predates the reset.  Construction timing
-            # begins only after the baseline-ready publication has crossed the
-            # reset receipt boundary, so seal this release instant separately.
-            bootstrap_release = time.monotonic()
+            # Construction timing begins only after baseline-ready crosses the
+            # reset receipt boundary.
+            bootstrap_release = self._native_clock()
             evidence = NativePreconstructionEvidence._issue(
                 identity_fingerprint=identity.fingerprint,
                 process_start=identity.process_start,
                 absent=True,
                 baseline_id=capture_sha256,
-                # Preserve the timestamp of the absence capture itself.  The
-                # baseline-ready publication below is a distinct boundary;
-                # the runner uses it as construction work's start time.
                 observed_monotonic=float(observation["capture"]),
                 bootstrap_release_monotonic=bootstrap_release,
                 display=identity.display,
@@ -1422,6 +3592,23 @@ class SessionDaemon:
                 "fingerprint": evidence.fingerprint,
                 "evidenceHash": evidence.evidence_hash,
             }
+            if deferred:
+                with self._native_construction_lock:
+                    self._native_construction_callback_context_locked()
+                    if self._native_construction_handshake.get("state") != "baseline_bound":
+                        raise DriverError("deferred baseline evidence was not bound")
+                    self._native_construction_handshake.update(
+                        {
+                            "entryAbsenceCaptureIdentity": entry_observation.get("identity"),
+                            "entryAbsenceCaptureSha256": entry_observation.get("captureDigest"),
+                            "entryAbsenceCapturePath": entry_observation.get("capturePath"),
+                            "entryAbsenceCaptureMonotonic": entry_observation.get("capture"),
+                            "releaseMonotonic": bootstrap_release,
+                            "nativeBootstrapReady": False,
+                            "absenceCaptureDeleted": False,
+                        }
+                    )
+                    self._native_baseline_ready.set()
             self._native_bootstrap_observation = None
             self._native_bootstrap_ready.clear()
             return evidence
@@ -1499,6 +3686,40 @@ class SessionDaemon:
         with self._native_bootstrap_lock:
             self._native_owned_capture_paths.discard(candidate)
         self._remove_native_capture(candidate)
+        publish_release = False
+        release_payload: dict[str, Any] | None = None
+        with self._native_construction_lock:
+            if (
+                self._native_construction_reservation is not None
+                and self._native_construction_reservation.get("reservationState") == "consumed"
+                and self._native_construction_handshake.get("absenceCapturePath") == str(candidate)
+            ):
+                self._native_construction_handshake["absenceCaptureDeleted"] = not candidate.exists()
+                publish_release = not candidate.exists()
+                release_payload = {
+                    "reservationId": self._native_construction_reservation.get("reservationId"),
+                    "capturePath": str(candidate),
+                    "captureSha256": self._native_construction_handshake.get("absenceCaptureSha256", ""),
+                    "captureIdentity": self._native_construction_handshake.get("absenceCaptureIdentity", ""),
+                    "captureMonotonic": self._native_construction_handshake.get("absenceCaptureMonotonic", 0),
+                    "deleted": not candidate.exists(),
+                }
+        if publish_release and release_payload is not None:
+            receipt = self.controller.journal.append_archive("native_construction", release_payload)
+            if not isinstance(receipt, dict) or receipt.get("capturePath") != str(candidate):
+                raise DriverError("native construction absence release archive is invalid")
+            with self._native_construction_lock:
+                reservation = self._native_construction_reservation
+                if (
+                    reservation is not None
+                    and reservation.get("reservationState") == "consumed"
+                    and self._native_construction_handshake.get("absenceCapturePath") == str(candidate)
+                    and self._native_construction_handshake.get("absenceCaptureDeleted") is True
+                ):
+                    self._native_construction_publish_state_locked(
+                        "construction_released", nativeBootstrapReady=True, releaseArchived=True
+                    )
+                    self._native_baseline_ready.set()
 
     def _cleanup_native_owned_captures(self, *, keep: Any | None = None) -> None:
         """Release provider-owned artifacts after the native runner finishes."""
@@ -1612,6 +3833,33 @@ class SessionDaemon:
             if live_status.state != ControllerState.NATIVE_CALIBRATION:
                 raise DriverError("native calibration generation was revoked")
             generation = live_status.generation
+        deadline = self._native_clock() + self._NATIVE_FRAME_TIMEOUT_SECONDS
+        with self._native_construction_lock:
+            context = self._native_construction_run_context
+            if context is not None and context.get("closed"):
+                raise DriverError("native construction capture owner was revoked")
+            deferred = stage == "construct" and bool(context and context.get("deferred"))
+            if deferred:
+                if self._native_construction_handshake.get("state") != "construction_released":
+                    raise DriverError("deferred construction provider entered before release")
+                release_monotonic = self._native_construction_handshake.get("releaseMonotonic")
+                operation_deadline = self._native_construction_operation_deadline
+                click_deadline = deadline - 7.0
+                if (
+                    not isinstance(release_monotonic, (int, float))
+                    or not math.isfinite(float(release_monotonic))
+                    or click_deadline <= float(release_monotonic)
+                    or operation_deadline is None
+                    or not math.isfinite(float(operation_deadline))
+                    or click_deadline >= float(operation_deadline)
+                ):
+                    raise DriverError("deferred constructor click deadline is invalid")
+                self._native_construction_handshake.update(
+                    {
+                        "providerDeadline": deadline,
+                        "constructorClickDeadline": click_deadline,
+                    }
+                )
         state = self._native_measurement_state
         if stage == "construct":
             decoder = self.driver.new_native_decoder()
@@ -1628,7 +3876,6 @@ class SessionDaemon:
             prior_sequence = int(state["sequence"])
             expected_boot = str(state["boot"])
 
-        deadline = self._native_clock() + self._NATIVE_FRAME_TIMEOUT_SECONDS
         accepted: tuple[Sample, str, Any] | None = None
         while self._native_clock() < deadline:
             self._check_native_poll_identity(identity, generation)
@@ -1724,6 +3971,43 @@ class SessionDaemon:
     def _check_native_poll_identity(self, identity: WindowIdentity, generation: int) -> None:
         if self._shutdown_event.is_set():
             raise DriverError("native calibration was canceled during operator wait")
+        reservation_snapshot: dict[str, Any] | None = None
+        context_snapshot: dict[str, Any] | None = None
+        with self._native_construction_lock:
+            context = self._native_construction_run_context
+            reservation = self._native_construction_reservation
+            operation_deadline = self._native_construction_operation_deadline
+            if (
+                context is not None
+                and context.get("deferred")
+                and reservation is not None
+                and reservation.get("reservationId") == context.get("reservationId")
+                and operation_deadline is not None
+                and self._native_clock() >= operation_deadline
+            ):
+                raise DriverError("deferred native construction operation deadline expired")
+            if context is not None and context.get("deferred"):
+                self._native_construction_callback_context_locked()
+                if reservation is None:
+                    raise DriverError("native construction reservation is unavailable")
+                reservation_snapshot = copy.deepcopy(reservation)
+                context_snapshot = copy.deepcopy(context)
+        if reservation_snapshot is not None:
+            self._native_construction_validate_current_locked(
+                reservation_snapshot, expected_generation=generation
+            )
+            with self._native_construction_lock:
+                current_context = self._native_construction_run_context
+                current_reservation = self._native_construction_reservation
+                if (
+                    current_context is None
+                    or context_snapshot is None
+                    or current_context.get("runId") != context_snapshot.get("runId")
+                    or current_context.get("epoch") != context_snapshot.get("epoch")
+                    or current_reservation is None
+                    or current_reservation.get("reservationId") != reservation_snapshot.get("reservationId")
+                ):
+                    raise DriverError("native construction owner changed during poll validation")
         if self.driver.resolve_identity().fingerprint != identity.fingerprint:
             raise DriverError("native client identity changed during operator wait")
         with self.controller.lock:
@@ -2318,23 +4602,50 @@ class SessionDaemon:
         *,
         destination: Path | None = None,
         deadline: float | None = None,
+        expected_generation: int | None = None,
+        expected_state: ControllerState | None = None,
+        native_capability: dict[str, Any] | None = None,
     ) -> Path:
-        if not self._native_region_enabled():
-            return self._capture_client_crop_for_identity(identity, deadline=deadline)
-        if not isinstance(self.driver.backend, X11Backend):
-            raise DriverError("native region capture requires the configured X11 backend")
         with self.controller.lock:
             admitted_status = self.controller.status()
-            if admitted_status.state in {
-                ControllerState.PAUSED,
-                ControllerState.BLOCKED,
-                ControllerState.STOPPED,
-            }:
+            required_state = expected_state or admitted_status.state
+            if expected_generation is not None and admitted_status.generation != expected_generation:
+                raise DriverError("controller generation does not admit a native region capture")
+            if expected_state is not None and admitted_status.state is not expected_state:
+                raise DriverError("controller state does not admit a native region capture")
+            if required_state in {ControllerState.BLOCKED, ControllerState.STOPPED}:
                 raise DriverError("controller state does not admit a native region capture")
             if admitted_status.stop_requested:
                 raise DriverError("controller stop request does not admit a native region capture")
             admitted_generation = admitted_status.generation
-            admitted_state = admitted_status.state
+            admitted_state = required_state
+
+        if not self._native_region_enabled():
+            if admitted_state is ControllerState.PAUSED:
+                raise DriverError("PAUSED native construction requires a configured telemetry producer")
+            # Preserve the legacy NATIVE_CALIBRATION stock-capture path after
+            # controller admission has already fenced generation/state.
+            return self._capture_client_crop_for_identity(identity, deadline=deadline)
+        if not isinstance(self.driver.backend, X11Backend):
+            raise DriverError("native region capture requires the configured X11 backend")
+
+        if admitted_state is ControllerState.PAUSED:
+            # A generic status/model capture in PAUSED is closed.  Only the
+            # exact generation-bound provisional/recovery owner may use the
+            # configured telemetry-region producer here.
+            with self._native_construction_lock:
+                if native_capability is None or not self._native_construction_capability_matches(
+                    native_capability
+                ):
+                    raise DriverError("PAUSED native region capture requires a live recovery capability")
+        elif native_capability is not None:
+            # Deferred finalization also carries an exact owner capability.
+            # Recheck it before selecting the producer and again at the
+            # Guardian execution gate so a same-generation cancellation
+            # cannot start a later capture after revocation.
+            with self._native_construction_lock:
+                if not self._native_construction_capability_matches(native_capability):
+                    raise DriverError("native region capture capability was revoked")
 
         guardian = self.driver.guardian
 
@@ -2350,7 +4661,28 @@ class SessionDaemon:
                     or current.stop_requested
                 ):
                     raise DriverError("controller generation or state changed before observer admission")
-                return guardian.observer_dispatch_admission(start)
+                # Controller -> construction -> Guardian is the sole
+                # capability transaction.  Revocation/expiry mutates the
+                # owner under construction lock, so keep that lock through
+                # the actual Guardian process admission.
+                with self._native_construction_lock:
+                    if native_capability is not None and not self._native_construction_capability_matches(
+                        native_capability
+                    ):
+                        raise DriverError("native region capture capability was revoked")
+
+                    def start_with_guardian_generation() -> Any:
+                        # observer_dispatch_admission invokes this callback
+                        # while holding the real Guardian lock.  This is the
+                        # final pre-Popen generation fence; an earlier sample
+                        # would leave a revoke-first race at the callback.
+                        if native_capability is not None and guardian.generation != native_capability.get(
+                            "guardianGeneration"
+                        ):
+                            raise DriverError("native region capture Guardian generation is stale")
+                        return start()
+
+                    return guardian.observer_dispatch_admission(start_with_guardian_generation)
 
         def observer_reaped(process_group: int) -> None:
             guardian.unregister_observer_process(process_group)
@@ -4565,6 +6897,8 @@ class SessionDaemon:
             raise DriverError("paused region owner refuses interaction mode")
         if self._native_bootstrap_ready.is_set():
             raise DriverError("paused region owner has pending native bootstrap evidence")
+        if self._native_construction_blocks_competing_entry():
+            raise DriverError("paused region owner has an active native construction admission")
         if self._native_baseline_ready.is_set():
             raise DriverError("paused region owner has active native baseline readiness")
         operation = self._calibration_operation_snapshot()
@@ -5034,26 +7368,38 @@ class SessionDaemon:
             if self.controller.status().generation == controller_generation:
                 self.controller.clear_action_intent("complete")
 
-    def run_native_calibration(self, *, expected_generation: int | None = None) -> dict[str, Any]:
+    def run_native_calibration(
+        self,
+        *,
+        expected_generation: int | None = None,
+        admitted_context: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Own the live render gate; callers cannot supply copied measurements."""
-        self._begin_calibration("native", expected_generation)
+        self._begin_calibration("native", expected_generation, admitted_context=admitted_context)
         self._native_measurement_state = None
-        self._native_handshake = {
-            "state": "running",
-            "holdRequired": False,
-            "measureReady": False,
-            "resumeRequired": False,
-            "resumeReady": False,
-            "failure": "",
-            "restored": None,
-            "archiveReceipts": [],
-        }
+        run_context: dict[str, Any] | None = None
+        deferred = False
         succeeded = False
         owned_meter: LinuxProcStatusVmHwmReset5 | None = None
         # The native runner owns the measurement provider and captures each
         # construction/update frame itself.  Passing a metrics dict copied from
         # one ordinary telemetry frame would turn the gate into an assertion.
         try:
+            with self._native_construction_lock:
+                run_context = self._native_construction_callback_context_locked()
+                deferred = bool(run_context.get("deferred"))
+                if deferred and self._native_construction_handshake.get("state") != "running":
+                    raise DriverError("deferred bootstrap was not consumed")
+            self._native_handshake = {
+                "state": "running",
+                "holdRequired": False,
+                "measureReady": False,
+                "resumeRequired": False,
+                "resumeReady": False,
+                "failure": "",
+                "restored": None,
+                "archiveReceipts": [],
+            }
             with self.controller.lock:
                 status_before = self.controller.status()
                 if status_before.state != ControllerState.NATIVE_CALIBRATION:
@@ -5069,16 +7415,173 @@ class SessionDaemon:
                     pending_path = self._native_bootstrap_observation.get("capturePath")
             self._cleanup_native_owned_captures(keep=pending_path)
             evidence = NativeCalibrationRunner(self.driver, monotonic=self._native_clock).run()
-            with self.controller.lock:
-                if (
-                    expected_generation is not None
-                    and self.controller.status().generation != expected_generation
-                ):
-                    raise DriverError("native calibration generation was revoked")
-                status = self.controller.native_calibrated(
-                    evidence,
-                    preconstruction_proof=self._native_bootstrap_proof,
+            if deferred:
+                self._native_construction_revalidate_run_owner(
+                    run_context, expected_generation=expected_generation or run_context["generation"]
                 )
+                with self._native_construction_lock:
+                    current_state = self._native_construction_handshake.get("state")
+                    if current_state not in {"resume_ready", "finalize_required"}:
+                        raise DriverError("deferred native run did not reach resume_ready")
+                    operation_deadline = self._native_construction_operation_deadline
+                    hook_deadline = self._native_construction_handshake.get("finalizeHookDeadline")
+                while not self._native_construction_finalize_event.wait(0.05):
+                    self._native_construction_revalidate_run_owner(
+                        run_context, expected_generation=expected_generation or run_context["generation"]
+                    )
+                    if hook_deadline is not None and self._native_clock() >= float(hook_deadline):
+                        raise DriverError("deferred finalize hook deadline expired")
+                    if operation_deadline is not None and self._native_clock() >= operation_deadline:
+                        raise DriverError("deferred finalize admission deadline expired")
+                    if self._shutdown_event.is_set():
+                        raise DriverError("deferred finalize was canceled during shutdown")
+                self._native_construction_revalidate_run_owner(
+                    run_context, expected_generation=expected_generation or run_context["generation"]
+                )
+                with self._native_construction_lock:
+                    if self._native_construction_handshake.get("state") != "finalize_required":
+                        raise DriverError("deferred finalize admission is malformed")
+                    final_deadline = float(
+                        self._native_construction_handshake.get("finalizeDeadline", self._native_clock())
+                    )
+                    resume_sequence = int(self._native_construction_handshake.get("resumeSequence", -1))
+                    resume_capture = float(
+                        self._native_construction_handshake.get("resumeCaptureMonotonic", -1)
+                    )
+                    admission_capture = self._native_clock()
+                final_generation = expected_generation or int(run_context["generation"])
+                final_observation = None
+                final_boot = ""
+                final_sequence = final_crc32 = 0
+                final_reservation_snapshot: dict[str, Any] | None = None
+                final_identity_fingerprint = ""
+                final_capture_identity = ""
+                last_finalize_error: Exception | None = None
+                while self._native_clock() < final_deadline:
+                    self._native_construction_revalidate_finalize_owner(
+                        run_context,
+                        expected_generation=final_generation,
+                        finalize_deadline=final_deadline,
+                        hook_deadline=float(hook_deadline) if hook_deadline is not None else None,
+                    )
+                    with self._native_construction_lock:
+                        final_capture_capability = self._native_construction_capability_locked()
+                    if final_capture_capability is None:
+                        raise DriverError("deferred native finalize owner was revoked before capture")
+                    try:
+                        candidate = self._native_construction_capture(
+                            deadline=final_deadline,
+                            expected_generation=final_generation,
+                            expected_state=ControllerState.NATIVE_CALIBRATION,
+                            native_capability=final_capture_capability,
+                        )
+                        candidate_boot, candidate_sequence, candidate_crc32, candidate_snapshot = (
+                            self._native_construction_frame_facts(candidate)
+                        )
+                        scanner = candidate_snapshot.get("scanner")
+                        fence = scanner.get("scheduleFence") if isinstance(scanner, dict) else None
+                        if (
+                            candidate_boot.startswith("native-construction:")
+                            and candidate_sequence > resume_sequence
+                            and float(candidate.get("captureMonotonic", -1)) > resume_capture
+                            and float(candidate.get("captureMonotonic", -1)) >= admission_capture
+                            and isinstance(fence, dict)
+                            and fence.get("state") == "inactive"
+                        ):
+                            self._native_construction_revalidate_finalize_owner(
+                                run_context,
+                                expected_generation=final_generation,
+                                finalize_deadline=final_deadline,
+                                hook_deadline=float(hook_deadline) if hook_deadline is not None else None,
+                            )
+                            final_observation = candidate
+                            final_boot, final_sequence, final_crc32, _final_snapshot = (
+                                candidate_boot,
+                                candidate_sequence,
+                                candidate_crc32,
+                                candidate_snapshot,
+                            )
+                            break
+                        last_finalize_error = DriverError("finalize observation is still pre-effect")
+                    except (DriverError, ProtocolError) as exc:
+                        # A capture/decoder rejection may be retried, but an
+                        # owner revocation must escape immediately rather than
+                        # being converted into another sleep/capture attempt.
+                        self._native_construction_revalidate_finalize_owner(
+                            run_context,
+                            expected_generation=final_generation,
+                            finalize_deadline=final_deadline,
+                            hook_deadline=float(hook_deadline) if hook_deadline is not None else None,
+                        )
+                        last_finalize_error = exc
+                    if self._native_clock() >= final_deadline:
+                        break
+                    time.sleep(0.05)
+                    self._native_construction_revalidate_finalize_owner(
+                        run_context,
+                        expected_generation=final_generation,
+                        finalize_deadline=final_deadline,
+                        hook_deadline=float(hook_deadline) if hook_deadline is not None else None,
+                    )
+                if final_observation is None:
+                    raise last_finalize_error or DriverError("deferred finalize frame did not settle")
+                with self._native_construction_lock:
+                    final_reservation_snapshot = copy.deepcopy(self._native_construction_reservation)
+                if final_reservation_snapshot is None:
+                    raise DriverError("deferred finalize owner was revoked before binding validation")
+                final_identity = self._native_construction_validate_snapshot(
+                    final_reservation_snapshot,
+                    expected_generation=final_generation,
+                )
+                self._native_construction_observation_identity(final_observation, final_identity)
+                final_identity_fingerprint = final_observation["identityFingerprint"]
+                final_capture_identity = final_observation["captureIdentity"]
+                if (
+                    final_identity_fingerprint != final_capture_identity
+                    or final_identity_fingerprint != final_reservation_snapshot.get("identityFingerprint")
+                ):
+                    raise DriverError("deferred finalize capture identity binding changed")
+                self._native_construction_revalidate_finalize_owner(
+                    run_context,
+                    expected_generation=final_generation,
+                    finalize_deadline=final_deadline,
+                    hook_deadline=float(hook_deadline) if hook_deadline is not None else None,
+                )
+                status = self._native_construction_finalize_transaction(
+                    run_context=run_context,
+                    reservation_snapshot=final_reservation_snapshot,
+                    expected_generation=final_generation,
+                    finalize_deadline=final_deadline,
+                    hook_deadline=float(hook_deadline) if hook_deadline is not None else None,
+                    final_boot=final_boot,
+                    final_sequence=final_sequence,
+                    final_crc32=final_crc32,
+                    final_identity_fingerprint=final_identity_fingerprint,
+                    final_capture_identity=final_capture_identity,
+                    evidence=evidence,
+                )
+            if not deferred:
+                with self.controller.lock:
+                    if (
+                        expected_generation is not None
+                        and self.controller.status().generation != expected_generation
+                    ):
+                        raise DriverError("native calibration generation was revoked")
+                    status = self.controller.native_calibrated(
+                        evidence,
+                        preconstruction_proof=self._native_bootstrap_proof,
+                        expected_generation=expected_generation,
+                        expected_state=ControllerState.NATIVE_CALIBRATION,
+                    )
+            if (
+                expected_generation is not None
+                and status.generation != expected_generation
+                or status.state is not ControllerState.INPUT_CALIBRATION
+                or status.state is ControllerState.BLOCKED
+            ):
+                raise DriverError("native calibration admission was not finalized")
+            # Deferred construction is finalized inside the controller-first
+            # transaction above; no mutable owner is reread or cleared here.
             self._cleanup_native_owned_captures(keep=getattr(evidence, "capture_path", None))
             # The bootstrap token is one-use evidence.  The controller has
             # already copied it into its durable calibration record; keeping
@@ -5101,6 +7604,32 @@ class SessionDaemon:
                 self._native_bootstrap_observation = None
                 self._native_bootstrap_ready.clear()
             self._cleanup_native_owned_captures()
+            if deferred:
+                with self._native_construction_lock:
+                    current = self._native_construction_run_context
+                    if (
+                        current is not None
+                        and not current.get("closed")
+                        and current.get("runId") == run_context.get("runId")
+                    ):
+                        terminal_reservation = copy.deepcopy(self._native_construction_reservation)
+                        self._native_construction_publish_state_locked(
+                            "error", failure=str(exc), restored=False
+                        )
+                        self._native_construction_record_terminal_locked(
+                            terminal_reservation,
+                            state="error",
+                            failure=str(exc),
+                        )
+                        self._native_construction_reservation = None
+                        self._native_construction_ticket = None
+                        self._native_construction_operation_deadline = None
+                        self._native_construction_finalize_event.clear()
+                        self._native_construction_close_context_locked(run_context)
+                try:
+                    self.controller.mark_native_construction_recovery_required()
+                except RuntimeError:
+                    pass
             if self._native_handshake.get("state") not in {"restoration_required", "resume_ready"}:
                 self._native_handshake.update(
                     {

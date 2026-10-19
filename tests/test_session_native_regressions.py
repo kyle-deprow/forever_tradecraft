@@ -7,6 +7,7 @@ or a human input sample has passed calibration.
 
 from __future__ import annotations
 
+import copy
 import hashlib
 import io
 import json
@@ -25,6 +26,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+import crowley.session.daemon as daemon_module
 from crowley.session.calibration import (
     NATIVE_CONSTRUCTION_LIMIT_BYTES,
     CalibrationError,
@@ -46,6 +48,8 @@ from crowley.session.calibration import (
     OwnedWindow,
     XTestInputProfile,
 )
+from crowley.session.cli import SessionIPC
+from crowley.session.config import SessionConfig
 from crowley.session.controller import Controller, ControllerState
 from crowley.session.daemon import SessionDaemon
 from crowley.session.decoder import PixelDecoder
@@ -62,12 +66,13 @@ from crowley.session.driver import (
 )
 from crowley.session.guardian import GuardianError, InputGuardian
 from crowley.session.input_events import EventClass, XI2Event, parse_xi2_records
-from crowley.session.journal import Journal
-from crowley.session.protocol import ProtocolError, encode_frame, pack_cells
+from crowley.session.journal import DEFAULT_STATE, Journal
+from crowley.session.protocol import HEADER_SIZE, ProtocolError, encode_frame, pack_cells
 from tests.test_session_input_tool import fixture_input_tool
 
 TARGET = 0x600119
 FOREIGN = 0x1A00011
+AUTHENTIC_CODEX_PATH = "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
 
 
 def _xtest_profile(
@@ -3840,7 +3845,7 @@ def _native_driver(tmp_path: Path) -> tuple[DesktopDriver, WindowIdentity, subpr
     backend.profile = profile
     backend.xauthority = profile.xauthority
     backend.input_tool = fixture_input_tool(tmp_path / "tool")
-    child = subprocess.Popen(["/bin/sleep", "30"])
+    child = subprocess.Popen(["/bin/sleep", "120"])
     stat = Path(f"/proc/{child.pid}/stat").read_text(encoding="ascii")
     process_start = stat[stat.rfind(")") + 2 :].split()[19]
     process_executable = os.path.realpath(os.readlink(f"/proc/{child.pid}/exe"))
@@ -3987,6 +3992,3956 @@ def _native_observation(
         native_phase=telemetry_phase,
         native_ordinal=ordinal,
     )
+
+
+def _construction_daemon(
+    tmp_path: Path, *, state: ControllerState = ControllerState.NATIVE_CALIBRATION
+) -> tuple[SessionDaemon, DesktopDriver, WindowIdentity, subprocess.Popen[str]]:
+    driver, identity, child = _native_driver(tmp_path)
+    journal_path = tmp_path / "construction-journal.json"
+    value = copy.deepcopy(DEFAULT_STATE)
+    value.update(
+        {
+            "state": state.value,
+            "generation": 7,
+            "current": {"frameBoot": "boot-a", "frameSequence": 1, "frameCrc32": 1},
+        }
+    )
+    journal = Journal(journal_path)
+    journal.write(value)
+    config = SessionConfig(
+        profile=driver.profile,
+        journal=journal_path,
+        socket=tmp_path / "construction.sock",
+        plan_hash="plan",
+        plan_json="{}",
+        codex_path=AUTHENTIC_CODEX_PATH,
+    )
+    controller = Controller(journal, driver=driver, recover_on_restart=False)
+    return SessionDaemon(config, controller=controller, driver=driver), driver, identity, child
+
+
+def _construction_frame(identity: WindowIdentity, *, boot: str, sequence: int) -> dict[str, object]:
+    return {
+        "surface": "present",
+        "boot": boot,
+        "sequence": sequence,
+        "crc32": sequence,
+        "snapshot": {
+            "render": {"nativePhase": "normal", "nativeOrdinal": 0},
+            "scanner": {"scheduleFence": {"state": "inactive"}},
+        },
+        "identityFingerprint": identity.fingerprint,
+        "captureIdentity": identity.fingerprint,
+        "captureMonotonic": 1.0,
+    }
+
+
+def test_native_absence_classifier_rejects_encoded_but_malformed_surface(tmp_path: Path) -> None:
+    from .test_session_runtime import _snapshot
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    ordinary = tmp_path / "ordinary.png"
+    encoded = tmp_path / "encoded.png"
+    damaged = tmp_path / "damaged.png"
+    Image.new("RGB", (256, 256), (127, 127, 127)).save(ordinary)
+    grid = Image.new("RGB", (256, 256), (0, 0, 0))
+    for row in range(128):
+        for column in range(128):
+            if (row + column) % 2:
+                for dy in (0, 1):
+                    for dx in (0, 1):
+                        grid.putpixel((column * 2 + dx, row * 2 + dy), (255, 255, 255))
+    grid.save(encoded)
+    # A real encoded payload with one physical pixel damaged remains
+    # encoded-looking and must not be relabeled as ordinary absence.
+    damaged_image = _status_image(encode_frame(_snapshot(1000, sequence=1)))
+    damaged_image.putpixel((20, 20), (127, 127, 127))
+    damaged_image.save(damaged)
+    try:
+        assert daemon._strict_native_absence_capture(ordinary) is True
+        assert daemon._strict_native_absence_capture(encoded) is False
+        assert daemon._strict_native_absence_capture(damaged) is False
+        expected_size = (driver.profile.canvas_crop[2], driver.profile.canvas_crop[3])
+        assert daemon_module._strict_native_absence_image(ordinary, expected_size=expected_size) is True
+        assert daemon_module._strict_native_absence_image(encoded, expected_size=expected_size) is False
+        assert daemon_module._strict_native_absence_image(damaged, expected_size=expected_size) is False
+        assert daemon._strict_native_absence_capture(ordinary) == daemon_module._strict_native_absence_image(
+            ordinary, expected_size=expected_size
+        )
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_absence_classifier_rejects_payload_occlusion_over_ten_percent(
+    tmp_path: Path,
+) -> None:
+    from .test_session_runtime import _snapshot
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    try:
+        image = _status_image(encode_frame(_snapshot(1000, sequence=1)))
+        # Occlude a 100x100 physical-pixel payload region (2,500 of 16,384
+        # logical cells) while preserving the CRS1 header.  The strict
+        # classifier must retain the encoded-surface verdict without relying
+        # on a damaged-cell percentage heuristic.
+        for y in range(64, 164):
+            for x in range(64, 164):
+                image.putpixel((x, y), (127, 127, 127))
+        path = tmp_path / "payload-occluded.png"
+        image.save(path)
+        assert daemon._strict_native_absence_capture(path) is False
+        malformed_mode = tmp_path / "malformed-mode.png"
+        image.convert("P").save(malformed_mode)
+        assert daemon._strict_native_absence_capture(malformed_mode) is False
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_absence_classifier_rejects_combined_header_payload_and_loading_surfaces(
+    tmp_path: Path,
+) -> None:
+    from .test_session_runtime import _snapshot
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    try:
+        encoded = _status_image(encode_frame(_snapshot(1000, sequence=1)))
+        # Erase the first protocol byte and a large payload block together;
+        # the surviving CRS1 magic bytes still identify this as a damaged
+        # encoded surface without a global intact-cell threshold.
+        for y in range(0, 2):
+            for x in range(0, 16):
+                encoded.putpixel((x, y), (99, 121, 143))
+        for y in range(96, 256):
+            for x in range(96, 256):
+                encoded.putpixel((x, y), (99, 121, 143))
+        combined = tmp_path / "combined-header-payload.png"
+        encoded.save(combined)
+        assert daemon._strict_native_absence_capture(combined) is False
+
+        # Erase all four CRS1 magic bytes as well as the payload.  The
+        # surviving fixed version/encoding/geometry bytes still identify the
+        # protocol canvas; a damaged encoded fragment must never establish
+        # ordinary absence merely because its magic was occluded.
+        entire_magic = _status_image(encode_frame(_snapshot(1000, sequence=1)))
+        for y in range(0, 2):
+            for x in range(0, 64):
+                entire_magic.putpixel((x, y), (99, 121, 143))
+        for y in range(96, 256):
+            for x in range(96, 256):
+                entire_magic.putpixel((x, y), (99, 121, 143))
+        entire_magic_path = tmp_path / "entire-magic-header-payload.png"
+        entire_magic.save(entire_magic_path)
+        assert daemon._strict_native_absence_capture(entire_magic_path) is False
+
+        # The generated regression must also survive erasing a whole physical
+        # row and the complete 26-byte protocol header; neither case relies on
+        # the retained private parent evidence.
+        whole_row = _status_image(encode_frame(_snapshot(1000, sequence=1)))
+        for y in range(0, 2):
+            for x in range(0, 256):
+                whole_row.putpixel((x, y), (99, 121, 143))
+        for y in range(96, 256):
+            for x in range(96, 256):
+                whole_row.putpixel((x, y), (99, 121, 143))
+        whole_row_path = tmp_path / "whole-row-header-payload.png"
+        whole_row.save(whole_row_path)
+        assert daemon._strict_native_absence_capture(whole_row_path) is False
+
+        full_header = _status_image(encode_frame(_snapshot(1000, sequence=1)))
+        for y in range(0, 4):
+            end_x = 256 if y < 2 else (HEADER_SIZE * 8 - 128) * 2
+            for x in range(0, end_x):
+                full_header.putpixel((x, y), (99, 121, 143))
+        for y in range(96, 256):
+            for x in range(96, 256):
+                full_header.putpixel((x, y), (99, 121, 143))
+        full_header_path = tmp_path / "full-header-payload.png"
+        full_header.save(full_header_path)
+        assert daemon._strict_native_absence_capture(full_header_path) is False
+
+        black = tmp_path / "black-loading.png"
+        white = tmp_path / "white-loading.png"
+        Image.new("RGB", (256, 256), (0, 0, 0)).save(black)
+        Image.new("RGB", (256, 256), (255, 255, 255)).save(white)
+        assert daemon._strict_native_absence_capture(black) is False
+        assert daemon._strict_native_absence_capture(white) is False
+
+        ordinary = Image.new("RGB", (256, 256))
+        for y in range(256):
+            for x in range(256):
+                ordinary.putpixel((x, y), ((x * 3) % 251, (y * 5) % 241, (x + y) % 239))
+        ordinary_path = tmp_path / "ordinary-colorful.png"
+        ordinary.save(ordinary_path)
+        assert daemon._strict_native_absence_capture(ordinary_path) is True
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_absence_fragments_reject_retained_negatives_and_accept_game_regions() -> None:
+    """Check the fragment rule against retained decoder evidence and crops."""
+
+    evidence_dir = Path(
+        "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/"
+        "native-admission-outcomes-r6-parent-20261018"
+    )
+    if not evidence_dir.is_dir():
+        pytest.skip("retained parent absence evidence is unavailable")
+    negative_names = (
+        "black-loading.png",
+        "encoded-header-and-payload-occlusion.png",
+        "encoded-entire-magic-and-payload-occlusion.png",
+        "encoded-whole-first-row-and-payload-occlusion.png",
+    )
+    for name in negative_names:
+        path = evidence_dir / name
+        if not path.is_file():
+            pytest.skip(f"retained parent image is unavailable: {name}")
+        assert daemon_module._strict_native_absence_image(path, expected_size=(256, 256)) is False
+        decoder = PixelDecoder(crop=(80, 48, 256, 256))
+        with Image.open(path) as image:
+            image.load()
+            with pytest.raises(ProtocolError):
+                decoder.decode(image, monotonic=1.0, window_identity=f"retained-{name}")
+
+    for index in range(1, 5):
+        path = evidence_dir / f"ordinary-game-region-{index}.png"
+        if not path.is_file():
+            pytest.skip(f"retained ordinary crop is unavailable: {path.name}")
+        assert daemon_module._strict_native_absence_image(path, expected_size=(256, 256)) is True
+
+
+def test_native_capture_decoder_rejects_damaged_encoded_png_as_absence(
+    tmp_path: Path,
+) -> None:
+    from .test_session_runtime import _snapshot
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    damaged = tmp_path / "damaged-decoder.png"
+    image = _status_image(encode_frame(_snapshot(1000, sequence=1)))
+    image.putpixel((20, 20), (127, 127, 127))
+    image.save(damaged)
+    daemon.driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+    daemon._capture_native_region_for_identity = lambda *_args, **_kwargs: damaged  # type: ignore[method-assign]
+    try:
+        with pytest.raises(DriverError, match="malformed encoded surface"):
+            daemon._native_construction_capture(
+                deadline=daemon._native_clock() + 5.0,
+                expected_generation=7,
+                expected_state=ControllerState.NATIVE_CALIBRATION,
+            )
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_post_reset_absence_keeps_capture_start_time_after_processing(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    ordinary = tmp_path / "post-reset-ordinary.png"
+    Image.new("RGB", (256, 256), (127, 127, 127)).save(ordinary)
+    clock = [100.0]
+    daemon._native_clock = lambda: clock[0]  # type: ignore[method-assign]
+    daemon.driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+
+    def delayed_capture(*_args: object, **_kwargs: object) -> Path:
+        clock[0] = 106.0
+        return ordinary
+
+    daemon._capture_native_region_for_identity = delayed_capture  # type: ignore[method-assign]
+    try:
+        retained = daemon._retain_native_absence_capture(identity)
+        assert retained["capture"] == 100.0
+    finally:
+        daemon._cleanup_native_owned_captures()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize(
+    ("begin_surface", "begin_boot", "fence_state", "expected_kind"),
+    [
+        ("absent", "", "inactive", "restore"),
+        ("present", "boot-a", "armed", "restore"),
+        ("present", "native-construction:boot-a", "inactive", "restore"),
+        ("present", "boot-a", "inactive", "ordinary_reload"),
+        ("present", "ordinary-later", "inactive", "ordinary_reload"),
+    ],
+)
+def test_native_recovery_begin_classifies_all_reload_variants_via_ipc(
+    tmp_path: Path,
+    begin_surface: str,
+    begin_boot: str,
+    fence_state: str,
+    expected_kind: str,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        if begin_surface == "absent":
+            begin = {
+                "surface": "absent",
+                "identityFingerprint": identity.fingerprint,
+                "captureIdentity": identity.fingerprint,
+                "captureMonotonic": 1.0,
+            }
+        else:
+            begin = _construction_frame(identity, boot=begin_boot, sequence=2)
+            begin["snapshot"]["scanner"]["scheduleFence"]["state"] = fence_state  # type: ignore[index]
+        daemon._native_construction_observation_provider = lambda: begin
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        reply = ipc.dispatch(
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""}
+        )
+        assert reply["ok"] is True, reply
+        assert reply["handshake"]["recoveryKind"] == expected_kind
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_begin_refuses_competing_capture_before_second_observation(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    entered = threading.Event()
+    release = threading.Event()
+    calls = [0]
+    first_result: list[dict[str, object]] = []
+    first_errors: list[BaseException] = []
+    try:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+
+        def blocked_observation() -> dict[str, object]:
+            calls[0] += 1
+            entered.set()
+            if not release.wait(3.0):
+                raise DriverError("recovery observation fixture did not release")
+            return {
+                "surface": "absent",
+                "identityFingerprint": identity.fingerprint,
+                "captureIdentity": identity.fingerprint,
+                "captureMonotonic": 1.0,
+            }
+
+        daemon._native_construction_observation_provider = blocked_observation
+
+        def begin_first() -> None:
+            try:
+                first_result.append(
+                    daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+                )
+            except BaseException as exc:  # pragma: no cover - asserted below
+                first_errors.append(exc)
+
+        worker = threading.Thread(target=begin_first, name="native-recovery-first")
+        worker.start()
+        assert entered.wait(2.0)
+        second = SessionIPC(daemon.controller, owner=daemon).dispatch(
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""}
+        )
+        assert second["ok"] is False
+        assert "already in flight" in str(second["error"])
+        assert calls[0] == 1
+        release.set()
+        worker.join(timeout=4.0)
+        assert not worker.is_alive()
+        assert not first_errors, first_errors
+        assert first_result and first_result[0]["handshake"]["state"] == "recovery_required"
+    finally:
+        release.set()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_restart_refuses_live_reservation(tmp_path: Path) -> None:
+    """A restart-style recovery cannot bypass a live public preflight owner."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    observation_calls = [0]
+
+    def counted_preflight_observation() -> dict[str, object]:
+        observation_calls[0] += 1
+        return _construction_frame(identity, boot="boot-a", sequence=2)
+
+    try:
+        daemon._native_construction_observation_provider = counted_preflight_observation
+        preflight = daemon.native_construction_control_preflight(expected_generation=7)
+        assert observation_calls == [1]
+        reservation_before_restart = copy.deepcopy(daemon._native_construction_reservation)
+        assert reservation_before_restart is not None
+        reservation_id = preflight["reservation"]["reservationId"]
+        with pytest.raises(DriverError, match="recovery restart cannot overlap a live reservation"):
+            daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        assert observation_calls == [1]
+        assert daemon._native_construction_reservation == reservation_before_restart
+        assert daemon._native_construction_reservation["reservationId"] == reservation_id
+        assert daemon._native_construction_inflight is None
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_context_rejects_existing_owner_without_guardian_generation(tmp_path: Path) -> None:
+    """Only a truly ownerless legacy start may sample the current Guardian generation."""
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    try:
+        with daemon._native_construction_lock:
+            context = daemon._native_construction_start_context_locked(generation=7, deferred=False)
+            assert context["guardianGeneration"] == driver.guardian.generation
+            daemon._native_construction_run_context = None
+            daemon._native_construction_reservation = {"reservationId": "malformed-owner"}
+            with pytest.raises(DriverError, match="missing Guardian generation"):
+                daemon._native_construction_start_context_locked(generation=7, deferred=True)
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_snapshot_rejects_live_guardian_generation_drift(tmp_path: Path) -> None:
+    """Snapshot validation compares the immutable owner generation to live Guardian state."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        driver.guardian.generation += 1
+        with pytest.raises(DriverError, match="Guardian binding changed"):
+            daemon._native_construction_validate_snapshot(reservation, expected_generation=7)
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_cancel_revokes_inflight_capture_epoch(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    entered = threading.Event()
+    release = threading.Event()
+    begin_errors: list[BaseException] = []
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_control_preflight(expected_generation=7)
+        reservation_id = prepared["reservation"]["reservationId"]
+
+        def blocked_observation() -> dict[str, object]:
+            entered.set()
+            if not release.wait(3.0):
+                raise DriverError("inflight recovery fixture did not release")
+            return {
+                "surface": "absent",
+                "identityFingerprint": identity.fingerprint,
+                "captureIdentity": identity.fingerprint,
+                "captureMonotonic": 1.0,
+            }
+
+        daemon._native_construction_observation_provider = blocked_observation
+
+        def begin() -> None:
+            try:
+                daemon.native_construction_recovery_begin(
+                    expected_generation=7, reservation_id=reservation_id
+                )
+            except BaseException as exc:  # pragma: no cover - asserted below
+                begin_errors.append(exc)
+
+        worker = threading.Thread(target=begin, name="native-recovery-cancel-inflight")
+        worker.start()
+        assert entered.wait(2.0)
+        cancelled = daemon.native_construction_recovery_cancel(
+            expected_generation=7, reservation_id=reservation_id
+        )
+        assert cancelled["handshake"]["state"] == "cancelled"
+        release.set()
+        worker.join(timeout=4.0)
+        assert not worker.is_alive()
+        assert begin_errors and isinstance(begin_errors[0], DriverError)
+        assert "revoked" in str(begin_errors[0])
+        assert daemon._native_construction_inflight is None
+        assert daemon._native_construction_ticket is None
+        assert daemon.controller.native_construction_checkpoint() is not None
+    finally:
+        release.set()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_complete_cancel_barrier_preserves_checkpoint(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        begin = {
+            "surface": "absent",
+            "identityFingerprint": identity.fingerprint,
+            "captureIdentity": identity.fingerprint,
+            "captureMonotonic": 1.0,
+        }
+        daemon._native_construction_observation_provider = lambda: begin
+        started = daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        reservation_id = started["reservation"]["reservationId"]
+        valid = _construction_frame(identity, boot="ordinary-new", sequence=3)
+        valid["captureMonotonic"] = 2.0
+        daemon._native_construction_observation_provider = lambda: valid
+        second_validation = threading.Event()
+        release_completion = threading.Event()
+        validation_count = [0]
+        original_validate = daemon._native_construction_validate_current_locked
+
+        def gated_validate(*args: object, **kwargs: object) -> WindowIdentity:
+            result = original_validate(*args, **kwargs)
+            validation_count[0] += 1
+            if validation_count[0] == 2:
+                second_validation.set()
+                if not release_completion.wait(3.0):
+                    raise DriverError("recovery completion fixture did not release")
+            return result
+
+        daemon._native_construction_validate_current_locked = gated_validate  # type: ignore[method-assign]
+        completion_errors: list[BaseException] = []
+
+        def complete() -> None:
+            try:
+                daemon.native_construction_recovery_complete(
+                    expected_generation=7, reservation_id=reservation_id
+                )
+            except BaseException as exc:
+                completion_errors.append(exc)
+
+        completion_thread = threading.Thread(target=complete, name="native-recovery-complete")
+        completion_thread.start()
+        assert second_validation.wait(2.0)
+        cancelled = daemon.native_construction_recovery_cancel(
+            expected_generation=7, reservation_id=reservation_id
+        )
+        assert cancelled["handshake"]["state"] == "cancelled"
+        assert daemon.controller.native_construction_checkpoint() is not None
+        release_completion.set()
+        completion_thread.join(timeout=4.0)
+        assert not completion_thread.is_alive()
+        assert completion_errors and isinstance(completion_errors[0], DriverError)
+        assert "revoked" in str(completion_errors[0])
+        assert daemon.controller.native_construction_checkpoint() is not None
+    finally:
+        release_completion.set()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_complete_expired_ticket_returns_typed_ipc_error(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        daemon._native_construction_observation_provider = lambda: {
+            "surface": "absent",
+            "identityFingerprint": identity.fingerprint,
+            "captureIdentity": identity.fingerprint,
+            "captureMonotonic": 1.0,
+        }
+        started = daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        reservation_id = started["reservation"]["reservationId"]
+        daemon._native_construction_reservation["expiresMonotonic"] = daemon._native_clock() - 1.0
+        daemon._native_construction_operation_deadline = daemon._native_clock() - 1.0
+        reply = SessionIPC(daemon.controller, owner=daemon).dispatch(
+            {
+                "command": "native_construction_recovery_complete",
+                "generation": 7,
+                "reservationId": reservation_id,
+            }
+        )
+        assert reply["ok"] is False
+        assert "expired" in str(reply["error"])
+        assert "AttributeError" not in str(reply["error"])
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_durable_commit_failure_keeps_checkpoint_for_fresh_owner(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        begin = _construction_frame(identity, boot="boot-a", sequence=2)
+        begin["snapshot"]["scanner"]["scheduleFence"]["state"] = "inactive"  # type: ignore[index]
+        valid = _construction_frame(identity, boot="ordinary-new", sequence=3)
+        valid["captureMonotonic"] = 2.0
+        daemon._native_construction_observation_provider = lambda: begin
+        started = daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        reservation_id = started["reservation"]["reservationId"]
+        daemon._native_construction_observation_provider = lambda: valid
+        original_write = daemon.controller.journal.write
+        write_calls = [0]
+        original_history = copy.deepcopy(daemon.controller._history)
+
+        def fail_commit(*args: object, **kwargs: object) -> object:
+            write_calls[0] += 1
+            raise OSError("durable recovery fixture failure")
+
+        daemon.controller.journal.write = fail_commit  # type: ignore[method-assign]
+        with pytest.raises(OSError, match="durable recovery fixture failure"):
+            daemon.native_construction_recovery_complete(expected_generation=7, reservation_id=reservation_id)
+        daemon.controller.journal.write = original_write  # type: ignore[method-assign]
+        checkpoint = daemon.controller.native_construction_checkpoint()
+        assert checkpoint is not None
+        assert checkpoint["phase"] == "recovery_required"
+        assert write_calls == [1]
+        assert daemon.controller._history == original_history
+        fresh_dir = tmp_path / "fresh-owner"
+        fresh_dir.mkdir()
+        fresh_driver, _fresh_identity, fresh_child = _native_driver(fresh_dir)
+        try:
+            fresh = Controller(daemon.controller.journal, driver=fresh_driver, recover_on_restart=False)
+            assert fresh.native_construction_checkpoint() == checkpoint
+            assert fresh.native_construction_checkpoint_valid() is True
+        finally:
+            fresh_driver.close()
+            fresh_child.terminate()
+            fresh_child.wait(timeout=3)
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize("failed_write", [1, 2], ids=["archive-write", "checkpoint-write"])
+def test_native_calibrated_rolls_back_on_transient_durable_write(tmp_path: Path, failed_write: int) -> None:
+    """Archive/checkpoint failures cannot leave a false native gate in memory."""
+
+    from crowley.session.journal import JournalError
+    from tests.test_session import native_calibration
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    fresh_driver: DesktopDriver | None = None
+    fresh_child: subprocess.Popen[str] | None = None
+    try:
+        controller = daemon.controller
+        evidence = native_calibration(process_start="native-r9-transient-write")
+        prior_history = copy.deepcopy(controller._calibration_history)
+        prior_evidence = copy.deepcopy(controller._calibration_evidence)
+        prior_reason = controller._calibration_invalidated_reason
+        prior_controller_history = copy.deepcopy(controller._history)
+        prior_state = controller.status().state
+        original_write = controller.journal.write
+        write_calls = [0]
+
+        def fail_one_write(value: dict[str, object]) -> None:
+            write_calls[0] += 1
+            if write_calls[0] == failed_write:
+                raise JournalError("transient native finalize write failure")
+            original_write(value)
+
+        controller.journal.write = fail_one_write  # type: ignore[method-assign]
+        with pytest.raises(JournalError, match="transient native finalize write failure"):
+            controller.native_calibrated(
+                evidence,
+                expected_generation=7,
+                expected_state=ControllerState.NATIVE_CALIBRATION,
+            )
+        controller.journal.write = original_write  # type: ignore[method-assign]
+        assert write_calls == [failed_write]
+        assert controller._native_calibrated is False
+        assert controller._calibration_evidence == prior_evidence
+        assert controller._calibration_history == prior_history
+        assert controller._calibration_invalidated_reason == prior_reason
+        assert controller._history == prior_controller_history
+        assert controller.status().state is prior_state is ControllerState.NATIVE_CALIBRATION
+        persisted = controller.journal.read()
+        assert persisted["nativeCalibration"] is False
+        assert persisted["state"] == ControllerState.NATIVE_CALIBRATION.value
+        fresh_dir = tmp_path / f"fresh-owner-{failed_write}"
+        fresh_dir.mkdir()
+        fresh_driver, _fresh_identity, fresh_child = _native_driver(fresh_dir)
+        fresh = Controller(controller.journal, driver=fresh_driver, recover_on_restart=False)
+        assert fresh.status().state is ControllerState.NATIVE_CALIBRATION
+        assert fresh._native_calibrated is False
+    finally:
+        if fresh_driver is not None:
+            fresh_driver.close()
+        if fresh_child is not None:
+            fresh_child.terminate()
+            fresh_child.wait(timeout=3)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize("failed_write", [1, 2], ids=["finalize-archive", "finalize-state"])
+def test_native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure(
+    tmp_path: Path, failed_write: int
+) -> None:
+    """The real native owner converts a finalize write fault into recovery evidence."""
+
+    from crowley.core.watchlist import load_catalog
+    from crowley.session.journal import JournalError
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    worker = None
+    try:
+        daemon.config = replace(daemon.config, plan_hash=load_catalog().scan_plan()["planHash"])
+        _configure_deadline_png_runner(daemon, driver, identity, tmp_path)
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation["reservationId"],
+            expected_constructor_boot=reservation["expectedConstructorBoot"],
+        )
+        running = daemon.native_construction_recheck(
+            expected_generation=7, reservation_id=reservation["reservationId"]
+        )
+        assert running["handshake"]["state"] == "running"
+
+        controller = daemon.controller
+        original_write = controller.journal.write
+        finalize_started = threading.Event()
+        write_calls = [0]
+        original_native_calibrated = controller.native_calibrated
+
+        def observed_native_calibrated(*args: object, **kwargs: object) -> object:
+            finalize_started.set()
+            return original_native_calibrated(*args, **kwargs)
+
+        controller.native_calibrated = observed_native_calibrated  # type: ignore[method-assign]
+
+        def fail_one_write(value: dict[str, object]) -> None:
+            if finalize_started.is_set():
+                write_calls[0] += 1
+            if finalize_started.is_set() and write_calls[0] == failed_write:
+                raise JournalError("one-shot native finalize write failure")
+            original_write(value)
+
+        controller.journal.write = fail_one_write  # type: ignore[method-assign]
+        daemon.start_calibration("native", expected_generation=7)
+        worker = daemon._calibration_thread
+        assert worker is not None
+        assert _wait_for(
+            lambda: daemon._native_construction_handshake.get("state") == "resume_ready",
+            timeout=30.0,
+        ), (
+            daemon._native_construction_handshake.get("state"),
+            daemon._calibration_operation.get("error"),
+            daemon._native_handshake.get("failure"),
+        )
+        daemon.native_construction_finalize_admit(
+            expected_generation=7, reservation_id=reservation["reservationId"]
+        )
+        worker.join(timeout=90.0)
+        assert not worker.is_alive()
+        operation = daemon.calibration_status()["calibrationOperation"]
+        assert operation["state"] == "error"
+        assert "one-shot native finalize write failure" in operation["error"]
+        assert write_calls[0] >= failed_write + 1
+
+        checkpoint = controller.native_construction_checkpoint()
+        assert checkpoint is not None
+        assert checkpoint["phase"] == "recovery_required"
+        persisted = controller.journal.read()
+        assert persisted["nativeCalibration"] is False
+        assert persisted["state"] == ControllerState.NATIVE_CALIBRATION.value
+        assert persisted["current"].get("state") != ControllerState.INPUT_CALIBRATION.value
+        assert daemon._native_construction_handshake["state"] == "error"
+        assert daemon._native_construction_reservation is None
+
+        controller.journal.write = original_write  # type: ignore[method-assign]
+        fresh_dir = tmp_path / "fresh-finalize-owner"
+        fresh_dir.mkdir()
+        fresh_driver, _fresh_identity, fresh_child = _native_driver(fresh_dir)
+        try:
+            fresh = Controller(controller.journal, driver=fresh_driver, recover_on_restart=False)
+            assert fresh.native_construction_checkpoint() == checkpoint
+            assert fresh.native_construction_checkpoint_valid() is True
+            assert fresh.status().state is ControllerState.NATIVE_CALIBRATION
+        finally:
+            fresh_driver.close()
+            fresh_child.terminate()
+            fresh_child.wait(timeout=3)
+    finally:
+        if worker is not None:
+            worker.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_construction_real_predecessors_reject_before_admission(tmp_path: Path) -> None:
+    """Exercise predecessor failures through a real daemon and SessionIPC owner."""
+
+    def run_case(
+        name: str,
+        *,
+        state: ControllerState,
+        setup: Callable[[SessionDaemon, WindowIdentity], None] | None,
+        request: dict[str, object],
+        expected: str,
+    ) -> None:
+        case_dir = tmp_path / name
+        case_dir.mkdir()
+        daemon, driver, identity, child = _construction_daemon(case_dir, state=state)
+        try:
+            if setup is not None:
+                setup(daemon, identity)
+            reply = SessionIPC(daemon.controller, owner=daemon).dispatch(request)
+            assert reply == {"ok": False, "error": expected}, reply
+        finally:
+            driver.close()
+            child.terminate()
+            child.wait(timeout=3)
+
+    run_case(
+        "bootstrap-before-prepare",
+        state=ControllerState.NATIVE_CALIBRATION,
+        setup=None,
+        request={
+            "command": "native_construction_bootstrap",
+            "generation": 7,
+            "reservationId": "missing",
+            "expectedConstructorBoot": "native-construction:boot-a",
+        },
+        expected="native construction reservation is unknown",
+    )
+    run_case(
+        "recheck-before-bootstrap",
+        state=ControllerState.NATIVE_CALIBRATION,
+        setup=None,
+        request={"command": "native_construction_recheck", "generation": 7, "reservationId": "missing"},
+        expected="native construction reservation is unknown",
+    )
+    run_case(
+        "finalize-before-resume-ready",
+        state=ControllerState.NATIVE_CALIBRATION,
+        setup=None,
+        request={
+            "command": "native_construction_finalize_admit",
+            "generation": 7,
+            "reservationId": "missing",
+        },
+        expected="native construction reservation is unknown",
+    )
+    run_case(
+        "recovery-complete-without-ticket",
+        state=ControllerState.PAUSED,
+        setup=None,
+        request={
+            "command": "native_construction_recovery_complete",
+            "generation": 7,
+            "reservationId": "missing",
+        },
+        expected="native recovery ticket is unknown",
+    )
+    run_case(
+        "recovery-cancel-without-ticket",
+        state=ControllerState.PAUSED,
+        setup=None,
+        request={
+            "command": "native_construction_recovery_cancel",
+            "generation": 7,
+            "reservationId": "missing",
+        },
+        expected="native construction reservation is unknown",
+    )
+    run_case(
+        "prepare-existing-checkpoint",
+        state=ControllerState.NATIVE_CALIBRATION,
+        setup=lambda daemon, _identity: daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.NATIVE_CALIBRATION,
+        ),
+        request={"command": "native_construction_prepare", "generation": 7},
+        expected="native construction checkpoint already exists",
+    )
+    run_case(
+        "control-preflight-wrong-state",
+        state=ControllerState.NATIVE_CALIBRATION,
+        setup=None,
+        request={"command": "native_construction_control_preflight", "generation": 7},
+        expected="native construction prepare requires PAUSED",
+    )
+    run_case(
+        "recovery-begin-wrong-state",
+        state=ControllerState.NATIVE_CALIBRATION,
+        setup=None,
+        request={
+            "command": "native_construction_recovery_begin",
+            "generation": 7,
+            "reservationId": "",
+        },
+        expected="native construction recovery requires the current PAUSED generation",
+    )
+
+    def checkpoint_setup(daemon: SessionDaemon, _identity: WindowIdentity) -> None:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        daemon._native_construction_observation_provider = lambda: {
+            "surface": "absent",
+            "identityFingerprint": daemon.driver.resolve_identity().fingerprint,
+            "captureIdentity": daemon.driver.resolve_identity().fingerprint,
+            "captureMonotonic": 1.0,
+        }
+
+    def cancel_ticket(daemon: SessionDaemon, _identity: WindowIdentity) -> None:
+        started = daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        daemon.native_construction_recovery_cancel(
+            expected_generation=7,
+            reservation_id=started["reservation"]["reservationId"],
+        )
+
+    run_case(
+        "complete-after-cancel",
+        state=ControllerState.PAUSED,
+        setup=lambda daemon, identity: (checkpoint_setup(daemon, identity), cancel_ticket(daemon, identity)),
+        request={
+            "command": "native_construction_recovery_complete",
+            "generation": 7,
+            "reservationId": "cancelled",
+        },
+        expected="native recovery ticket is unknown",
+    )
+
+    def completed_ticket(daemon: SessionDaemon, identity: WindowIdentity) -> None:
+        checkpoint_setup(daemon, identity)
+        started = daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        daemon._native_construction_observation_provider = lambda: (
+            _construction_frame(identity, boot="ordinary-new", sequence=3) | {"captureMonotonic": 2.0}
+        )
+        daemon.native_construction_recovery_complete(
+            expected_generation=7,
+            reservation_id=started["reservation"]["reservationId"],
+        )
+
+    run_case(
+        "cancel-after-complete",
+        state=ControllerState.PAUSED,
+        setup=completed_ticket,
+        request={
+            "command": "native_construction_recovery_cancel",
+            "generation": 7,
+            "reservationId": "completed",
+        },
+        expected="native construction reservation is unknown",
+    )
+
+    def preflight_handoff(daemon: SessionDaemon, identity: WindowIdentity) -> None:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_control_preflight(expected_generation=7)
+        daemon._native_construction_observation_provider = lambda: {
+            "surface": "absent",
+            "identityFingerprint": identity.fingerprint,
+            "captureIdentity": identity.fingerprint,
+            "captureMonotonic": 1.0,
+        }
+        daemon._wrong_handoff_id = prepared["reservation"]["reservationId"]
+
+    run_case(
+        "recovery-handoff-wrong-id",
+        state=ControllerState.PAUSED,
+        setup=preflight_handoff,
+        request={
+            "command": "native_construction_recovery_begin",
+            "generation": 7,
+            "reservationId": "measure-reservation-that-is-not-live",
+        },
+        expected="preflight reservation is unavailable for recovery handoff",
+    )
+
+
+def test_native_construction_public_predecessors_reach_live_owner_guards(tmp_path: Path) -> None:
+    """Use live reservation/ticket IDs so named predecessor guards execute."""
+
+    def checkpoint(daemon: SessionDaemon) -> None:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path / "bootstrap-replay")
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        prepared = ipc.dispatch({"command": "native_construction_prepare", "generation": 7})
+        reservation = prepared["reservation"]["reservationId"]
+        expected_boot = prepared["reservation"]["expectedConstructorBoot"]
+        bootstrapped = ipc.dispatch(
+            {
+                "command": "native_construction_bootstrap",
+                "generation": 7,
+                "reservationId": reservation,
+                "expectedConstructorBoot": expected_boot,
+            }
+        )
+        assert bootstrapped["ok"] is True
+        replay = ipc.dispatch(
+            {
+                "command": "native_construction_bootstrap",
+                "generation": 7,
+                "reservationId": reservation,
+                "expectedConstructorBoot": expected_boot,
+            }
+        )
+        assert replay == {"ok": False, "error": "native bootstrap was replayed"}
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path / "stale-echo")
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        prepared = ipc.dispatch({"command": "native_construction_prepare", "generation": 7})
+        stale = ipc.dispatch(
+            {
+                "command": "native_construction_bootstrap",
+                "generation": 7,
+                "reservationId": prepared["reservation"]["reservationId"],
+                "expectedConstructorBoot": "native-construction:wrong-boot",
+            }
+        )
+        assert stale == {"ok": False, "error": "native construction boot echo is stale"}
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path / "finalize-order")
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        prepared = ipc.dispatch({"command": "native_construction_prepare", "generation": 7})
+        out_of_order = ipc.dispatch(
+            {
+                "command": "native_construction_finalize_admit",
+                "generation": 7,
+                "reservationId": prepared["reservation"]["reservationId"],
+            }
+        )
+        assert out_of_order == {
+            "ok": False,
+            "error": "native construction finalize admission is out of order",
+        }
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path / "callback-order")
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        prepared = ipc.dispatch({"command": "native_construction_prepare", "generation": 7})
+        reservation = prepared["reservation"]
+        bootstrapped = ipc.dispatch(
+            {
+                "command": "native_construction_bootstrap",
+                "generation": 7,
+                "reservationId": reservation["reservationId"],
+                "expectedConstructorBoot": reservation["expectedConstructorBoot"],
+            }
+        )
+        assert bootstrapped["ok"] is True
+        with pytest.raises(DriverError, match="deferred hold-required callback arrived out of order"):
+            daemon.notify_native_hold_required(identity)
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+    daemon, driver, identity, child = _construction_daemon(
+        tmp_path / "recovery-overlap", state=ControllerState.PAUSED
+    )
+    entered = threading.Event()
+    release = threading.Event()
+    try:
+        checkpoint(daemon)
+
+        def blocked_observation() -> dict[str, object]:
+            entered.set()
+            assert release.wait(3.0)
+            return {
+                "surface": "absent",
+                "identityFingerprint": identity.fingerprint,
+                "captureIdentity": identity.fingerprint,
+                "captureMonotonic": 1.0,
+            }
+
+        daemon._native_construction_observation_provider = blocked_observation
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        first_response: list[dict[str, object]] = []
+
+        def begin() -> None:
+            first_response.append(
+                ipc.dispatch(
+                    {
+                        "command": "native_construction_recovery_begin",
+                        "generation": 7,
+                        "reservationId": "",
+                    }
+                )
+            )
+
+        thread = threading.Thread(target=begin, name="native-recovery-overlap")
+        thread.start()
+        assert entered.wait(3.0)
+        overlap = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_begin",
+                "generation": 7,
+                "reservationId": "",
+            }
+        )
+        assert overlap == {
+            "ok": False,
+            "error": "native construction recovery admission is already in flight",
+        }
+        release.set()
+        thread.join(timeout=5.0)
+        assert not thread.is_alive()
+        assert first_response and first_response[0]["ok"] is True
+        ticket = first_response[0]["reservation"]["reservationId"]
+        cancelled = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_cancel",
+                "generation": 7,
+                "reservationId": ticket,
+            }
+        )
+        assert cancelled["ok"] is True
+        after_cancel = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_complete",
+                "generation": 7,
+                "reservationId": ticket,
+            }
+        )
+        assert after_cancel == {"ok": False, "error": "native recovery ticket is unknown"}
+    finally:
+        release.set()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_completion_rejects_old_prefixed_and_fenced_frames_via_ipc(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        begin = _construction_frame(identity, boot="boot-a", sequence=2)
+        begin["snapshot"]["scanner"]["scheduleFence"]["state"] = "inactive"  # type: ignore[index]
+        daemon._native_construction_observation_provider = lambda: begin
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        started = ipc.dispatch(
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""}
+        )
+        assert started["ok"] is True
+        reservation_id = started["reservation"]["reservationId"]
+
+        expected_old_frame = _construction_frame(identity, boot="native-construction:boot-a", sequence=3)
+        expected_old_frame["captureMonotonic"] = 2.0
+        old_frame = _construction_frame(identity, boot="boot-a", sequence=3)
+        old_frame["captureMonotonic"] = 2.25
+        absent_frame = {
+            "surface": "absent",
+            "identityFingerprint": identity.fingerprint,
+            "captureIdentity": identity.fingerprint,
+            "captureMonotonic": 2.5,
+        }
+        loading_frame = _construction_frame(identity, boot="boot-a", sequence=3)
+        loading_frame["snapshot"]["scanner"]["scheduleFence"]["state"] = "armed"  # type: ignore[index]
+        loading_frame["captureMonotonic"] = 2.75
+        valid = _construction_frame(identity, boot="ordinary-new", sequence=4)
+        valid["captureMonotonic"] = 3.0
+        observations = iter((expected_old_frame, old_frame, absent_frame, loading_frame, valid))
+        daemon._native_construction_observation_provider = lambda: next(observations)
+        recovered = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_complete",
+                "generation": 7,
+                "reservationId": reservation_id,
+            }
+        )
+        assert recovered["ok"] is True, recovered
+        assert recovered["handshake"]["state"] == "recovered"
+        assert [entry["state"] for entry in recovered["stateHistory"]] == [
+            "recovery_required",
+            "recovered",
+        ]
+        assert all(set(entry) == {"state", "nativeClock"} for entry in recovered["stateHistory"])
+        assert daemon.controller.native_construction_checkpoint() is None
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_recovery_completion_rejects_construction_prefixed_boot_immediately(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        begin = _construction_frame(identity, boot="boot-a", sequence=2)
+        begin["snapshot"]["scanner"]["scheduleFence"]["state"] = "inactive"  # type: ignore[index]
+        daemon._native_construction_observation_provider = lambda: begin
+        ipc = SessionIPC(daemon.controller, owner=daemon)
+        started = ipc.dispatch(
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""}
+        )
+        assert started["ok"] is True
+        prefixed = _construction_frame(identity, boot="native-construction:other", sequence=3)
+        prefixed["captureMonotonic"] = 2.0
+        daemon._native_construction_observation_provider = lambda: prefixed
+        started_at = time.monotonic()
+        reply = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_complete",
+                "generation": 7,
+                "reservationId": started["reservation"]["reservationId"],
+            }
+        )
+        assert time.monotonic() - started_at < 2.0
+        assert reply["ok"] is False
+        assert "ordinary boot" in reply["error"]
+        assert daemon.controller.native_construction_checkpoint() is not None
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_construction_callbacks_admit_finalize_and_expiry_fail_closed(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        assert prepared["handshake"]["operationBoundSeconds"] == 3130.0
+        reservation = prepared["reservation"]
+        assert set(reservation) == {
+            "reservationId",
+            "reservationKind",
+            "reservationState",
+            "controllerGeneration",
+            "desktopLeaseHeld",
+            "guardianGeneration",
+            "guardianArmed",
+            "ownerPid",
+            "ownerProcessStart",
+            "profileFingerprint",
+            "identityFingerprint",
+            "B0",
+            "expectedConstructorBoot",
+            "expiresMonotonic",
+        }
+        reservation_id = reservation["reservationId"]
+        expected_boot = reservation["expectedConstructorBoot"]
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation_id,
+            expected_constructor_boot=expected_boot,
+        )
+        assert (
+            daemon.native_construction_recheck(expected_generation=7, reservation_id=reservation_id)[
+                "handshake"
+            ]["state"]
+            == "running"
+        )
+        with pytest.raises(DriverError, match="resume_ready"):
+            daemon.native_construction_finalize_admit(expected_generation=7, reservation_id=reservation_id)
+
+        record_payload = {
+            "phase": "construction",
+            "ordinal": 0,
+            "pid": identity.pid,
+            "process_start": identity.process_start,
+            "process_executable": driver.native_memory_meter.process_executable,
+            "identity_fingerprint": identity.fingerprint,
+        }
+        record = SimpleNamespace(
+            **record_payload,
+            to_dict=lambda: record_payload,
+            verify=lambda: None,
+        )
+        daemon.notify_native_memory_reset_ready(identity, record)
+        absence_path = tmp_path / "absence.png"
+        Image.new("RGB", (256, 256), (127, 127, 127)).save(absence_path)
+        driver.capture_client_crop_for_identity = lambda _identity: absence_path  # type: ignore[method-assign]
+        driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+        absence_digest = hashlib.sha256(absence_path.read_bytes()).hexdigest()
+        daemon._native_bootstrap_observation = {
+            "identity": identity.fingerprint,
+            "capture": daemon._native_clock(),
+            "captureDigest": absence_digest,
+            "capturePath": str(absence_path),
+        }
+        daemon._native_bootstrap_ready.set()
+        daemon._native_preconstruction_provider(
+            identity,
+            baseline_reader=lambda _pid: 10,
+            baseline_ready=lambda _pid, value: daemon.notify_native_baseline_ready(identity, value),
+        )
+        daemon.release_native_capture(daemon._native_construction_handshake["absenceCapturePath"])
+        daemon.notify_native_hold_required(identity)
+        record_payload = {**record_payload, "phase": "updates"}
+        daemon.notify_native_memory_reset_ready(
+            identity,
+            SimpleNamespace(
+                **record_payload,
+                to_dict=lambda: record_payload,
+                verify=lambda: None,
+            ),
+        )
+        pending = SimpleNamespace(
+            pid=identity.pid,
+            process_start=identity.process_start,
+            process_executable=driver.native_memory_meter.process_executable,
+            identity_fingerprint=identity.fingerprint,
+            phase="updates",
+            ordinal=0,
+        )
+        daemon.notify_native_memory_ready(identity, pending)
+        boundary = NativeResumeBoundary._issue(
+            identity_fingerprint=identity.fingerprint,
+            process_start=identity.process_start,
+            process_executable=identity.executable,
+            boot=expected_boot,
+            sequence=10,
+            crc32=10,
+            update_count=100,
+            capture_monotonic=2.0,
+            capture_sha256="b" * 64,
+            render=_metrics(100),
+        )
+        daemon.notify_native_resume_required(identity, boundary)
+        daemon.notify_native_resume_ready(
+            identity,
+            SimpleNamespace(
+                native_identity_fingerprint=identity.fingerprint,
+                process_pid=identity.pid,
+                resume_update_count=101,
+            ),
+            SimpleNamespace(
+                native_phase="normal",
+                native_ordinal=0,
+                metrics=_metrics(101, phase="normal", ordinal=0),
+                identity_fingerprint=identity.fingerprint,
+                boot=expected_boot,
+                sequence=11,
+                capture_monotonic=3.0,
+            ),
+        )
+        finalized = daemon.native_construction_finalize_admit(
+            expected_generation=7, reservation_id=reservation_id
+        )
+        assert finalized["handshake"]["state"] == "finalize_required"
+        daemon._native_construction_reservation["expiresMonotonic"] = daemon._native_clock() - 1.0
+        with pytest.raises(DriverError, match="unknown|expired"):
+            daemon.native_construction_recheck(expected_generation=7, reservation_id=reservation_id)
+        assert daemon.controller.native_construction_checkpoint()["phase"] == "recovery_required"
+        daemon.controller.pause("native construction recovery")
+        recovery_generation = daemon.controller.status().generation
+        daemon._native_construction_observation_provider = lambda: {
+            "surface": "absent",
+            "identityFingerprint": identity.fingerprint,
+            "captureIdentity": identity.fingerprint,
+            "captureMonotonic": daemon._native_clock(),
+        }
+        recovery = daemon.native_construction_recovery_begin(
+            expected_generation=recovery_generation, reservation_id=""
+        )
+        recovery_id = recovery["reservation"]["reservationId"]
+        daemon._native_construction_observation_provider = lambda: (
+            _construction_frame(identity, boot="ordinary-new", sequence=5)
+            | {"captureMonotonic": daemon._native_clock() + 1.0}
+        )
+        completed = daemon.native_construction_recovery_complete(
+            expected_generation=recovery_generation, reservation_id=recovery_id
+        )
+        assert completed["handshake"]["state"] == "recovered"
+        assert daemon.controller.native_construction_checkpoint() is None
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_construction_operation_bound_expires_at_finite_boundary(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    clock = [100.0]
+    daemon._native_clock = lambda: clock[0]  # type: ignore[method-assign]
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation["reservationId"],
+            expected_constructor_boot=reservation["expectedConstructorBoot"],
+        )
+        operation_deadline = daemon._native_construction_operation_deadline
+        assert operation_deadline == 100.0 + 3130.0
+        clock[0] = float(operation_deadline)
+        with pytest.raises(DriverError, match="unknown|expired"):
+            daemon.native_construction_recheck(
+                expected_generation=7, reservation_id=reservation["reservationId"]
+            )
+        checkpoint = daemon.controller.native_construction_checkpoint()
+        assert checkpoint is not None
+        assert checkpoint["phase"] == "recovery_required"
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def _prepare_deferred_resume_required(
+    daemon: SessionDaemon,
+    driver: DesktopDriver,
+    identity: WindowIdentity,
+    tmp_path: Path,
+) -> tuple[str, str, NativeResumeBoundary]:
+    """Drive a real deferred owner through the public callback boundaries."""
+
+    daemon._native_construction_observation_provider = lambda: _construction_frame(
+        identity, boot="boot-a", sequence=2
+    )
+    prepared = daemon.native_construction_prepare(expected_generation=7)
+    reservation = prepared["reservation"]
+    daemon.native_construction_bootstrap(
+        expected_generation=7,
+        reservation_id=reservation["reservationId"],
+        expected_constructor_boot=reservation["expectedConstructorBoot"],
+    )
+    record_payload: dict[str, object] = {
+        "phase": "construction",
+        "ordinal": 0,
+        "pid": identity.pid,
+        "process_start": identity.process_start,
+        "process_executable": driver.native_memory_meter.process_executable,
+        "identity_fingerprint": identity.fingerprint,
+    }
+    daemon.notify_native_memory_reset_ready(
+        identity,
+        SimpleNamespace(
+            **record_payload,
+            to_dict=lambda: record_payload,
+            verify=lambda: None,
+        ),
+    )
+    absence_path = tmp_path / "resume-absence.png"
+    Image.new("RGB", (256, 256), (127, 127, 127)).save(absence_path)
+    driver.capture_client_crop_for_identity = lambda _identity: absence_path  # type: ignore[method-assign]
+    driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+    absence_digest = hashlib.sha256(absence_path.read_bytes()).hexdigest()
+    daemon._native_bootstrap_observation = {
+        "identity": identity.fingerprint,
+        "capture": daemon._native_clock(),
+        "captureDigest": absence_digest,
+        "capturePath": str(absence_path),
+    }
+    daemon._native_bootstrap_ready.set()
+    daemon._native_preconstruction_provider(
+        identity,
+        baseline_reader=lambda _pid: 10,
+        baseline_ready=lambda _pid, value: daemon.notify_native_baseline_ready(identity, value),
+    )
+    daemon.release_native_capture(daemon._native_construction_handshake["absenceCapturePath"])
+    daemon.notify_native_hold_required(identity)
+    update_payload = {**record_payload, "phase": "updates"}
+    daemon.notify_native_memory_reset_ready(
+        identity,
+        SimpleNamespace(
+            **update_payload,
+            to_dict=lambda: update_payload,
+            verify=lambda: None,
+        ),
+    )
+    pending = SimpleNamespace(
+        pid=identity.pid,
+        process_start=identity.process_start,
+        process_executable=driver.native_memory_meter.process_executable,
+        identity_fingerprint=identity.fingerprint,
+        phase="updates",
+        ordinal=0,
+    )
+    daemon.notify_native_memory_ready(identity, pending)
+    boundary = NativeResumeBoundary._issue(
+        identity_fingerprint=identity.fingerprint,
+        process_start=identity.process_start,
+        process_executable=identity.executable,
+        boot=reservation["expectedConstructorBoot"],
+        sequence=10,
+        crc32=10,
+        update_count=100,
+        capture_monotonic=2.0,
+        capture_sha256="b" * 64,
+        render=_metrics(100),
+    )
+    daemon.notify_native_resume_required(identity, boundary)
+    return reservation["reservationId"], reservation["expectedConstructorBoot"], boundary
+
+
+@pytest.mark.parametrize(
+    "malformed_kind",
+    ["missing_capture", "missing_sequence", "none_sequence", "nonfinite_sequence"],
+)
+def test_native_resume_ready_malformed_facts_refuse_before_publication(
+    tmp_path: Path, malformed_kind: str
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        reservation_id, expected_boot, _boundary = _prepare_deferred_resume_required(
+            daemon, driver, identity, tmp_path
+        )
+        evidence = SimpleNamespace(
+            native_identity_fingerprint=identity.fingerprint,
+            process_pid=identity.pid,
+            resume_update_count=101,
+        )
+        resumed_values: dict[str, object] = {
+            "native_phase": "normal",
+            "native_ordinal": 0,
+            "metrics": _metrics(101, phase="normal", ordinal=0),
+            "identity_fingerprint": identity.fingerprint,
+            "boot": expected_boot,
+            "sequence": 11,
+            "capture_monotonic": 3.0,
+        }
+        if malformed_kind == "missing_capture":
+            del resumed_values["capture_monotonic"]
+        elif malformed_kind == "missing_sequence":
+            del resumed_values["sequence"]
+        elif malformed_kind == "none_sequence":
+            resumed_values["sequence"] = None
+        else:
+            resumed_values["sequence"] = float("nan")
+        with pytest.raises(DriverError, match="native resume-ready observation facts are malformed"):
+            daemon.notify_native_resume_ready(
+                identity,
+                evidence,
+                SimpleNamespace(**resumed_values),
+            )
+        with daemon._native_construction_lock:
+            assert daemon._native_construction_handshake["state"] == "resume_required"
+            assert daemon._native_construction_handshake.get("resumeReady") is False
+            assert daemon._native_construction_reservation is not None
+            assert daemon._native_construction_reservation["reservationId"] == reservation_id
+        assert daemon.controller.status().state is ControllerState.NATIVE_CALIBRATION
+        assert daemon.controller.native_construction_checkpoint() is not None
+        assert daemon.controller.native_construction_checkpoint()["phase"] == "prepared"
+
+        receipt = daemon.notify_native_measurement_failed(identity, f"malformed {malformed_kind}")
+        assert receipt.reason == f"malformed {malformed_kind}"
+        assert daemon.controller.status().state is ControllerState.NATIVE_CALIBRATION
+        assert daemon.controller.native_construction_checkpoint()["phase"] == "recovery_required"
+        with daemon._native_construction_lock:
+            assert daemon._native_construction_handshake["state"] == "restoration_required"
+            assert daemon._native_construction_reservation is None
+            assert daemon._native_construction_run_context["closed"] is True
+            assert all(
+                entry["state"] != "resume_ready" for entry in daemon._native_construction_state_history
+            )
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_deferred_callbacks_reject_duplicate_resume_boundaries(tmp_path: Path) -> None:
+    """Deferred callbacks keep their published ordering after hold-required."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        reservation_id, expected_boot, boundary = _prepare_deferred_resume_required(
+            daemon, driver, identity, tmp_path
+        )
+        with pytest.raises(DriverError, match="deferred resume-required callback arrived out of order"):
+            daemon.notify_native_resume_required(identity, boundary)
+
+        evidence = SimpleNamespace(
+            native_identity_fingerprint=identity.fingerprint,
+            process_pid=identity.pid,
+            resume_update_count=101,
+        )
+        resumed = SimpleNamespace(
+            native_phase="normal",
+            native_ordinal=0,
+            metrics=_metrics(101, phase="normal", ordinal=0),
+            identity_fingerprint=identity.fingerprint,
+            boot=expected_boot,
+            sequence=11,
+            capture_monotonic=3.0,
+        )
+        daemon.notify_native_resume_ready(identity, evidence, resumed)
+        with pytest.raises(DriverError, match="deferred resume-ready callback arrived out of order"):
+            daemon.notify_native_resume_ready(identity, evidence, resumed)
+        with daemon._native_construction_lock:
+            assert daemon._native_construction_handshake["state"] == "resume_ready"
+            assert daemon._native_construction_handshake["resumeReady"] is True
+            assert daemon._native_construction_reservation["reservationId"] == reservation_id
+        receipt = daemon.notify_native_measurement_failed(identity, "duplicate callback cleanup")
+        assert receipt.reason == "duplicate callback cleanup"
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_construction_expiry_flushes_before_direct_bootstrap_admission(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-expiring", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        daemon._native_construction_reservation["expiresMonotonic"] = daemon._native_clock() - 1.0
+        with pytest.raises(DriverError, match="expired"):
+            daemon.native_construction_bootstrap(
+                expected_generation=7,
+                reservation_id=prepared["reservation"]["reservationId"],
+                expected_constructor_boot=prepared["reservation"]["expectedConstructorBoot"],
+            )
+        assert daemon._native_construction_expired is False
+        assert daemon._native_construction_reservation is None
+        checkpoint = daemon.controller.native_construction_checkpoint()
+        assert checkpoint is not None
+        assert checkpoint["phase"] == "recovery_required"
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_terminal_receipts_are_bounded_and_immutable(tmp_path: Path) -> None:
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    try:
+        with daemon._native_construction_lock:
+            for index in range(daemon._NATIVE_CONSTRUCTION_TERMINAL_LIMIT + 4):
+                daemon._native_construction_state_history = [{"state": "error", "nativeClock": float(index)}]
+                daemon._native_construction_record_terminal_locked(
+                    {
+                        "reservationId": f"terminal-{index}",
+                        "reservationKind": "recovery",
+                        "reservationState": "recovery",
+                    },
+                    state="error",
+                    failure="bounded fixture",
+                )
+            assert len(daemon._native_construction_terminals) == daemon._NATIVE_CONSTRUCTION_TERMINAL_LIMIT
+            assert "terminal-0" not in daemon._native_construction_terminals
+            assert "terminal-4" in daemon._native_construction_terminals
+            first = daemon._native_construction_terminal_reply("terminal-4")
+            assert first is not None
+            first["reservation"]["reservationState"] = "mutated"
+            assert (
+                daemon._native_construction_terminals["terminal-4"]["reservation"]["reservationState"]
+                == "error"
+            )
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_construction_reservation_blocks_competing_input_race(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        daemon.native_construction_prepare(expected_generation=7)
+        assert daemon._native_construction_blocks_competing_entry() is True
+        with pytest.raises(DriverError, match="construction admission"):
+            daemon.start_calibration("input", expected_generation=7)
+        response = SessionIPC(daemon.controller, daemon).dispatch(
+            {"command": "interaction_start", "generation": 7}
+        )
+        assert response == {"ok": False, "error": "native construction admission is active"}
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_construction_control_preflight_is_recovery_only(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        preflight = daemon.native_construction_control_preflight(expected_generation=7)
+        reservation = preflight["reservation"]
+        assert reservation["reservationKind"] == "preflight"
+        with pytest.raises(DriverError, match="control preflight"):
+            daemon.native_construction_bootstrap(
+                expected_generation=7,
+                reservation_id=reservation["reservationId"],
+                expected_constructor_boot=reservation["expectedConstructorBoot"],
+            )
+        with pytest.raises(DriverError, match="unknown"):
+            daemon.native_construction_recovery_cancel(
+                expected_generation=7, reservation_id=reservation["reservationId"]
+            )
+        checkpoint = daemon.controller.native_construction_checkpoint()
+        assert checkpoint is not None
+        assert checkpoint["B0"] == "boot-a"
+        assert checkpoint["phase"] == "recovery_required"
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_paused_preflight_and_recovery_use_configured_png_capture(
+    tmp_path: Path,
+) -> None:
+    """Exercise the public PAUSED IPC path through the configured producer gate."""
+
+    from .test_session_runtime import _snapshot
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        producer = tmp_path / "configured-region-producer"
+        producer.write_bytes(b"configured producer fixture")
+        configured_profile = replace(
+            driver.profile,
+            telemetry_region_executable=producer,
+            telemetry_region_executable_sha256=hashlib.sha256(producer.read_bytes()).hexdigest(),
+        )
+        driver.profile = configured_profile
+        daemon.config = replace(daemon.config, profile=configured_profile)
+        driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+        calls = [0]
+        expected_identity = identity
+
+        class AdmittedProcess:
+            def __init__(self) -> None:
+                self.process = SimpleNamespace(pid=os.getpid())
+
+            def release_admission_gate(self) -> None:
+                return None
+
+        def capture(
+            path: Path,
+            *,
+            identity: WindowIdentity,
+            rectangle: tuple[int, int, int, int],
+            observer_admission: Callable[[Callable[[], object]], object] | None = None,
+            observer_reaped: Callable[[int], None] | None = None,
+            **_kwargs: object,
+        ) -> WindowIdentity:
+            assert identity.fingerprint == expected_identity.fingerprint
+            assert rectangle == (
+                expected_identity.child_geometry[0] + configured_profile.canvas_crop[0],
+                expected_identity.child_geometry[1] + configured_profile.canvas_crop[1],
+                256,
+                256,
+            )
+            assert observer_admission is not None
+            assert observer_reaped is not None
+            admitted = observer_admission(lambda: AdmittedProcess())
+            observer_reaped(admitted.process.pid)  # type: ignore[union-attr]
+            calls[0] += 1
+            if calls[0] == 1:
+                boot = "boot-a"
+            elif calls[0] == 2:
+                boot = "native-construction:boot-a"
+            else:
+                boot = "ordinary-new"
+            snapshot = _snapshot(1000 + calls[0], boot=boot, sequence=calls[0])
+            if calls[0] == 2:
+                snapshot["render"]["nativePhase"] = "held"
+                snapshot["render"]["nativeOrdinal"] = 100
+            frame = encode_frame(snapshot)
+            _status_image(frame).save(path)
+            return identity
+
+        driver.backend.capture_native_region = capture  # type: ignore[method-assign]
+        ipc = SessionIPC(daemon.controller, daemon)
+        prepared = ipc.dispatch({"command": "native_construction_control_preflight", "generation": 7})
+        assert prepared["ok"] is True, prepared
+        reservation_id = prepared["reservation"]["reservationId"]
+        started = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_begin",
+                "generation": 7,
+                "reservationId": reservation_id,
+            }
+        )
+        assert started["ok"] is True
+        recovered = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_complete",
+                "generation": 7,
+                "reservationId": started["reservation"]["reservationId"],
+            }
+        )
+        assert recovered["ok"] is True
+        assert recovered["handshake"]["state"] == "recovered"
+        assert calls[0] == 3
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_paused_preflight_without_producer_refuses_before_stock_capture(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, _identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    stock_calls: list[object] = []
+    process_calls: list[object] = []
+    try:
+        driver.capture_client_crop_for_identity = (  # type: ignore[method-assign]
+            lambda *args, **kwargs: stock_calls.append((args, kwargs))
+        )
+        driver.backend.capture_native_region = (  # type: ignore[method-assign]
+            lambda *args, **kwargs: process_calls.append((args, kwargs))
+        )
+        reply = SessionIPC(daemon.controller, daemon).dispatch(
+            {"command": "native_construction_control_preflight", "generation": 7}
+        )
+        assert reply["ok"] is False
+        assert "configured telemetry producer" in reply["error"]
+        assert stock_calls == []
+        assert process_calls == []
+        assert daemon._native_construction_reservation is None
+        assert daemon.controller.native_construction_checkpoint() is None
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_paused_recovery_begin_without_producer_refuses_before_capture(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, _identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    stock_calls: list[object] = []
+    process_calls: list[object] = []
+    try:
+        unconfigured_profile = replace(
+            driver.profile,
+            telemetry_region_executable=None,
+            telemetry_region_executable_sha256=None,
+        )
+        driver.profile = unconfigured_profile
+        daemon.config = replace(daemon.config, profile=unconfigured_profile)
+        daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        daemon._native_construction_observation_provider = None
+        driver.capture_client_crop_for_identity = (  # type: ignore[method-assign]
+            lambda *args, **kwargs: stock_calls.append((args, kwargs))
+        )
+        driver.backend.capture_native_region = (  # type: ignore[method-assign]
+            lambda *args, **kwargs: process_calls.append((args, kwargs))
+        )
+        reply = SessionIPC(daemon.controller, daemon).dispatch(
+            {"command": "native_construction_recovery_begin", "generation": 7, "reservationId": ""}
+        )
+        assert reply["ok"] is False
+        assert "configured telemetry producer" in reply["error"]
+        assert stock_calls == []
+        assert process_calls == []
+        checkpoint = daemon.controller.native_construction_checkpoint()
+        assert checkpoint is not None and checkpoint["phase"] == "prepared"
+        assert daemon._native_construction_reservation is None
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def _r9_configure_png_capture(
+    daemon: SessionDaemon,
+    driver: DesktopDriver,
+    identity: WindowIdentity,
+    tmp_path: Path,
+    *,
+    admission_wait: threading.Event | None = None,
+) -> list[object]:
+    """Bind a configured PNG path while retaining the real Guardian gate."""
+
+    from .test_session_runtime import _snapshot
+
+    tmp_path.mkdir(parents=True, exist_ok=True)
+    producer = tmp_path / "r9-configured-region-producer"
+    producer.write_bytes(b"configured producer fixture")
+    configured_profile = replace(
+        driver.profile,
+        telemetry_region_executable=producer,
+        telemetry_region_executable_sha256=hashlib.sha256(producer.read_bytes()).hexdigest(),
+    )
+    driver.profile = configured_profile
+    daemon.config = replace(daemon.config, profile=configured_profile)
+    process_calls: list[object] = []
+    expected_identity = identity
+
+    class AdmittedProcess:
+        def __init__(self) -> None:
+            self.process = SimpleNamespace(pid=os.getpid())
+
+        def release_admission_gate(self) -> None:
+            return None
+
+    def capture(
+        path: Path,
+        *,
+        identity: WindowIdentity,
+        observer_admission: Callable[[Callable[[], object]], object] | None = None,
+        observer_reaped: Callable[[int], None] | None = None,
+        **_kwargs: object,
+    ) -> WindowIdentity:
+        assert identity.fingerprint == expected_identity.fingerprint
+        assert observer_admission is not None
+        assert observer_reaped is not None
+
+        def start_process() -> object:
+            process_calls.append(object())
+            return AdmittedProcess()
+
+        if admission_wait is not None:
+            assert admission_wait.wait(3.0)
+        admitted = observer_admission(start_process)
+        observer_reaped(admitted.process.pid)  # type: ignore[union-attr]
+        _status_image(encode_frame(_snapshot(1001, boot="boot-a", sequence=1))).save(path)
+        return identity
+
+    driver.backend.capture_native_region = capture  # type: ignore[method-assign]
+    return process_calls
+
+
+@pytest.mark.parametrize("revocation_wins", [False, True])
+def test_native_capability_admission_and_owner_clear_linearize(tmp_path: Path, revocation_wins: bool) -> None:
+    """A public owner and real Guardian gate have one capability transaction."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    release_match = threading.Event()
+    first_match = threading.Event()
+    second_match = threading.Event()
+    owner_cleared = threading.Event()
+    capture_done = threading.Event()
+    process_calls: list[object] = []
+    capture_errors: list[BaseException] = []
+    revoke_errors: list[BaseException] = []
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        process_calls = _r9_configure_png_capture(
+            daemon,
+            driver,
+            identity,
+            tmp_path,
+            admission_wait=owner_cleared if revocation_wins else None,
+        )
+        prepared = daemon.native_construction_control_preflight(expected_generation=7)
+        reservation = prepared["reservation"]
+        reservation_id = reservation["reservationId"]
+        with daemon._native_construction_lock:
+            capability = daemon._native_construction_capability_locked()
+        assert capability is not None
+        original_matches = daemon._native_construction_capability_matches
+        match_count = [0]
+
+        def gated_matches(candidate: dict[str, object]) -> bool:
+            result = original_matches(candidate)
+            match_count[0] += 1
+            if match_count[0] == 1:
+                first_match.set()
+                if revocation_wins and not release_match.wait(3.0):
+                    raise DriverError("capability first-match barrier did not release")
+            elif match_count[0] == 2:
+                second_match.set()
+                if not revocation_wins and not release_match.wait(3.0):
+                    raise DriverError("capability admission barrier did not release")
+            return result
+
+        daemon._native_construction_capability_matches = gated_matches  # type: ignore[method-assign]
+        initial_epoch = int(capability["epoch"])
+
+        def monitor_owner_clear() -> None:
+            while not owner_cleared.is_set():
+                if daemon._native_construction_lock.acquire(blocking=False):
+                    try:
+                        if (
+                            daemon._native_construction_reservation is None
+                            and daemon._native_construction_epoch != initial_epoch
+                        ):
+                            owner_cleared.set()
+                    finally:
+                        daemon._native_construction_lock.release()
+                if not owner_cleared.is_set():
+                    time.sleep(0.001)
+
+        monitor = threading.Thread(target=monitor_owner_clear, name="r9-owner-clear-monitor")
+        monitor.start()
+
+        def capture() -> None:
+            try:
+                daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=7,
+                    expected_state=ControllerState.PAUSED,
+                    deadline=time.monotonic() + 5.0,
+                    native_capability=capability,
+                )
+            except BaseException as exc:
+                capture_errors.append(exc)
+            finally:
+                capture_done.set()
+
+        capture_thread = threading.Thread(target=capture, name="r9-capability-capture")
+        capture_thread.start()
+        if revocation_wins:
+            assert first_match.wait(2.0)
+        else:
+            assert second_match.wait(2.0)
+
+        def replay_bootstrap() -> None:
+            try:
+                daemon.native_construction_bootstrap(
+                    expected_generation=7,
+                    reservation_id=reservation_id,
+                    expected_constructor_boot=reservation["expectedConstructorBoot"],
+                )
+            except BaseException as exc:
+                revoke_errors.append(exc)
+
+        revoke_thread = threading.Thread(target=replay_bootstrap, name="r9-capability-replay")
+        revoke_thread.start()
+        time.sleep(0.05)
+        assert revoke_thread.is_alive()
+        assert process_calls == []
+        if revocation_wins:
+            release_match.set()
+            assert owner_cleared.wait(2.0)
+            assert capture_done.wait(3.0)
+            assert process_calls == []
+        else:
+            assert not owner_cleared.wait(0.1)
+            release_match.set()
+            assert capture_done.wait(3.0)
+            assert len(process_calls) == 1
+            assert owner_cleared.wait(2.0)
+        capture_thread.join(timeout=3.0)
+        revoke_thread.join(timeout=3.0)
+        monitor.join(timeout=3.0)
+        assert not capture_thread.is_alive()
+        assert not revoke_thread.is_alive()
+        assert not monitor.is_alive()
+        assert revoke_errors and isinstance(revoke_errors[0], DriverError)
+        assert "control preflight" in str(revoke_errors[0])
+        if revocation_wins:
+            assert capture_errors and isinstance(capture_errors[0], DriverError)
+            assert "capability" in str(capture_errors[0])
+        else:
+            assert capture_errors == []
+        assert owner_cleared.is_set()
+    finally:
+        release_match.set()
+        if daemon._native_construction_reservation is not None:
+            try:
+                daemon.native_construction_recovery_cancel(
+                    expected_generation=7, reservation_id=reservation_id
+                )
+            except (DriverError, UnboundLocalError):
+                pass
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_capability_matches_exact_owner_facts_and_inflight_none_id(tmp_path: Path) -> None:
+    """Capability matching rejects stale/replaced owners and accepts exact inflight None."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    second_daemon: SessionDaemon | None = None
+    second_driver: DesktopDriver | None = None
+    second_child: subprocess.Popen[str] | None = None
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        process_calls = _r9_configure_png_capture(daemon, driver, identity, tmp_path)
+        prepared = daemon.native_construction_control_preflight(expected_generation=7)
+        installed = prepared["reservation"]
+        negative_capabilities: list[dict[str, object]] = []
+        with daemon._native_construction_lock:
+            capability = daemon._native_construction_capability_locked()
+            assert capability is not None
+            assert daemon._native_construction_capability_matches(capability)
+            negative_capabilities = [
+                {**capability, "kind": "measure"},
+                {**capability, "reservationId": None},
+                {**capability, "epoch": int(capability["epoch"]) + 1},
+                {
+                    **capability,
+                    "guardianGeneration": int(capability["guardianGeneration"]) + 1,
+                },
+            ]
+            assert all(
+                not daemon._native_construction_capability_matches(candidate)
+                for candidate in negative_capabilities
+            )
+        for candidate in negative_capabilities:
+            with pytest.raises(DriverError, match="live recovery capability"):
+                daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=7,
+                    expected_state=ControllerState.PAUSED,
+                    deadline=time.monotonic() + 3.0,
+                    native_capability=candidate,
+                )
+            assert process_calls == []
+        with pytest.raises(DriverError, match="control preflight"):
+            daemon.native_construction_bootstrap(
+                expected_generation=7,
+                reservation_id=installed["reservationId"],
+                expected_constructor_boot=installed["expectedConstructorBoot"],
+            )
+
+        second_daemon, second_driver, second_identity, second_child = _construction_daemon(
+            tmp_path / "replaced-owner", state=ControllerState.PAUSED
+        )
+        second_daemon.controller.set_native_construction_checkpoint(
+            {
+                "schema": 1,
+                "B0": "boot-a",
+                "expectedConstructorBoot": "native-construction:boot-a",
+                "ownerGeneration": 7,
+                "kind": "measure",
+                "phase": "prepared",
+            },
+            expected_generation=7,
+            expected_state=ControllerState.PAUSED,
+        )
+        entered = threading.Event()
+        release = threading.Event()
+
+        def blocked_observation() -> dict[str, object]:
+            entered.set()
+            assert release.wait(3.0)
+            return {
+                "surface": "absent",
+                "identityFingerprint": second_identity.fingerprint,
+                "captureIdentity": second_identity.fingerprint,
+                "captureMonotonic": 1.0,
+            }
+
+        second_daemon._native_construction_observation_provider = blocked_observation
+        begin_result: list[object] = []
+
+        def begin_first() -> None:
+            try:
+                begin_result.append(
+                    second_daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+                )
+            except BaseException as exc:
+                begin_result.append(exc)
+
+        first_thread = threading.Thread(target=begin_first, name="r9-inflight-capability")
+        first_thread.start()
+        assert entered.wait(2.0)
+        with second_daemon._native_construction_lock:
+            inflight = second_daemon._native_construction_capability_locked()
+            assert inflight is not None and inflight["reservationId"] is None
+            assert inflight["guardianGeneration"] == second_driver.guardian.generation
+            assert second_daemon._native_construction_capability_matches(inflight)
+        release.set()
+        first_thread.join(timeout=3.0)
+        assert not first_thread.is_alive()
+        assert begin_result and isinstance(begin_result[0], dict)
+        old_epoch = int(inflight["epoch"])
+        old_id = inflight["reservationId"]
+        first_reservation_id = begin_result[0]["reservation"]["reservationId"]
+        second_daemon.native_construction_recovery_cancel(
+            expected_generation=7, reservation_id=first_reservation_id
+        )
+        second_daemon._native_construction_observation_provider = lambda: {
+            "surface": "absent",
+            "identityFingerprint": second_identity.fingerprint,
+            "captureIdentity": second_identity.fingerprint,
+            "captureMonotonic": 2.0,
+        }
+        second = second_daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        assert second["reservation"]["reservationId"] != old_id
+        with second_daemon._native_construction_lock:
+            assert not second_daemon._native_construction_capability_matches(inflight)
+            current = second_daemon._native_construction_capability_locked()
+            assert current is not None
+            assert int(current["epoch"]) != old_epoch
+            assert second_daemon._native_construction_capability_matches(current)
+        replaced_process_calls = _r9_configure_png_capture(
+            second_daemon, second_driver, second_identity, tmp_path / "replaced-owner-capture"
+        )
+        with pytest.raises(DriverError, match="live recovery capability"):
+            second_daemon._capture_native_region_for_identity(
+                second_identity,
+                expected_generation=7,
+                expected_state=ControllerState.PAUSED,
+                deadline=time.monotonic() + 3.0,
+                native_capability=inflight,
+            )
+        assert replaced_process_calls == []
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+        if second_driver is not None:
+            second_driver.close()
+        if second_child is not None:
+            second_child.terminate()
+            second_child.wait(timeout=3)
+
+
+@pytest.mark.parametrize("revoke_first", [True, False])
+def test_native_guardian_generation_fence_covers_real_child_admission(
+    tmp_path: Path, revoke_first: bool
+) -> None:
+    """Exercise outer capability refusal and cleanup for an admitted child.
+
+    The compiled producer cases establish the Guardian-generation fence; this
+    supplementary child fixture covers the outer capability refusal path and
+    confirms that an admitted child is cleaned up in either race order.
+    """
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    producer = Path("/bin/true")
+    configured_profile = replace(
+        driver.profile,
+        telemetry_region_executable=producer,
+        telemetry_region_executable_sha256=hashlib.sha256(producer.read_bytes()).hexdigest(),
+    )
+    driver.profile = configured_profile
+    daemon.config = replace(daemon.config, profile=configured_profile)
+    # _native_driver intentionally constructs an isolated backend without a
+    # live display.  Populate the real release bookkeeping used when the
+    # Guardian revokes an admitted observer.
+    driver.backend._active_processes = set()
+    driver.backend._active_process_groups = set()
+    driver.backend._process_lock = threading.RLock()
+    driver.backend._capture_revocation_epoch = 0
+    driver.backend._cancel_active = threading.Event()
+    driver.backend._process_generations = {}
+    driver.backend._held_keys = set()
+    driver.backend._held_buttons = set()
+    started: list[subprocess.Popen[str]] = []
+    admitted = threading.Event()
+    release_capture = threading.Event()
+    capture_errors: list[BaseException] = []
+    try:
+        with daemon._native_construction_lock:
+            daemon._native_construction_epoch += 1
+            epoch = daemon._native_construction_epoch
+            daemon._native_construction_inflight = {
+                "epoch": epoch,
+                "generation": 7,
+                "guardianGeneration": driver.guardian.generation,
+                "kind": "preflight",
+            }
+            capability = daemon._native_construction_capability_locked()
+        assert capability is not None
+        backend_epoch = getattr(driver.backend, "_capture_revocation_epoch", 0)
+
+        def capture(
+            _identity: WindowIdentity,
+            *,
+            destination: Path | None = None,
+            observer_admission: Callable[[Callable[[], object]], object] | None = None,
+            observer_reaped: Callable[[int], None] | None = None,
+            **_kwargs: object,
+        ) -> Path:
+            assert observer_admission is not None and observer_reaped is not None
+
+            def start_process() -> object:
+                process = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
+                started.append(process)
+                return SimpleNamespace(process=process, release_admission_gate=lambda: None)
+
+            admitted_process = observer_admission(start_process)
+            admitted.set()
+            assert release_capture.wait(3.0)
+            process = getattr(admitted_process, "process", None)
+            if process is None:
+                process = getattr(getattr(admitted_process, "observer", None), "process", None)
+            assert process is not None
+            process.terminate()
+            process.wait(timeout=3.0)
+            observer_reaped(process.pid)
+            output = destination or (tmp_path / "real-child-capture.png")
+            output.write_bytes(b"capture")
+            return output
+
+        driver.capture_native_region_for_identity = capture  # type: ignore[method-assign]
+
+        if revoke_first:
+            # Hold the controller mutex so capture blocks at its outer
+            # controller admission. Revoke there so the outer PAUSED capability
+            # check refuses it before any observer admission.
+            controller_ready = threading.Event()
+
+            def blocked_capture() -> None:
+                try:
+                    daemon._capture_native_region_for_identity(
+                        identity,
+                        expected_generation=7,
+                        expected_state=ControllerState.PAUSED,
+                        deadline=time.monotonic() + 5.0,
+                        native_capability=capability,
+                    )
+                except BaseException as exc:
+                    capture_errors.append(exc)
+                finally:
+                    controller_ready.set()
+
+            with daemon.controller.lock:
+                thread = threading.Thread(target=blocked_capture, name="guardian-generation-revoke-first")
+                thread.start()
+                time.sleep(0.05)
+                revoker = threading.Thread(
+                    target=lambda: driver.guardian.revoke("native generation race"),
+                    name="guardian-generation-revoker",
+                )
+                revoker.start()
+                assert _wait_for(lambda: driver.guardian.generation != capability["guardianGeneration"])
+            revoker.join(timeout=3.0)
+            thread.join(timeout=3.0)
+            assert not thread.is_alive() and not revoker.is_alive()
+            assert capture_errors and "capability" in str(capture_errors[0]).lower()
+            assert started == []
+        else:
+            thread = threading.Thread(
+                target=lambda: daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=7,
+                    expected_state=ControllerState.PAUSED,
+                    deadline=time.monotonic() + 5.0,
+                    native_capability=capability,
+                ),
+                name="guardian-generation-admission-first",
+            )
+            thread.start()
+            assert admitted.wait(3.0)
+            assert len(started) == 1 and started[0].poll() is None
+            driver.guardian.revoke("native generation after admission")
+            release_capture.set()
+            thread.join(timeout=3.0)
+            assert not thread.is_alive()
+            assert driver.guardian.observer_process_groups == frozenset()
+            assert driver.guardian.active_process_groups == frozenset()
+            assert all(process.poll() is not None for process in started)
+            with pytest.raises(DriverError, match="capability"):
+                daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=7,
+                    expected_state=ControllerState.PAUSED,
+                    deadline=time.monotonic() + 5.0,
+                    native_capability=capability,
+                )
+            assert len(started) == 1
+        if revoke_first:
+            assert getattr(driver.backend, "_capture_revocation_epoch", 0) == backend_epoch
+        else:
+            assert getattr(driver.backend, "_capture_revocation_epoch", 0) > backend_epoch
+    finally:
+        release_capture.set()
+        for process in started:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_paused_preflight_cancel_before_producer_admission_dispatches_no_process(
+    tmp_path: Path,
+) -> None:
+    """A revoked recovery admission cannot cross the producer gate."""
+
+    from .test_session_runtime import _snapshot
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    release = threading.Event()
+    try:
+        producer = tmp_path / "configured-region-producer"
+        producer.write_bytes(b"configured producer fixture")
+        configured_profile = replace(
+            driver.profile,
+            telemetry_region_executable=producer,
+            telemetry_region_executable_sha256=hashlib.sha256(producer.read_bytes()).hexdigest(),
+        )
+        driver.profile = configured_profile
+        daemon.config = replace(daemon.config, profile=configured_profile)
+        driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+        entered = threading.Event()
+        process_calls: list[object] = []
+        capture_errors: list[BaseException] = []
+        setup_complete = False
+
+        class AdmittedProcess:
+            def __init__(self) -> None:
+                self.process = SimpleNamespace(pid=os.getpid())
+
+            def release_admission_gate(self) -> None:
+                return None
+
+        def capture(
+            path: Path,
+            *,
+            identity: WindowIdentity,
+            observer_reaped: Callable[[int], None] | None = None,
+            observer_admission: Callable[[Callable[[], object]], object] | None = None,
+            **_kwargs: object,
+        ) -> WindowIdentity:
+            assert observer_admission is not None
+
+            def start_process() -> object:
+                process_calls.append(object())
+                return AdmittedProcess()
+
+            nonlocal setup_complete
+            if not setup_complete:
+                admitted = observer_admission(start_process)
+                if observer_reaped is not None:
+                    observer_reaped(admitted.process.pid)  # type: ignore[union-attr]
+                _status_image(encode_frame(_snapshot(1001, boot="boot-a", sequence=1))).save(path)
+                setup_complete = True
+                return identity
+
+            entered.set()
+            assert release.wait(3.0)
+            try:
+                observer_admission(start_process)
+            except BaseException as exc:
+                capture_errors.append(exc)
+                raise
+            raise AssertionError("revoked producer admission unexpectedly started")
+
+        driver.backend.capture_native_region = capture  # type: ignore[method-assign]
+        ipc = SessionIPC(daemon.controller, daemon)
+        prepared = ipc.dispatch({"command": "native_construction_control_preflight", "generation": 7})
+        assert prepared["ok"] is True, prepared
+        reservation_id = prepared["reservation"]["reservationId"]
+        process_calls.clear()
+        recovery_response: list[dict[str, object]] = []
+
+        def recovery_begin() -> None:
+            recovery_response.append(
+                ipc.dispatch(
+                    {
+                        "command": "native_construction_recovery_begin",
+                        "generation": 7,
+                        "reservationId": reservation_id,
+                    }
+                )
+            )
+
+        worker = threading.Thread(target=recovery_begin, name="native-recovery-cancel")
+        worker.start()
+        assert entered.wait(3.0)
+        cancelled = ipc.dispatch(
+            {
+                "command": "native_construction_recovery_cancel",
+                "generation": 7,
+                "reservationId": reservation_id,
+            }
+        )
+        assert cancelled["ok"] is True, cancelled
+        assert cancelled["handshake"]["state"] == "cancelled"
+        release.set()
+        worker.join(timeout=5.0)
+        assert not worker.is_alive()
+        assert recovery_response and recovery_response[0]["ok"] is False
+        assert capture_errors and isinstance(capture_errors[0], DriverError)
+        assert process_calls == []
+        assert daemon._native_construction_reservation is None
+        checkpoint = daemon.controller.native_construction_checkpoint()
+        assert checkpoint is not None
+        assert checkpoint["phase"] == "recovery_required"
+    finally:
+        release.set()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_poll_validation_releases_construction_lock_before_pause_callback(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=prepared["reservation"]["reservationId"],
+            expected_constructor_boot=prepared["reservation"]["expectedConstructorBoot"],
+        )
+        original_validate = daemon._native_construction_validate_current_locked
+
+        def gated_validate(*args: object, **kwargs: object) -> WindowIdentity:
+            entered.set()
+            if not release.wait(3.0):
+                raise DriverError("poll validation fixture did not release")
+            return original_validate(*args, **kwargs)
+
+        daemon._native_construction_validate_current_locked = gated_validate  # type: ignore[method-assign]
+        poll_errors: list[BaseException] = []
+
+        def poll() -> None:
+            try:
+                daemon._check_native_poll_identity(identity, 7)
+            except BaseException as exc:
+                poll_errors.append(exc)
+
+        poll_thread = threading.Thread(target=poll, name="native-poll-validation")
+        poll_thread.start()
+        assert entered.wait(2.0)
+        pause_result: list[object] = []
+
+        def pause() -> None:
+            pause_result.append(daemon.controller.pause("poll validation race"))
+
+        pause_thread = threading.Thread(target=pause, name="native-poll-pause")
+        pause_thread.start()
+        pause_thread.join(timeout=2.0)
+        assert not pause_thread.is_alive(), "pause callback waited on construction validation"
+        release.set()
+        poll_thread.join(timeout=3.0)
+        assert not poll_thread.is_alive()
+        assert pause_result
+        assert poll_errors and isinstance(poll_errors[0], DriverError)
+    finally:
+        release.set()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_deferred_start_seals_owner_before_pause_and_never_falls_back_to_legacy(
+    tmp_path: Path,
+) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    entered = threading.Event()
+    release = threading.Event()
+    seen_contexts: list[dict[str, object] | None] = []
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation["reservationId"],
+            expected_constructor_boot=reservation["expectedConstructorBoot"],
+        )
+
+        def blocked_runner(
+            *,
+            expected_generation: int | None = None,
+            admitted_context: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            del expected_generation
+            seen_contexts.append(copy.deepcopy(admitted_context))
+            entered.set()
+            release.wait(3.0)
+            raise DriverError("deferred worker was revoked")
+
+        daemon.run_native_calibration = blocked_runner  # type: ignore[method-assign]
+        daemon.start_calibration("native", expected_generation=7)
+        assert entered.wait(2.0)
+        paused = daemon.controller.pause("deferred start pause")
+        assert paused.state is ControllerState.PAUSED
+        release.set()
+        thread = daemon._calibration_thread
+        assert thread is not None
+        thread.join(timeout=3.0)
+        assert not thread.is_alive()
+        assert seen_contexts and seen_contexts[0] is not None
+        assert seen_contexts[0]["deferred"] is True
+        assert daemon._native_construction_reservation is None
+        assert daemon._calibration_operation["state"] == "error"
+    finally:
+        release.set()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_worker_prepare_pause_three_way_lock_barrier(tmp_path: Path) -> None:
+    """Exercise the real worker/status, prepare, and pause lock cycle.
+
+    The worker is allowed to finish its runner while the calibration-state
+    mutex is held.  At the same time prepare owns the construction mutex and
+    waits for that state mutex, while pause owns the controller mutex and is
+    synchronously waiting for the construction revocation callback.  The
+    worker's status snapshot must be taken before it enters the state mutex;
+    otherwise this bounded barrier reproduces the historical inversion.
+    """
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    runner_entered = threading.Event()
+    allow_runner_return = threading.Event()
+    worker_status_entered = threading.Event()
+    prepare_done = threading.Event()
+    pause_done = threading.Event()
+    prepare_errors: list[BaseException] = []
+    pause_errors: list[BaseException] = []
+
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+
+        def blocked_runner(**_kwargs: object) -> dict[str, object]:
+            runner_entered.set()
+            if not allow_runner_return.wait(3.0):
+                raise DriverError("worker barrier did not release")
+            return {"calibration": "native"}
+
+        daemon.run_native_calibration = blocked_runner  # type: ignore[method-assign]
+        daemon.start_calibration("native", expected_generation=7)
+        assert runner_entered.wait(2.0)
+
+        original_status = daemon.status_dict
+
+        def observed_status() -> dict[str, object]:
+            worker_status_entered.set()
+            return original_status()
+
+        daemon.status_dict = observed_status  # type: ignore[method-assign]
+
+        def prepare() -> None:
+            try:
+                daemon.native_construction_prepare(expected_generation=7)
+            except BaseException as exc:
+                prepare_errors.append(exc)
+            finally:
+                prepare_done.set()
+
+        def pause() -> None:
+            try:
+                daemon.controller.pause("three-way native barrier")
+            except BaseException as exc:
+                pause_errors.append(exc)
+            finally:
+                pause_done.set()
+
+        # Holding the state mutex makes prepare stop at its real
+        # construction->calibration edge.  It also keeps the worker's status
+        # snapshot at the exact point where the old worker acquired the state
+        # lock before asking for controller status.
+        with daemon._calibration_state_lock:
+            prepare_thread = threading.Thread(target=prepare, name="native-three-way-prepare")
+            prepare_thread.start()
+            assert _wait_for(lambda: _native_inflight_exists(daemon), timeout=2.0), (
+                "prepare never reached the construction admission interval"
+            )
+
+            pause_thread = threading.Thread(target=pause, name="native-three-way-pause")
+            pause_thread.start()
+            assert _wait_for(
+                lambda: _controller_pause_reached(daemon),
+                timeout=2.0,
+            ), "pause never reached its controller-owned state"
+            # The callback is synchronous under controller.pause; because
+            # prepare owns construction, pause remains alive at this point.
+            assert pause_thread.is_alive(), "pause callback did not contend for construction"
+
+            allow_runner_return.set()
+            assert worker_status_entered.wait(2.0), (
+                "worker did not publish status before taking the calibration-state lock"
+            )
+
+        allow_runner_return.set()
+        prepare_thread.join(timeout=3.0)
+        pause_thread.join(timeout=3.0)
+        assert not prepare_thread.is_alive(), "prepare remained blocked after lock release"
+        assert not pause_thread.is_alive(), "pause callback remained blocked after lock release"
+        assert prepare_done.is_set() and pause_done.is_set()
+        assert len(prepare_errors) == 1
+        assert isinstance(prepare_errors[0], DriverError)
+        assert str(prepare_errors[0]) == "native calibration is already running"
+        assert not pause_errors, pause_errors
+        worker_thread = daemon._calibration_thread
+        if worker_thread is not None:
+            worker_thread.join(timeout=3.0)
+        assert worker_thread is None or not worker_thread.is_alive()
+    finally:
+        allow_runner_return.set()
+        thread = daemon._calibration_thread
+        if thread is not None:
+            thread.join(timeout=3.0)
+            assert not thread.is_alive()
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def _native_inflight_exists(daemon: SessionDaemon) -> bool:
+    if not daemon._native_construction_lock.acquire(blocking=False):
+        # A non-acquirable construction lock is itself evidence that prepare
+        # crossed the construction->calibration edge and is waiting on the
+        # state mutex held by this fixture.
+        return True
+    try:
+        return isinstance(daemon._native_construction_inflight, dict)
+    finally:
+        daemon._native_construction_lock.release()
+
+
+def _controller_pause_reached(daemon: SessionDaemon) -> bool:
+    if not daemon.controller.lock.acquire(blocking=False):
+        # Controller.pause owns this mutex while its Guardian revocation
+        # callback waits for the construction lock.
+        return True
+    try:
+        return daemon.controller.status().state is ControllerState.PAUSED
+    finally:
+        daemon.controller.lock.release()
+
+
+@pytest.mark.parametrize("old_outcome", ["complete", "error"])
+def test_completed_worker_cannot_publish_into_next_operation_record(tmp_path: Path, old_outcome: str) -> None:
+    """A late result/error/finally from one worker cannot touch its successor."""
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    old_entered = threading.Event()
+    old_finished = threading.Event()
+    old_release = threading.Event()
+    old_post_finish_release = threading.Event()
+    new_entered = threading.Event()
+    new_release = threading.Event()
+    try:
+
+        def old_runner(
+            *, expected_generation: int | None = None, admitted_context: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            daemon._begin_calibration("native", expected_generation, admitted_context=admitted_context)
+            old_entered.set()
+            if not old_release.wait(3.0):
+                raise DriverError("old worker fixture did not release")
+            daemon._finish_calibration(
+                state=old_outcome,
+                error="old worker error" if old_outcome == "error" else "",
+            )
+            old_finished.set()
+            if not old_post_finish_release.wait(3.0):
+                raise DriverError("old worker post-finish fixture did not release")
+            if old_outcome == "error":
+                raise DriverError("late old worker failure")
+            return {"owner": "old"}
+
+        def new_runner(
+            *,
+            expected_generation: int | None = None,
+            admitted_context: dict[str, object] | None = None,
+        ) -> dict[str, object]:
+            daemon._begin_calibration("native", expected_generation, admitted_context=admitted_context)
+            new_entered.set()
+            if not new_release.wait(3.0):
+                raise DriverError("new worker fixture did not release")
+            daemon._finish_calibration(state="complete")
+            return {"owner": "new"}
+
+        native_calls = [0]
+
+        def native_runner(**kwargs: object) -> dict[str, object]:
+            native_calls[0] += 1
+            if native_calls[0] == 1:
+                return old_runner(**kwargs)  # type: ignore[arg-type]
+            return new_runner(**kwargs)  # type: ignore[arg-type]
+
+        daemon.run_native_calibration = native_runner  # type: ignore[method-assign]
+        daemon.start_calibration("native", expected_generation=7)
+        assert old_entered.wait(2.0)
+        old_thread = daemon._calibration_thread
+        assert old_thread is not None
+        old_release.set()
+        assert old_finished.wait(2.0)
+
+        daemon.start_calibration("native", expected_generation=7)
+        assert new_entered.wait(2.0)
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["kind"] == "native"
+            assert current["state"] == "running"
+            assert current["result"] is None
+            assert current["error"] == ""
+
+        # Let the old worker publish its result or error and run finally while
+        # the new operation record is current.  Identity checks must keep all
+        # three writes on the old record.
+        old_post_finish_release.set()
+        old_thread.join(timeout=3.0)
+        assert not old_thread.is_alive()
+        # The old worker has now published its result/error and run its
+        # identity-guarded finally.  The successor record must still be
+        # untouched before its own worker is released.
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["kind"] == "native"
+            assert current["state"] == "running"
+            assert current["result"] is None
+            assert current["error"] == ""
+        new_release.set()
+        new_thread = daemon._calibration_thread
+        assert new_thread is not None
+        new_thread.join(timeout=3.0)
+        assert not new_thread.is_alive()
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["kind"] == "native"
+            assert current["state"] == "complete"
+            assert current["error"] == ""
+            assert current["result"] is not None
+            assert current["result"]["calibrationOperation"]["kind"] == "native"  # type: ignore[index]
+    finally:
+        old_release.set()
+        old_post_finish_release.set()
+        new_release.set()
+        thread = daemon._calibration_thread
+        if thread is not None:
+            thread.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_completed_worker_cannot_flip_next_starting_operation_record(
+    tmp_path: Path,
+) -> None:
+    """A stale worker's finally cannot turn a newly published starting record into error."""
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    old_release = threading.Event()
+    old_finished = threading.Event()
+    old_post_finish_release = threading.Event()
+    new_worker_entered = threading.Event()
+    new_begin_release = threading.Event()
+    new_entered = threading.Event()
+    new_release = threading.Event()
+    try:
+
+        def old_runner(
+            *, expected_generation: int | None = None, admitted_context: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            daemon._begin_calibration("native", expected_generation, admitted_context=admitted_context)
+            if not old_release.wait(3.0):
+                raise DriverError("old worker fixture did not release")
+            daemon._finish_calibration(state="complete")
+            old_finished.set()
+            if not old_post_finish_release.wait(3.0):
+                raise DriverError("old worker post-finish fixture did not release")
+            raise DriverError("late old worker failure")
+
+        def new_runner(
+            *, expected_generation: int | None = None, admitted_context: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            new_worker_entered.set()
+            if not new_begin_release.wait(3.0):
+                raise DriverError("new worker start fixture did not release")
+            daemon._begin_calibration("native", expected_generation, admitted_context=admitted_context)
+            new_entered.set()
+            if not new_release.wait(3.0):
+                raise DriverError("new worker fixture did not release")
+            daemon._finish_calibration(state="complete")
+            return {"owner": "new"}
+
+        native_calls = [0]
+
+        def native_runner(**kwargs: object) -> dict[str, object]:
+            native_calls[0] += 1
+            if native_calls[0] == 1:
+                return old_runner(**kwargs)  # type: ignore[arg-type]
+            return new_runner(**kwargs)  # type: ignore[arg-type]
+
+        daemon.run_native_calibration = native_runner  # type: ignore[method-assign]
+        daemon.start_calibration("native", expected_generation=7)
+        old_thread = daemon._calibration_thread
+        assert old_thread is not None
+        old_release.set()
+        assert old_finished.wait(2.0)
+
+        daemon.start_calibration("native", expected_generation=7)
+        assert new_worker_entered.wait(2.0)
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["state"] == "starting"
+            assert current["kind"] == "native"
+            assert current["result"] is None
+            assert current["error"] == ""
+
+        old_post_finish_release.set()
+        old_thread.join(timeout=3.0)
+        assert not old_thread.is_alive()
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["state"] == "starting"
+            assert current["result"] is None
+            assert current["error"] == ""
+
+        new_begin_release.set()
+        assert new_entered.wait(2.0)
+        new_release.set()
+        new_thread = daemon._calibration_thread
+        assert new_thread is not None
+        new_thread.join(timeout=3.0)
+        assert not new_thread.is_alive()
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["state"] == "complete"
+            assert current["error"] == ""
+            assert current["result"] is not None
+    finally:
+        old_release.set()
+        old_post_finish_release.set()
+        new_begin_release.set()
+        new_release.set()
+        thread = daemon._calibration_thread
+        if thread is not None:
+            thread.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_input_start_owns_record_and_publishes_worker_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The public input start reaches its own running record before a controlled sample error."""
+
+    from crowley.session.calibration import InputCalibrationWorkflow
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path, state=ControllerState.INPUT_CALIBRATION)
+    sample_entered = threading.Event()
+    release_sample = threading.Event()
+
+    def reject_sample(self: object) -> object:
+        del self
+        sample_entered.set()
+        if not release_sample.wait(10.0):
+            raise DriverError("controlled input sample fixture did not release")
+        raise DriverError("controlled input sample failure")
+
+    monkeypatch.setattr(InputCalibrationWorkflow, "run", reject_sample)
+    monkeypatch.setattr(daemon, "_validate_runtime_paths", lambda: None)
+    try:
+        started = daemon.start_calibration("input", expected_generation=7)
+        assert started["calibrationOperation"]["state"] in {"starting", "running"}, started[
+            "calibrationOperation"
+        ]  # type: ignore[index]
+        assert sample_entered.wait(2.0)
+        with daemon._calibration_state_lock:
+            assert daemon._calibration_operation["state"] == "running"
+            assert daemon._calibration_operation["kind"] == "input"
+            assert daemon._calibration_operation["result"] is None
+            assert daemon._calibration_operation["error"] == ""
+        release_sample.set()
+        worker = daemon._calibration_thread
+        assert worker is not None
+        worker.join(timeout=5.0)
+        assert not worker.is_alive()
+        with daemon._calibration_state_lock:
+            current = copy.deepcopy(daemon._calibration_operation)
+        assert current["kind"] == "input"
+        assert current["state"] == "error"
+        assert current["error"] == "controlled input sample failure"
+        assert current["result"] is None
+    finally:
+        release_sample.set()
+        worker = daemon._calibration_thread
+        if worker is not None:
+            worker.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_input_start_rejects_cross_kind_worker_while_starting(tmp_path: Path) -> None:
+    """A real starting input record blocks a competing native worker."""
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path, state=ControllerState.INPUT_CALIBRATION)
+    release_input = threading.Event()
+    input_entered = threading.Event()
+
+    def held_input(**_kwargs: object) -> dict[str, object]:
+        input_entered.set()
+        if not release_input.wait(3.0):
+            raise DriverError("held input fixture did not release")
+        return {"calibration": "input"}
+
+    daemon.run_input_calibration = held_input  # type: ignore[method-assign]
+    try:
+        daemon.start_calibration("input", expected_generation=7)
+        assert input_entered.wait(2.0)
+        with daemon._calibration_state_lock:
+            assert daemon._calibration_operation["state"] == "starting"
+            assert daemon._calibration_operation["kind"] == "input"
+        with pytest.raises(DriverError, match="already starting"):
+            daemon._begin_calibration("native", 7)
+        release_input.set()
+        worker = daemon._calibration_thread
+        assert worker is not None
+        worker.join(timeout=3.0)
+        assert not worker.is_alive()
+        with daemon._calibration_state_lock:
+            assert daemon._calibration_operation["state"] == "error"
+    finally:
+        release_input.set()
+        worker = daemon._calibration_thread
+        if worker is not None:
+            worker.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_legacy_bootstrap_rejects_live_deferred_owner(tmp_path: Path) -> None:
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation["reservationId"],
+            expected_constructor_boot=reservation["expectedConstructorBoot"],
+        )
+        with pytest.raises(DriverError, match="blocked by another construction admission"):
+            daemon.native_bootstrap(expected_generation=7)
+        assert daemon._native_construction_reservation is not None
+        assert daemon._native_construction_reservation["reservationId"] == reservation["reservationId"]
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize(
+    ("cancel_after_first_final_capture", "binding_drift"),
+    [(False, None), (True, None), (False, "identity"), (False, "guardian")],
+)
+def test_native_construction_composes_real_png_runner_and_finalize(
+    tmp_path: Path, cancel_after_first_final_capture: bool, binding_drift: str | None
+) -> None:
+    """Exercise the deferred gate through the production runner callbacks."""
+
+    from crowley.core.watchlist import load_catalog
+
+    from .test_session_runtime import _snapshot
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    daemon.config = replace(daemon.config, plan_hash=load_catalog().scan_plan()["planHash"])
+    clock = [time.monotonic()]
+    capture_index = 0
+    sequence = 0
+    worker_result: dict[str, object] = {}
+    rebind_entered = threading.Event()
+    release_rebind = threading.Event()
+    transaction_entered = threading.Event()
+    release_transaction = threading.Event()
+    cancel_attempted = threading.Event()
+    cancel_flush_done = threading.Event()
+    release_cancel_flush = threading.Event()
+    cancel_controller_probe = threading.Event()
+    cancel_controller_probe_values: list[bool] = []
+    final_controller_entered = threading.Event()
+    cancel_response: list[dict[str, object]] = []
+    cancel_done = threading.Event()
+    cancel_thread: threading.Thread | None = None
+    controller_lock_facade: ForwardingControllerLock | None = None
+    rebind_calls: list[object] = []
+    observe_calls: list[object] = []
+    native_calibrated_calls: list[object] = []
+    active_identity = [identity]
+    final_capture_returned = threading.Event()
+    release_final_capture = threading.Event()
+
+    def now() -> float:
+        return clock[0]
+
+    def write_strict_capture(
+        current_identity: WindowIdentity, decoder: PixelDecoder, *, deadline: float | None = None
+    ) -> tuple[object, str, Path]:
+        del deadline
+        nonlocal capture_index, sequence
+        if current_identity.fingerprint != identity.fingerprint:
+            raise AssertionError("capture identity changed")
+        capture_index += 1
+        sequence += 1
+        if capture_index == 1:
+            boot = "boot-a"
+            phase, ordinal, updates = "normal", 0, 1
+            clock[0] += 0.1
+        elif capture_index == 2:
+            boot = "native-construction:boot-a"
+            phase, ordinal, updates = "normal", 0, 1
+            clock[0] += 0.1
+        elif capture_index == 3:
+            boot = "native-construction:boot-a"
+            phase, ordinal, updates = "held", 0, 3
+            # A legitimate operator wait remains inside the held provider's
+            # existing 30-second deadline and pushes the complete envelope
+            # beyond the rejected 127-second class-based bound.
+            clock[0] += 15.0
+        elif 4 <= capture_index <= 102:
+            boot = "native-construction:boot-a"
+            phase, ordinal, updates = "updates", capture_index - 3, 3 + capture_index - 3
+            clock[0] += 1.0
+        elif capture_index == 103:
+            boot = "native-construction:boot-a"
+            phase, ordinal, updates = "held", 100, 103
+            clock[0] += 1.0
+        elif capture_index == 104:
+            boot = "native-construction:boot-a"
+            phase, ordinal, updates = "normal", 0, 104
+            clock[0] += 15.0
+        else:
+            boot = "native-construction:boot-a"
+            phase, ordinal, updates = "normal", 0, 104
+            clock[0] += 0.1
+        snapshot = _snapshot(1000 + sequence, boot=boot, sequence=sequence)
+        render = _metrics(updates, phase=phase, ordinal=ordinal)
+        render["cellSize"] = [2, 2]
+        snapshot["render"] = render
+        path = tmp_path / f"strict-{capture_index:03d}.png"
+        _status_image(encode_frame(snapshot)).save(path)
+        with Image.open(path) as image:
+            image.load()
+            sample = decoder.decode(image, monotonic=clock[0], window_identity=current_identity.fingerprint)
+        digest = hashlib.sha256(path.read_bytes()).hexdigest()
+        if binding_drift is not None and capture_index == 105:
+            final_capture_returned.set()
+            if not release_final_capture.wait(5.0):
+                raise DriverError("final binding drift barrier did not release")
+        return sample, digest, path
+
+    def write_absence_capture(current_identity: WindowIdentity, **_kwargs: object) -> Path:
+        if current_identity.fingerprint != identity.fingerprint:
+            raise AssertionError("absence capture identity changed")
+        clock[0] = max(clock[0], time.monotonic() + 1.0)
+        path = tmp_path / "ordinary-absence.png"
+        Image.new("RGB", (256, 256), (127, 127, 127)).save(path)
+        return path
+
+    def write_region_capture(current_identity: WindowIdentity, **_kwargs: object) -> Path:
+        state = daemon._native_construction_handshake.get("state")
+        if state in {None, "", "finalize_required"}:
+            _sample, _digest, path = write_strict_capture(
+                current_identity,
+                PixelDecoder(crop=driver.profile.canvas_crop),
+            )
+            return path
+        return write_absence_capture(current_identity, **_kwargs)
+
+    if binding_drift is not None:
+        driver.resolve_identity = lambda **_kwargs: active_identity[0]  # type: ignore[method-assign]
+    driver._clock = now  # type: ignore[method-assign]
+    driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+    daemon._native_clock = now  # type: ignore[method-assign]
+    daemon._capture_native_frame_with_capture = write_strict_capture  # type: ignore[method-assign]
+    daemon._capture_native_region_for_identity = write_region_capture  # type: ignore[method-assign]
+    driver.capture_client_crop_for_identity = write_absence_capture  # type: ignore[method-assign]
+    original_rebind = daemon.controller.rebind_native_construction_frame
+    original_observe = daemon.controller.observe_frame
+    original_native_calibrated = daemon.controller.native_calibrated
+    original_transaction = daemon._native_construction_finalize_transaction
+    original_flush_expiry = daemon._native_construction_flush_expiry
+
+    def gated_rebind(**kwargs: object) -> object:
+        rebind_calls.append(kwargs)
+        if cancel_after_first_final_capture:
+            return original_rebind(**kwargs)
+        if kwargs.get("reason") == "native_construction_finalize":
+            rebind_entered.set()
+            if not release_rebind.wait(3.0):
+                raise DriverError("finalize rebind barrier did not release")
+        return original_rebind(**kwargs)
+
+    def counted_observe(**kwargs: object) -> object:
+        observe_calls.append(kwargs)
+        return original_observe(**kwargs)
+
+    def counted_native_calibrated(*args: object, **kwargs: object) -> object:
+        native_calibrated_calls.append((args, kwargs))
+        return original_native_calibrated(*args, **kwargs)
+
+    def gated_transaction(**kwargs: object) -> object:
+        transaction_entered.set()
+        if not release_transaction.wait(5.0):
+            raise DriverError("finalize transaction barrier did not release")
+        return original_transaction(**kwargs)
+
+    def gated_flush_expiry() -> None:
+        original_flush_expiry()
+        if threading.current_thread().name == "native-finalize-cancel":
+            cancel_flush_done.set()
+            if not release_cancel_flush.wait(5.0):
+                raise DriverError("cancel flush barrier did not release")
+
+    class ForwardingControllerLock:
+        """Forward the real controller mutex while observing cancel contention."""
+
+        def __init__(self, real_lock: threading.RLock) -> None:
+            self.real_lock = real_lock
+
+        def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
+            if blocking and threading.current_thread().name == "native-finalize-cancel":
+                if not final_controller_entered.wait(5.0):
+                    raise DriverError("final transaction did not acquire controller lock")
+                probed = self.real_lock.acquire(blocking=False)
+                cancel_controller_probe_values.append(probed)
+                cancel_controller_probe.set()
+                if probed:
+                    self.real_lock.release()
+            if timeout == -1:
+                acquired = self.real_lock.acquire(blocking)
+            else:
+                acquired = self.real_lock.acquire(blocking, timeout)
+            if acquired and threading.current_thread().name == "native-construction-composed":
+                final_controller_entered.set()
+            return acquired
+
+        def release(self) -> None:
+            self.real_lock.release()
+
+        def __enter__(self) -> ForwardingControllerLock:
+            self.acquire()
+            return self
+
+        def __exit__(self, exc_type: object, exc: object, tb: object) -> None:
+            self.release()
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(self.real_lock, name)
+
+    daemon.controller.rebind_native_construction_frame = gated_rebind  # type: ignore[method-assign]
+    daemon.controller.observe_frame = counted_observe  # type: ignore[method-assign]
+    daemon.controller.native_calibrated = counted_native_calibrated  # type: ignore[method-assign]
+    daemon._native_construction_finalize_transaction = gated_transaction  # type: ignore[method-assign]
+    daemon._native_construction_flush_expiry = gated_flush_expiry  # type: ignore[method-assign]
+    try:
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        assert [entry["state"] for entry in prepared["stateHistory"]] == ["construction_prepared"]
+        assert all(set(entry) == {"state", "nativeClock"} for entry in prepared["stateHistory"])
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation["reservationId"],
+            expected_constructor_boot=reservation["expectedConstructorBoot"],
+        )
+        running = daemon.native_construction_recheck(
+            expected_generation=7, reservation_id=reservation["reservationId"]
+        )
+        assert [entry["state"] for entry in running["stateHistory"]] == [
+            "construction_prepared",
+            "running",
+        ]
+        operation_started = clock[0]
+
+        def run() -> None:
+            try:
+                worker_result["value"] = daemon.run_native_calibration(expected_generation=7)
+            except BaseException as exc:  # pragma: no cover - asserted below
+                worker_result["error"] = exc
+
+        worker = threading.Thread(target=run, name="native-construction-composed")
+        worker.start()
+        deadline = time.monotonic() + 60.0
+        while time.monotonic() < deadline:
+            with daemon._native_construction_lock:
+                state = daemon._native_construction_handshake.get("state")
+            if state == "resume_ready":
+                break
+            if not worker.is_alive():
+                break
+            time.sleep(0.01)
+        if "error" in worker_result:
+            raise worker_result["error"]  # type: ignore[misc]
+        assert worker.is_alive(), worker_result.get("error")
+        finalized = daemon.native_construction_finalize_admit(
+            expected_generation=7, reservation_id=reservation["reservationId"]
+        )
+        assert finalized["handshake"]["state"] == "finalize_required"
+        fast_finalize = daemon.native_construction_finalize_admit(
+            expected_generation=7, reservation_id=reservation["reservationId"]
+        )
+        assert fast_finalize["handshake"]["state"] == "finalize_required"
+        if not cancel_after_first_final_capture and binding_drift is None:
+            controller_lock_facade = ForwardingControllerLock(daemon.controller._mutex)
+            daemon.controller._mutex = controller_lock_facade  # type: ignore[assignment]
+        if binding_drift is not None:
+            assert final_capture_returned.wait(5.0)
+            if binding_drift == "identity":
+                active_identity[0] = replace(identity, fingerprint="native-r9-final-drift")
+            else:
+                driver.guardian.generation += 1
+            release_final_capture.set()
+            worker.join(timeout=60.0)
+            assert not worker.is_alive()
+            assert isinstance(worker_result.get("error"), DriverError)
+            assert "binding changed" in str(worker_result["error"])
+            assert not transaction_entered.is_set()
+            assert rebind_calls == []
+            assert observe_calls == []
+            assert native_calibrated_calls == []
+            return
+        elif cancel_after_first_final_capture:
+            assert transaction_entered.wait(5.0)
+
+            def cancel_after_transaction_entry() -> None:
+                cancel_attempted.set()
+                try:
+                    cancel_response.append(
+                        SessionIPC(daemon.controller, daemon).dispatch(
+                            {
+                                "command": "native_construction_recovery_cancel",
+                                "generation": 7,
+                                "reservationId": reservation["reservationId"],
+                            }
+                        )
+                    )
+                finally:
+                    cancel_done.set()
+
+            cancel_thread = threading.Thread(
+                target=cancel_after_transaction_entry, name="native-finalize-cancel"
+            )
+            cancel_thread.start()
+            assert cancel_attempted.wait(2.0)
+            assert cancel_flush_done.wait(3.0)
+            release_cancel_flush.set()
+            assert cancel_done.wait(3.0)
+            release_transaction.set()
+        else:
+            assert transaction_entered.wait(5.0)
+
+            def cancel_during_final_transaction() -> None:
+                cancel_attempted.set()
+                cancel_response.append(
+                    SessionIPC(daemon.controller, daemon).dispatch(
+                        {
+                            "command": "native_construction_recovery_cancel",
+                            "generation": 7,
+                            "reservationId": reservation["reservationId"],
+                        }
+                    )
+                )
+                cancel_done.set()
+
+            cancel_thread = threading.Thread(
+                target=cancel_during_final_transaction, name="native-finalize-cancel"
+            )
+            cancel_thread.start()
+            assert cancel_attempted.wait(2.0)
+            assert cancel_flush_done.wait(3.0)
+            release_transaction.set()
+            assert final_controller_entered.wait(3.0)
+            assert rebind_entered.wait(5.0)
+            release_cancel_flush.set()
+            assert cancel_controller_probe.wait(3.0)
+            assert cancel_controller_probe_values == [False]
+            assert not cancel_done.is_set()
+            release_rebind.set()
+
+        worker.join(timeout=60.0)
+        assert not worker.is_alive()
+        assert cancel_thread is not None
+        cancel_thread.join(timeout=5.0)
+        assert not cancel_thread.is_alive()
+        if cancel_after_first_final_capture:
+            assert len(cancel_response) == 1
+            assert cancel_response[0]["ok"] is True
+            assert cancel_response[0]["handshake"]["state"] == "cancelled"
+            assert cancel_response[0]["reservation"]["reservationState"] == "cancelled"
+            assert "error" in worker_result
+            assert "owner was revoked before commit" in str(worker_result["error"])
+            assert rebind_calls == []
+            assert observe_calls == []
+            assert native_calibrated_calls == []
+            assert daemon.controller.status().state is ControllerState.NATIVE_CALIBRATION
+            assert daemon.controller.native_construction_checkpoint()["phase"] == "recovery_required"
+            assert capture_index == 105
+            terminal = daemon.native_construction_recheck(
+                expected_generation=7, reservation_id=reservation["reservationId"]
+            )
+            assert terminal["handshake"]["state"] == "cancelled"
+            assert terminal["reservation"]["reservationState"] == "cancelled"
+        else:
+            assert cancel_response == [{"ok": False, "error": "native construction reservation is unknown"}]
+            assert "error" not in worker_result, worker_result.get("error")
+            result = worker_result["value"]
+            assert isinstance(result, dict)
+            assert result["calibration"] == "native"
+            assert daemon._native_construction_handshake["state"] == "finalized"
+            assert daemon.controller.native_construction_checkpoint() is not None
+            terminal = daemon.native_construction_recheck(
+                expected_generation=7, reservation_id=reservation["reservationId"]
+            )
+            assert terminal["handshake"]["state"] == "finalized"
+            assert terminal["reservation"]["reservationState"] == "finalized"
+            expected_history = [
+                "construction_prepared",
+                "running",
+                "construction_reset_archived",
+                "baseline_bound",
+                "construction_released",
+                "hold_required",
+                "updates_reset_archived",
+                "measure_ready",
+                "resume_required",
+                "resume_ready",
+                "finalize_required",
+                "finalized",
+            ]
+            history = terminal["stateHistory"]
+            assert [entry["state"] for entry in history] == expected_history
+            assert all(set(entry) == {"state", "nativeClock"} for entry in history)
+            clocks = [entry["nativeClock"] for entry in history]
+            assert all(isinstance(clock_value, float) for clock_value in clocks)
+            assert clocks == sorted(clocks)
+            polled = daemon.native_construction_recheck(
+                expected_generation=7, reservation_id=reservation["reservationId"]
+            )
+            assert polled["stateHistory"] == history
+        if not cancel_after_first_final_capture:
+            assert capture_index == 105
+        assert clock[0] - operation_started > 127.0
+    finally:
+        release_rebind.set()
+        release_transaction.set()
+        release_cancel_flush.set()
+        release_final_capture.set()
+        if controller_lock_facade is not None:
+            daemon.controller._mutex = controller_lock_facade.real_lock  # type: ignore[assignment]
+        daemon._native_construction_flush_expiry = original_flush_expiry  # type: ignore[method-assign]
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def _configure_deadline_png_runner(
+    daemon: SessionDaemon,
+    driver: DesktopDriver,
+    identity: WindowIdentity,
+    tmp_path: Path,
+) -> list[float]:
+    """Install the same real PNG runner boundary used by the composed test."""
+
+    from .test_session_runtime import _snapshot
+
+    clock = [time.monotonic()]
+    capture_index = [0]
+    sequence = [0]
+
+    def now() -> float:
+        return clock[0]
+
+    def write_strict_capture(
+        current_identity: WindowIdentity, decoder: PixelDecoder, *, deadline: float | None = None
+    ) -> tuple[object, str, Path]:
+        del deadline
+        if current_identity.fingerprint != identity.fingerprint:
+            raise AssertionError("capture identity changed")
+        capture_index[0] += 1
+        sequence[0] += 1
+        index = capture_index[0]
+        if index == 1:
+            boot, phase, ordinal, updates, advance = "boot-a", "normal", 0, 1, 0.1
+        elif index == 2:
+            boot, phase, ordinal, updates, advance = "native-construction:boot-a", "normal", 0, 1, 0.1
+        elif index == 3:
+            boot, phase, ordinal, updates, advance = "native-construction:boot-a", "held", 0, 3, 15.0
+        elif 4 <= index <= 102:
+            boot, phase, ordinal, updates, advance = (
+                "native-construction:boot-a",
+                "updates",
+                index - 3,
+                3 + index - 3,
+                1.0,
+            )
+        elif index == 103:
+            boot, phase, ordinal, updates, advance = "native-construction:boot-a", "held", 100, 103, 1.0
+        elif index == 104:
+            boot, phase, ordinal, updates, advance = "native-construction:boot-a", "normal", 0, 104, 15.0
+        else:
+            boot, phase, ordinal, updates, advance = "native-construction:boot-a", "normal", 0, 104, 0.1
+        clock[0] += advance
+        snapshot = _snapshot(1000 + sequence[0], boot=boot, sequence=sequence[0])
+        render = _metrics(updates, phase=phase, ordinal=ordinal)
+        render["cellSize"] = [2, 2]
+        snapshot["render"] = render
+        path = tmp_path / f"deadline-{index:03d}.png"
+        _status_image(encode_frame(snapshot)).save(path)
+        with Image.open(path) as image:
+            image.load()
+            sample = decoder.decode(
+                image,
+                monotonic=clock[0],
+                window_identity=current_identity.fingerprint,
+            )
+        return sample, hashlib.sha256(path.read_bytes()).hexdigest(), path
+
+    def write_absence_capture(current_identity: WindowIdentity, **_kwargs: object) -> Path:
+        if current_identity.fingerprint != identity.fingerprint:
+            raise AssertionError("absence capture identity changed")
+        path = tmp_path / "deadline-absence.png"
+        Image.new("RGB", (256, 256), (127, 127, 127)).save(path)
+        return path
+
+    def write_region_capture(current_identity: WindowIdentity, **_kwargs: object) -> Path:
+        state = daemon._native_construction_handshake.get("state")
+        if state in {None, "", "finalize_required"}:
+            _sample, _digest, path = write_strict_capture(
+                current_identity,
+                PixelDecoder(crop=driver.profile.canvas_crop),
+            )
+            return path
+        return write_absence_capture(current_identity)
+
+    driver._clock = now  # type: ignore[method-assign]
+    daemon._native_clock = now  # type: ignore[method-assign]
+    driver.new_native_decoder = lambda: PixelDecoder(crop=driver.profile.canvas_crop)  # type: ignore[method-assign]
+    daemon._capture_native_frame_with_capture = write_strict_capture  # type: ignore[method-assign]
+    daemon._capture_native_region_for_identity = write_region_capture  # type: ignore[method-assign]
+    driver.capture_client_crop_for_identity = write_absence_capture  # type: ignore[method-assign]
+    return clock
+
+
+@pytest.mark.parametrize(
+    ("drift_kind", "expected_error"),
+    [
+        ("identity", "deferred finalize capture identity binding changed"),
+        ("guardian", "deferred finalize Guardian binding changed"),
+    ],
+)
+def test_native_finalize_transaction_rechecks_final_binding_before_mutation(
+    tmp_path: Path, drift_kind: str, expected_error: str
+) -> None:
+    """Final commit refuses a changed identity or Guardian generation atomically."""
+
+    from tests.test_session import native_calibration
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    rebind_calls: list[object] = []
+    observe_calls: list[object] = []
+    native_calibrated_calls: list[object] = []
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=1
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation["reservationId"],
+            expected_constructor_boot=reservation["expectedConstructorBoot"],
+        )
+        with daemon._native_construction_lock:
+            run_context = copy.deepcopy(daemon._native_construction_run_context)
+            reservation_snapshot = copy.deepcopy(daemon._native_construction_reservation)
+            assert run_context is not None
+            assert reservation_snapshot is not None
+            daemon._native_construction_handshake["state"] = "finalize_required"
+        original_rebind = daemon.controller.rebind_native_construction_frame
+        original_observe = daemon.controller.observe_frame
+        original_native_calibrated = daemon.controller.native_calibrated
+
+        def counted_rebind(**kwargs: object) -> object:
+            rebind_calls.append(kwargs)
+            return original_rebind(**kwargs)
+
+        def counted_observe(**kwargs: object) -> object:
+            observe_calls.append(kwargs)
+            return original_observe(**kwargs)
+
+        def counted_native_calibrated(*args: object, **kwargs: object) -> object:
+            native_calibrated_calls.append((args, kwargs))
+            return original_native_calibrated(*args, **kwargs)
+
+        daemon.controller.rebind_native_construction_frame = counted_rebind  # type: ignore[method-assign]
+        daemon.controller.observe_frame = counted_observe  # type: ignore[method-assign]
+        daemon.controller.native_calibrated = counted_native_calibrated  # type: ignore[method-assign]
+        if drift_kind == "guardian":
+            driver.guardian.generation += 1
+            final_identity_fingerprint = identity.fingerprint
+            final_capture_identity = identity.fingerprint
+        else:
+            final_identity_fingerprint = "drifted-final-identity"
+            final_capture_identity = identity.fingerprint
+        with pytest.raises(DriverError, match=re.escape(expected_error)):
+            daemon._native_construction_finalize_transaction(
+                run_context=run_context,
+                reservation_snapshot=reservation_snapshot,
+                expected_generation=7,
+                finalize_deadline=daemon._native_clock() + 30.0,
+                hook_deadline=None,
+                final_boot=reservation["expectedConstructorBoot"],
+                final_sequence=2,
+                final_crc32=2,
+                final_identity_fingerprint=final_identity_fingerprint,
+                final_capture_identity=final_capture_identity,
+                evidence=native_calibration(process_start="native-r9-binding-drift"),
+            )
+        assert rebind_calls == []
+        assert observe_calls == []
+        assert native_calibrated_calls == []
+    finally:
+        with daemon._native_construction_lock:
+            active = daemon._native_construction_reservation
+        if active is not None:
+            try:
+                daemon.native_construction_recovery_cancel(
+                    expected_generation=7,
+                    reservation_id=active["reservationId"],
+                )
+            except DriverError:
+                pass
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+@pytest.mark.parametrize("deadline_kind", ["final", "hook", "operation"])
+def test_native_finalize_transaction_wait_expiry_refuses_before_mutation(
+    tmp_path: Path, deadline_kind: str
+) -> None:
+    """A live PNG owner cannot commit after a bound expires on lock wait."""
+
+    from crowley.core.watchlist import load_catalog
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    daemon.config = replace(daemon.config, plan_hash=load_catalog().scan_plan()["planHash"])
+    clock = _configure_deadline_png_runner(daemon, driver, identity, tmp_path)
+    worker_result: dict[str, object] = {}
+    finalize_event_entered = threading.Event()
+    release_finalize_event = threading.Event()
+    transaction_entered = threading.Event()
+    release_transaction = threading.Event()
+    original_transaction_entered = threading.Event()
+    controller_held = threading.Event()
+    rebind_calls: list[object] = []
+    observe_calls: list[object] = []
+    native_calibrated_calls: list[object] = []
+    original_event = daemon._native_construction_finalize_event
+    original_transaction = daemon._native_construction_finalize_transaction
+    transaction_calls = [0]
+    original_transaction_calls = [0]
+
+    class DelayedFinalizeEvent:
+        def set(self) -> None:
+            original_event.set()
+
+        def clear(self) -> None:
+            original_event.clear()
+
+        def wait(self, timeout: float | None = None) -> bool:
+            finalize_event_entered.set()
+            if not release_finalize_event.wait(timeout):
+                return False
+            return original_event.wait(timeout)
+
+    daemon._native_construction_finalize_event = DelayedFinalizeEvent()  # type: ignore[assignment]
+
+    def gated_transaction(*args: object, **kwargs: object) -> object:
+        transaction_calls[0] += 1
+        transaction_entered.set()
+        if not release_transaction.wait(3.0):
+            raise DriverError("transaction deadline barrier did not release")
+        original_transaction_calls[0] += 1
+        original_transaction_entered.set()
+        return original_transaction(*args, **kwargs)
+
+    daemon._native_construction_finalize_transaction = gated_transaction  # type: ignore[method-assign]
+    original_rebind = daemon.controller.rebind_native_construction_frame
+    original_observe = daemon.controller.observe_frame
+    original_native_calibrated = daemon.controller.native_calibrated
+
+    def counted_rebind(**kwargs: object) -> object:
+        rebind_calls.append(kwargs)
+        return original_rebind(**kwargs)
+
+    def counted_observe(**kwargs: object) -> object:
+        observe_calls.append(kwargs)
+        return original_observe(**kwargs)
+
+    def counted_native_calibrated(*args: object, **kwargs: object) -> object:
+        native_calibrated_calls.append((args, kwargs))
+        return original_native_calibrated(*args, **kwargs)
+
+    daemon.controller.rebind_native_construction_frame = counted_rebind  # type: ignore[method-assign]
+    daemon.controller.observe_frame = counted_observe  # type: ignore[method-assign]
+    daemon.controller.native_calibrated = counted_native_calibrated  # type: ignore[method-assign]
+    try:
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        daemon.native_construction_bootstrap(
+            expected_generation=7,
+            reservation_id=reservation["reservationId"],
+            expected_constructor_boot=reservation["expectedConstructorBoot"],
+        )
+        if deadline_kind == "hook":
+            original_resume_ready = daemon.notify_native_resume_ready
+
+            def short_hook_resume_ready(*args: object, **kwargs: object) -> object:
+                result = original_resume_ready(*args, **kwargs)
+                with daemon._native_construction_lock:
+                    daemon._native_construction_handshake["finalizeHookDeadline"] = (
+                        daemon._native_clock() + 1.0
+                    )
+                return result
+
+            driver.notify_native_resume_ready = short_hook_resume_ready  # type: ignore[method-assign]
+        run_thread = threading.Thread(
+            target=lambda: _store_exception(
+                worker_result,
+                lambda: daemon.run_native_calibration(expected_generation=7),
+            ),
+            name=f"native-deadline-{deadline_kind}",
+        )
+        run_thread.start()
+        assert _wait_for(
+            lambda: daemon._native_construction_handshake.get("state") == "resume_ready",
+            timeout=60.0,
+        )
+
+        # Hook is intentionally the tight bound for the hook case.  The
+        # delayed event gives this test a real post-admission handoff point so
+        # the worker cannot race the deadline fixture's mutation.
+        with daemon._native_construction_lock:
+            now = clock[0]
+            if deadline_kind == "hook":
+                # The callback wrapper above installs this bound before the
+                # worker snapshots its local finalize-hook deadline.
+                pass
+            elif deadline_kind == "operation":
+                daemon._native_construction_operation_deadline = now + 1.0
+            else:
+                daemon._native_construction_handshake["finalizeHookDeadline"] = now + 30.0
+        admitted = daemon.native_construction_finalize_admit(
+            expected_generation=7, reservation_id=reservation["reservationId"]
+        )
+        assert admitted["handshake"]["state"] == "finalize_required"
+        assert finalize_event_entered.wait(3.0)
+        with daemon._native_construction_lock:
+            now = clock[0]
+            # Keep the other applicable bounds valid while the named bound
+            # expires after the outer revalidation has succeeded.
+            daemon._native_construction_handshake["finalizeDeadline"] = now + 10.0
+            if deadline_kind == "final":
+                deadline = now + 1.0
+                daemon._native_construction_handshake["finalizeDeadline"] = deadline
+            elif deadline_kind == "hook":
+                deadline = float(daemon._native_construction_handshake["finalizeHookDeadline"])
+            else:
+                deadline = float(daemon._native_construction_operation_deadline)
+        release_finalize_event.set()
+        # This is the actual transaction entry, after all outer capture and
+        # revalidation checks.  Hold the controller lock while the named
+        # deadline expires, then release the wrapper into the production
+        # transaction so its inner guard, rather than an earlier check,
+        # refuses the commit.
+        assert transaction_entered.wait(10.0)
+        with daemon.controller.lock:
+            controller_held.set()
+            clock[0] = deadline + 1.0
+            release_transaction.set()
+            time.sleep(0.1)
+            assert rebind_calls == []
+            assert observe_calls == []
+            assert native_calibrated_calls == []
+        run_thread.join(timeout=10.0)
+        assert not run_thread.is_alive()
+        assert transaction_calls == [1]
+        assert original_transaction_calls == [1]
+        assert original_transaction_entered.is_set()
+        assert isinstance(worker_result.get("error"), DriverError)
+        error = str(worker_result["error"])
+        expected_error = {
+            "final": "deferred finalize frame deadline expired",
+            "hook": "deferred finalize hook deadline expired",
+            "operation": "deferred finalize admission deadline expired",
+        }[deadline_kind]
+        assert expected_error in error
+        assert daemon._native_construction_handshake["state"] == "error"
+        assert daemon.controller.native_construction_checkpoint()["phase"] == "recovery_required"
+    finally:
+        release_finalize_event.set()
+        release_transaction.set()
+        thread = daemon._calibration_thread
+        if thread is not None:
+            thread.join(timeout=10.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def _store_exception(result: dict[str, object], call: Callable[[], object]) -> None:
+    try:
+        result["value"] = call()
+    except BaseException as exc:  # pragma: no cover - asserted by caller
+        result["error"] = exc
 
 
 def _owned_child_identity(child: subprocess.Popen[str]) -> tuple[str, str]:

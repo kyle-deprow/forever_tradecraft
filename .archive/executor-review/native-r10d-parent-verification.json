@@ -1,0 +1,28 @@
+{
+  "kind": "parent-native-r10d-final-test-verification",
+  "hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "12ed6f14abbb7dae5bb68f12f1fac904badfcfc32a87eeb765a47553fbd0ef2a",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "result": "2 passed in 43.45s",
+  "returncode": 0,
+  "log_sha256": "e6c084333d2cbd78688b05192f42c7f139ba30ad5be889949b3a6bf6ad77535b",
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-vv",
+    "tests/test_session_native_regressions.py::test_native_construction_composes_real_png_runner_and_finalize[True-None]",
+    "tests/test_session_native_regressions.py::test_native_construction_composes_real_png_runner_and_finalize[False-None]"
+  ],
+  "source_inspection": "Actual cancel-wins branch after worker join now calls native_construction_recheck with exact generation and reservation ID, asserts cancelled handshake and reservationState. Supplementary test docstring corrected.",
+  "six_readonly_exact_r10c": true,
+  "only_two_named_function_ASTs_changed": true,
+  "statics": "parent Ruff lint/format and whitespace passed",
+  "qualification": "Final test-only review pending; no live qualification."
+}

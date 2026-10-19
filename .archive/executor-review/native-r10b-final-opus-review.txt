@@ -1,0 +1,94 @@
+Resolved model: claude-opus-5-5
+CLI exit: 0
+Private raw stream SHA256: e877915ef7cee3450c2a9c59721752435e843cfc98265405986fbfcd1cb3c2d2
+
+Resolved model ID: **claude-opus-5-5**
+
+# R9 → R10/R10b review: native Guardian-generation owner fencing
+
+The production change is correct and the R10b four-case compiled proof reaches the branches it's meant to. One explicitly assigned regression proof was never implemented, though, and the closure doesn't mention it.
+
+This was a source-only review. I made no edits and ran no tests, builds, git commands, GUI actions or captures. My only write was the plan scratch file.
+
+## What I checked
+- **Hashes:** all seven match the stated SHA256s. `controller.py`, `cli.py`, `test_session_runtime.py` and `test_session_transitions.py` are byte-identical to the R9 baseline. `daemon.py` and `test_session_native_regressions.py` are byte-identical between R10 and R10b.
+- **Other source files:** none differ from the R9 baseline, so Guardian, driver, helper and the rest are unchanged.
+- **Test scope (AST comparison):**
+  - Between R10 and R10b, only `test_compiled_private_owner_guardian_generation_revoke_orders` changed.
+  - Against R9, `test_session_native.py` changes only the new test, the `Callable` import, the non-X11 assertion in the real-daemon route test, and the `guardianGeneration` owner-data fix in the compiled-region test.
+  - The regression module has seven added tests and three edited ones, all mapped to the plan.
+
+## Must-Fix
+None.
+
+## Should-Fix
+
+**1. The finalize-wins controller-mutex proof and the cancel-wins terminal recheck were never implemented.**
+
+Sol's R9 Should-Fix 1 required these. So did the R10 plan (lines 41-46) and the final arbitration (lines 98-101: "both later terminal rechecks/controller-mutex proof"). They are still missing:
+
+- **The test is unchanged.** `test_native_construction_composes_real_png_runner_and_finalize` has the same AST as in R9.
+- **The finalize-wins barrier is still timing-based.** At `tests/test_session_native_regressions.py:7410-7426`, `cancel_attempted` is set before `dispatch`, and the only check is `not cancel_done.wait(0.2)`.
+- **The cancel never reaches the controller mutex.** Public cancel calls `_native_construction_flush_expiry` first (`daemon.py:2801` → `1004`). That blocks on the construction lock, which the transaction holds, so the cancel never gets to the controller lock at `daemon.py:2802`. The test does not show what it claims.
+- **The cancel-wins branch has no later recheck.** Lines 7433-7445 check only the initial response, with no later `native_construction_recheck`.
+- **Nothing maps or defers it.** The R10 closure, the freeze and the parent verification all omit it, which goes against the plan's "Do not silently drop a required race proof".
+
+**Fix (tests only; R9 Opus already confirmed the production code is correct):**
+1. Use a forwarding hook that signals after the real `flush_expiry` returns.
+2. Let the final transaction take both locks.
+3. Use a thin forwarding facade on `controller.lock` (the plan allows this) to record a failed non-blocking acquire by the cancel thread, then delegate to the blocking acquire.
+4. In both orders, call the public `native_construction_recheck` afterwards and assert the exact `finalized` or `cancelled` terminal (handshake state and `reservationState`).
+5. Map it by exact test ID in the closure.
+
+## Nits
+1. **Owner/epoch "unchanged" is only implied after the revoke** (`tests/test_session_native.py:2070-2072`, `2118-2120`).
+   - `barrier_owner` is captured when the barrier is entered, which is before the revoke starts.
+   - That the owner stays unchanged after the revoke follows only from the lock probe at 2121. The R10b closure's "owner/epoch remain unchanged" overstates what is asserted.
+   - Fix: after the generation advances, read `daemon._native_construction_reservation == owner_before` and `daemon._native_construction_epoch == construction_epoch_before` directly.
+2. **Vacuous assertion** (`tests/test_session_native.py:2179`). `assert not captured_epochs or captured_epochs[0] >= 0` adds nothing after the exact checks at 2172-2173. Remove it.
+3. **The surrogate `/bin/sleep` test overclaims** (`tests/test_session_native_regressions.py:6341-6448`).
+   - In its revoke-first case the capture blocks at the outer controller check (`daemon.py:4609`), because the main thread holds the controller lock.
+   - The revoke callback then clears the hand-built inflight owner, and the capture fails at the outer PAUSED capability check (`daemon.py:4640`). It never reaches `admit_observer` or the generation fence.
+   - The comment at 6416-6418 and the docstring overclaim, and it relies on `sleep(0.05)`.
+   - It is allowed as supplementary coverage. Correct the comment and docstring, or assert the exact "requires a live recovery capability" message, so nobody maps it as fence proof.
+4. **Live generation is now read earlier, and a comment is wrong** (`daemon.py:1766-1772`).
+   - The live Guardian generation is now read before `resolve_identity()`. R9 sampled it after identity resolution, inside the binding.
+   - The later locked owner checks, the start fence and the finalize transaction still fail closed, but the window inside the snapshot check is slightly wider.
+   - The comment says "binding snapshot above" when the binding is below, at 1775.
+   - Fix: move the live read to just before the binding call and fix the comment.
+5. **Dead parameters** (`daemon.py:1446-1447`, `1459`). No caller passes `guardian_armed` or `desktop_lease_held`, so the conditional is always true. Drop them.
+6. **Inflight capability generation is never asserted** (`tests/test_session_native_regressions.py:6290-6292`). The public recovery-begin inflight capability is checked for a `None` ID and a match, but not for its `guardianGeneration`. Add `inflight["guardianGeneration"] == second_driver.guardian.generation`.
+7. **Closure gaps.**
+   - The R10 closure doesn't record R9's same-kind starting-record adoption (`daemon.py:1231`, `1270-1273`) as a production fix to the public input path.
+   - It also doesn't record the intended legacy early fail-closed behaviour for resume facts. Final arbitration asked for both.
+
+## What holds
+- **Binding at owner creation.**
+  - Prepare inflight (2112) and the preflight/measure record (2156) bind the generation, as do the recovery inflight (2439) and the recovery binding (2524).
+  - A recovery hand-off keeps the preflight's original value (2527), and that only passes after the live check at 2457, so the two values match.
+  - Contexts take the owner's value and sample only when truly ownerless (1174-1185). Capabilities and tickets carry it (1065, 2546).
+  - Matching is exact (1090). The snapshot check compares against the live value separately (1770).
+  - The pre-Popen fence runs inside the real Guardian-locked callback (4674-4685).
+  - Generation 0 is valid. A missing or `None` value fails closed.
+- **Lock order.**
+  - The new Guardian lock acquisitions (1429, 1467) are always innermost: under construction (2112, 2439, 2516) or construction plus calibration-state (1255 → 1181).
+  - Guardian runs revoke callbacks after releasing its lock (`guardian.py:1913-1938`), and every callback run under the Guardian lock is driver-only. No reverse edge exists, so controller → construction → Guardian holds.
+- **No public wire change.** Tickets and contexts aren't returned in IPC replies, and the reservation already had `guardianGeneration`. No external code matches the changed error strings.
+- **R10b proof.**
+  - PAUSED uses the real public preflight. NATIVE uses public prepare plus bootstrap with the exact echo, which produces a consumed owner and a deferred context. Both run the real `X11Backend`, Guardian and pinned producer.
+  - Revoke-first:
+    - The real callback blocks on the held construction lock: Guardian → driver callback → `daemon.py:926` → `929`.
+    - The backend epoch is unchanged because no process groups were active.
+    - The exact "stale" error is raised before `start()`, the stage stays `observer_admission`, and no Shell request is made.
+    - This would fail on R9, so the proof catches a regression.
+  - Admission-first: the child registers and reaches the Shell gate, then revoke reaps it. The epoch advances and all registries end up empty.
+- **Other mapped fixes are present.**
+  - Worker-identity intermediate assertion (6919-6930) and its starting variant (6955).
+  - Input start reaching its own record (7053), and the cross-kind refusal (7105).
+  - Recovery restart refused against a live reservation (4390).
+  - Missing and `None` resume-sequence cases, which tell the corrected behaviour apart from R8 (5617-5650).
+  - The non-X11 refusal is back in the real-daemon route test (`test_session_native.py:1006-1008`).
+  - The `guardianGeneration` capability negative (6221-6224).
+- **Out of scope, not counted.** The capability-less producer captures at `daemon.py:2911` and `3743` remain outside the new fence. This matches the deferred legacy residual.
+
+STATUS: NEEDS WORK

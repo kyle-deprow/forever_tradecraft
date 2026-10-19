@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "status": "source_test_pair_frozen_integration_evidence_incomplete",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-helper-final-integration-20261019",
+  "base_commit": "c5e577200adadb8c158b1009643aa0f746d98753",
+  "owned_files": {
+    "tools/native_calibration_operator.py": "ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5",
+    "tests/test_native_calibration_operator.py": "d4834f543333a66e9bc9d31e150ef9e085195a27cc93656df5c8d81683fd8b48"
+  },
+  "readonly_r10d_dependencies": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "12ed6f14abbb7dae5bb68f12f1fac904badfcfc32a87eeb765a47553fbd0ef2a",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "retained_evidence": {
+    "historical_helper_66_suite": {
+      "worktree": "/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018",
+      "command": "/home/dev/repos/pegasus/.venv/bin/python -m pytest -vv tests/test_native_calibration_operator.py",
+      "return_code": 0,
+      "result": "66 passed, 2 warnings in 188.77s",
+      "log_path": "/home/dev/.local/state/crowley/executor-evidence/helper-causal-parent-final-20261019/test.log",
+      "log_mode": "0600",
+      "log_sha256": "3c026e3f41c5881edfa0bafa83e6400fefd7a39471f2a40384b26443631effea",
+      "dependency_binding": "prior causal dependencies, not current R10d"
+    },
+    "current_r10d_native_smoke": {
+      "log_path": "/home/dev/.local/state/crowley/executor-evidence/native-r10d-parent-final-20261019/test.log",
+      "log_mode": "0600",
+      "log_sha256": "80bdb2857970389fe25cd01273bf7b0a1d689bf54f5b893e210e6d87165141a2",
+      "result_record": null,
+      "return_code": null,
+      "qualification": "incomplete artifact; not a pass"
+    }
+  },
+  "warnings": {
+    "count": 2,
+    "kind": "DeprecationWarning",
+    "source": "multiprocessing/popen_fork.py:66",
+    "tests": [
+      "test_owned_emitter_gate_and_release_subprocess",
+      "test_owned_emitter_gate_eof_is_bounded"
+    ],
+    "message": "multithreaded process uses fork() and may deadlock"
+  },
+  "integration_coverage": {
+    "actual_measure_sequence": "historical_prior_dependency_evidence",
+    "public_pause_new_generation": "not_run",
+    "fresh_empty_id_recovery_after_measure": "not_run",
+    "ack_restore_and_ordinary_reload": "not_run",
+    "ordinary_normal0_and_cleanup": "not_run",
+    "exact_r10d_full_helper_suite": "no_retained_result"
+  },
+  "cleanup": {
+    "current_integration_cleanup_receipt": null,
+    "historical_causal_cleanup_assertions": true,
+    "post_run_owned_process_count_current_integration": null,
+    "note": "No current integration run was retained; no cleanup outcome inferred."
+  },
+  "limitations": [
+    "source/test pair is frozen but requested post-success integration is unproven",
+    "historical 66-test log is bound to prior native dependencies",
+    "current R10d two-test artifact has no retained result record",
+    "no live UI, addon, deployment, or native promotion qualification"
+  ]
+}

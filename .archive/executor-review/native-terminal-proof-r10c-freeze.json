@@ -1,0 +1,94 @@
+{
+  "schema": "crowley.native-terminal-proof-r10c-freeze",
+  "schema_version": 1,
+  "status": "bounded_test_proof_complete_parent_verification_pending",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-terminal-proof-r10c-20261019",
+  "base_commit": "c5e577200adadb8c158b1009643aa0f746d98753",
+  "source_fence": {
+    "writable": [
+      "tests/test_session_native.py",
+      "tests/test_session_native_regressions.py"
+    ],
+    "readonly": [
+      "src/crowley/session/controller.py",
+      "src/crowley/session/daemon.py",
+      "src/crowley/session/cli.py",
+      "tests/test_session_runtime.py",
+      "tests/test_session_transitions.py"
+    ],
+    "production_changes": false,
+    "no_helper_driver_guardian_config_service_gui_git_mutations": true
+  },
+  "r10b_base_hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "2faabdaa3d73cec54d88c82be6d0abc4577e13ba1d4cdd728d65ba7d41bb942e",
+    "tests/test_session_native_regressions.py": "bc6cc3b7a9f4435b93cf921ac57d6db8ea23dd611190f2e5f9749f3bf53c6819",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "final_hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "9d6cd025e9b960dea51c9d041994ec391519cbf2438440e0502c136a2dcde87b",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "changed_top_level_definitions_against_r10b": {
+    "tests/test_session_native.py": [
+      "test_compiled_private_owner_guardian_generation_revoke_orders"
+    ],
+    "tests/test_session_native_regressions.py": [
+      "test_native_capability_matches_exact_owner_facts_and_inflight_none_id",
+      "test_native_construction_composes_real_png_runner_and_finalize",
+      "test_native_recovery_restart_refuses_live_reservation"
+    ]
+  },
+  "focused_verification": {
+    "invocation": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=<r10c>/src:/home/dev/repos/pegasus pytest -q <3 R10c cases> <inflight-capability recovery case> test_compiled_private_owner_guardian_generation_revoke_orders --maxfail=1",
+    "case_ids": [
+      "test_native_construction_composes_real_png_runner_and_finalize[True-None]",
+      "test_native_construction_composes_real_png_runner_and_finalize[False-None]",
+      "test_native_recovery_restart_refuses_live_reservation",
+      "test_native_capability_matches_exact_owner_facts_and_inflight_none_id",
+      "test_compiled_private_owner_guardian_generation_revoke_orders[paused-revoke-first]",
+      "test_compiled_private_owner_guardian_generation_revoke_orders[paused-admission-first]",
+      "test_compiled_private_owner_guardian_generation_revoke_orders[native-revoke-first]",
+      "test_compiled_private_owner_guardian_generation_revoke_orders[native-admission-first]"
+    ],
+    "result": "8 passed in 49.75s; exit_code=0",
+    "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-proof-r10c-20261019/focused-r10c-eight.log",
+    "log_sha256": "44b50c75cb10d7ac63baeb58197ffc3a3a7263d58f7970dccaf9ca6c9f33fa83"
+  },
+  "scoped_checks": {
+    "invocation": "ruff format --check; ruff check; python -m compileall -q; git diff --check on all seven fenced files",
+    "result": "all passed; exit_code=0",
+    "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-proof-r10c-20261019/static-r10c-final2.log",
+    "log_sha256": "d33d34cd061da999b07e64da244733b25bf6ece71b753f0efa54162040d68c97",
+    "ast_fence_log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-proof-r10c-20261019/ast-fence-r10c.log",
+    "ast_fence_log_sha256": "bd17c01738867cce0aee572cfcb8931465aa68bb4f09fa3ee7e8dfd59699fd49"
+  },
+  "fixture": {
+    "authentic_cli": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "private_xdg_runtime": true,
+    "private_shell_bus_for_compiled_cases": true,
+    "evidence_directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-proof-r10c-20261019",
+    "evidence_directory_mode": "0700",
+    "evidence_log_mode": "0600",
+    "no_live_capture_or_deployment": true
+  },
+  "cleanup": {
+    "result": "no stale pytest, gnome-screenshot, Xvfb, or dbus-run-session processes remained after focused runs",
+    "temporary_xdg_directories": ["/tmp/r10c-xdg-combined", "/tmp/r10c-xdg-final", "/tmp/r10c-xdg-eight"]
+  },
+  "preserved_prior_result": "R10b independently recorded its accepted production and four-case compiled proof; no broad suite was rerun for R10c.",
+  "review": {
+    "actual_opus_r10c_arbitration": "complete; no production defect found",
+    "parent_verification": "pending",
+    "focused_sol_rereview": "pending",
+    "live_or_native_100_claim": false
+  }
+}

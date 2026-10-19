@@ -1,0 +1,40 @@
+{
+  "kind": "parent-native-r10c-test-proof-verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-terminal-proof-r10c-20261019",
+  "hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "9d6cd025e9b960dea51c9d041994ec391519cbf2438440e0502c136a2dcde87b",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "result": "8 passed in 49.12s",
+  "returncode": 0,
+  "log_sha256": "465e61869dc7f7b58d610bd6e583002d7415668823474cd9bf4469ce60534df6",
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/python",
+    "-m",
+    "pytest",
+    "-vv",
+    "tests/test_session_native_regressions.py::test_native_construction_composes_real_png_runner_and_finalize[True-None]",
+    "tests/test_session_native_regressions.py::test_native_construction_composes_real_png_runner_and_finalize[False-None]",
+    "tests/test_session_native_regressions.py::test_native_recovery_restart_refuses_live_reservation",
+    "tests/test_session_native_regressions.py::test_native_capability_matches_exact_owner_facts_and_inflight_none_id",
+    "tests/test_session_native.py::test_compiled_private_owner_guardian_generation_revoke_orders"
+  ],
+  "five_readonly_exact_r10b": true,
+  "changed_test_ASTs": {
+    "tests/test_session_native.py": [
+      "test_compiled_private_owner_guardian_generation_revoke_orders"
+    ],
+    "tests/test_session_native_regressions.py": [
+      "test_native_capability_matches_exact_owner_facts_and_inflight_none_id",
+      "test_native_construction_composes_real_png_runner_and_finalize",
+      "test_native_recovery_restart_refuses_live_reservation"
+    ]
+  },
+  "worker_logs_hashes_0600_verified": true,
+  "qualification": "Test-only final correction; independent final Sol and actual Opus review pending; no live qualification."
+}

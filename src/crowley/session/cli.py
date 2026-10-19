@@ -92,6 +92,85 @@ class SessionIPC:
             if self.owner is None:
                 return {"ok": False, "error": "calibration status requires the daemon"}
             return {"ok": True, "status": self.owner.calibration_status()}
+
+        construction_commands = {
+            "native_construction_prepare",
+            "native_construction_control_preflight",
+            "native_construction_bootstrap",
+            "native_construction_recheck",
+            "native_construction_finalize_admit",
+            "native_construction_recovery_begin",
+            "native_construction_recovery_complete",
+            "native_construction_recovery_cancel",
+        }
+        if command in construction_commands:
+            if self.owner is None:
+                return {"ok": False, "error": "native construction requires the daemon"}
+            allowed_fields = {
+                "native_construction_prepare": {"command", "generation"},
+                "native_construction_control_preflight": {"command", "generation"},
+                "native_construction_bootstrap": {
+                    "command",
+                    "generation",
+                    "reservationId",
+                    "expectedConstructorBoot",
+                },
+                "native_construction_recheck": {"command", "generation", "reservationId"},
+                "native_construction_finalize_admit": {"command", "generation", "reservationId"},
+                "native_construction_recovery_begin": {"command", "generation", "reservationId"},
+                "native_construction_recovery_complete": {"command", "generation", "reservationId"},
+                "native_construction_recovery_cancel": {"command", "generation", "reservationId"},
+            }[command]
+            if set(request) != allowed_fields:
+                return {"ok": False, "error": "native construction request fields are malformed"}
+            if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+                return {"ok": False, "error": "a positive generation is required"}
+            reservation_id = request.get("reservationId")
+            if command == "native_construction_recovery_begin":
+                if not isinstance(reservation_id, str) or len(reservation_id) > 128:
+                    return {"ok": False, "error": "recovery reservationId is malformed"}
+            elif command not in {"native_construction_prepare", "native_construction_control_preflight"}:
+                if not isinstance(reservation_id, str) or not reservation_id or len(reservation_id) > 128:
+                    return {"ok": False, "error": "reservationId is malformed"}
+            expected_boot = request.get("expectedConstructorBoot")
+            if command == "native_construction_bootstrap" and (
+                not isinstance(expected_boot, str) or not expected_boot or len(expected_boot.encode()) > 96
+            ):
+                return {"ok": False, "error": "expectedConstructorBoot is malformed"}
+            try:
+                if command == "native_construction_prepare":
+                    result = self.owner.native_construction_prepare(expected_generation=generation)
+                elif command == "native_construction_control_preflight":
+                    result = self.owner.native_construction_control_preflight(expected_generation=generation)
+                elif command == "native_construction_bootstrap":
+                    result = self.owner.native_construction_bootstrap(
+                        expected_generation=generation,
+                        reservation_id=reservation_id,
+                        expected_constructor_boot=expected_boot,
+                    )
+                elif command == "native_construction_recheck":
+                    result = self.owner.native_construction_recheck(
+                        expected_generation=generation, reservation_id=reservation_id
+                    )
+                elif command == "native_construction_finalize_admit":
+                    result = self.owner.native_construction_finalize_admit(
+                        expected_generation=generation, reservation_id=reservation_id
+                    )
+                elif command == "native_construction_recovery_begin":
+                    result = self.owner.native_construction_recovery_begin(
+                        expected_generation=generation, reservation_id=reservation_id
+                    )
+                elif command == "native_construction_recovery_complete":
+                    result = self.owner.native_construction_recovery_complete(
+                        expected_generation=generation, reservation_id=reservation_id
+                    )
+                else:
+                    result = self.owner.native_construction_recovery_cancel(
+                        expected_generation=generation, reservation_id=reservation_id
+                    )
+            except (DriverError, RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, **result} if isinstance(result, dict) else {"ok": True, "status": result}
         # Calibration includes a live capture or an operator takeover sample.
         # It must run outside the controller mutex so another socket can pause
         # and revoke it while the workflow is waiting.
@@ -183,6 +262,12 @@ class SessionIPC:
         if command in interaction_commands:
             if self.owner is None:
                 return {"ok": False, "error": "interaction requires the daemon"}
+            native_flush = getattr(self.owner, "_native_construction_flush_expiry", None)
+            if callable(native_flush):
+                native_flush()
+            native_blocks = getattr(self.owner, "_native_construction_blocks_competing_entry", None)
+            if callable(native_blocks) and native_blocks():
+                return {"ok": False, "error": "native construction admission is active"}
             if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
                 return {"ok": False, "error": "a positive generation is required"}
             allowed_fields = {
@@ -807,6 +892,25 @@ def main(argv: list[str] | None = None) -> int:
             sub.add_argument("--generation", type=int, required=True)
     subparsers.add_parser("daemon")
     subparsers.add_parser("native-bootstrap").add_argument("--generation", type=int, required=True)
+    subparsers.add_parser("native-construction-prepare").add_argument("--generation", type=int, required=True)
+    subparsers.add_parser("native-construction-control-preflight").add_argument(
+        "--generation", type=int, required=True
+    )
+    native_construction_bootstrap = subparsers.add_parser("native-construction-bootstrap")
+    native_construction_bootstrap.add_argument("--generation", type=int, required=True)
+    native_construction_bootstrap.add_argument("--reservation-id", required=True)
+    native_construction_bootstrap.add_argument("--expected-constructor-boot", required=True)
+    for command in ("native-construction-recheck", "native-construction-finalize-admit"):
+        native_admit = subparsers.add_parser(command)
+        native_admit.add_argument("--generation", type=int, required=True)
+        native_admit.add_argument("--reservation-id", required=True)
+    native_recovery_begin = subparsers.add_parser("native-construction-recovery-begin")
+    native_recovery_begin.add_argument("--generation", type=int, required=True)
+    native_recovery_begin.add_argument("--reservation-id", default="")
+    for command in ("native-construction-recovery-complete", "native-construction-recovery-cancel"):
+        native_recovery = subparsers.add_parser(command)
+        native_recovery.add_argument("--generation", type=int, required=True)
+        native_recovery.add_argument("--reservation-id", required=True)
     for command in ("native-calibrate", "input-calibrate"):
         gate = subparsers.add_parser(command)
         gate.add_argument("--generation", type=int, required=True)
@@ -902,13 +1006,32 @@ def main(argv: list[str] | None = None) -> int:
         request["pulseSeconds"] = args.pulse_seconds
     elif args.command == "motion-waypoint":
         request.update(x=args.x, y=args.y)
+    if args.command == "native-construction-bootstrap":
+        request.update(
+            reservationId=args.reservation_id,
+            expectedConstructorBoot=args.expected_constructor_boot,
+        )
+    elif args.command in {
+        "native-construction-recheck",
+        "native-construction-finalize-admit",
+        "native-construction-recovery-complete",
+        "native-construction-recovery-cancel",
+    }:
+        request["reservationId"] = args.reservation_id
+    elif args.command == "native-construction-recovery-begin":
+        request["reservationId"] = args.reservation_id
     if getattr(args, "generation", None) is not None:
         request["generation"] = args.generation
     try:
         # Native motion owns one bounded server operation.  The transport
         # timeout must leave room for its final observation/release cleanup;
         # a client timeout must never outlive the daemon's ownership decision.
-        if args.command == "motion-movement-calibrate":
+        if args.command.startswith("native-construction-"):
+            # Prepare/recovery captures are bounded by the configured reload
+            # deadline (1..600s); keep the existing transport margin explicit
+            # rather than timing out at an unrelated fixed 60 seconds.
+            operation_timeout = float(config.reload_deadline_seconds)
+        elif args.command == "motion-movement-calibrate":
             operation_timeout = MOTION_CALIBRATION_OPERATION_SECONDS
         elif args.command == "motion-waypoint":
             operation_timeout = MAX_WAYPOINT_SECONDS
@@ -920,7 +1043,7 @@ def main(argv: list[str] | None = None) -> int:
             operation_timeout = 5.0
         request_timeout = (
             operation_timeout + MOTION_TRANSPORT_MARGIN_SECONDS
-            if args.command.startswith("motion-")
+            if args.command.startswith(("motion-", "native-construction-"))
             else operation_timeout
         )
         response = _socket_request(config.socket, request, timeout=request_timeout)

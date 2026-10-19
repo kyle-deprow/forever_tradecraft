@@ -1,0 +1,71 @@
+{
+  "schema": "crowley.native-terminal-final-r10d-freeze",
+  "schema_version": 1,
+  "status": "bounded_test_correction_complete_parent_inspection_pending",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-terminal-final-r10d-20261019",
+  "base_commit": "c5e577200adadb8c158b1009643aa0f746d98753",
+  "source_fence": {
+    "writable": ["tests/test_session_native_regressions.py"],
+    "readonly": [
+      "src/crowley/session/controller.py",
+      "src/crowley/session/daemon.py",
+      "src/crowley/session/cli.py",
+      "tests/test_session_native.py",
+      "tests/test_session_runtime.py",
+      "tests/test_session_transitions.py"
+    ],
+    "production_changes": false,
+    "no_gui_service_git_mutations": true
+  },
+  "r10c_base_hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "9d6cd025e9b960dea51c9d041994ec391519cbf2438440e0502c136a2dcde87b",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "final_hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "12ed6f14abbb7dae5bb68f12f1fac904badfcfc32a87eeb765a47553fbd0ef2a",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "changed_top_level_definitions_against_r10c": [
+    "test_native_construction_composes_real_png_runner_and_finalize",
+    "test_native_guardian_generation_fence_covers_real_child_admission"
+  ],
+  "focused_verification": {
+    "invocation": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=<r10d>/src:/home/dev/repos/pegasus pytest -q test_native_construction_composes_real_png_runner_and_finalize[True-None] test_native_construction_composes_real_png_runner_and_finalize[False-None] --maxfail=1",
+    "case_ids": [
+      "test_native_construction_composes_real_png_runner_and_finalize[True-None]",
+      "test_native_construction_composes_real_png_runner_and_finalize[False-None]"
+    ],
+    "result": "2 passed in 43.30s; exit_code=0",
+    "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-final-r10d-20261019/focused-r10d-two.log",
+    "log_sha256": "fbd30386a9d948992b7f9337adfa6f16f89b69b9a22609448d2cf8b3b5cbec2a"
+  },
+  "scoped_checks": {
+    "invocation": "ruff format --check; ruff check; python -m compileall -q; git diff --check on all seven fenced files",
+    "result": "all passed; exit_code=0",
+    "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-final-r10d-20261019/static-r10d.log",
+    "log_sha256": "c1e2b58277b81886a2f23a2fbcccc6ea461b521dc3b623fcb86c76a10c5a9b24",
+    "ast_fence_log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-final-r10d-20261019/ast-fence-r10d.log",
+    "ast_fence_log_sha256": "d89764f70148bba6628069e6850fc4455f02aa3cc9acec90b45109c03b6ae61d"
+  },
+  "cleanup": {
+    "result": "no stale pytest, gnome-screenshot, Xvfb, or dbus-run-session processes remained",
+    "evidence_directory": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-terminal-final-r10d-20261019",
+    "evidence_directory_mode": "0700",
+    "evidence_log_mode": "0600"
+  },
+  "review": {
+    "parent_source_inspection": "pending",
+    "actual_opus_r10c_review": "separate frozen candidate",
+    "live_or_native_100_claim": false
+  }
+}

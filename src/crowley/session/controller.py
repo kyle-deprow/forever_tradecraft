@@ -96,6 +96,49 @@ _ACTION_ALIASES = {
 
 _SCANNER_PHASE_UNSET = object()
 
+_NATIVE_CONSTRUCTION_CHECKPOINT_KEYS = frozenset(
+    {"schema", "B0", "expectedConstructorBoot", "ownerGeneration", "kind", "phase"}
+)
+_NATIVE_CONSTRUCTION_KINDS = frozenset({"measure", "preflight"})
+_NATIVE_CONSTRUCTION_PHASES = frozenset({"prepared", "recovery_required"})
+
+
+def _valid_native_construction_checkpoint(value: object) -> bool:
+    if not isinstance(value, dict) or set(value) != _NATIVE_CONSTRUCTION_CHECKPOINT_KEYS:
+        return False
+    schema = value.get("schema")
+    if isinstance(schema, bool) or not isinstance(schema, int) or schema != 1:
+        return False
+    b0 = value.get("B0")
+    expected = value.get("expectedConstructorBoot")
+    try:
+        b0_size = len(b0.encode("utf-8")) if isinstance(b0, str) else -1
+        expected_size = len(expected.encode("utf-8")) if isinstance(expected, str) else -1
+    except UnicodeError:
+        return False
+    if (
+        not isinstance(b0, str)
+        or not b0
+        or b0.startswith("native-construction:")
+        or b0_size > 64
+        or not isinstance(expected, str)
+        or expected != f"native-construction:{b0}"
+        or expected_size > 96
+    ):
+        return False
+    generation = value.get("ownerGeneration")
+    kind = value.get("kind")
+    phase = value.get("phase")
+    return (
+        isinstance(generation, int)
+        and not isinstance(generation, bool)
+        and generation > 0
+        and isinstance(kind, str)
+        and kind in _NATIVE_CONSTRUCTION_KINDS
+        and isinstance(phase, str)
+        and phase in _NATIVE_CONSTRUCTION_PHASES
+    )
+
 
 def _action_kind(action: str, *, acknowledgement: bool = False) -> ActionKind:
     if acknowledgement and action in {"/reload", "save_reload"}:
@@ -171,6 +214,30 @@ class Controller:
         self.journal.replay_archive_bundles()
         journal_was_present = self.journal.path.exists()
         value = self.journal.read()
+        native_key_present = "nativeConstruction" in value
+        stored_native_construction = value.get("nativeConstruction")
+        if not native_key_present:
+            self._native_construction: dict[str, Any] | None = None
+            self._native_construction_valid = True
+            self._native_construction_raw: Any = None
+        elif stored_native_construction is None:
+            # A present JSON null is evidence of a malformed checkpoint, not
+            # the same thing as an omitted checkpoint.  Preserve it verbatim
+            # so a restart cannot turn an invalid durable state into absence.
+            self._native_construction = None
+            self._native_construction_valid = False
+            self._native_construction_raw = None
+        elif _valid_native_construction_checkpoint(stored_native_construction):
+            self._native_construction = copy.deepcopy(stored_native_construction)
+            self._native_construction_valid = True
+            self._native_construction_raw = None
+        else:
+            # Preserve malformed durable state verbatim.  A fresh owner must
+            # fail closed and recovery may inspect it, but ordinary checkpoint
+            # writes must never silently repair or erase the evidence.
+            self._native_construction = None
+            self._native_construction_valid = False
+            self._native_construction_raw = copy.deepcopy(stored_native_construction)
         self._state = ControllerState(value.get("state", "STOPPED"))
         self._mode = SessionMode(value.get("mode", "repeat"))
         self._generation = int(value.get("generation", 0))
@@ -969,6 +1036,15 @@ class Controller:
                     },
                 }
             )
+            if self._native_construction_valid:
+                if self._native_construction is None:
+                    current.pop("nativeConstruction", None)
+                else:
+                    current["nativeConstruction"] = copy.deepcopy(self._native_construction)
+            else:
+                # Keep malformed durable state visible for recovery/audit.  It
+                # is never interpreted as an admission checkpoint.
+                current["nativeConstruction"] = copy.deepcopy(self._native_construction_raw)
             self.journal.write(current)
 
     def _invalidate_live_calibration(self, reason: str) -> None:
@@ -1182,6 +1258,216 @@ class Controller:
     @property
     def lock(self) -> threading.RLock:
         return self._mutex
+
+    def native_construction_checkpoint(self) -> dict[str, Any] | None:
+        """Return the durable native-construction checkpoint, if valid.
+
+        A malformed persisted record is intentionally represented as no valid
+        checkpoint.  ``native_construction_checkpoint_valid`` lets the daemon
+        distinguish that fail-closed state without exposing the raw record.
+        """
+
+        with self._mutex:
+            return copy.deepcopy(self._native_construction) if self._native_construction_valid else None
+
+    def native_construction_checkpoint_valid(self) -> bool:
+        with self._mutex:
+            return self._native_construction_valid
+
+    def set_native_construction_checkpoint(
+        self,
+        checkpoint: dict[str, Any],
+        *,
+        expected_generation: int | None = None,
+        expected_state: ControllerState | str | set[ControllerState | str] | None = None,
+    ) -> ControllerStatus:
+        if not _valid_native_construction_checkpoint(checkpoint):
+            raise ValueError("native construction checkpoint is malformed")
+        if expected_generation is not None and checkpoint["ownerGeneration"] != expected_generation:
+            raise ValueError("native construction checkpoint generation is stale")
+        with self._mutex:
+            if not self._admitted(expected_generation=expected_generation, expected_state=expected_state):
+                return self.status()
+            self._native_construction = copy.deepcopy(checkpoint)
+            self._native_construction_valid = True
+            self._native_construction_raw = None
+            self._save(last_action="native_construction_checkpoint")
+            return self.status()
+
+    def mark_native_construction_recovery_required(self) -> ControllerStatus:
+        with self._mutex:
+            if not self._native_construction_valid or self._native_construction is None:
+                raise RuntimeError("native construction checkpoint is unavailable")
+            checkpoint = copy.deepcopy(self._native_construction)
+            checkpoint["phase"] = "recovery_required"
+            self._native_construction = checkpoint
+            self._save(last_action="native_construction_recovery_required")
+            return self.status()
+
+    def clear_native_construction_checkpoint(
+        self,
+        *,
+        expected_generation: int | None = None,
+        expected_state: ControllerState | str | set[ControllerState | str] | None = None,
+    ) -> ControllerStatus:
+        with self._mutex:
+            if not self._native_construction_valid:
+                raise RuntimeError("malformed native construction checkpoint requires recovery")
+            if not self._admitted(expected_generation=expected_generation, expected_state=expected_state):
+                return self.status()
+            self._native_construction = None
+            self._native_construction_valid = True
+            self._native_construction_raw = None
+            self._save(last_action="native_construction_cleared")
+            return self.status()
+
+    def rebind_native_construction_frame(
+        self,
+        *,
+        boot: str,
+        sequence: int,
+        crc32: int,
+        reason: str,
+        expected_generation: int,
+        expected_state: ControllerState | str,
+    ) -> ControllerStatus:
+        """Persist one closed native finalize/recovery frame identity.
+
+        This is deliberately narrower than a generic boot setter.  The daemon
+        must pass the accepted frame through ``observe_frame`` immediately
+        after this durable rebind, so ordinary frame churn remains fenced.
+        """
+
+        if reason not in {"native_construction_finalize", "native_construction_recovery"}:
+            raise ValueError("native construction rebind reason is not allowlisted")
+        expected = ControllerState(expected_state)
+        required_state = (
+            ControllerState.NATIVE_CALIBRATION
+            if reason == "native_construction_finalize"
+            else ControllerState.PAUSED
+        )
+        if expected is not required_state:
+            raise ValueError("native construction rebind state is not allowlisted")
+        if (
+            not isinstance(boot, str)
+            or not boot
+            or len(boot.encode("utf-8")) > 96
+            or isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence < 0
+            or isinstance(crc32, bool)
+            or not isinstance(crc32, int)
+            or sequence > 0xFFFFFFFF
+            or crc32 < 0
+            or crc32 > 0xFFFFFFFF
+        ):
+            raise ValueError("native construction rebind frame is malformed")
+        with self._mutex:
+            if not self._native_construction_valid or self._native_construction is None:
+                raise RuntimeError("native construction checkpoint is unavailable")
+            if not self._admitted(expected_generation=expected_generation, expected_state=expected):
+                return self.status()
+            self._frame_boot = boot
+            self._frame_sequence = sequence
+            self._frame_crc32 = crc32
+            self._save(last_action=f"{reason}_rebind")
+            return self.status()
+
+    def commit_native_construction_recovery(
+        self,
+        *,
+        boot: str,
+        sequence: int,
+        crc32: int,
+        expected_generation: int,
+        expected_state: ControllerState | str = ControllerState.PAUSED,
+    ) -> ControllerStatus:
+        """Atomically publish a recovery frame and consume its checkpoint.
+
+        Recovery completion must not report success after a frame rebind has
+        persisted while checkpoint deletion failed.  Both mutations therefore
+        share one journal write and are rolled back in memory if that write
+        fails.  The daemon performs only a read-only post-proof after this
+        closed commit.
+        """
+
+        expected = ControllerState(expected_state)
+        if expected is not ControllerState.PAUSED:
+            raise ValueError("native recovery commit requires PAUSED state")
+        if (
+            not isinstance(boot, str)
+            or not boot
+            or len(boot.encode("utf-8")) > 96
+            or isinstance(sequence, bool)
+            or not isinstance(sequence, int)
+            or sequence < 0
+            or sequence > 0xFFFFFFFF
+            or isinstance(crc32, bool)
+            or not isinstance(crc32, int)
+            or crc32 < 0
+            or crc32 > 0xFFFFFFFF
+        ):
+            raise ValueError("native recovery frame is malformed")
+        with self._mutex:
+            if not self._native_construction_valid or self._native_construction is None:
+                raise RuntimeError("native construction checkpoint is unavailable")
+            if self._native_construction.get("phase") != "recovery_required":
+                raise RuntimeError("native recovery checkpoint is not required")
+            if not self._admitted(expected_generation=expected_generation, expected_state=expected):
+                return self.status()
+            old_frame = (self._frame_boot, self._frame_sequence, self._frame_crc32)
+            old_checkpoint = copy.deepcopy(self._native_construction)
+            old_history = copy.deepcopy(self._history)
+            self._frame_boot, self._frame_sequence, self._frame_crc32 = boot, sequence, crc32
+            self._native_construction = None
+            self._native_construction_valid = True
+            self._native_construction_raw = None
+            try:
+                self._save(last_action="native_construction_recovery_commit")
+            except Exception:
+                self._frame_boot, self._frame_sequence, self._frame_crc32 = old_frame
+                self._native_construction = old_checkpoint
+                self._native_construction_valid = True
+                self._native_construction_raw = None
+                self._history = old_history
+                raise
+            return self.status()
+
+    def validate_native_construction_recovery_commit(
+        self,
+        *,
+        boot: str,
+        sequence: int,
+        crc32: int,
+        expected_generation: int,
+        expected_state: ControllerState | str = ControllerState.PAUSED,
+    ) -> ControllerStatus:
+        """Read-only post-proof for a closed native recovery commit.
+
+        The durable frame/checkpoint mutation is already closed by
+        ``commit_native_construction_recovery``.  This method intentionally
+        performs no journal write, so a post-commit verification failure
+        cannot strand a consumed checkpoint before terminal publication.
+        """
+
+        expected = ControllerState(expected_state)
+        if expected is not ControllerState.PAUSED:
+            raise ValueError("native recovery proof requires PAUSED state")
+        with self._mutex:
+            if not self._admitted(expected_generation=expected_generation, expected_state=expected):
+                return self.status()
+            status = self.status()
+            if status.state is not expected or status.generation != expected_generation:
+                return status
+            if (self._frame_boot, self._frame_sequence, self._frame_crc32) != (
+                boot,
+                sequence,
+                crc32,
+            ):
+                raise RuntimeError("native recovery durable frame proof changed")
+            if self._native_construction is not None:
+                raise RuntimeError("native recovery checkpoint remained after closed commit")
+            return status
 
     def tick(
         self,
@@ -1473,6 +1759,12 @@ class Controller:
                 expected_generation=expected_generation, expected_state=expected_state, fence=fence
             ):
                 return self.status()
+            prior_native_calibrated = self._native_calibrated
+            prior_calibration_evidence = copy.deepcopy(self._calibration_evidence)
+            prior_calibration_history = copy.deepcopy(self._calibration_history)
+            prior_calibration_invalidated_reason = self._calibration_invalidated_reason
+            prior_history = copy.deepcopy(self._history)
+            prior_state = self._state
             self._native_calibrated = True
             record = self._evidence_record(evidence)
             if preconstruction_proof is not None:
@@ -1484,8 +1776,17 @@ class Controller:
             del self._calibration_history[:-20]
             self._calibration_invalidated_reason = ""
             self._state = ControllerState.INPUT_CALIBRATION
-            self._archive("evidence", {"kind": "native_calibration", "evidence": copy.deepcopy(record)})
-            self._save(last_action="native_calibrated")
+            try:
+                self._archive("evidence", {"kind": "native_calibration", "evidence": copy.deepcopy(record)})
+                self._save(last_action="native_calibrated")
+            except Exception:
+                self._native_calibrated = prior_native_calibrated
+                self._calibration_evidence = prior_calibration_evidence
+                self._calibration_history = prior_calibration_history
+                self._calibration_invalidated_reason = prior_calibration_invalidated_reason
+                self._history = prior_history
+                self._state = prior_state
+                raise
             return self.status()
 
     def input_calibrated(

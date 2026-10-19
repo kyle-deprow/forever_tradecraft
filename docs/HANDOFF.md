@@ -1,288 +1,213 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 02:04 UTC. Repository: `/home/dev/repos/pegasus`.
-Origin: https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley
-package, addon and configuration names remain intentional.
+Updated 2026-10-19, 02:49 UTC. Repo `/home/dev/repos/pegasus`.
+Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
+remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
+commits/pushes are authorized. Do not re-ask routine permission.
 
-Read this for current status. The complete preceding handoff is preserved in
-[the historical archive](../.archive/executor-review/handoff-history-before-consolidation-20261018T2330Z.md).
-Its dated status entries, test counts, deadlines and old approval rules are history.
-User instructions take precedence; the user revoked `AGENTS.md` instructions.
+## Objective
 
-## Objective and requirements
+Private WoW Forever market research/trading platform, ready to collect data and
+build profession/flipping/investment strategies at launch. First-run catalog:
+**428 targeted items**, multiple professions/trade goods/recipes/containers and
+selected equipment; see [WATCHLIST.md](WATCHLIST.md). No scan of every AH item.
+Capture cheapest **20 distinct unit-price levels plus boundary ties**; explicit
+full/bounded/incomplete coverage. Missing/timeouts are unknown, never zero supply.
+Disappearance is an uncalibrated activity proxy, not confirmed sales.
 
-Build a private WoW Forever market research and trading platform. Collect useful
-price history and estimated market activity so launch can begin with data and
-strategies already prepared. Prioritize profitable profession combinations,
-short-term supply/demand shocks and longer-term crafted/material investments.
-Keep different region/ruleset/faction houses separate. Do not scan every AH item.
+Required **15-minute** repeat includes the entire save/upload/ACK/reopen loop.
+SavedVariables persist only on reload/logout/exit; written ACKs load on reload.
+Completion means **three autonomous15-minute cycles**, not merely addon timers.
+Later work: verified Forever recipe economics, strategies and launch monitoring.
 
-The first-run catalog has **428 active items**, including multiple professions,
-trade goods, recipes, containers and selected equipment. Management and rationale:
-[WATCHLIST.md](WATCHLIST.md). Capture the cheapest **20 distinct unit-price levels**
-and every row at the retained boundary, with explicit full/bounded/incomplete
-coverage. Missing or timed-out observations are unknown, never zero supply.
+## Live game/data
 
-Target a **15-minute** repeating collection cadence. SavedVariables only persist
-on reload/logout/exit; the companion uploads stable files, writes addon data and
-ACKs, and the game loads those files on reload. Completion requires this entire
-save/upload/ACK/reopen loop to run autonomously, not just an addon scan timer.
+Only `/root/luna_live_continuation` operates actual GUI/game. Root may read retained
+screenshots, run isolated Xvfb and coordinate source/service work. Arthur remains
+stationary at Ironforge AH; no movement or trading. Sunshine/Moonlight disabled.
+WoW PID644491/procstart15495385/XID0x02e00001; fingerprint
+`e84a459bda54c891092f049af9c523eb171588ce566a44123723d733baf6918a`.
 
-Listing disappearance is an **uncalibrated activity proxy**, not confirmed sales.
-Keep actual own-sale evidence separate. Strategy generation, verified Forever
-recipe economics, useful shopping lists and launch monitoring remain later work.
+Canonical crowley-session.service verified active PID3581203 after native source
+installation/restart, **PAUSED/gen24/nativefalse/inputfalse/operationidle**.
+Seven accepted native files are installed; helper remains uninstalled.
+See native-paused-install-parent-verification.json for hashes/pins/process proof.
+Collection is still **operator-assisted**; GUI Luna keeps it flowing.
 
-## Live status and immediate blocker
+Latest parent independently verified **72**, UID
+`beta-normal-alliance-1792377110-Arthur-7645`, start02:31:50UTC:
+428obs/2205rows/409full/19bounded/0incomplete, exact900s start interval.
+Original SHA `f3f527ae84418a6824d2e16b176cff3248b7076f5dc88af9fd31b2349e2f29d1`;
+DB logical digest and exact loaded ACK independently checked with production PNG
+decoder, boot1792377635-848394/pending0/ordinarynormal0/inactivefence.
+Finish→server36.462403s. Scan73 started naturally02:46:50UTC while GUI input
+was idle during source promotion. Starts64–73 were900s; #73 closeout pending.
+Read-only totals02:43: **80sweeps/34240observations/191023rows**, latest receipt
+2026-10-19T02:40:23.462403UTC. Historical sweeps included.
 
-- WoW runs locally through Wine; Sunshine/Moonlight is disabled. Arthur was left
-  stationary at the Ironforge AH. No trading or movement is authorized here.
-- Canonical daemon is **PAUSED/gen23/unqualified**, neither candidate promoted.
-  Collection has been **operator-assisted**; repeated900s starts do not qualify
-  autonomous save/upload/ACK/reopen.
-- Latest independently verified sweep **69**:
-  `beta-normal-alliance-1792374410-Arthur-0644`, start01:46:50UTC,
-  428 observations/2312rows/410full/18bounded/zero incomplete; start interval900s.
-  Parent checked source hash, logical DB digest and production-decoded exact ACK.
-  Server receipt20.646572s after finish; loaded ACK boot1792374917-236578/pending0.
-  AH reopened;70 naturally started02:01:50UTC and is advancing normally.
-  Starts64–70 were exact900s intervals; qualification remains operator-assisted.
-- Read-only totals:77 sweeps/32956 observations/184312rows, latest receipt
-  2026-10-19T01:55:05.646572UTC (parent queried01:56). Historical sweeps included.
-- GNOME login-keyring modal blocked AH reopen and dimmed the binary HUD. A typed
-  targetexact command was NOT submitted; receipt records open_chat and typing, so
-  do not repeat the worker's inaccurate no-input claim. One Xwayland Cancel click
-  had no effect. AFK logout later cleared that buffer. Scan63's23:20:53 due time
-  was missed; the recovered scan63 started70m57s after62, not900s.
-- At00:13 one owned installed `ydotool key ESC` invoked the verified GNOME Cancel
-  binding. Child exited/reaped0; root viewed retained after.png and confirms modal
-  gone/Arthur selected at character select. No password/settings/service changes.
-  Native pointer-click attempt refused BEFORE dispatch when Cancel became blank.
-  Uinput is system-wide and not isolated by Xvfb DISPLAY. User dismissal is no
-  longer needed; the earlier asynchronous question is obsolete.
-- Sole GUI Luna reentered Arthur, verified settled world HUD and reopened AH
-  using fresh exact Buckler target-frame/tooltip evidence. The addon automatically
-  began scan63 at00:16:50UTC (startedAt1792369010),428-item plan; next due00:31:50.
-  Original SavedVariables SHAe900d30e949e47fefdbfbcd66abd3678b25ab6023381706e4b2044d40213fc72
-  and DB/loaded ACK independently verified. Ordinary collection continued with64.
-  No native workflow started.
-- Private helper pytest2709333 briefly held the production per-user GNOME capture
-  lock, aborting one live watcher poll. Its exit released the unchanged inode;
-  the bounded watcher retry recovered before64's scheduled start. Worker is
-  isolating GNOME_CAPTURE_LOCK_PATH in the fixture, preserving real lock code.
-  Xvfb/private D-Bus alone do not isolate that shared resource; skill updated.
+Private receipts/images/original payloads:
+`~/.local/state/crowley/executor-evidence/runtime-relink`.
+Parent verifier `.archive/executor-review/verify_preserved_sweep.py` is private,
+not committed. Public exact evidence records are build-70450-<ordinal>-scan-parent-
+verification.json. For73 verifier prior_start1792377110, ordinalseventythird.
 
-Only `/root/luna_live_continuation` operates the actual game/desktop. Root may
-inspect retained screenshots and run isolated Xvfb tests. Preserve that ownership.
+Earlier GNOME keyring modal blocked AH reopen/dimmed HUD. One owned installed
+uinput ESC cleared it00:13, no credentials/settings changes; AFK logout cleared
+the earlier typed-but-unsubmitted chat. Scan63 interval4257s was a real missed
+cadence, never reclassify as900s. Recovery receipts preserved. Xvfb does not
+isolate system-wide uinput or per-user GNOME screenshot locks.
 
-## Active implementation and reviews
+## Native executor: final offline review, no production defect found
 
-Requested workflow: Luna implements/operates, Sol reviews, actual Claude CLI Opus
-reviews executor changes. Workers have bounded tasks and may continue without
-per-action approvals. Root owns arbitration, final verification and git.
+Luna worker `/root/luna_profiler_schema_fix` completed native R10d and is now
+assigned the HELPER correction below; do not ask it to edit frozen native trees.
+Final native WT:
+`/home/dev/.cache/crowley/worktrees/native-terminal-final-r10d-20261019`,
+basec5e5772. Freeze/closure: native-terminal-final-r10d-{freeze.json,closure.md}
+in .archive/executor-review. Plan: PLAN-native-guardian-generation-r10.md plus
+PLAN-native-guardian-proof-r10b.md and PLAN-native-terminal-proof-r10c.md including
+FINAL arbitration and minimalR10d appendix.
 
-**Frozen native R9:** worker `/root/luna_profiler_schema_fix`, worktree
-`/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018`,
-base2d63777. Read [R9 plan](../.archive/PLAN-native-capability-transaction-r9.md),
-INCLUDING final Opus arbitration. Four writable files: daemon.py; controller.py
-ONLY native_calibrated rollback; native_regressions tests; test_session_native.py
-ONLY compiled-default STOPPED fixture correction. Copied cli.py, transitions tests
-and runtime tests are read-only. No review hold remains.
+R10 daemon SHA
+`5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58`.
+Original Guardian generation is immutable in owners/capabilities/tickets/context,
+validated against current state and inside real Guardian-locked pre-Popen start.
+Lock order controller→construction→Guardian. Both Sol and actual Opus found no
+production defect. Legacy capability-less stock capture remains explicitly
+deferred; strong fencing claims concern the configured producer qualification path.
 
-R9 closes the capability/Guardian-dispatch race, exact owner comparisons, final
-identity/lease/Guardian binding, transient durable-write rollback before the normal
-error-handler save, actual transaction cancel-wins/deterministic final-wins, strict
-STOPPED refusal, resume type ordering and async old-worker operation identity.
-Rollback includes write-affected history. Tests must reach actual transaction
-entry, not an earlier guard with the same exception. Worker353 full-suite passes
-and two strictly additive real finalize/error-handler durable-write passes now
-complete. Parent verified seven hashes/base/fence/log permissions and unchanged
-pre-existing ASTs; no combined355-test invocation is claimed. Independent core
-checks passed19 cases203.04s plus scoped statics/imports. Sol and actual Opus
-reviewed the exact candidate including fixture isolation below. Sol NEEDS WORK:
-independent Guardian generation can revoke before process start without changing
-backend capture epoch. Actual Opus also NEEDS WORK: regression-insensitive worker
-identity proof, untraversed NATIVE gate, public input-start/lifecycle proof and
-remaining named gaps. Root accepted bounded corrections in final R10 arbitration.
-No source acceptance/native100/live qualification yet.
+R10b corrected four ACTUAL compiled producer/public owner cases: PAUSEDpreflight
+and NATIVEprepare+bootstrap, each revoke-first/admission-first. Exact new Guardian
+error with callback blocked/owner unchanged and zero starts; actual child/reap
+when admitted first. R10c corrected real controller-mutex contention after real
+flush, refusal-before-capture counter and direct owner/epoch assertions. R10d
+finally adds later public CANCELLED terminal recheck in actual cancelled branch
+and corrects supplementary sleep-test wording. Inspect branch, not only green count.
 
-**Active native R10:** `/root/luna_profiler_schema_fix`, worktree
-`native-guardian-generation-r10-20261019`, base6dade3e, exact finalR9/fixture files
-copied. Read [R10 plan](../.archive/PLAN-native-guardian-generation-r10.md) and
-[Sol findings](../.archive/executor-review/native-r9-final-sol-review.md).
-Only daemon.py/regressions tests plus required private owner-binding update in
-native tests are writable; four others read-only. Bind original Guardian
-generation into every private owner/capability, compare under real Guardian lock
-before actual spawn, prove both orders with actual compiled producer/processes.
-Also fix real controller-mutex contention/immutable later terminal proof and
-missing/None resume sequence negatives. Final Opus arbitration is appended to
-R10 plan; no hold remains. It adds immediate/starting worker-record assertions,
-public input-start/cross-kind proof, actual NATIVE configured gate, live-reservation
-recovery overlap, restored legitimate non-X11 assertion and accurate evidence map.
-R10 freeze/closure now exist; worker367passes/532.50s, separate14 post-format
-  focused passes and named runtime pass. Parent independently25passes/201.87s
-  plus scoped statics/import origins/four read-only/source/log hashes verified.
-  Root REJECTED compiled-proof completion: revoke-first waits for owner deletion
-  and refuses at outer capability guard; separate bare NATIVE capture has no
-  native owner/capability. No source acceptance. Four orphaned pytest trees gone.
-  No service/GUI changes.
-Legacy read-only stock-capture dispatch remains explicitly deferred; strong input
-fencing claims apply to the configured producer used for qualification.
+Separate results, never invent a combined invocation:
+- WorkerR10 native3suites367pass/532.50s +separate14 postformat and namedruntime.
+- ParentR10 core25pass/201.87s, R10b4pass/5.20s, R10c8pass/49.12s.
+- WorkerR10d2pass/43.30s; parent2pass/43.45s, sourcebranch/fence/sixreadonly/
+  hashes/logs/statics independently verified. Parent native-r10d-parent-verification.json.
+- Final SolR10d **READY/no findings**. Actual final Opus exited0 on
+  claude-opus-5-5, NEEDS WORK solely for a misleading test comment, no functional
+  findings. Root corrected the exact comment and verified the entire module AST
+  unchanged; six other files exact R10d. No test rerun for comment-only edit.
 
-**Active proof-only R10b:** same worker, fresh
-`native-guardian-proof-r10b-20261019`, base d1e3edc with seven exact frozenR10 files.
-Read [the narrow plan](../.archive/PLAN-native-guardian-proof-r10b.md). ONLY the new
-compiled test/tiny helper/import in test_session_native.py writable; six others
-read-only. Four cases: PAUSED public preflight or NATIVE public measure prepare
-then bootstrap, each revoke-first/admission-first. Forwarding real Guardian
-admission barrier holds actual controller/construction locks; real revoke must
-bump generation while normal owner clear is still blocked. Require exact new
-Guardian-generation error and zero real starts; admission-first actual compiled
-child must reap. No broad suite repeat/source change. Parent final four-case
-check plus focused Sol/actual Opus review follow; no live calibration yet.
+Root accepted offline native source in
+`/home/dev/.cache/crowley/worktrees/native-release-final-20261019`, exact seven
+hashes in native-final-offline-acceptance.json. All Opus/test sessions are CLOSED;
+no active root exec. No live native100/input/autonomous qualification inferred.
 
-**Frozen native fixture isolation:** same worker, separate
-`native-r9-private-fixture-20261019`, basefb129d0, seven exact final R9 files copied.
-Read [the fixture plan](../.archive/PLAN-native-r9-private-fixture.md). ONLY
-test_session_native.py is writable, only its two actual private compositor tests.
-Parent repeated a pre-owner_ready protocol timeout. Strace identifies private
-bus activation of desktop portals, then a25s GIO wait until the10s deadline;
-plain GTK/GIO environment flags did not fix it. Controlled minimal private bus
-with no unrelated activation directories plus NO_AT_BRIDGE=1 passed the original
-compiled test1/8.68s under strace, zero unrelated service execs. Encoded fixture
-passed2 worker cases63.10s and2 parent cases62.57s; AST/source/log fences verified.
-No source/deadline/assertion weakening. Keep failed and
-controlled attempts distinct. This is an offline fixture issue; live game remains
-unchanged. A Popen adapter must preserve its class/type checks.
+Main c5e5772 was pushed before promotion (use git log for current HEAD). Recovery
+SOURCE branch checkpoint/executor-20261018 commitc83b6ca remains pushed and
+unmerged: frozen R10 plus old failed helper pair; do not install that helper.
+Root copied accepted seven native files to main and restarted PAUSED service
+with GUI input quiet. Independent verification confirms PID3581203/gen24,
+unchanged authentic CLI/producer/config pins and unchanged WoW process.
+Initial immediate post-restart assertion failed before its report; subsequent
+independent verification passed without repeating the restart. Public receipt:
+`native-paused-install-parent-verification.json`.
 
-Preserved R8 baseline: `native-final-commit-r8-20261018`, base7ac5c85,
-334 worker passes plus named runtime pass; parent10 targeted passes58.53s.
-Its separate proof tree `native-final-commit-r8-proof-20261018` had worker/parent
-six passing cases, but Sol showed three deadline cases refused at an outer guard
-before entering the transaction. Those passes are not transaction proof; corrected
-barriers and explicit worker termination are assigned in R9. Malformed-resume cases
-passed review. Full Sol and actual Opus R8 reviews both NEEDS WORK; all accepted
-findings are in the R9 plan. Original source/proof trees remain frozen and no
-combined340-test invocation is claimed.
+## Active helper correction: real failure recovery/all modes/provenance
 
-**Helper causal composition:** worker `/root/luna_runtime_instrumentation`, worktree
-`/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018`,
-base2d63777. Owns ONLY tools/native_calibration_operator.py and its test file.
-Read [the current plan](../.archive/PLAN-native-operator-causal-composition.md),
-[Sol's concrete repair prescription](../.archive/executor-review/native-operator-final-closure-failure-triage-sol.md),
-[the preceding plan](../.archive/PLAN-native-operator-final-closure.md) and
-[Sol's findings](../.archive/executor-review/native-operator-production-proofs-sol-review.md).
-Seven exact frozen R8 native files are read-only development inputs, not accepted code.
-Actual helper Opus completed exit0/claude-opus-5-5, STATUS: MAJOR ISSUES.
-Final root arbitration is appended to the closure plan; no review hold remains.
-It supersedes the original Sol prescription: providerDeadline belongs ONLY to
-initial construction, not later hold/measure/resume phases. Additional accepted
-fixes include actual INPUT_CALIBRATION success, error detection at any wait,
-genuine Guardian-generation increase on new PAUSED handoff, private pipe reply
-correlation, no unpressed release input, and complete GO-time action budgets.
+Worker **`/root/luna_profiler_schema_fix`**, NEW task in
+`/home/dev/.cache/crowley/worktrees/native-helper-final-integration-20261019`,
+basec5e5772. Root copied seven exact nativeR10d files plus helperffc8/testd483.
+Own TWO files only: tools/native_calibration_operator.py and its test. Seven native
+files/driver/Guardian/addon/config/service/GUI/git are forbidden/read-only.
+Read **PLAN-native-helper-release-corrections.md** IN FULL; it supersedes earlier
+metadata-only freeze instructions. Reference PLAN-native-helper-final-integration.md.
+Main writes ONLY native-helper-release-corrections-{closure.md,freeze.json}.
 
-Previous helper3cb57dad/testc0221bde froze RED:61 pass/3 fail, no required causal
-fixture. Root rejected the completion claim and independently reproduced two
-failures. Normal recovery is misclassified by the helper actor itself, not an
-R7 compatibility failure. Reply-loss tests conflate incomplete private reply
-(valid early exact cancellation) with a complete server-indeterminate private
-reply (RPC unusable, owner retained through cleanup horizon). Sol triage provides
-the exact repairs and allowed external-device factory seam. Neither X11Screen
-nor X11Backend constructor discovers a game window; no live WoW interface blocker
-exists for this offline composition. Keep the failed tree/reports as evidence.
+Final Sol helper review NEEDS WORK, accepted concrete findings in
+native-helper-causal-final-sol-review.md:
+1. REAL BUG: pause mutation response has controller fields/state/generation/
+   leaseGeneration, no calibrationOperation or guardian. Current helper wrongly
+   requires them, so actual Operator.run failure recovery always fails. Validate
+   immediate newPAUSED/higherlease; fetch aggregate status for nonrunning native
+   op; require new binding higherGuardian/unarmed BEFORE recovery input. Preserve
+   original error and failed receipt through actual successful recovery.
+2. Reuse actual causal compiled fixture for ALL modes: measure, preflight,
+   ordinary_reload recovery, restore recovery, failure/newPAUSED/emptyID,
+   post-handoff cancel, real readiness and READY/watchdog/GO/PRESSED budget
+   negatives. Old other-mode tests use FakeScreen/FakeInput/rawobs/directclient.
+3. Share actual sealed input artifact for screen/input factory; real helper SHA
+   and _source_bindings; receipt assertions bind config/templates/producer/input/
+   native dependencies. Current causal receipt omits/mismatches these.
+4. Monotone _record_operation_deadline must min(existing,new), not silently extend.
+5. Allocation matrix: invalid OwnedEmitter pgid abort/reap actual spawned child;
+   Watchdog missing owner-start refuses; cancellation child closes inherited
+   nonprotocol descriptors; preserve causal errors/cleanup/no unpressed releases.
+6. Actual successful measure→publicpause→fresh MODE_RECOVER→ordinary Lua
+   SavedVariables reload: checkpointNone, PAUSED/nativeCalTRUE/inputFALSE,
+   unarmed/clean. Needed before human GTK gate; no fake human calibration.
 
-The preceding helper candidate passed58 parent tests, but full measurement
-success/production-screen composition was unproved. Accepted fixes address the
-post-old-expiry cancellation horizon, real measurement-error recovery, named
-phase deadlines reaching physical dispatch, strict PAUSED proof, active receipt
-failure and staged allocation cleanup. Require actual SessionDaemon + AF_UNIX
-SessionIPC + production X11Screen readiness + actual FixedInput/OwnedEmitter,
-with external scene changes only after owned dispatch ACK. Successful reservations
-and all12 history states must come from the daemon; fake successful replies,
-direct-client tests accepting errors and a separate compiled test do not prove it.
+Previous helper baseline is IMMUTABLE in
+`native-operator-causal-composition-20261018`: helper
+`ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5`, test
+`d4834f543333a66e9bc9d31e150ef9e085195a27cc93656df5c8d81683fd8b48`.
+Worker66pass/189.07s, parent independently66pass/188.77s with private0700XDG,
+full0600log SHA3c026e3f41c5881edfa0bafa83e6400fefd7a39471f2a40384b26443631effea.
+Two warnings are explicit subprocess fixture fork DeprecationWarnings, no hidden
+thread failures. These green tests DO NOT cover the real pause bug/allmodes.
+Seven baseline dependencies were frozenR8, not accepted native; new correction
+uses exactR10d. Parent native-operator-causal-parent-verification.json records it.
 
-Actual pinned-tool tests on fresh isolated Xvfb independently proved exact23-key
-command typing in3.272824s within3.99s and key release/reap0.562473s after actual
-helper SIGKILL while a key was held. These do not establish the full workflow.
+Old helper agent `/root/luna_runtime_instrumentation` ended integration task at
+metadata only (NO implementation/source changes); its integration closure/freeze
+explicitly mark missing proof. Native worker is now implementing actual code.
+Do not accept another metadata-only final/redDONE. Complete focused cases then
+fullhelper once, exact7readonly/imports/authenticCLI/private0700XDG/capturelock/
+bus/complete0600logs opened before commands/cleanup. Parent meaningful repro,
+Sol and actual Opus review, then eventual helper promotion.
 
-Root actual native Opus1469 CLOSED0/modelclaude-opus-5-5/NEEDS WORK; Sol
-`/root/sol_final_composition_plan` also NEEDS WORK on those hashes. Final root
-arbitration is in R10 plan. Parent helper actual-measure diagnostic50714 CLOSED1 on immutable
-`helper-causal-parent-diagnostic-20261019` snapshot:1failed/36.07s, exact error
-"native update 2 publication cadence is not 1Hz". Lua.advance(1) was driven by
-each capture request, not elapsed real time; genuine capture timestamps correctly
-failed the0.75–1.25s guard. Worker must pace external game publications on a real
-monotonic1Hz clock, preserving capture timestamps and admission limits. This is
-not helper source acceptance. Initial
-CLI launch rejected missing prompt(exit1/no model); corrected explicit argument
-delimiter, preserved attempt, no downgrade. Parent core82275 and fixture77979
-CLOSED0. Parent initial64656 CLOSED1 at compiled
-owner protocol, diagnostic52501 CLOSED0, environment52662 CLOSED1, private-bus
-74624 CLOSED1(parent adapter type error),65517 CLOSED1(AT-SPI stderr),19870 CLOSED0.
-All failures retained; no broad blind retry. R8 actual Opus and both Sol reviews
-NEEDS WORK; accepted findings are in R9 plan. Earlier helper Opus MAJOR ISSUES.
-New actual CLI review sessions must remain attached/polled <=30s, no fallback;
-rawJSONL0600 stays private.
-Main **d1e3edc** is pushed, including the consolidated handoff and curated current
-plans/review/recovery evidence. Use git log for later HEADs.
-Frozen candidate SOURCE is pushed as `checkpoint/executor-20261018` commit
-`c83b6ca`: exact seven frozen R10 files; old failed helper pair remains unchanged
-and explicitly unaccepted. Previousaa5f76d preserves R9. Nine curated source
-files only, no raw/private evidence. This is an UNACCEPTED recovery checkpoint;
-R10b proof plus independent reviews/helper acceptance remain pending. Canonical
-main production source/runtime is not promoted.
+The real one-Hz external Lua publication ticker is now correct; no delays in
+provider/admission wrappers or restamped captures. Earlier parent diagnostic
+failed update2 cadence and is retained separately. Original failed helper3cb57/
+c0221 reports61pass3fail remain history. Do not resurrect them.
 
-Read-only live pin precheck23:40: configured authentic CLI0.162.1 SHA628e3548,
-producer SHAcb938cab matches config/user1000/mode0700; live daemonPAUSED/gen23,
-nativeCalibration=false/inputCalibration=false, calibration operationidle.
-No service/config/input mutation was needed or performed.
+## Remaining live gates
 
-Representative offline matcher benchmark on frozen helper715:1920x1080 capture,
-220x84 region, synthetic100x28 templates, exclusive2.606132s/dual5.058175s.
-This measures real matching loops but not live templates, physical UI transform,
-capture or IPC costs. Known UIParent1365.33x768 versus physical1920x1080 raises an
-unproved panel-scale assumption; measure actual controls before claiming readiness.
-No matcher rewrite is authorized by this benchmark or the unrelated runtime Rust gate.
+- Actual WoW Construct/Restore controls physical bounds are UNKNOWN. Retained
+  full-frame template image is synthetic, GTK certificates have screenCapturedfalse.
+  Construct/Restore are WoW Frames in Commands.lua, NOT the later human GTK window.
+  Panel220x84 UIParent units TOPRIGHT(-24,-24), buttons100x28 offsets(8,-8)/(112,-8).
+  UIParent1365.33x768 vs physical1920x1080 is not a measured button transform.
+  No guessed coordinates/templates. GUI Luna has read-only prepared source facts.
+- Native source is installed. Sole GUI Luna is authorized, AFTER #73 closeout,
+  to source-check and perform bounded operator-assisted control preflight/template
+  acquisition: exact PAUSED generation → public preflight reservation → agent
+  defer/no reload → actual panel screenshot/bounds → public recovery handoff →
+  agent recover/verified Restore → public recovery-complete → ordinary boot/
+  cleared checkpoint/PAUSED/unarmed → AH reopen. No rejected helper/native100.
+  Do not start if source/readiness/timing cannot support safe recovery.
+- Accepted helper/native exact integration and ordinary recovery contract, then
+  real inactive control preflight +fresh native100. Measure live template matching;
+  synthetic2.6/5.05s benchmark does not establish a Rust bottleneck.
+- Only when actually ready request genuine human GTK physical key+click gate.
+  No user action needed now. Never fake human success.
+- Then three autonomous900s save/upload/ACK/reopen cycles. Only then complete.
 
-## Remaining acceptance gates
+## Preservation and working rules
 
-1. Finish both bounded fixes, focused proof and final scoped suites; parent
-   independently checks final bytes/fences, runs meaningful tests, and obtains
-   Sol plus actual Opus acceptance. Avoid repeating broad suites without a change.
-2. Verify the final helper against the exact accepted native R10 files;
-   development R8 passes cannot substitute. Confirm the deliberate post-success
-   prepared-checkpoint and ordinary recovery contract before live use.
-3. Coordinate a quiet GUI window before promotion or PAUSED service restart;
-   never mix changed source with a daemon still holding old imports.
-4. Run inactive control preflight and a fresh native100. Then request the genuine
-   human GTK keyboard/click gate with concrete instructions when it is ready.
-5. Prove **three autonomous15-minute save/upload/ACK/reopen cycles**. Preserve
-   start times, receipts, fresh ordinary HUD, DB digests and exact loaded ACKs.
-6. Only then call the repeating system complete and return to volume/strategy
-   validation and launch readiness. No measured compute bottleneck currently
-   justifies the proposed Rust rewrite.
+Latest hourly backup `beta-20261019T021427Z-40cef19170e3`, parentvalidate PASS,
+manifest SHA552a2eeb7a8c627251e3cf6438d200f003da7b039d8fbd51b69db38eb2f6d0fe,
+0700 directory, data through70. Next hourly03:14UTC. Run
+`uv run python tools/market_backup.py snapshot`; independentlyvalidate_snapshot.
+Prior isolated restore drill passed; no repeat without reason. Raw/private files
+stay out of git. Historical handoff: handoff-history-before-consolidation-
+20261018T2330Z.md in executor-review, and git history.
 
-## Data preservation and operating references
+Authentic CLI0.162.1 SHA628e35487d888a28f0427fc37501da529dd3d81fcbad7a2c3421c1e8670d92e1;
+producer SHAcb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396
+matches config/user1000/mode0700. Last config rawSHA0dde50b95ad0e992a53d3cfa86e02cbba7e60af2d6d722db86804bb77c12c3a1.
+Recheck before promotion. No runtime requalification inferred from offline pins.
 
-Hourly snapshot `beta-20261019T011315Z-173f12b60358` independently validates;
-manifest SHA256 `0ece9076f8066f3b10cbb44598fc226f185f838579df9f0c18aa93a4a53d6e2e`.
-Latest independently ingested sweep was66. Next hourly due02:13UTC. Use
-`uv run python tools/market_backup.py snapshot` and independently validate it.
-Keep backups and raw game/private evidence out of git. An earlier isolated
-restore drill already passed; no need to repeat without a reason.
-
-- [ARCHITECTURE.md](ARCHITECTURE.md): data path and contracts.
-- [REPEATING_SCANS.md](REPEATING_SCANS.md): repeating session operation.
-- [RUNTIME_PERFORMANCE.md](RUNTIME_PERFORMANCE.md): measurement/optimization gates.
-- [MARKET_RECOVERY.md](MARKET_RECOVERY.md): backup/restore operation.
-- `.agents/skills/local-game-control` and `crowley-client-contracts`: compact
-  source-controlled lessons. Existing lessons include actual typing timing,
-  immutable phase evidence, exact target-frame+tooltip identity, and real composed
-  tests. Do not create a skill per mistake.
-- Private live evidence: `~/.local/state/crowley/executor-evidence/runtime-relink`.
-  Helpers, raw reviews, screenshots and logs there are private artifacts.
-- The user has authorized ongoing fixes, installation, recovery, commits and
-  pushes. Do not ask again because historical handoff prose says otherwise.
-- **Never git add .** Explicit curated paths only; many untracked private files
-  exist. Preserve failed evidence, do not reset/stash/revert another worker.
-- Continue through independent work while a user action is pending. Do not end
-  coordination with a status-only final. Stop dependent live input at real gates.
+Use compact existing .agents/skills/local-game-control and crowley-client-contracts,
+not a skill per incident. Lua/model/hardware evidence are distinct. Maintain
+full logs/hash/fence and inspect exact claimed branch before completion. User
+prefers Luna implements/GUI, Sol reviews, actual Opus executor review; no model
+fallback. Main agent owns arbitration/git. **Never git add .** Explicit curated
+paths only; many private untracked files. No resets/stash/reverting others.
+Continue authorized work; do not end coordination with a status-only final.

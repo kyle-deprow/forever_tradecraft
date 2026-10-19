@@ -1,0 +1,26 @@
+Resolved model: claude-opus-5-5
+CLI exit:0
+Private raw stream SHA256: 2610e49854b484830853c59f54c42d38ef8b71e1c5390b09a58954fc374b2f8b
+
+Resolved model: **claude-opus-5-5**
+
+The new cancel-branch recheck is a real, bounded check and the existing proof is unchanged, but one source comment that R10d was supposed to correct is still wrong. Read-only source review only; I ran no tests.
+
+**What I checked**
+- **Hashes:** all seven sha256 values match your freeze, and the six read-only files are byte-identical to R10c. The diff against R10c is exactly the two hunks you gave.
+- **The recheck finds something new:** it runs after both `worker.join` and `cancel_thread.join`, and reads the stored terminal record (`daemon.py:2293-2305`). The first terminal recorded wins (`daemon.py:1112-1114`). So the recheck shows the worker's later "owner was revoked before commit" failure did not replace the `cancelled` receipt or bring back a live reservation. `cancel_response` can't show that, because it is captured before `release_transaction.set()`. The read path also checks the generation is 7.
+- **The recheck is bounded:** it adds no threads, barriers or timeouts, and that read path doesn't capture or change anything. It comes after the capture, mutation and counter assertions, so it can't disturb them.
+- **Existing proof unchanged:** the hunk only adds lines. Every earlier check in the cancel branch, the finalize branch, the binding-drift return and the `>127.0` envelope check is intact.
+- **Docstring (6353-6358) is accurate:** revoke-first blocks at the outer `controller.lock` (`daemon.py:4609`) and is then refused by the outer PAUSED capability check (`daemon.py:4637-4640`). It never reaches `admit_observer`, so `started == []`. The admission-first order does exercise the admitted-child cleanup. The fence proof is correctly attributed to the compiled producer cases.
+
+**Must:** None.
+
+**Should:**
+1. `tests/test_session_native_regressions.py:6430-6432`: the comment in the same test still describes the old mechanism. It says the test revokes "while its callback is waiting on the construction transaction". In fact the thread is blocked at the outer controller lock, no callback is ever entered, and the refusal is the outer capability check. That contradicts the corrected docstring.
+   - Your arbitration (R10c plan, Nit3: "correct docstring/comment") and the R10c Opus Should 1 ("Reword 6425-6427 to match") both asked for this fix. The R10d plan and closure only mention the docstring, so the comment was dropped again.
+   - **Fix:** reword it to something like "Hold the controller mutex so the capture blocks at its outer controller admission; revoke there so the outer PAUSED capability check refuses it before any observer admission."
+   - It's comment-only, so no rerun is needed (your plan says comment edits need none).
+
+**Nits:** None.
+
+STATUS: NEEDS WORK

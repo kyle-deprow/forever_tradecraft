@@ -1,0 +1,65 @@
+{
+  "schema": "crowley.native-guardian-proof-freeze",
+  "schema_version": 1,
+  "status": "candidate_pending_parent_verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-guardian-proof-r10b-20261019",
+  "base_commit": "d1e3edc4802b26cc2dfa53fb72acacc2950933da",
+  "source_fence": {
+    "writable": ["tests/test_session_native.py"],
+    "readonly": [
+      "src/crowley/session/controller.py",
+      "src/crowley/session/daemon.py",
+      "src/crowley/session/cli.py",
+      "tests/test_session_native_regressions.py",
+      "tests/test_session_runtime.py",
+      "tests/test_session_transitions.py"
+    ],
+    "no_production_changes": true,
+    "no_service_gui_git_mutations": true
+  },
+  "base_hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "96d4bb180bc7c47c4a84353a66c335316849636b444d2fe9116b059842ed26ad",
+    "tests/test_session_native_regressions.py": "bc6cc3b7a9f4435b93cf921ac57d6db8ea23dd611190f2e5f9749f3bf53c6819",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "final_hashes": {
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "tests/test_session_native.py": "2faabdaa3d73cec54d88c82be6d0abc4577e13ba1d4cdd728d65ba7d41bb942e",
+    "tests/test_session_native_regressions.py": "bc6cc3b7a9f4435b93cf921ac57d6db8ea23dd611190f2e5f9749f3bf53c6819",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "focused_cases": {
+    "command": "pytest -q tests/test_session_native.py::test_compiled_private_owner_guardian_generation_revoke_orders",
+    "result": "4 passed in 5.71s",
+    "case_ids": [
+      "paused-revoke-first",
+      "paused-admission-first",
+      "native-revoke-first",
+      "native-admission-first"
+    ],
+    "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-proof-r10b-20261019/focused-r10b-four-final2.log",
+    "log_sha256": "b23184cf6c564260cbfd8c0be820afb962971188546a1c43e54d93cdc4f7c4ff"
+  },
+  "static_checks": {
+    "result": "ruff format --check, ruff check, compileall, and git diff --check passed",
+    "log": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-guardian-proof-r10b-20261019/static-r10b-final2.log",
+    "log_sha256": "f71e6944cf9d785a46e42d702dabec79b8a331c75d0c955c313ccbdab6ceca7d"
+  },
+  "fixture": {
+    "authentic_cli": "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex",
+    "private_xdg_runtime": true,
+    "private_shell_bus": true,
+    "temporary_fixture_cleanup_verified": true,
+    "evidence_directory_mode": "0700",
+    "evidence_log_mode": "0600"
+  },
+  "preserved_prior_result": "R10 source snapshot retains its independently recorded 367-pass suite; no broad suite rerun in R10b",
+  "review": "parent verification and external review pending"
+}

@@ -1,0 +1,101 @@
+{
+  "checks": {
+    "focused_admission_reply_loss_recovery": "6 passed, 15.69s",
+    "focused_composition": "1 passed, 137.13s",
+    "git_diff_check": "passed",
+    "helper_suite": "66 passed, 2 warnings, 189.07s",
+    "py_compile": "passed",
+    "ruff_check": "passed",
+    "ruff_format": "passed"
+  },
+  "composition": {
+    "actual_client_publication_binding": "passed",
+    "external_update_ticker": "real monotonic deadlines; duplicate current-frame polls remain real provider calls",
+    "producer_sha256": "cb938cab1bd99dc088d05f6f55c8a0443401320755e2037633e7f9ac6dbe2396",
+    "provider_sequence": "construct/0, held/0, updates/1..99, held/100, resume/0"
+  },
+  "limitations": [
+    "offline private compositor and bus fixture only",
+    "no live UI geometry or addon qualification",
+    "native dependency files remain development inputs and are not promoted"
+  ],
+  "owned_files": {
+    "tests/test_native_calibration_operator.py": "d4834f543333a66e9bc9d31e150ef9e085195a27cc93656df5c8d81683fd8b48",
+    "tools/native_calibration_operator.py": "ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5"
+  },
+  "readonly_development_dependencies": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "81d377c40d86e0a495a19d665257805e0a79aba2f39adaca088c5f0c85ab819e",
+    "src/crowley/session/daemon.py": "b727b4df2516691c7071156788649af7fae9f3c8bf8db4be1426593af757fceb",
+    "tests/test_session_native.py": "329900e05141f0ea9622d3c128d2392eeb2a2bb6d602e13e9044dc8a0f56acd9",
+    "tests/test_session_native_regressions.py": "093b97e15d81c407d40564815ee3eb867003bbd43146acb85a0ed7a1fdd4bba5",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "schema": 1,
+  "status": "offline-development-complete-unqualified",
+  "verification_supplement": {
+    "base_commit": "2d637770dab7caad8dc3636bd60318e25b6d7906",
+    "cleanup": {
+      "asserted": [
+        "FixedInput.close",
+        "X11Screen.close",
+        "backend input-tool close",
+        "DesktopDriver.close",
+        "child terminate/wait",
+        "Guardian disarmed",
+        "server/worker joins"
+      ],
+      "post_run_owned_processes": 0
+    },
+    "coverage_map": {
+      "causal_cleanup": "test_causal_run_failure_survives_cleanup_close_failure",
+      "complete_bootstrap_reply_loss": "test_complete_bootstrap_server_loss_retains_actor_until_owner_eof",
+      "control_preflight": "test_control_preflight_operator_uses_actual_daemon_admissions",
+      "indeterminate_actor_reply": "test_actor_lost_admission_reply_is_indeterminate_and_remains_armed",
+      "known_id_reply_loss": "test_actual_bootstrap_reply_loss_after_prepare_expiry_cancels_known_id",
+      "measure_deferred_composition": "test_actual_operator_measure_composes_x11_screen_daemon_and_agent",
+      "measurement_error_recovery": "test_actual_measurement_error_pauses_and_recovers_with_empty_id",
+      "peer_owned_admissions": "test_actor_owns_prepare_bootstrap_finalize_recheck_cancel_via_peer_credentials",
+      "phase_budget_refusal": "test_fixed_input_phase_budget_refuses_before_go",
+      "recover_empty_id": "test_recover_operator_uses_actual_empty_id_recovery_admission"
+    },
+    "final_full_suite": {
+      "command": "PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018/src /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_native_calibration_operator.py --maxfail=1",
+      "log_path": null,
+      "log_sha256": null,
+      "raw_log_retained": false,
+      "result": "66 passed, 2 warnings in 189.07s",
+      "return_code": 0
+    },
+    "focused_composition": {
+      "command": "PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018/src /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent --maxfail=1",
+      "log_path": null,
+      "log_sha256": null,
+      "raw_log_retained": false,
+      "result": "1 passed in 137.13s",
+      "return_code": 0
+    },
+    "import_origins": {
+      "crowley_session": "worktree/src via PYTHONPATH",
+      "native_calibration_operator": "worktree/tools/native_calibration_operator.py via explicit test loader",
+      "wow_harness": "worktree/tests"
+    },
+    "private_artifact_policy": {
+      "pytest_tmp_roots": "private per-run roots; fixture files/sockets 0600 and directories 0700",
+      "raw_logs_retained": false,
+      "xdg_override": null
+    },
+    "warnings": {
+      "count": 2,
+      "kind": "DeprecationWarning",
+      "message": "multithreaded process uses fork() and may deadlock",
+      "source": "multiprocessing/popen_fork.py:66",
+      "tests": [
+        "test_owned_emitter_gate_and_release_subprocess",
+        "test_owned_emitter_gate_eof_is_bounded"
+      ]
+    }
+  },
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-operator-causal-composition-20261018"
+}

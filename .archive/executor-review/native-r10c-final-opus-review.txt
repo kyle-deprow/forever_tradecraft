@@ -1,0 +1,77 @@
+Resolved model: claude-opus-5-5
+CLI exit: 0
+Private raw stream SHA256: 8b26d785aa7392026be128c50138fc982d502fa6e54633857d62b57889b2f982
+
+Resolved model ID: **claude-opus-5-5**
+
+# R10b → R10c test-only review
+
+The new controller-mutex contention proof is real and well-ordered. But one half of the main obligation is still missing, and the closure says it is done. One arbitrated docstring/comment correction was also dropped without saying so.
+
+This was a read-only review: no edits, tests, builds, git commands or GUI actions. My only write was the required plan scratch file.
+
+## Scope checks
+- **Hashes:** the five readonly files (`controller.py`, `daemon.py`, `cli.py`, `test_session_runtime.py`, `test_session_transitions.py`) are byte-identical between the R10b and R10c worktrees. The two test files match the stated final hashes.
+- **Diff:** a direct `diff -u` shows four hunks in `test_session_native_regressions.py` and two in `test_session_native.py`. Nothing outside the named functions changed. No existing assertion was weakened: the two removed lines are the vacuous assertion and the `wait(0.2)` timing check, and both are replaced by stronger checks.
+
+## What genuinely reaches the required branches
+- **Finalize-wins lock contention (`[False-None]`): real and correctly ordered.**
+  - Cancel starts while the worker is parked in `gated_transaction`. At that point the worker holds no lock: it calls the transaction at `daemon.py:7550`, after the construction-lock block at 7528-7529 has closed.
+  - The real `flush_expiry` (`daemon.py:2801` → `1003`) therefore finishes before `cancel_flush_done` is set.
+  - Releasing the transaction lets the worker take `controller.lock` (1963) and then the construction lock (1969). It then parks in the rebind (2005), which is the only caller with reason `native_construction_finalize`.
+  - Only then is the cancel released. Its first blocking acquire is at `daemon.py:2802`; `SessionIPC.dispatch` calls the owner method directly (`cli.py:168`).
+  - The facade does a non-blocking acquire on the real `RLock` from the cancel thread. That returns `False` because the worker is holding the lock inside the rebind.
+  - `controller.lock` returns `self._mutex` (`controller.py:1259`), and there is no `Condition` bound to it, so swapping the facade in is safe. The swap at 7428 happens before `release_transaction`, so the transaction's acquire goes through the facade.
+  - After that, the recheck shows `finalized` (`daemon.py:2294` terminals path).
+- **Restart refusal (4390): real.**
+  - The refusal at `daemon.py:2433` happens before the inflight owner is installed (2437) and before capture (2450 → provider at 1586).
+  - The provider count therefore proves the refusal comes before any capture.
+  - Comparing the whole reservation by deep equality is stronger than the old `is not None` check.
+- **Compiled owner/epoch (`test_session_native.py:2118-2119`): correct placement.** The reads come after the generation advances (2113), while the revoker is still alive (2117) and before the release (2131). Removing the vacuous line is safe because 2174-2175 check the exact values.
+- **Inflight `guardianGeneration` (6300):** present, exactly as asked.
+- **Closure Nit7 traceability (closure line 23):** present.
+
+## Must-Fix
+1. **The cancel-wins order still has no later public terminal recheck.**
+   - **Where:** `tests/test_session_native_regressions.py:7508-7520`.
+   - **What's missing:**
+     - The branch only checks the immediate `cancel_response`.
+     - The only `native_construction_recheck` calls in this test are at 7389, 7529 and 7554, and none of them is in the cancel-wins branch.
+     - The R10c plan (item 1, "For BOTH terminal orders"), R10b Sol Should 1 and R10b Opus Should 1.4 all required this.
+   - **Why it matters:** the recheck can reach this state and would mean something. Cancel records an immutable `cancelled` terminal (`daemon.py:1115-1116`, first one wins). Recheck returns it from `_native_construction_terminals` (2294-2305). The worker's later "owner was revoked before commit" failure is exactly the event that this check would prove cannot overwrite it.
+   - **The closure is wrong:** closure line 5 says "Both terminal orders retain their public `native_construction_recheck` assertions … cancelled for cancel-wins". That is untrue, and the parent verification did not catch it.
+   - **Fix:** after 7520, add:
+     ```python
+     terminal = daemon.native_construction_recheck(
+         expected_generation=7, reservation_id=reservation["reservationId"]
+     )
+     assert terminal["handshake"]["state"] == "cancelled"
+     assert terminal["reservation"]["reservationState"] == "cancelled"
+     assert terminal["reservation"] == cancel_response[0]["reservation"]
+     states = [entry["state"] for entry in terminal["stateHistory"]]
+     assert states[-1] == "cancelled" and "finalized" not in states
+     ```
+     Then correct closure line 5, re-run `[True-None]` and update the freeze hashes.
+
+## Should-Fix
+1. **The arbitrated Nit3 source correction was dropped.**
+   - **Where:** the docstring at `tests/test_session_native_regressions.py:6353` and the comment at 6425-6427 are byte-identical to R10b.
+   - **Evidence:** the AST fence (only three regression functions changed) confirms the docstring was never touched.
+   - **What arbitration asked for:** "in supplementary /bin/sleep regression correct docstring/comment". Closure line 23 restates the limitation in the closure, but the source still claims it "fences an actual child at Guardian admission".
+   - **Fix:** change the docstring to something like: "Supplementary unit coverage: revoke-first is refused by the outer PAUSED capability check, not the Guardian-generation fence; the compiled cases in test_session_native.py prove the fence." Reword 6425-6427 to match. No change to the assertions is needed.
+
+## Nits
+1. **`final_controller_entered` is not specific to the transaction.**
+   - **Where:** 7346-7347, 7357-7358 and 7495.
+   - **Why:** it fires on any facade acquire by the worker. `_native_construction_revalidate_finalize_owner` (`daemon.py:1897`, `controller.lock` at 1910) runs on the worker before the transaction (7544), so the event can be set early. The assertion at 7495 and the error text "final transaction did not acquire controller lock" therefore overstate what they show.
+   - **Impact:** the proof is still sound, because the real anchor is `rebind_entered` (7496).
+   - **Optional fix:** after 7496, add a main-thread probe `assert daemon._native_construction_lock.acquire(blocking=False) is False`, mirroring `test_session_native.py:2123-2126`. That directly shows the worker holds both locks. Alternatively, rename the event to something like `worker_controller_entered`.
+2. **The probe runs again on re-entrant acquires.**
+   - **Where:** 7345.
+   - **Why:** after contention, the cancel thread acquires the lock again re-entrantly (`controller.status()` at `daemon.py:2803`, then `status_dict`). Each time, `True` is appended to `cancel_controller_probe_values`.
+   - **Impact:** harmless, since 7499 is checked while the cancel is blocked.
+   - **Optional fix:** gate the probe on `not cancel_controller_probe.is_set()` so the list really holds one probe.
+
+Nits 4 and 5 (production comment placement and dead parameters) remain correctly deferred, and nothing in production is affected.
+
+STATUS: NEEDS WORK
