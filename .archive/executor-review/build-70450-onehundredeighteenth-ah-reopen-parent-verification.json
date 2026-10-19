@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "qualification": "Complete operator-assisted cycle; no autonomous engine qualification.",
+  "uid": "beta-normal-alliance-1792425111-Arthur-5541",
+  "rawReceiptSha256": "ffc95bc8de9934e9a2fd56457abf5021b521bab2571dea0c3ee6b20e44b87c57",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "7ad1881b01d239d209ad13810e0b439c93d85230e98283197e4ed3be4be835fe",
+  "boot": "1792425638-421272",
+  "sequence": 65,
+  "ahOpen": true,
+  "pending": 0,
+  "loadedExactAck": true,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "buttonReleased": true,
+  "characterSpeed": 0,
+  "nextDueAt": 1792426011,
+  "verifierSha256": "bf57866245fffaaaa32b496152aa44ce62bdd61b09408eb10947f6cf7a3c5b2d",
+  "recoveryProvenance": {
+    "initialFlowReceiptSha256": "fe8cbacab7f269a0c3e9aba9e9bb9b247896b0eba4fcb1c774afac823398853e",
+    "correctedReopenReceiptSha256": "3da370fe9a0d869e10fe540bc8bb2c9dd9a4be4674049c020456b1f84743bd67",
+    "note": "Original stale-target failure preserved; separate fresh-target recovery reopened AH. Private combined receipt retains both source hashes and original error."
+  }
+}

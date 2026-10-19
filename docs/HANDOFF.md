@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 15:46 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 16:03 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,26 +51,26 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#117**:
+Latest fully parent-verified cycle **#118**:
 
-- UID `beta-normal-alliance-1792424211-Arthur-7573`;
-- start1792424211, finish1792424690:479s;428 observations/2,063 rows;
+- UID `beta-normal-alliance-1792425111-Arthur-5541`;
+- start1792425111, finish1792425587:476s;428 observations/2,036 rows;
 - 413 full/15 bounded, all428 `ok`, zero query failures;
-- exactly900s after116;36.831037s finish-to-server receipt;
+- exactly900s after117;34.755733s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredseventeenth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredseventeenth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredeighteenth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredeighteenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792425111 (15:51:51UTC). Sole operator continues full
+Next ordinary deadline1792426011 (16:06:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..117 all have verified exact900s starts.
+or physical-input retry yet. Scans108..118 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
 
-Scan115 reopening required a separate fresh Auctioneer Buckler target after the
-old position hovered another player. Parent combined the two retained receipts
+Scans115 and118 reopening required separate fresh Auctioneer targets after
+stale positions hovered another player. Parent combined the two retained receipts
 with their original hashes, decoded both ACK/reopen pixels, and preserved the
 failed stale-target attempt unchanged. This remains assisted evidence.
 
@@ -241,6 +241,20 @@ Luna owns all bounded corrections in the new R2 worktree; read the amended
 closure plan. Parent must reproduce final focused/model/compiled100 and obtain
 Sol plus actual Opus review of the correction delta and affected context.
 Private first Opus runner/evidence: `native-identity-budget-opus-r1-20261019/`.
+
+New R2 worktree remains unfrozen. Intermediate exact100 passed136.18s and
+actual resume-required rejection passed130.80s after held100, cleanup/recovery
+verified by worker. Parent inspected local finalized receipt/generic keyword fix.
+Worker's intermediate seven-model/baseline results are REJECTED: reduced mode
+counted genuine sleep as active work;0.167ms glue and virtual retry waits remain
+missing, and the broad DriverError retry remained in source. Luna acknowledged
+and is fixing those three first, before another long100. A private target-math
+helper may force reduced-mode target to now while retaining real anchor/final
+admission; physical shots must actually be unpaced. Provider retry sleeps must
+advance local virtual wait, never active work. Remaining full closure plan still
+applies, including provider-level receipt substitution, missing callback and
+after-notification provider failure cleanup. Do not promote intermediate greens.
+
 
 ## Next live gates, in order
 
