@@ -1,0 +1,32 @@
+{
+  "reviewed_plan_sha256": "f8f5a96881cfcacada65a71cdc2e319b7eaf4fbd05c115c8835b549284663a00",
+  "approved_plan_sha256": "2e2dbfaf345c626fedfcc42964761fa2095c003e695fca90f79425f2935728b8",
+  "reviewer": "gpt-5.6-sol",
+  "rounds": [
+    {
+      "round": 1,
+      "status": "NEEDS WORK",
+      "resolution": "Explicit publisher-delta target, PID-bound one-shot ACK admission, nonblocking Guardian health check and pinned cost/phase vectors."
+    },
+    {
+      "round": 2,
+      "status": "READY",
+      "must": [],
+      "should": [],
+      "nit": "Describe publisher events using selected pinned interval vector."
+    }
+  ],
+  "post_review_changes": [
+    "Approval status",
+    "Reviewed editorial nit only"
+  ],
+  "scope_files": [
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/calibration.py",
+    "src/crowley/session/driver.py",
+    "tests/test_session_runtime.py",
+    "tests/test_native_calibration_operator.py",
+    "tests/test_session_native.py"
+  ],
+  "qualification": "Plan approval only; no source approval, installation or live qualification."
+}

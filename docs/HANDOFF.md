@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 13:26 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 13:29 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -145,12 +145,23 @@ closed for calibration with exact #91 ACK, pending 0, normal/0, inactive fence,
 closed chat, zero movement and released controls. Public state is PAUSED29.
 Record the resulting calibration-related gap; do not count these as autonomous.
 
-The latest private backup is `beta-20261019T111106Z-717ede9b8040`, independently
-validated after #99 ingestion, directory mode0700. Manifest SHA256:
-`0c1cd73c92f3f7f7eedb57df9a40b2687b44c8934816064b6638978a5150171e`.
-See [backup verification](../.archive/executor-review/market-backup-20261019T111106Z-parent-verification.json).
-Next hourly backup: 12:11 UTC. Prior isolated restore drill passed; repeat only
+The latest private backup is `beta-20261019T131231Z-4d2b1b2ea98c`, independently
+validated through #106 ingestion, directory mode0700. Manifest SHA256:
+`d208f24f708318d84ee076278920cd3170675070235c7e51ca80a60f23e5147a`.
+See [backup verification](../.archive/executor-review/market-backup-20261019T131230Z-parent-verification.json).
+Next hourly backup: 14:12 UTC. Prior isolated restore drill passed; repeat only
 if new evidence warrants it. Raw backup data stays private.
+
+## Current implementation gate
+
+Sol R2 approved the [pre-ACK timing correction](../.archive/PLAN-native-capture-ack-alignment.md)
+with no Must/Should findings; parent applied only the reviewed publisher-vector
+wording nit and approval status. [Approval and exact hashes](../.archive/executor-review/native-capture-ack-alignment-plan-approval.json).
+This replaces the failed pre-backend timing mechanism and expands the source
+fence to six files, including the private driver ACK hook and compiled-producer
+protocol tests. Luna owns implementation in the isolated worktree; no candidate
+has been installed. Native calibration, physical input calibration and all three
+autonomous cycles remain unqualified. Ordinary assisted collection continues.
 
 ## Accepted installed release
 

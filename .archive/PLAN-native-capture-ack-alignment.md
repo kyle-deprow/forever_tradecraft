@@ -1,6 +1,7 @@
 # Native capture ACK alignment correction
 
-Status: DRAFT for Sol review. No source installation or release qualification.
+Status: APPROVED by Sol R2 and parent on 2026-10-19. Source implementation
+and release qualification remain pending.
 
 ## Reason and precedence
 
@@ -126,8 +127,8 @@ Parameterize the timing cases so one failing case can be reproduced alone.
 Keep the real `NativeCalibrationRunner.run`, exact provider, deferred context
 and reservation in every mode. Old mode disables only eligibility, restoring
 outer, deferred-owner and poll resolves; it must not set `deferred=False`.
-Publisher ticks are independent1,000ms events armed by the actual measure
-command. Every virtual-clock advance must be named active work or a real
+Publisher ticks are independent events driven by the selected pinned interval
+vector and armed by the actual measure command. Every virtual-clock advance must be named active work or a real
 production wait; remove hidden capture advances during the stream.
 
 Add a test-only pixel-sampling callback immediately after actual Agent command
