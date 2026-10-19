@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 15:19 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 15:21 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -204,8 +204,9 @@ R7 now binds the intended final-lock
 callsite, uses predeclared expiry and arms real compositor entry markers. Parent
 reproduced final19 compiled boundary cases: PASS50.19s. Native-test AST changes
 since R3 are only the two compiled tests and typing.Any import; other5 files
-remain frozen. Parent exact compiled100 is running; Sol R2 and actual Opus
-source reviews are running on identical final six pins.
+remain frozen. Parent exact compiled100 PASSED136.55s, all six pins unchanged. Scoped Ruff
+check/format and diff checks also passed. [Final parent evidence](../.archive/executor-review/native-ack-final-r7-parent-verification.json).
+Sol R2 and actual Opus source reviews are running on identical final six pins.
 
 Required exact long node after final focused checks, pins and milestone:
 

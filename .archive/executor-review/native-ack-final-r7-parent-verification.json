@@ -1,0 +1,57 @@
+{
+  "status": "PASS",
+  "qualification": "Offline integration and model evidence only; no new live native or autonomous qualification.",
+  "sourceHashes": {
+    "src/crowley/session/daemon.py": "90a41328692ed543f602b5b7ee7ece22a730ba02118d898d681e2b8180e2fbca",
+    "src/crowley/session/calibration.py": "86627fdb495cbabbd04456f33dfe8693a1ef2ef45e7952fca3ee2167ce8107e7",
+    "src/crowley/session/driver.py": "200c347dae3e8e2c18d0262b1feb2e041f4c3414afedba2b756210e6fb2d6bda",
+    "tests/test_session_runtime.py": "0fd2868fbf3734079c1f8024e723ad466a715a888cb4926c3fa8d02ebd9ed667",
+    "tests/test_native_calibration_operator.py": "8ebfcdccfabfc41f3d25e33571f04f37f132f6cc567a7b94dff3614ca4a66dba",
+    "tests/test_session_native.py": "9e21461a4f472a93358c9f35842be4857e94f47da3b8e5185583a6fa8a69ce14"
+  },
+  "finalCompiledMatrix": {
+    "cases": 19,
+    "pytestSeconds": 50.19,
+    "result": {
+      "returncode": 0,
+      "wall_seconds": 50.55397788900882,
+      "source_unchanged": true,
+      "log_sha256": "64ce499ec15443d026a782efc77a5b3ec8cf5463ba4a56ff8ddc93058869896e",
+      "command": [
+        "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_session_native.py::test_compiled_private_owner_guardian_generation_revoke_orders",
+        "tests/test_session_native.py::test_compiled_region_composes_through_default_daemon_and_stock_model",
+        "--tb=short"
+      ]
+    }
+  },
+  "exactCompiled100": {
+    "node": "tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]",
+    "pytestSeconds": 136.55,
+    "result": {
+      "returncode": 0,
+      "wall_seconds": 136.9011125919933,
+      "source_unchanged": true,
+      "log_sha256": "b927833ee90dc58aa97eca069bf749e82a5bee18f97e139da221db9165a33c23",
+      "command": [
+        "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]",
+        "--tb=short"
+      ]
+    },
+    "coverage": "Exact configured provider/real compiled producer with construct0,held0,updates1..99,retainedheld100,resume0; retained path/hash compared to sealed final evidence."
+  },
+  "modelReuse": {
+    "priorProof": "native-ack-parent-r3-model-and-boundary-gate.json",
+    "unchangedFiles": "daemon,calibration,driver,runtime,operator remain exact R3 pins",
+    "finalNativeTestDelta": "Only2 compiled test functions and typing.Any import; remaining top-level AST identical. Seven-case timing model unchanged."
+  },
+  "staticChecks": "Scoped Ruff check/format and git diff --check passed on parent final6.",
+  "reviews": "Sol R2 and actual CLI Opus5.5 still running. No source approval or installation claimed."
+}
