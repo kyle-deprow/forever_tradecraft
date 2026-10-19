@@ -1,0 +1,8 @@
+{
+  "status": "READY",
+  "reportSha256": "470992f621cc6c4004109d4c5f82f52e6007be08a45c7f60a940a676d77591e4",
+  "accepted": [
+    "Both Must-Fix and all accepted Opus Should-Fix resolved; nine pins unchanged."
+  ],
+  "qualification": "Source review only; no installation inferred."
+}

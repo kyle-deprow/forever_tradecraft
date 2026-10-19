@@ -1,0 +1,12 @@
+{
+  "status": "NEEDS WORK",
+  "reportSha256": "645429afe98217212e273a105e0c0e4974c885622862fcf90f0297f204396704",
+  "accepted": [
+    "Current UID in ACK states",
+    "Strict calibrationOperation",
+    "Durable missing-config/path errors",
+    "No false-green health after journal-write failure",
+    "Bounded reads and real pending/exit-status fields"
+  ],
+  "qualification": "Source review only; no installation inferred."
+}

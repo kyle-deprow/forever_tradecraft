@@ -1,0 +1,10 @@
+{
+  "status": "PASS",
+  "snapshot": "beta-20261019T211217Z-eec6ff648270",
+  "manifestSha256": "4625687a4a8a1c291169d5f4558d188b2d5fe1c1453d3135252dcf8e206f289c",
+  "directoryMode": "0700",
+  "coverage": "Includes scan138 ingestion; scan138 independently parent-verified.",
+  "validation": "tools.market_backup.validate_snapshot",
+  "restoreDrill": "Prior isolated restore drill remains accepted.",
+  "parentIndependentManifestValidation": true
+}

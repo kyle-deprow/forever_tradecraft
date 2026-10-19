@@ -1,0 +1,28 @@
+{
+  "status": "NEEDS WORK",
+  "reportSha256": "5451eae0ca5eaef593bcb313a426ad6dab9459dd37c4623f85827299079431b7",
+  "accepted": [
+    "Terminal calibration history",
+    "Authoritative deadline matrix",
+    "Real pending schema",
+    "Bounded long diagnostics",
+    "Unknown status remains null",
+    "Safe receipts, timestamps and producer-shaped tests"
+  ],
+  "qualification": "Source review only; no installation inferred.",
+  "actualCli": {
+    "pid": 3806439,
+    "started_wall": 1792444008.6635776,
+    "worktree": "/home/dev/.cache/crowley/worktrees/host-operations-20261019",
+    "requested_model": "opus",
+    "status": "completed",
+    "returncode": 0,
+    "resolved_models": [
+      "claude-opus-5-5"
+    ],
+    "finished_wall": 1792444799.7323985,
+    "raw_sha256": "064bce57194103b7a42cc018a200a40ad43276ff32df1ee16311f6d46144635b",
+    "has_verdict": true,
+    "source_unchanged": true
+  }
+}

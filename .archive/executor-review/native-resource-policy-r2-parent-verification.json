@@ -1,0 +1,129 @@
+{
+  "status": "PASS",
+  "qualification": "Offline verification only; source R2 reviews and fresh live qualification still pending.",
+  "hashes": {
+    "src/crowley/session/calibration.py": "0e96f7f4d9fd6b25c04fc767e57e4c617b69f99cb165811d4bd2a07c8c1932fc",
+    "src/crowley/session/controller.py": "79768781005d062cf0662c4ef99dd5a0b2263e8ac59f84b832fd09e9351ac81f",
+    "src/crowley/session/daemon.py": "38cb1d125e77a05f118297f842db99b872496bd664e85a7011065f7689cdbbc5",
+    "tests/test_session_native.py": "8ab5de3cc257aefed33ace9ae0e51b02f00a41363985f1b2bb4f9b72c542f70f",
+    "tests/test_session_runtime.py": "0020333f0c8d7b72f07cbcea1b79b08cbf00eabbc41595f4a7525b25df873ee6",
+    "tests/test_session_native_regressions.py": "ba2eaa8d9ed5e37da357a2be6e99f074a54d6d2e75195e2ad051b93cf3b09441",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tools/native_calibration_operator.py": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62"
+  },
+  "parentIndependentChecks": {
+    "focused": {
+      "name": "focused",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "-k",
+        "reset5 or resource_assessment or native_memory or assessment or stored_native or native_calibrated_rolls_back_on_transient_durable_write or native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 74.991,
+      "logSha256": "deb5f617830d0c0c50d8da6b3c13bbb0e9b55286edc0be1be89e3a135a339ac9",
+      "sourceUnchanged": true
+    },
+    "runtime": {
+      "name": "runtime",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_session_runtime.py::test_three_cycle_daemon_and_socket_lifecycle",
+        "tests/test_session_runtime.py::test_live_daemon_binds_owned_visual_and_render_providers",
+        "tests/test_session_runtime.py::test_runtime_reconcile_ready_scanner_is_idle_with_pending_saved_uid",
+        "tests/test_session_runtime.py::test_runtime_uncertain_no_agent_never_recovers_login_or_input",
+        "tests/test_session_runtime.py::test_runtime_ack_reload_missing_full_evidence_does_not_complete",
+        "tests/test_session_runtime.py::test_runtime_qualification_retry_journal_error_preserves_checkpoint",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 85.591,
+      "logSha256": "48bfbdf920c68b4a89bffe7ce37497ec36406d1add9a8b97db9779f71c5e3f88",
+      "sourceUnchanged": true
+    },
+    "compiled100": {
+      "name": "compiled100",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 147.014,
+      "logSha256": "0d3a2632429cda24e441f2e36bb4dc15b190b453e4ba2e33304c76497b4d7c9e",
+      "sourceUnchanged": true
+    },
+    "ruff": {
+      "name": "ruff",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "src/crowley/session/calibration.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_native_regressions.py"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.052,
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "sourceUnchanged": true
+    },
+    "format": {
+      "name": "format",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "src/crowley/session/calibration.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_native_regressions.py"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.111,
+      "logSha256": "ef7d13d02214e98ca902b05257cdbe6a8e84f3b4714508efdc19766460b54209",
+      "sourceUnchanged": true
+    },
+    "diff": {
+      "name": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.03,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourceUnchanged": true
+    }
+  },
+  "scope": "Exactly six owned files; driver/helper/operator test unchanged.",
+  "delta": "Dynamic current removed from persisted assessment; replacement current suppression, full canonical fingerprint/hash binding, causal runtime assertion, focused negatives.",
+  "priorCoverage": "Original full337 native/regressions+38runtime bind R1 pins; R2 uses focused and real compiled reproduction, no full-suite claim.",
+  "testCounts": {
+    "focused": 32,
+    "runtimeAffected": 6,
+    "compiled100": 1
+  }
+}
