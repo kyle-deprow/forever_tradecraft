@@ -1,0 +1,7 @@
+{
+  "snapshot": "beta-20261019T051304Z-a3a4ac88b124",
+  "validation": "PASS: independent validate_snapshot completed without error",
+  "manifestSha256": "3839cfad5532e6c22d9711b2adf325b7e2b09b1b0b9968f4d7d64477eb29f85b",
+  "directoryMode": "0700",
+  "scope": "Hourly immutable backup after scan77 ingestion; no additional restore drill claim."
+}

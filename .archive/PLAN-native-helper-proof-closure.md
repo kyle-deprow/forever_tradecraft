@@ -77,3 +77,18 @@ The fixture must also be genuinely causal in ALL modes:
 Retain prior tests/evidence truthfully: old73 passed but did not establish these
 boundaries. Do not rewrite old logs or label them final. Final suite/reference
 must start from the corrected source and exact actual SavedVariables transitions.
+
+## Parent causal inspection follow-up
+
+The 6abb test snapshot still prearmed the actual `ordinary` VM during fixture
+setup in every mode except ordinary recovery. Its later dispatched agent defer
+therefore refused `native_construction_already_set`, hidden by ignoring that
+handler result. Eight workflow tests passed but did not establish this transition.
+Always use a separate construction seed for static/future deferred images and
+leave the actual ordinary client unarmed until the emitted helper command. At
+that dispatch assert no marker before, armed marker with actual boot token after,
+construction fence true and no reload yet. Preserve the same VM until the actual
+reload action. Recover-restore still starts the separate actual fenced client.
+Run affected success/preflight cases first. Rebase provisional Rust integration
+test baseline without discarding its independent matcher-provenance assertions.
+No production, native, deadline or GUI scope expansion.

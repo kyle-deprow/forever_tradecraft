@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "scope": "Parent independently production-decoded retained original PNG, not a new GUI action. Operator-assisted only.",
+  "receipt_sha256": "d18a8c2b6e8fbebd17bacfcd6a15fc2abaaef2e1d2a258ea024d62730d8424a5",
+  "image_sha256": "dc967cbd8e88593d6cd0da8db5d574566c40e605cba55f15690f4d6b49f62ac3",
+  "uid": "beta-normal-alliance-1792385263-Arthur-2687",
+  "boot": "1792385864-340613",
+  "sequence": 132,
+  "loaded_ack": true,
+  "pending": 0,
+  "ahOpen": true,
+  "scanner_phase": "scheduled",
+  "dueAt": 1792386163,
+  "render_phase": "normal",
+  "native_ordinal": 0,
+  "scanner_fence": "inactive",
+  "character_speed": 0,
+  "button_released": true,
+  "failed_attempts": "Earlier tooltip OCR false negative and tuple/list guard refusal preserved separately; neither is relabeled successful."
+}

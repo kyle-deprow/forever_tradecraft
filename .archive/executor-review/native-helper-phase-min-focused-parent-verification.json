@@ -1,0 +1,21 @@
+{
+  "sourceBefore": {
+    "tools/native_calibration_operator.py": "47afeda449fb9eab695c33c239c1909ea45e2c05d5d16df36b95dd63df3d5cce",
+    "tests/test_native_calibration_operator.py": "6abbea8664ef6a3edc17e0884b02e45470a3508e31abadf32b592a92c265ca07"
+  },
+  "sourceAfter": {
+    "tools/native_calibration_operator.py": "47afeda449fb9eab695c33c239c1909ea45e2c05d5d16df36b95dd63df3d5cce",
+    "tests/test_native_calibration_operator.py": "6abbea8664ef6a3edc17e0884b02e45470a3508e31abadf32b592a92c265ca07"
+  },
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/pytest",
+    "-q",
+    "tests/test_native_calibration_operator.py",
+    "-k",
+    "record_operation_deadline or invalid_process_group or missing_owner_start or cancellation_child_closes_inherited"
+  ],
+  "returncode": 0,
+  "logSha256": "aa302544f7cd164972c23f97e5645fe1b816b0d519bffdbaa100a293d51f6110",
+  "output": "....                                                                     [100%]\n=============================== warnings summary ===============================\ntests/test_native_calibration_operator.py::test_owned_emitter_invalid_process_group_reaps_child_and_closes_fds\ntests/test_native_calibration_operator.py::test_cancellation_child_closes_inherited_nonprotocol_fd_and_keeps_protocol\n  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=391589) is multi-threaded, use of fork() may lead to deadlocks in the child.\n    self.pid = os.fork()\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n4 passed, 73 deselected, 2 warnings in 2.36s\n",
+  "qualification": "Focused offline proof branches only; full causal workflow and final Rust composition remain pending. Source pre/post unchanged."
+}

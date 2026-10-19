@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 04:59 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 05:13 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -36,7 +36,18 @@ Seven accepted native files are installed; helper remains uninstalled.
 See native-paused-install-parent-verification.json for hashes/pins/process proof.
 Collection is still **operator-assisted**; GUI Luna keeps it flowing.
 
-Latest parent independently verified **76**
+Latest parent independently verified **77**, UID
+`beta-normal-alliance-1792386163-Arthur-8643`:428obs/2003rows/413full/15bounded/
+0incomplete, duration477s, exact900s after76. Original SHA
+9911126e8bf9f7c1026c2d2b8db0bfc9fd43fc81007cfdcc54cc97a12fbe1179; DBdigest
+match, finish→server54.838502s. Parent decoded actualACK and final AH-open PNG
+a02b08f9583c17980c6eb5af2d6d233c4ed3dcae9ffbbce2c1de3c1e980e8c93, boot
+1792386710-567444/seq14, normal0/fenceinactive/pending0/buttonsreleased/stationary.
+Public build-70450-seventyseventh-{scan,ah-reopen}-parent-verification.json.
+Full assistedcycle complete; next78due1792387063 (05:17:43). SoleGUI owns next
+full cycles. No autonomous engine qualification.
+
+Previously parent independently verified **76**
 UID `beta-normal-alliance-1792385263-Arthur-2687`, start04:47:43UTC,
 finish04:55:42UTC (479s):428obs/2057rows/412full/16bounded/0incomplete.
 Parent original SHA2ce5b4d2f5b38a6676565783550cb4291195cdc1ef8739670affa769b1004adb
@@ -44,7 +55,12 @@ and DBlogicaldigest match; exact76ACK loaded in boot1792385864-340613, pending0,
 normal0/inactivefence. finish→server105.968071s, interval1329s after75 (429s late).
 Public build-70450-seventysixth-scan-parent-verification.json. Raw receipt ends
 failed at later tooltip-OCR; ACK stage succeeded and independent normalization
-preserves that distinction. SoleGUI AH-reopen continuation underway.
+preserves that distinction. Parent independently verified subsequent AH-open PNG
+dc967cbd... in boot1792385864-340613/seq132; scheduled77due1792386163,
+all buttons released, stationary. Public build-70450-seventysixth-ah-reopen-parent-
+verification.json. Full76 assisted cycle complete; no autonomous qualification.
+77 started1792386163 (05:02:43), exact900s after76 and completed above.
+Parent verified activeframe308 at start, then full saved/DB/ACK/AH cycle.
 
 Previously parent independently verified **75**, UID
 `beta-normal-alliance-1792383934-Arthur-2146`, start04:25:34UTC:
@@ -163,7 +179,30 @@ Parent18focusedPASS1.11s andactualretainedframevsoriginalPythonreference: exclus
 AllactualOperatorreceiptsmergeverifiedruntimepins, deterministicimport/script+module
 help green. Leaves _record_operation_deadline andoldhelpertestfileuntouched. Parentwillmerge
 finalproofworker's phase-minmethod+actualcausaltestbaseline beforefullintegration
-checks/review/deploy. ReviewedPLAN-rust-matcher-helper-integration.md includes
+checks/review/deploy. Parent now provisionally composed exact47af phase-minmethod
+plus test6abbea8664ef6a3edc17e0884b02e45470a3508e31abadf32b592a92c265ca07:
+composed helper8776425736b81d0c130380f96f673a0010b79d1382c36e9681cbbfb1b02b1169.
+Rustworker resumed finalactualintegration in separate WT; no promotion yet.
+Parent fourfocusednewbranch tests PASS2.36s/sourceunchanged, public
+native-helper-phase-min-focused-parent-verification.json. Proofworker eightcausalmodes PASS328.08s, full77 running; prior emitterPRESSED
+failures retained. Parent then found6abb STILL prearms actualordinary before
+helperdefer, causing realdefer refusalalready_set ignored by handler. Workerfix
+uses independent constructionseed and asserts actualNone→armed/token/fence/noReload
+transition at emitteddefer. Provisional6abb NOT accepted; Rustworker informed
+to rebase finalproofdelta, no broadfullcausal run until correction. Narrow
+phase-minproduction47af unchanged. New genuineunarmedpreflight passed27.67s;
+success failed42s at update1 unexpectedbootchange. Parent pureactualLuaexperiment
+confirmed staticseedtoken454944 differs actual856168; Construct/Hold payload4/5
+were still static while update6 becameactual. Worker now binds actual4/5 at
+accepted actions +exactpublicationasserts; no boot-guard/RNG relaxation.
+Genuinecorrected success-causal-r3 PASS147.16s with proof test a38bd17d8d553866
+97f3de5ecc6b3588cd31ffaca2eb6f9d5bf1535d0ec259b6. Rustworker resumed exact
+baseline rebase and actualcompiledreceipt runtime/binary/3Rust independentpins,
+then ONE final full composed suite. Proofworker askedfreeze/report vsredundant
+concurrent100-fixture run. No finalSol/Opus orpromotion yet.
+See proofplan follow-up. Runtimeworker completed bounded17runtime+7helper+1pin
+checks/CLI/Ruff on interim039454test, fullcausal interrupted130 perparentpending
+finalproofbaseline. Logs rust-matcher-helper-final-20261019; no fullgreen claim. ReviewedPLAN-rust-matcher-helper-integration.md includes
 parallelpreparation. FinalintegrationOpus reviewsallcombinedchanges once; no early
 helperpromotion. PriorstageA10/15passes historical, final16authoritative.
 Private official Rust/Cargo1.85.1+rustfmt installed under
@@ -289,23 +328,25 @@ Helper NOT main/installed; never run rejected old candidates. R8/66pass historic
   Panel220x84 UIParent units TOPRIGHT(-24,-24), buttons100x28 offsets(8,-8)/(112,-8).
   UIParent1365.33x768 vs physical1920x1080 is not a measured button transform.
   No guessed coordinates/templates. GUI Luna has read-only prepared source facts.
-- Native source installed and actual operator-assisted control preflight/template
-  acquisition reached restore startup failure above. Finish diagnosis/correction
-  and actual ordinary recovery/cleared checkpoint/PAUSED/unarmed/AH reopen before
-  further calibration or claiming recovery success. No rejected helper/native100.
-- Accepted helper/native exact integration and ordinary recovery contract, then
-  real inactive control preflight +fresh native100. Measure live template matching;
-  synthetic2.6/5.05s benchmark does not establish a Rust bottleneck.
+- Native7 and addon79 are installed. Actual ordinary recovery/cleared checkpoint/
+  PAUSED/unarmed/AH reopen succeeded04:09 and subsequent assisted scans74–77
+  proceeded; historical startup failure is fixed. Do not run rejected helper.
+- Finish exact helper+Rust runtime composition, parent relevant verification and
+  final Sol/actualOpus delta review. Then install accepted exact helper+adapter,
+  soleGUI runs inactive control preflight and fresh native100 between scans.
+  Actual retained-frame integrated matching now measured~207ms exclusive/~241ms
+  dual with exact reference parity. This excludes live capture, does not qualify
+  native100 and is not a claim of40ms whole-pipeline latency.
 - Only when actually ready request genuine human GTK physical key+click gate.
   No user action needed now. Never fake human success.
 - Then three autonomous900s save/upload/ACK/reopen cycles. Only then complete.
 
 ## Preservation and working rules
 
-Latest hourly backup `beta-20261019T041237Z-bf0631a88c00`, parentvalidate PASS,
-manifest SHA7ce5a0fe3ea4ff3701287f8e6fa0129fc6f71b7d45f49ae6c702873b7a7892ff,
-0700 directory, data through73 (74/75 ingested afterward; originals retained). Next hourly05:13UTC. Run
-`uv run python tools/market_backup.py snapshot`; independentlyvalidate_snapshot.
+Latest hourly backup `beta-20261019T051304Z-a3a4ac88b124`, parentvalidate PASS,
+manifest SHA3839cfad5532e6c22d9711b2adf325b7e2b09b1b0b9968f4d7d64477eb29f85b,
+0700 directory, after77 ingestion; all new originals retained. Next hourly06:13UTC.
+Run `uv run python tools/market_backup.py snapshot`; independentlyvalidate_snapshot.
 Prior isolated restore drill passed; no repeat without reason. Raw/private files
 stay out of git. Historical handoff: handoff-history-before-consolidation-
 20261018T2330Z.md in executor-review, and git history.
