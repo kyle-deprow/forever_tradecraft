@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "healthAutomaticRecurrenceAfterManualStart": true,
+  "latestHealthUtc": "2026-10-19T21:51:11Z",
+  "classification": "attention",
+  "issues": [
+    "calibration_operation_error"
+  ],
+  "timerStatusSha256": "60d9a370d7256ebf65dc73b8bee267989902e9117e05e6b7ae7d82446c01206f",
+  "qualification": "Proves independent systemd health recurrence, not autonomous game scanning."
+}
