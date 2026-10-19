@@ -283,6 +283,9 @@ within existing authorization; respect any current movement limits.
   Timing regressions must traverse configured backends and production hook
   call sites. Manual span contexts or stock-capture fixtures cannot qualify
   timing attribution for a configured producer.
+  For modeled cadence tests, advance the publisher clock at actual production
+  call boundaries. Subtracting a precomputed latency sum cannot prove the
+  optimization works; the test must fail when that optimization is removed.
 - If an action has no visible effect, diagnose foreground, coordinates, and input
   delivery before repeating it. Repeated Play clicks can create duplicate clients.
   Another player's bar can physically hide an NPC label; OCR filtering cannot
