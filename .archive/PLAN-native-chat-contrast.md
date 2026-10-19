@@ -1,6 +1,6 @@
 # Native chat OCR contrast normalization plan
 
-Status: PLAN APPROVED BY SOL AND PARENT. Implementation not released.
+Status: PLAN APPROVED BY SOL AND PARENT. R1 source review needs fixes; implementation not released.
 The initial experiment is independently reproduced; production candidate and
 full helper checks plus source reviews remain mandatory before promotion.
 
@@ -159,3 +159,21 @@ Evidence covers one current theme and one failed crop without its original
 desktop frame. Autocontrast is supported by nine cases, but future theme
 coverage still needs full helper/private production proof; state classification
 and exact guards remain unchanged, so unknown/active initial visuals refuse input.
+
+## R1 review closure and measured inactive-body behavior
+
+Sol R1 and actual Opus5.5 R1 both request changes. R2 must prove automatic
+`run()` cancellation/input closure after diagnostic errors, exercise retention
+write failure, classify the actual derived460x37 active typed crop, and keep
+at most four originals even when eviction unlink fails. Evict before admitting
+a new original; on eviction failure skip that new retention best-effort and
+keep truthful metadata. Preserve interruption propagation during retention.
+Record already-computed original hash/dimensions even if copying fails.
+
+Autocontrast can turn darker inactive body texture into OCR text. The original
+closed-empty fixture therefore does not retain its old OCR-empty behavior.
+This is an explicit limitation: the production initial-editor guard classifies
+the raw460x37 crop before input and never uses OCR to prove a closed editor.
+Keep that state guard and its no-input refusal tests; name the affected tests
+truthfully and assert the measured behavior rather than silently swapping a
+fixture. The failed gen33 fullframe remains unavailable.

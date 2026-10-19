@@ -1,0 +1,52 @@
+{
+  "status": "NEEDS WORK",
+  "released": false,
+  "qualification": "Offline recorded-frame candidate only; installed helper unchanged.",
+  "sourcePins": {
+    "helper": "f1b7292279d327a74c22e0e93050623223dadac2de310db703f7e6c36963d739",
+    "tests": "09fbdc4dc61977d8f76afabd08455c2b8615a5eca49238ce425bed55da0b05de"
+  },
+  "parentFocusedTests": 14,
+  "parentActualCandidateProof": {
+    "recordedOriginalFullframes": 8,
+    "actualFailedCrop": 1,
+    "passed": true,
+    "substitutedContext": [
+      "capture",
+      "input",
+      "identity",
+      "admission"
+    ],
+    "liveQualification": false,
+    "failedRunOriginalFullframeAvailable": false
+  },
+  "fullHelperSuite": {
+    "passed": 91,
+    "seconds": 351.76,
+    "sameProductionSource": true,
+    "earlierTestPin": "9c2e41e1f1e5cc3bb3a8998d4ad3ce9f5c138d0b3f0d8ee073bde58b647a333a",
+    "finalPinFullSuiteClaimed": false
+  },
+  "reviews": {
+    "sol": "NEEDS WORK",
+    "opus": {
+      "status": "NEEDS WORK",
+      "actualModel": "claude-opus-5-5",
+      "returncode": 0,
+      "rawSha256": "f5518a3ab95263b25673bde3aa768487687a0daf69ccfa4c2ec0cf15ce8af71e"
+    }
+  },
+  "acceptedClosures": [
+    "Strict last-four bound even when eviction unlink fails; skip new optional original without blocking capture.",
+    "Actual run lifecycle failure must prove original refusal, Escape/no submit, cancellation and automatic input closure under diagnostic errors.",
+    "Production classifier must classify actual derived typed460x37 crop as active and bind its SHA.",
+    "Exercise retention-write failure without changing control flow; retain already-computed source hash/dimensions and truthful retained=false.",
+    "Preserve OperatorInterrupted propagation during retention.",
+    "Record darker inactive-body OCR behavior explicitly; initial state guard remains unchanged.",
+    "Correct sanitized fixture comments; original failed fullframe remains unavailable."
+  ],
+  "intentionalDesign": [
+    "Typed-state errors retain class names only; no raw exception messages."
+  ],
+  "next": "Fixes proceed in isolated R2 worktree; parent reproduction plus Sol/actual Opus review and complete full-suite qualification required before installation."
+}

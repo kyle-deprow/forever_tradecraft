@@ -188,6 +188,10 @@ within existing authorization; respect any current movement limits.
   cleanup method can mask an otherwise completed capture or button release.
   Test exceptions at the actual failed setup stage and after context return;
   a cleanup test at another stage does not prove that ownership transfer.
+  Prove automatic executor cleanup through its actual lifecycle failure path;
+  manually closing the input afterward cannot prove its finally block ran.
+  Bounded diagnostic retention must also remain bounded when eviction fails;
+  skip the new optional artifact rather than losing track of the old one.
   Accept movement measurements only from settled post-release telemetry.
   Check the reconstructed runtime direction against the independently measured
   vector at a nonzero facing; stored calibration values alone do not prove it.

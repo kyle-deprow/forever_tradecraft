@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 10:41 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 10:57 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -56,17 +56,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #97 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792405827-Arthur-9764`:
+Parent verification #98 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792406727-Arthur-4757`:
 
-- 428 observations, 2,070 rows, 417 full and 11 bounded, all `ok`;
-- 483-second scan, 62.376083 seconds from finish to server receipt;
-- exact900-second start interval after #96; next ordinary deadline1792406727;
+- 428 observations, 2,063 rows, 419 full and 9 bounded, all `ok`;
+- 476-second scan, 61.315347 seconds from finish to server receipt;
+- exact900-second start interval after #97; next ordinary deadline1792407627;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-ninetyseventh-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-ninetyseventh-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-ninetyeighth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-ninetyeighth-ah-reopen-parent-verification.json).
+
+#97 is fully verified: 428 observations, 2,070 rows, 417 full/11 bounded,
+all `ok`, 483-second scan,62.376083s finish-to-serverreceipt and exact900s
+start interval after #96.
 
 #96 is fully verified: 428 observations, 2,083 rows, 416 full/10 bounded and
 2 incomplete (`query_timeout`), with426 `ok` observations. It took543s and
@@ -363,6 +367,18 @@ fullframes plus the actualfailedcrop). This is an offline experiment, not an
 implemented or live-qualified fix. Sol and parent approved the plan. The implementation
 will also retain the last4 exactoriginalfullchatframes and private refusal OCR.
 Only helper+helpertests are in scope; no service restart is required.
+R1 source review by Sol and actual Opus5.5 requires fixes before release:
+strict four-original bound on eviction error, actual `run()` automatic cleanup
+under diagnostic errors, retention-write failure coverage, and real typed-crop
+state evidence. Luna is fixing those in isolated native-chat-contrast-r2-20261019.
+The frozen R1 helper passed all8 recorded commands plus the failedcrop via the
+actual candidate seams (substituted capture/input/admission context, not live).
+Its full suite91 passed on an earlier test pin;14 focused checks passed on the
+final R1 pin. No final93-test full-suite result is claimed.
+Autocontrast may OCR darker inactive body texture as text. Initial-editor
+safety uses the unchanged raw460x37 state guard before input; closed-state OCR
+is never used as proof. Preserve this limitation in release notes.
+
 
 ## Next live gates
 
@@ -370,7 +386,7 @@ Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
 1. Finish the current assisted save/upload/ACK/reopen chain and verify ordinary
-   state before installing the accepted helper-only contrast fix. #97 is fully
+   state before installing the accepted helper-only contrast fix. #98 is fully
    parent-verified. Keep collection running until that controlled boundary.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.
