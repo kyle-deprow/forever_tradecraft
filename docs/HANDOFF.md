@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 15:21 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 15:25 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -62,7 +62,8 @@ Latest fully parent-verified cycle **#115**:
 - [scan proof](../.archive/executor-review/build-70450-onehundredfifteenth-scan-parent-verification.json)
   and [reopen proof](../.archive/executor-review/build-70450-onehundredfifteenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792423311 (15:21:51UTC). Sole operator continues full
+Scan116 started exactly1792423311 (15:21:51UTC); full chain in progress.
+Next ordinary deadline1792424211 (15:36:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
 or physical-input retry yet. Scans108..115 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
@@ -206,7 +207,12 @@ reproduced final19 compiled boundary cases: PASS50.19s. Native-test AST changes
 since R3 are only the two compiled tests and typing.Any import; other5 files
 remain frozen. Parent exact compiled100 PASSED136.55s, all six pins unchanged. Scoped Ruff
 check/format and diff checks also passed. [Final parent evidence](../.archive/executor-review/native-ack-final-r7-parent-verification.json).
-Sol R2 and actual Opus source reviews are running on identical final six pins.
+Sol R2 returned NEEDS WORK with three accepted remaining corrections: exact
+per-call receipt before daemon consumption, retained notification after successful
+resume-required callback, and eligible held/active/release-failure retirement
+coverage. [R2 findings](../.archive/executor-review/native-capture-ack-sol-source-r2-review.json).
+The closure plan is amended. Luna has prepared the bounded fix; all six R7
+files stay frozen until actual Opus R1 finishes reading them. No installation.
 
 Required exact long node after final focused checks, pins and milestone:
 
@@ -219,7 +225,7 @@ observer's exact construct0,held0,updates1..99,retained held100,resume0 sequence
 No fixture-manual spans/finish calls or unlogged test pipelines. Full private
 logs and six-file pins before every long test; no unchanged blind reruns.
 
-Sol R2 and actual Opus source reviews are running. Opus resolved actual
+Sol R2 is NEEDS WORK as above. Actual Opus R1 is running and resolved actual
 `claude-opus-5-5`; no verdict or approval is claimed yet. Private runner/prompt
 are under `native-identity-budget-opus-r1-20261019/`; input pins and prompt
 include the final six-file scope and current closure plan. Requires actual

@@ -110,3 +110,34 @@ Sol re-reviews the resulting frozen source; actual CLI Opus reviews the same
 accepted candidate. Parent reproduces compiled100. Only then quiescent install,
 restart, live native100/recovery, genuine human input calibration and three
 autonomous900s full cycles. Ordinary assisted collection continues meanwhile.
+
+## Source review R2 remaining corrections (parent approved)
+
+The final R7 parent19-case and compiled100 passes remain genuine, but Sol R2
+found three incomplete existing requirements. All three are accepted; no source
+approval or installation is granted. Keep the same six-file fence and preserve
+R7 evidence. Actual Opus R1 review is reading frozen R7; do not edit until root
+releases that freeze.
+
+1. Close the receipt race at the actual backend-to-daemon boundary. Publishing
+   `last_region_receipt` and rereading it after driver return is still global
+   state. Carry the exact finalized per-call receipt, including retirement,
+   through a private result/sink path. Preserve ordinary driver return behavior
+   and custom backend compatibility; no public schema changes. Interpose an
+   actual same-digest substitute before daemon consumption and prove the
+   original nonce/time is used or the operation refuses. Directly calling the
+   anchor before substituting is insufficient.
+2. Validate both resume callback callables and successfully invoke
+   `resume_required(identity, boundary)` before reporting held100 retained.
+   Notify immediately before the resume provider. Missing/rejecting callbacks
+   must preserve their original error, emit no premature retained result and
+   complete actual failure cleanup/release.
+3. Exercise eligible pre-ACK refusal for held input, unresolved active ownership
+   and failed release. Assert finalized `attempt_retired` and removed attempt
+   artifacts for every spawned pre-ACK refusal and post-dispatch rejection,
+   retaining enabled entry markers, exact zero/one ACK/entry and cleanup checks.
+
+Run focused seam/callback/typed tests first, then exact compiled100 and the
+relevant actual-run timing vectors if the modeled seam changes. Map the three
+requirements to named results, run scoped checks and freeze six hashes. Parent
+reproduces changed gates before Sol and actual Opus review of the new snapshot.

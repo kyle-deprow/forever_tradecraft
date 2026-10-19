@@ -1,0 +1,35 @@
+{
+  "status": "NEEDS WORK",
+  "reviewer": "gpt-5.6-sol native worker /root/sol_final_composition_plan",
+  "sourceManifest": "native-ack-final-r7-parent-verification.json",
+  "allSixHashesUnchangedBeforeAfter": true,
+  "parentArbitration": "All3 Must-Fix accepted as reachable existing-requirement gaps. No findings discarded.",
+  "mustFix": [
+    {
+      "id": "M1",
+      "at": "driver.py:3199 and daemon.py:4974",
+      "finding": "Daemon still obtains the purported per-call receipt from mutable backend.last_region_receipt after the driver returns, allowing same-digest replacement before consumption. Existing substitution regression runs after direct alignment record and misses this seam.",
+      "correction": "Carry exact finalized per-call receipt including retirement through private driver/daemon route. Test substitution before daemon consumption."
+    },
+    {
+      "id": "M2",
+      "at": "calibration.py:4892-4905",
+      "finding": "Retained held100 notification precedes callable validation and successful resume_required callback; failure can report retained before actual cleanup releases the image.",
+      "correction": "Notify only after callback succeeds, immediately before resume provider. Test callback failure/original error/cleanup and no premature retained."
+    },
+    {
+      "id": "M3",
+      "at": "test_session_native.py:1967,2495",
+      "finding": "Typed eligible matrix omits held input, active ownership/groups and unresolved release failures; spawned refusal paths omit attempt_retired assertion.",
+      "correction": "Add named eligible refusals and assert retirement/artifact cleanup on every spawned refusal/postdispatch rejection."
+    }
+  ],
+  "closedR1": [
+    "Original deadline forwarding and final-lock shutdown/expiry",
+    "Old-owner/finalACK timing charges and real phase951 refusal",
+    "Enabled entry markers, actual decoded origin, PID/process/epoch/final-lock order",
+    "Exact compiled100 observer/sealed held100 success"
+  ],
+  "shouldFix": [],
+  "nits": []
+}
