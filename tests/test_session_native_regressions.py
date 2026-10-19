@@ -8351,6 +8351,7 @@ def test_native_runner_samples_hwm_before_constructor_and_each_update(
             frame=SimpleNamespace(
                 boot="boot-a",
                 sequence=current,
+                uptime_ms=current * 1000,
                 crc32=current,
                 snapshot=SimpleNamespace(value={"render": metrics_by_path[_path]}),
             )
@@ -8412,6 +8413,7 @@ def test_native_runner_rejects_boot_churn_across_101_bound_frames(tmp_path: Path
             frame=SimpleNamespace(
                 boot=boot,
                 sequence=current,
+                uptime_ms=current * 1000,
                 crc32=current,
                 snapshot=SimpleNamespace(value={"render": metrics_by_path[_path]}),
             )

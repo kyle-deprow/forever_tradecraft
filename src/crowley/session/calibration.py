@@ -38,6 +38,7 @@ from .input_events import (
     xi2_timestamp_valid,
 )
 from .process_admission import ADMISSION_WRAPPER, AdmissionGate
+from .protocol import unsigned_delta
 
 
 class CalibrationError(RuntimeError):
@@ -4546,6 +4547,7 @@ class NativeCalibrationRunner:
         pending_captures: set[Path] = set()
         success = False
         last_capture_monotonic = -1.0
+        last_publisher_uptime_ms: int | None = None
         try:
             try:
                 construction = provider(identity, "construct", 0)
@@ -4574,7 +4576,7 @@ class NativeCalibrationRunner:
                 expected_update_count: int,
                 require_contiguous_sequence: bool,
             ) -> tuple[Path, Any]:
-                nonlocal last_capture_monotonic, last_sequence, last_update_count
+                nonlocal last_capture_monotonic, last_publisher_uptime_ms, last_sequence, last_update_count
                 returned_path = getattr(observation, "capture_path", None)
                 if returned_path is not None:
                     pending_captures.add(Path(returned_path))
@@ -4596,10 +4598,6 @@ class NativeCalibrationRunner:
                     and expected_update_count <= last_update_count
                 ):
                     raise CalibrationError(f"native {label} publication count did not advance")
-                if (expected_phase == "updates" and expected_ordinal >= 2) or expected_ordinal == 100:
-                    cadence = float(observation.capture_monotonic) - last_capture_monotonic
-                    if not 0.75 <= cadence <= 1.25:
-                        raise CalibrationError(f"native {label} publication cadence is not 1Hz")
                 self._validate_capture_time(
                     observation, last_capture_monotonic if previous_sequence else -1.0, now=self.monotonic()
                 )
@@ -4622,9 +4620,22 @@ class NativeCalibrationRunner:
                     raise CalibrationError(f"native {label} frame boot changed during measurement")
                 self._bind_observation(observation, decoded.frame, capture_path)
                 self._validate_metrics(observation.metrics, minimum_updates=minimum_updates)
+                if last_publisher_uptime_ms is not None and (
+                    (expected_phase == "updates" and expected_ordinal >= 2) or expected_ordinal == 100
+                ):
+                    try:
+                        publisher_delta_ms = unsigned_delta(
+                            decoded.frame.uptime_ms,
+                            last_publisher_uptime_ms,
+                        )
+                    except ValueError as exc:
+                        raise CalibrationError(f"native {label} publication cadence is not 1Hz") from exc
+                    if not 750 <= publisher_delta_ms <= 1250:
+                        raise CalibrationError(f"native {label} publication cadence is not 1Hz")
                 last_sequence = decoded.frame.sequence
                 last_update_count = expected_update_count
                 last_capture_monotonic = float(observation.capture_monotonic)
+                last_publisher_uptime_ms = decoded.frame.uptime_ms
                 return capture_path, decoded
 
             decoder = self.driver.new_native_decoder()

@@ -1,9 +1,11 @@
 # Native publication cadence correction plan
 
-Status: approved for implementation. Sol reviewed the complete plan and parent
-appendix with no Must Fix, Should Fix or Nits and returned STATUS: READY. The
-parent released the three-file implementation in the isolated worktree below.
-Source promotion and live execution remain subject to the verification gates.
+Status: implemented, reviewed and installed; live qualification pending. The
+full native file passed 159 tests, parent focused and compiled helper checks
+passed, and Sol plus actual Opus R2 returned READY. Opus R1's stalled-capture
+and held/100 negative test requests were implemented without another production
+change. The parent promoted the three files and restarted the paused service
+after assisted scan #88. See the release verification in executor-review.
 
 ## Evidence and conclusion
 

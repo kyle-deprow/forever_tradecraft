@@ -1,0 +1,91 @@
+{
+  "status": "INSTALLED_LIVE_CALIBRATION_PENDING",
+  "objective": "Validate native publication cadence from decoded publisher uptime while independently retaining capture freshness/order and all100 lifecycle validation.",
+  "source_sha256": {
+    "src/crowley/session/calibration.py": "20fe37ca1bc8b69cae1aa8f3ce559ac08f822bd666243e303f249f4857a4a3ae",
+    "tests/test_session_native.py": "62e60371f09ba4bb76fa29cf000049aa813fdfa5ea91dbc31d2e7dfc30a1aa89",
+    "tests/test_session_native_regressions.py": "cc3fa0fd38cee013e9bfb491bfcd1a662fd4bb6a8605a3da6d7cbf1fb8d49eda"
+  },
+  "checks": {
+    "worker_full_native": "159 passed in250.03s",
+    "worker_focused_additions_cadence_regressions": "10 passed in48.28s",
+    "parent_focused_first_round": "8 passed in34.94s",
+    "parent_focused_second_round": "2 passed in12.94s",
+    "parent_actual_compiled_helper_success": "1 passed in136.46s",
+    "ruff_check": "PASS",
+    "ruff_format_check": "PASS",
+    "py_compile": "PASS",
+    "diff_check": "PASS"
+  },
+  "worker_manifest_sha256": "020423221e8218d1b1e699520901bf0c24b131e2dfa7a6607f871578e68c29cf",
+  "worker_full_log_sha256": "0da1b2a8ef767d848488b4339e54c1b3fab2d77b0d310a2e83b3ae021fdd2763",
+  "reviews": {
+    "sol_round1": "READY/no findings",
+    "sol_round2": "READY/no findings",
+    "opus_round1": {
+      "model": "claude-opus-5-5",
+      "exit": 0,
+      "verdict": "NEEDS WORK",
+      "raw_sha256": "e7cefefb3218bcd289364a9c0a8840bc58ab95dd555f5e8e79a8e0da8564d4ff",
+      "accepted_findings": [
+        "Add actual Lua stalled-capture refusal and cleanup",
+        "Add actual Lua held100 out-of-range publisher refusal and cleanup"
+      ],
+      "production_correctness_findings": []
+    },
+    "opus_round2": {
+      "model": "claude-opus-5-5",
+      "exit": 0,
+      "verdict": "READY",
+      "must_fix": [],
+      "should_fix": [],
+      "nits": [],
+      "raw_sha256": "2f281d1bedb289895d0f5df95b6b19644268e3c722d8a13d9516f0c3cefddc64"
+    }
+  },
+  "runtime_test_limitation": {
+    "command": ".venv/bin/pytest -q tests/test_session_runtime.py -k native",
+    "exit": 1,
+    "result": "7 failed, 2 passed, 6 deselected in 1.70s",
+    "classification": {
+      "stale_fixture": "test_native_capture_start_uses_driver_clock_domain still stubs _capture_client_crop_for_identity; actual daemon uses _capture_native_region_for_identity and fixture lacks controller. Independently reproduced unchanged failure using baseline calibration e87e844bc0428f76f2d2c8053e58017651e5ea7e285164bac56ba33bbb39630c.",
+      "lease_environment": "Six fake runtime fixture cases use the default live desktop input lease; actual Guardian refused acquisition before any native runner/input. Daemon, driver, guardian and test_session_runtime.py unchanged by candidate. No lease or protection was weakened."
+    },
+    "arbitration": "Track fixture isolation/drift separately. Production compiled helper success composition passed independently; no broad runtime/helper suite PASS is claimed."
+  },
+  "baseline_fixture_reproduction": {
+    "exit": 1,
+    "same_failure": true,
+    "log_sha256": "f94a08aa8ad04071d43dba34fcda9d7b1f9e0522c1a5f4bb35d1a853aee17711"
+  },
+  "ordinary_before_install": {
+    "status": "PASS",
+    "receipt_sha256": "092ba0d4c77b25d211d3955d2f3b74a9752d59bfd3eca161a6b183b39c2875b6",
+    "retained_image_sha256": "ef31034f2a009d83a6324ef7c4fd2f263aacc197f141325039011b148f3b7009",
+    "parent_independent_production_decode": true,
+    "boot": "1792396774-613519",
+    "sequence": 65,
+    "ah_open": false,
+    "pending": 0,
+    "last_scan_exact_ack_loaded": true,
+    "native_phase": "normal",
+    "native_ordinal": 0,
+    "fence": "inactive",
+    "scanner_due_at": 0,
+    "character_speed": 0,
+    "input_released": true,
+    "qualification": "Quiescent ordinary scene before controlled calibration install; no native100 or autonomous claim."
+  },
+  "service": {
+    "active": true,
+    "old_pid": 3581203,
+    "new_pid": 781512,
+    "restart_utc": "2026-10-19 08:03:22 UTC",
+    "post_restart_state": "PAUSED",
+    "post_restart_generation": 27,
+    "native_calibration": false,
+    "input_calibration": false,
+    "installed_import_origin": "/home/dev/repos/pegasus/src/crowley/session/calibration.py"
+  },
+  "qualification": "Source/test/review and paused installation qualified. Actual native100, physical input gate and autonomous900-second cycles remain unqualified. Sole GUI worker released for live native qualification. Original failed native update1/2 captures remain unavailable; no retrospective false-positive claim."
+}

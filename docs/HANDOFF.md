@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 07:41 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 08:04 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -32,41 +32,40 @@ observations; no buying, posting or cancelling is part of this task.
 - The game character is Arthur, stationary at the Ironforge auction house.
 - Root must not operate the GUI concurrently with Luna. This handoff does not
   claim human, autonomous, calibration, or native100 qualification.
-- The service is PAUSED at generation 26 after failed native measurement.
-  Native/input remain false; the operation retains its timing error as history.
-  Fresh helper recovery restored the ordinary addon state; do not confuse
-  retained failure diagnostics with the current rendered state. Do not restart it merely
-  to inspect this handoff.
+- The corrected service restarted successfully at 08:03:22 UTC, PID 781512,
+  initially PAUSED at generation 27 with native/input false and idle calibration
+  operation/handshake. The restart advanced the generation from 26 to 27.
+  Luna is released for fresh recovery/preflight/native100/pause/ordinary recovery.
+  Read actual status before any transition; do not replay generation 27 after
+  the live chain advances it. Do not restart merely to inspect this handoff.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
   screenshot, a private fixture, or an external OCR crop.
 
 ## Latest accepted collection
 
-Parent verification #86 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792394449-Arthur-7099`:
+Parent verification #88 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792396249-Arthur-9558`:
 
-- 428 observations, 2,094 rows, 415 full and 13 bounded observations, all 428
+- 428 observations, 2,060 rows, 416 full and 12 bounded observations, all 428
   with reason `ok`;
-- 481-second scan, 32.004512 seconds from finish to the server receipt;
+- 479-second scan, 29.828405 seconds from finish to the server receipt;
 - exact saved-variable/server digest agreement and an independently decoded
   loaded ACK with pending 0, followed by verified auction-house reopening,
   fresh ordinary boot, normal native phase, inactive fence, released button,
   and zero movement;
 - the scan/reopen receipts are public in
-  [scan verification](../.archive/executor-review/build-70450-eightysixth-scan-parent-verification.json)
-  and [auction-house reopen verification](../.archive/executor-review/build-70450-eightysixth-ah-reopen-parent-verification.json).
+  [scan verification](../.archive/executor-review/build-70450-eightyeighth-scan-parent-verification.json)
+  and [auction-house reopen verification](../.archive/executor-review/build-70450-eightyeighth-ah-reopen-parent-verification.json).
 
-#86 started 1,086 seconds after #85, 186 seconds late because of calibration
-cleanup. It is fully saved/ACKed/reopened. #87 started at `1792395349`
-(07:35:49 UTC), exactly 900 seconds after #86. The sole GUI operator owns its
-completion, save/upload/ACK and reopen. Its next due time is `1792396249`
-(07:50:49 UTC). Do not count #87 until parent verification completes.
-Live recovery and control preflight passed. Native measurement then failed
-at update 2; public pause advanced to generation 26 and fresh recovery succeeded. See
-[live preflight evidence](../.archive/executor-review/native-live-preflight-r2-parent-verification.json). Root will not mutate the controller while
-Luna owns that chain. Calibration may intentionally replace a normal scan;
-retain the actual delay. Do not interrupt an active scan.
+#87 and #88 both started exactly 900 seconds after their predecessors and are
+fully saved/ACKed/reopened. #86 had a 1,086-second interval, 186 seconds late
+because of calibration cleanup. After #88 reopening proof, Luna closed the AH
+for calibration; the parent independently decoded the retained final frame:
+pending 0, exact #88 ACK loaded, ordinary normal/0, inactive fence, dueAt 0,
+stationary and released controls. The ordinary #89 due time, `1792397149`
+(08:05:49 UTC), may intentionally be replaced by calibration. Retain the actual
+resulting gap. Root must not mutate the controller while Luna owns the live chain.
 
 The latest private backup is `beta-20261019T071147Z-11a0798b1d0b`, independently
 validated after #85 ingestion, directory mode 0700. Manifest SHA256:
@@ -77,13 +76,16 @@ if new evidence warrants it. Raw backup data stays private.
 
 ## Accepted installed release
 
-The accepted release was promoted to main in commit `6874993`. The native seven
-file set and addon 79 remain unchanged. The Rust-backed matcher and runtime are
+The accepted OCR/Rust release was promoted to main in commit `6874993`. The
+new [cadence correction release](../.archive/executor-review/native-publication-cadence-release-parent-verification.json)
+changes calibration.py and two native test files and has been installed with a
+controlled service restart. Addon 79, the native lifecycle implementation,
+Rust-backed matcher and runtime retain their accepted versions. They are
 installed; their public release record is
 [native-helper-rust-final-release-parent-verification.json](../.archive/executor-review/native-helper-rust-final-release-parent-verification.json).
 The installed artifact has SHA256
 `75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c`, CLI help
-exited 0, and no service restart is required.
+exited 0.
 
 Current accepted source pins are:
 
@@ -187,7 +189,7 @@ This proves the clocks differ; the original failed native update 1/2 captures
 were not retained and their exact timing cannot be reconstructed.
 
 Sol approved the [correction plan](../.archive/PLAN-native-publication-cadence.md)
-with no findings. Luna worker `luna_rust_matcher` is implementing only
+with no findings. Luna worker `luna_rust_matcher` implemented only
 `calibration.py`, the actual Lua runner tests, and the two necessary native-runner
 stubs in the regression file, in the isolated worktree
 `/home/dev/.cache/crowley/worktrees/native-publication-cadence-20261019`.
@@ -197,18 +199,30 @@ all 100 ordinal/sequence/update-count checks, identity, boot, artifacts and
 cleanup remain independent requirements. No schema, GUI, addon, driver, decoder,
 Rust or configuration change is in scope.
 
-Parent verification, Sol source review and actual Opus review must pass before
-promotion. Changing the daemon-loaded calibration module requires a controlled
-service restart after the current assisted scan is saved/ACKed/reopened. Then
-use the actual returned generation for live preflight and native100; no unchanged
-measurement retry. No user input is needed until those gates pass.
+The full native file passed 159 tests; the worker focused set passed 10. Parent
+reproduction passed eight initial focused tests, both added failure tests and
+the actual compiled helper success composition. Ruff, format, compile and diff
+checks passed. Sol source reviews and actual Opus R2 are READY with no findings.
+Opus R1 requested the now-added stalled-capture and held/100 cadence negatives;
+production code did not change in that fix round. Installed calibration SHA256:
+`20fe37ca1bc8b69cae1aa8f3ce559ac08f822bd666243e303f249f4857a4a3ae`.
+
+A supplemental legacy runtime selection returned 2 passed and 7 fixture failures
+before runner entry: one stale capture stub reproduced against baseline code,
+and six default desktop lease refusals. These unchanged fixtures need separate
+isolation/maintenance; do not claim that suite passed or weaken the live lease.
+The actual compiled helper integration passed independently against the fix.
+
+The accepted three files were promoted and the service restarted after #88.
+Luna now owns fresh live qualification. No live native100 success is claimed
+yet, and no human input is needed until native100 and ordinary recovery pass.
 
 ## Next live gates
 
 Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
-1. Luna has completed #86 save/upload/ACK/reopen; parent independently verified
+1. Luna has completed #88 save/upload/ACK/reopen; parent independently verified
    the original payload, DB, exact ACK, ordinary state and released controls.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.

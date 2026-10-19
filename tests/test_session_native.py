@@ -87,7 +87,7 @@ from crowley.session.input_events import (
 )
 from crowley.session.model import CLI_VERSION
 from crowley.session.motion import MotionError, MotionFrame
-from crowley.session.protocol import decode_frame, encode_frame, pack_cells
+from crowley.session.protocol import ProtocolError, decode_frame, encode_frame, pack_cells
 from tests.test_session_input_tool import fixture_input_tool
 
 from .wow_harness import WowClient
@@ -7057,9 +7057,13 @@ class _NativeRunnerHarness:
         self.release_time = -1.0
         self.preconstruction_evidence: NativePreconstructionEvidence | None = None
         self.slow_p99_marks: set[tuple[str, int]] = set()
+        self.observed_frames: list[tuple[str, int, int, float]] = []
         self.client = WowClient()
         self.client.set_canonical_plan()
         self.client.login()
+        if self.fault == "publisher_wrap":
+            globals_ = self.client.lua.globals()
+            globals_.GetTime = lambda: (2**32 - 500) / 1000 + (globals_._now - 1760000000)
         self.client.publish_agent()
         self.published_frames: dict[tuple[str, int], bytes] = {("normal", 0): self.client.agent_frame}
         if self.fault in {"slow_p99", "early_slow_late_resume"}:
@@ -7130,7 +7134,16 @@ class _NativeRunnerHarness:
                 # callback can restore normal/0 before the retry.
                 return
             else:
-                self.client.slash("agent measure")
+                if self.fault == "publisher_backward":
+                    globals_ = self.client.lua.globals()
+                    original_get_time = globals_.GetTime
+                    globals_.GetTime = lambda: 1.0
+                    try:
+                        self.client.slash("agent measure")
+                    finally:
+                        globals_.GetTime = original_get_time
+                else:
+                    self.client.slash("agent measure")
 
         def resume_required(_identity: WindowIdentity, _boundary: object) -> None:
             if self.fault != "missing_resume":
@@ -7198,6 +7211,15 @@ class _NativeRunnerHarness:
         image.resize((256, 256), Image.Resampling.NEAREST).convert("RGB").save(path)
         return hashlib.sha256(path.read_bytes()).hexdigest()
 
+    def _advance_with_uptime(self, seconds: int, uptime_seconds: float) -> None:
+        globals_ = self.client.lua.globals()
+        original_get_time = globals_.GetTime
+        globals_.GetTime = lambda: uptime_seconds
+        try:
+            self.client.advance_with_timers(seconds)
+        finally:
+            globals_.GetTime = original_get_time
+
     def _provider(self, identity: WindowIdentity, phase: str, ordinal: int) -> NativeRenderObservation:
         assert identity.fingerprint == self.identity.fingerprint
         if self.fault == "construction_identity" and phase == "construct":
@@ -7214,11 +7236,30 @@ class _NativeRunnerHarness:
                 # requested ordinal, leaving an actual update/3 frame.
                 self.client.advance_with_timers(2)
                 self.clock[0] += 2.0
+            elif self.fault == "publisher_500" and ordinal == 2:
+                self._advance_with_uptime(1, 0.5)
+                self.clock[0] += 1.0
+            elif self.fault == "publisher_1500" and ordinal == 2:
+                self._advance_with_uptime(1, 1.5)
+                self.clock[0] += 1.0
+            elif self.fault == "publisher_zero" and ordinal == 2:
+                self._advance_with_uptime(1, 0.0)
+                self.clock[0] += 1.0
+            elif self.fault == "publisher_backward" and ordinal == 2:
+                self._advance_with_uptime(1, 0.5)
+                self.clock[0] += 1.0
+            elif self.fault == "capture_stalled" and ordinal == 2:
+                self.client.advance_with_timers(1)
+                self.clock[0] += 0.0
             else:
                 self.client.advance_with_timers(1)
-                self.clock[0] += 0.1 if self.fault == "bad_cadence" and ordinal == 2 else 1.0
+                self.clock[0] += 0.1 if self.fault == "capture_skew" and ordinal == 2 else 1.0
         elif phase == "held" and ordinal == 100:
-            self.client.advance_with_timers(1)
+            if self.fault == "held_publisher_1500":
+                current_uptime = self.client.lua.globals()._now - 1760000000
+                self._advance_with_uptime(1, current_uptime + 1.5)
+            else:
+                self.client.advance_with_timers(1)
             self.clock[0] += 1.0
             if self.fault == "wrong_normal:held:100":
                 # Agent.Resume emits a real normal/0 publication after the
@@ -7243,6 +7284,7 @@ class _NativeRunnerHarness:
             frame = self.published_frames[("updates", 99)]
         decoded = decode_frame(frame)
         render = decoded.snapshot.value["render"]
+        self.observed_frames.append((phase, ordinal, decoded.uptime_ms, self.clock[0]))
         self.published_frames.setdefault((render["nativePhase"], render["nativeOrdinal"]), frame)
         path = self.tmp_path / f"capture-{len(self.created)}-{phase}-{ordinal}.png"
         digest = self._write_agent_capture(path, frame)
@@ -7294,7 +7336,6 @@ class _NativeRunnerHarness:
         "cached_update",
         "cached_final",
         "sequence_gap",
-        "bad_cadence",
         "missing_resume",
         "stale_artifact",
         "malformed_capture_path",
@@ -7304,6 +7345,91 @@ def test_native_runner_rejects_lifecycle_matrix_and_cleans_artifacts(tmp_path: P
     harness = _NativeRunnerHarness(tmp_path, fault=fault)
     try:
         with pytest.raises(CalibrationError):
+            harness.run()
+        assert harness.meter._pending_window is None
+        assert harness.released
+        assert all(not path.exists() for path in harness.created)
+    finally:
+        harness.close()
+
+
+def test_native_runner_uses_publisher_uptime_when_capture_clock_is_skewed(tmp_path: Path) -> None:
+    harness = _NativeRunnerHarness(tmp_path, fault="capture_skew")
+    try:
+        evidence = harness.run()
+        updates = [record for record in harness.observed_frames if record[0] == "updates"]
+        assert updates[1][2] - updates[0][2] == 1000
+        assert updates[1][3] - updates[0][3] == pytest.approx(0.1)
+        assert evidence.render["nativeOrdinal"] == 100
+        assert harness.meter._pending_window is None
+    finally:
+        harness.close()
+
+
+def test_native_runner_rejects_stalled_capture_clock_and_cleans_artifacts(tmp_path: Path) -> None:
+    harness = _NativeRunnerHarness(tmp_path, fault="capture_stalled")
+    try:
+        with pytest.raises(CalibrationError, match="capture timestamp did not advance"):
+            harness.run()
+        updates = [record for record in harness.observed_frames if record[0] == "updates"]
+        assert updates[1][2] - updates[0][2] == 1000
+        assert updates[1][3] - updates[0][3] == pytest.approx(0.0)
+        assert harness.meter._pending_window is None
+        assert harness.released
+        assert all(not path.exists() for path in harness.created)
+    finally:
+        harness.close()
+
+
+@pytest.mark.parametrize("fault", ["publisher_500", "publisher_1500", "publisher_zero"])
+def test_native_runner_rejects_forward_out_of_range_publisher_uptime(tmp_path: Path, fault: str) -> None:
+    harness = _NativeRunnerHarness(tmp_path, fault=fault)
+    try:
+        with pytest.raises(CalibrationError, match="publication cadence"):
+            harness.run()
+        updates = [record for record in harness.observed_frames if record[0] == "updates"]
+        assert updates[1][3] - updates[0][3] == pytest.approx(1.0)
+        expected_delta = {"publisher_500": 500, "publisher_1500": 1500, "publisher_zero": 0}[fault]
+        assert updates[1][2] - updates[0][2] == expected_delta
+        assert harness.meter._pending_window is None
+        assert harness.released
+        assert all(not path.exists() for path in harness.created)
+    finally:
+        harness.close()
+
+
+def test_native_runner_accepts_real_uint32_publisher_uptime_wrap(tmp_path: Path) -> None:
+    harness = _NativeRunnerHarness(tmp_path, fault="publisher_wrap")
+    try:
+        evidence = harness.run()
+        updates = [record for record in harness.observed_frames if record[0] == "updates"]
+        assert updates[0][2] > 2**32 - 1000
+        assert updates[1][2] < 1000
+        assert updates[1][2] - updates[0][2] < 0
+        assert evidence.render["nativeOrdinal"] == 100
+    finally:
+        harness.close()
+
+
+def test_native_runner_rejects_held_100_publisher_uptime_and_cleans_artifacts(tmp_path: Path) -> None:
+    harness = _NativeRunnerHarness(tmp_path, fault="held_publisher_1500")
+    try:
+        with pytest.raises(CalibrationError, match="held/100 publication cadence"):
+            harness.run()
+        held = [record for record in harness.observed_frames if record[0] == "held"]
+        assert held[-1][1] == 100
+        assert held[-1][2] - next(record[2] for record in reversed(harness.observed_frames[:-1])) == 1500
+        assert harness.meter._pending_window is None
+        assert harness.released
+        assert all(not path.exists() for path in harness.created)
+    finally:
+        harness.close()
+
+
+def test_native_runner_preserves_decoder_backward_uptime_refusal_and_cleanup(tmp_path: Path) -> None:
+    harness = _NativeRunnerHarness(tmp_path, fault="publisher_backward")
+    try:
+        with pytest.raises(ProtocolError, match="ambiguous|backwards"):
             harness.run()
         assert harness.meter._pending_window is None
         assert harness.released
