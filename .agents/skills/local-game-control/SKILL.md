@@ -72,6 +72,10 @@ within existing authorization; respect any current movement limits.
 - Verify the foreground screen before a click or command; inspect the result before
   the next dependent action. Tool exit code zero proves input dispatch, not success.
   Resolve actual controls rather than guessing a keybinding from an action name.
+  Recovery may intentionally have no telemetry surface. Use the public daemon
+  recovery admission and fresh verified scene/chat/control evidence for that
+  boundary; requiring an ordinary decoded HUD can make recovery unreachable.
+  Never invent ordinary fields or treat a decoder error as a successful frame.
   Stage deferred reload confirmations before a timed no-addon baseline;
   checkbox selection does not load the addon until reload. Verify absence,
   then use a bounded helper to cross readiness without a model-turn delay.

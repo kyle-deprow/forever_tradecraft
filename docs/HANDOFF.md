@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 02:49 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 03:11 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -34,22 +34,51 @@ Seven accepted native files are installed; helper remains uninstalled.
 See native-paused-install-parent-verification.json for hashes/pins/process proof.
 Collection is still **operator-assisted**; GUI Luna keeps it flowing.
 
-Latest parent independently verified **72**, UID
-`beta-normal-alliance-1792377110-Arthur-7645`, start02:31:50UTC:
-428obs/2205rows/409full/19bounded/0incomplete, exact900s start interval.
-Original SHA `f3f527ae84418a6824d2e16b176cff3248b7076f5dc88af9fd31b2349e2f29d1`;
-DB logical digest and exact loaded ACK independently checked with production PNG
-decoder, boot1792377635-848394/pending0/ordinarynormal0/inactivefence.
-Finish→server36.462403s. Scan73 started naturally02:46:50UTC while GUI input
-was idle during source promotion. Starts64–73 were900s; #73 closeout pending.
-Read-only totals02:43: **80sweeps/34240observations/191023rows**, latest receipt
-2026-10-19T02:40:23.462403UTC. Historical sweeps included.
+Latest parent independently verified **73**, UID
+`beta-normal-alliance-1792378010-Arthur-5824`, start02:46:50UTC:
+428obs/2156rows/408full/20bounded/0incomplete, exact900s start interval.
+Original SavedVariables/DB logical digest/production-decoded exact loaded ACK
+verified in build-70450-seventythird-scan-parent-verification.json.
+Finish→server14.394454s. Starts64–73 were900s.
+
+**Current live blocker after actual panel preflight:** generation24 preflight
+succeeded; agent defer produced actual visible Construct/Restore controls. The
+handoff expired during operator proof. Fresh empty-ID recovery admitted; one
+fresh exclusive-template-verified Restore click at03:00:37UTC reached the Lua
+handler and saved restore_pending. New load has no telemetry surface and Restore
+remains visible; completion expired. #74 due03:01:50 was MISSED while fenced.
+Do not report continuous cadence or a decoded ordinary boot.
+Installed Agent/Commands/Core/Scanner were exact main before this diagnostic.
+
+Root found restore_pending startup discards allocation and first/second checked
+publication errors before permanently clearing surface/markingfailed. Root model
+unavailable UnitPosition atADDON_LOADED reproduces permanent failure even after
+native API becomes available, but exact LIVE CAUSE IS UNKNOWN. No timing fix yet.
+Diagnostic-only Agent6985b8a7/testd82141fd in isolated addon-restore-diagnostic WT
+passed worker8 and parent8 native_restore tests1.81s plus SolREADY; exact source
+COPIED to main+installed addon, no service restart. See
+addon-restore-diagnostic-parent-verification.json and diagnostic plan.
+Sole GUI worker prepares one owned reload to load diagnostic then one source-
+approved absent-surface recovery/Restore with IMMEDIATE chat/screenshot before
+45s poll; awaiting exact `agent restore failed: <phase>: <causal reason>`.
+No blind repeated clicks, no ordinary HUD requirement at deliberate absence.
+
+Actual private controls manifest:
+`~/.local/state/crowley/executor-evidence/native-live-controls-20261019/templates.json`.
+Retained actual WoW panel source SHA bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2.
+98x27 templates; actual fresh Restore match score0.00063. Fixed Python matcher
+on retained real frame costs2.5531s Construct/2.5208s Restore in region220x84.
+Root wrote bounded PLAN-rust-template-matching.md, Sol reviewed revised exact
+SEARCH/SCORE_AT/SAD/protocol/build-trust/benchmark contract READY. No Rust
+implementation/toolchain install yet; rustc/cargo absent on PATH. Prioritize
+restoring scans. Actual-image performance evidence is computation-only.
 
 Private receipts/images/original payloads:
 `~/.local/state/crowley/executor-evidence/runtime-relink`.
 Parent verifier `.archive/executor-review/verify_preserved_sweep.py` is private,
 not committed. Public exact evidence records are build-70450-<ordinal>-scan-parent-
-verification.json. For73 verifier prior_start1792377110, ordinalseventythird.
+verification.json. For next completed sweep verifier prior_start1792378010; record actual missed
+interval, never invent900s after this recovery.
 
 Earlier GNOME keyring modal blocked AH reopen/dimmed HUD. One owned installed
 uinput ESC cleared it00:13, no credentials/settings changes; AFK logout cleared
@@ -99,7 +128,8 @@ Root accepted offline native source in
 hashes in native-final-offline-acceptance.json. All Opus/test sessions are CLOSED;
 no active root exec. No live native100/input/autonomous qualification inferred.
 
-Main c5e5772 was pushed before promotion (use git log for current HEAD). Recovery
+Native milestone committed/pushed12b0646; protocol docs pushed4e405aa
+(use git log for current HEAD). Recovery
 SOURCE branch checkpoint/executor-20261018 commitc83b6ca remains pushed and
 unmerged: frozen R10 plus old failed helper pair; do not install that helper.
 Root copied accepted seven native files to main and restarted PAUSED service
@@ -169,19 +199,17 @@ c0221 reports61pass3fail remain history. Do not resurrect them.
 
 ## Remaining live gates
 
-- Actual WoW Construct/Restore controls physical bounds are UNKNOWN. Retained
-  full-frame template image is synthetic, GTK certificates have screenCapturedfalse.
+- Actual WoW Construct/Restore controls have now been captured and measured
+  (private actual templates above); earlier full-frame template image was
+  synthetic, GTK certificates have screenCapturedfalse.
   Construct/Restore are WoW Frames in Commands.lua, NOT the later human GTK window.
   Panel220x84 UIParent units TOPRIGHT(-24,-24), buttons100x28 offsets(8,-8)/(112,-8).
   UIParent1365.33x768 vs physical1920x1080 is not a measured button transform.
   No guessed coordinates/templates. GUI Luna has read-only prepared source facts.
-- Native source is installed. Sole GUI Luna is authorized, AFTER #73 closeout,
-  to source-check and perform bounded operator-assisted control preflight/template
-  acquisition: exact PAUSED generation → public preflight reservation → agent
-  defer/no reload → actual panel screenshot/bounds → public recovery handoff →
-  agent recover/verified Restore → public recovery-complete → ordinary boot/
-  cleared checkpoint/PAUSED/unarmed → AH reopen. No rejected helper/native100.
-  Do not start if source/readiness/timing cannot support safe recovery.
+- Native source installed and actual operator-assisted control preflight/template
+  acquisition reached restore startup failure above. Finish diagnosis/correction
+  and actual ordinary recovery/cleared checkpoint/PAUSED/unarmed/AH reopen before
+  further calibration or claiming recovery success. No rejected helper/native100.
 - Accepted helper/native exact integration and ordinary recovery contract, then
   real inactive control preflight +fresh native100. Measure live template matching;
   synthetic2.6/5.05s benchmark does not establish a Rust bottleneck.

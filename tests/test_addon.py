@@ -665,7 +665,15 @@ def test_native_restore_load_publication_failure_keeps_failed_surfaceless():
     assert restored.ns.Agent.Surface() is None
     assert restored.ns.Agent.FrameBytes() is None
     assert restored.ns.Agent.Lifecycle() == "failed"
-    assert restored.lua.globals().CrowleyDB.nativeConstruction.state == "failed"
+    marker = restored.lua.globals().CrowleyDB.nativeConstruction
+    assert marker.state == "failed" and marker.attempts == 1
+    assert restored.ns.Scanner.NativeConstructionFence() is True
+    assert all(shown is False for shown in restored.visible_native_textures)
+    assert any(
+        "agent restore failed: first publication:" in message
+        and "restore publication fixture failure" in message
+        for message in restored.chat
+    )
     assert restored.lua.globals().CrowleyNativeConstructionRestore.IsShown(
         restored.lua.globals().CrowleyNativeConstructionRestore
     )
@@ -699,10 +707,15 @@ def test_native_restore_second_unarmed_publication_failure_preserves_recovery_ro
     assert restored.ns.Agent.FrameBytes() is None
     assert restored.ns.Agent.Lifecycle() == "failed"
     assert restored.ns.Scanner.NativeConstructionFence() is True
+    assert any(
+        "agent restore failed: second publication:" in message
+        and "second unarmed publication fixture failure" in message
+        for message in restored.chat
+    )
     marker = restored._json_table(restored.lua.globals().CrowleyDB.nativeConstruction)
     assert marker["state"] == "failed" and marker["attempts"] == 1
-    assert marker["token"].startswith("recovery:") and len(marker["token"]) == 33
     assert all(shown is False for shown in restored.visible_native_textures)
+    assert marker["token"].startswith("recovery:") and len(marker["token"]) == 33
     restore_button = restored.lua.globals().CrowleyNativeConstructionRestore
     assert restore_button.IsShown(restore_button) is True
     assert restore_button.IsEnabled(restore_button) is True
@@ -716,6 +729,33 @@ def test_native_restore_second_unarmed_publication_failure_preserves_recovery_ro
     assert recovered.ns.Agent.Lifecycle() == "ordinary"
     assert recovered.lua.globals().CrowleyDB.nativeConstruction is None
     assert recovered.ns.Scanner.NativeConstructionFence() is False
+
+
+def test_native_restore_surface_allocation_failure_reports_cause_and_preserves_recovery_route():
+    source = WowClient()
+    source.login()
+    source.slash("agent defer")
+    source.slash("agent recover")
+    source.click_native("restore")
+    saved = savedvars.loads(source.saved_variables())["CrowleyDB"]
+
+    restored = WowClient(initial_savedvars=saved)
+    restored.set_texture_failure(17)
+    restored.login()
+    assert restored.ns.Agent.Surface() is None
+    assert restored.ns.Agent.FrameBytes() is None
+    assert restored.ns.Agent.Lifecycle() == "failed"
+    assert restored.ns.Scanner.NativeConstructionFence() is True
+    marker = restored._json_table(restored.lua.globals().CrowleyDB.nativeConstruction)
+    assert marker["state"] == "failed" and marker["attempts"] == 1
+    assert all(shown is False for shown in restored.visible_native_textures)
+    assert any(
+        "agent restore failed: createSurface:" in message and "native texture construction failure" in message
+        for message in restored.chat
+    )
+    restore_button = restored.lua.globals().CrowleyNativeConstructionRestore
+    assert restore_button.IsShown(restore_button) is True
+    assert restore_button.IsEnabled(restore_button) is True
 
 
 def test_native_finalize_publication_failure_rolls_back_marker_and_fence():

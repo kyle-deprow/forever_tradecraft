@@ -1,0 +1,45 @@
+{
+  "sourceSha256": "bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2",
+  "matcherHelperSha256": "ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5",
+  "region": [
+    1676,
+    24,
+    220,
+    84
+  ],
+  "results": [
+    {
+      "role": "construct",
+      "seconds": 2.5530773299979046,
+      "box": [
+        1685,
+        33,
+        98,
+        27
+      ],
+      "click": [
+        1734,
+        46
+      ],
+      "score": 0.0
+    },
+    {
+      "role": "restore",
+      "seconds": 2.5208165789954364,
+      "box": [
+        1789,
+        33,
+        98,
+        27
+      ],
+      "click": [
+        1838,
+        46
+      ],
+      "score": 0.0
+    }
+  ],
+  "qualification": "Retained actual WoW image only. No live fresh-frame/input qualification.",
+  "kind": "retained-real-wow-control-matching-benchmark",
+  "measurementNote": "Two separate role matches on one retained actual WoW screenshot; not a live input qualification or a broad performance distribution."
+}

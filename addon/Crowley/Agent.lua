@@ -770,13 +770,13 @@ local function initializeLoad()
     -- recoverable through Restore until a fresh ordinary boot is proven.
     lifecycle = "restore_only"
   elseif state == "restore_pending" then
-    local ok = createSurface()
+    local ok, failure = createSurface()
     if ok then
       attachSurfaceScript()
       -- The pending marker and armed fence remain in force through the first
       -- proof.  A fresh ordinary frame is then published with the fence
       -- released before the marker is committed away.
-      local firstPublished = publishChecked()
+      local firstPublished, firstFailure = publishChecked()
       if not firstPublished then
         clearSurface()
         local failed = marker()
@@ -787,10 +787,11 @@ local function initializeLoad()
         lifecycle = "failed"
         restoreInFlight = false
         if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+        if ns.Print then ns.Print("agent restore failed: first publication: " .. tostring(firstFailure)) end
       else
         if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
         lifecycle = "ordinary"
-        local secondPublished = publishChecked()
+        local secondPublished, secondFailure = publishChecked()
         if secondPublished then
           ns.db.nativeConstruction = nil
           restoreInFlight = false
@@ -811,6 +812,7 @@ local function initializeLoad()
           restoreInFlight = false
           recoveryAdmitted, recoveryMode = false, false
           if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+          if ns.Print then ns.Print("agent restore failed: second publication: " .. tostring(secondFailure)) end
         end
       end
     else
@@ -822,6 +824,7 @@ local function initializeLoad()
       lifecycle = "failed"
       restoreInFlight = false
       if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+      if ns.Print then ns.Print("agent restore failed: createSurface: " .. tostring(failure)) end
     end
   end
 end

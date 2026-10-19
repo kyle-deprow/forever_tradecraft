@@ -1,0 +1,18 @@
+{
+  "kind": "addon-restore-diagnostic-parent-verification",
+  "verifiedAt": "2026-10-19T03:09:08.515723+00:00",
+  "sourceSha256": "6985b8a70988fdfad15a7e0b6803bf083ab895bdc807291e65590dff3014a2ee",
+  "testSha256": "d82141fda6cbd0a98f58c60918f55336ba59089718b3c14c56f17df9bbc91c8f",
+  "changedFiles": [
+    "addon/Crowley/Agent.lua",
+    "tests/test_addon.py"
+  ],
+  "checks": {
+    "worker": "8passed232deselected; scoped ruff check/format/diff passed",
+    "parent": "8passed232deselected1.81s",
+    "sol": "READY/no findings"
+  },
+  "installedSourceMatches": true,
+  "runtimeReloadPerformedByRoot": false,
+  "note": "Diagnostic chat after existing allocation/first-publication/second-publication failure cleanup; no lifecycle/admission changes. Live owner coordinates reload and one bounded causal diagnostic recovery."
+}
