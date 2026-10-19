@@ -1,0 +1,15 @@
+{
+  "status": "CONFIRMED_SOURCE_RACE_REGRESSION_PENDING",
+  "baseDaemonSha256": "38cb1d125e77a05f118297f842db99b872496bd664e85a7011065f7689cdbbc5",
+  "source": "SessionDaemon.native_construction_recheck second-lock reservation miss",
+  "evidenceAttribution": "Sol diagnostic observation of composed runs plus root independent production-source inspection; parent has not yet reproduced a final corrected regression.",
+  "sequence": [
+    "Recheck snapshots exact active reservation under first lock.",
+    "Validation runs outside the construction lock.",
+    "Real finalize durably commits native calibration and moves exact reservation into retained terminal map.",
+    "Recheck second lock raises unknown instead of applying existing canonical terminal-read behavior."
+  ],
+  "correctionAuthorized": "Under second lock re-read only exact terminal matching ID and requested generation; preserve canonical deep-copied reply, unknown/stale refusals and all admission guards.",
+  "requiredRegression": "Barrier only recheck validation; real durable finalize/native commit/terminal retention before release; actual actor acceptance plus unknown/different/wrong-generation/deepcopy negatives.",
+  "liveQualification": false
+}

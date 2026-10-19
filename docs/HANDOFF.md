@@ -91,10 +91,14 @@ Sol and actual CLI Opus must approve before live promotion. Rust component
 reference-path control have passed in the worker checkout. These totals do not
 qualify the new integrated path. Sol diagnostic readback confirms the moving
 Rust/default-factory fixture reached construct0/held0/updates1..99/held100/resume0
-and sealed nativeCalibration=True in its TEST daemon, but the test failed during
-terminal helper polling after finalize. Exact traceback is being diagnosed;
-three fresh observer nonces per update and maximum active<900ms assertions
-must still be completed before freeze. This is not live qualification. Luna and
+and sealed nativeCalibration=True in its TEST daemon. The post-finalize test
+failure is now narrowed to a real daemon recheck race: active reservation is
+snapshotted, real finalize moves it to the terminal map during unlocked
+validation, then the second lock incorrectly reports unknown. A lucky r5 pass
+does not close it. Root extended the plan/fence to the daemon recheck seam and
+native regression file for exact-generation canonical terminal reread and a
+barrier-controlled real-finalize regression. Three fresh observer nonces per
+update and maximum active<900ms assertions must also be completed before freeze. This is not live qualification. Luna and
 Sol coordinate the fixture fix; formal reviews wait for a frozen parent-tested
 candidate. No Rust observer is installed.
 The compact client-contract skill now explicitly distinguishes separate component

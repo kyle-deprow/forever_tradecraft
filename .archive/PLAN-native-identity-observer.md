@@ -107,3 +107,41 @@ No worker live GUI/capture/input/IPC, service/config installation, game movement
 trading, database writes, kernel writes, Git commit/reset/stash/revert/push, or
 external messaging. Root owns Git and live promotion. Keep logs/raw artifacts
 private0700/0600 and publish only sanitized reviewed evidence.
+
+
+## Accepted scope extension: finalize/recheck race (2026-10-19 22:43UTC)
+
+Actual Rust composition exposed a production race, independently confirmed by
+Sol and parent source inspection. native_construction_recheck snapshots the
+active reservation under its first lock, validates outside the lock, then
+reacquires the lock. If the real finalize transaction moved that exact ID into
+_native_construction_terminals meanwhile, the second branch raises unknown even
+though the canonical terminal is already retained. Earlier passing runs missed
+this window and do not close it.
+
+Luna may additionally modify src/crowley/session/daemon.py ONLY in this recheck
+terminal-read seam and a small canonical private reply helper if useful, plus
+tests/test_session_native_regressions.py for decisive regression coverage.
+When the exact active ID disappeared/changed, re-read its retained terminal
+under the same lock. Require the stored controller generation equals the
+requested generation; return the same deep-copied canonical reservation, public
+handshake, clock and history as the existing first-lock terminal path. Unknown
+ID, wrong generation and invalid active observations still refuse. No admission
+weakening, new state mutation, changed finalize ordering or helper bypass.
+
+Regression must pause only the recheck thread inside snapshot validation after
+its first-lock snapshot. Let the real finalization transaction durably commit
+native calibration and retain that exact finalized terminal before releasing
+the barrier. The in-flight poll must return the canonical finalized record and
+actual actor validator must accept it. Assert commit/terminal existence at the
+barrier, not guessed poll counts. Also cover unknown ID, wrong-generation
+terminal, and a different terminal ID; preserve later operator state and deep
+copy semantics. Fixture timeouts fail the test rather than satisfying expected
+production refusal. Reproduce the race refusal against the old seam if feasible.
+
+Temporary environment-triggered raw RPC debug instrumentation must be removed
+before source freeze; keep diagnostics private0700/0600. Re-run the full real
+Rust composition at final source pins after removal, including the three fresh
+nonces/active-time assertions. Parent reproduces the race/negative regressions
+and real component/composition checks before Sol and actual CLI Opus review.
+Live installation/calibration remains root/sole-operator owned after approval.
