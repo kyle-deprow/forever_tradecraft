@@ -1,0 +1,92 @@
+{
+  "baseCommit": "fb129d07e7914e5a6faf4c1aa7daf1b338835d79",
+  "changedFileSha256": {
+    "tests/test_session_native.py": "91fb2bf74e685409401f82369653615b353f8c8464d4ca7fa18213f0b44a28d1"
+  },
+  "cleanup": {
+    "logMode": "0600",
+    "logPath": "/home/dev/.local/state/crowley/executor-evidence/native-r9-private-fixture-luna-20261019/cleanup-proof-final3.log",
+    "logSha256": "fefcab359ff5652e869fe36ab7e45a2bbcf1a358803c3344e688eb22c741d65f",
+    "result": "No fixture dbus-run-session, compiled producer, or private compositor processes remained; pre-existing host portal daemons were observed separately and untouched.",
+    "runtimeMode": "0700"
+  },
+  "implementation": {
+    "bindings": [
+      "test_compiled_region_composes_through_default_daemon_and_stock_model",
+      "test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples"
+    ],
+    "config": "EXTERNAL session bus, normal private send/receive/own policy, no standard_session_servicedirs, no includedir, empty private service directory only",
+    "environment": "NO_AT_BRIDGE=1 scoped through pytest monkeypatch and dbus-run-session child environment",
+    "helper": "_install_private_shell_compositor_bus",
+    "realBoundaries": [
+      "private Xvfb",
+      "GJS manual org.gnome.Shell.Screenshot owner",
+      "frozen producer",
+      "real PNG decoder",
+      "real SessionDaemon/IPC/Guardian/driver paths"
+    ],
+    "subprocess": "Popen subclass preserves concrete process type and rewrites only dbus-run-session to --config-file; all other argv/kwargs preserved"
+  },
+  "imports": {
+    "logMode": "0600",
+    "logPath": "/home/dev/.local/state/crowley/executor-evidence/native-r9-private-fixture-luna-20261019/import-origins-final.log",
+    "logSha256": "8f2e906cc8ebec27adbdd8392b142c2881c2e62c47219b90a0880eb09d6b64b5",
+    "pythonPath": "/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019/src:/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019"
+  },
+  "label": "native-r9-private-fixture-private-session-bus",
+  "limitations": [
+    "Only the two affected tests and scoped static checks were run after the fixture change; no 353-test rerun was performed.",
+    "No production source, helper, driver, Guardian, service, GUI, deployment, or live qualification claim is made.",
+    "Parent must independently verify the exact worktree, reports, hashes, and final review gates."
+  ],
+  "parentBaseline": {
+    "config": "parent-controlled no-service-directory private bus with NO_AT_BRIDGE=1",
+    "evidenceRoot": "/home/dev/.local/state/crowley/executor-evidence/native-r9-private-bus-parent-r3-20261019",
+    "logSha256": "893687a6c1e154a66fcee1268ca214ecde991d0195959a6091a614d7a379dfa0",
+    "result": "1 passed in 8.68s; exit 0"
+  },
+  "plan": {
+    "path": ".archive/PLAN-native-r9-private-fixture.md",
+    "sha256": "cb1f754aa28c9ee22e65404d0fbd54a696a320243287e304f0d9bc29b02c9495"
+  },
+  "privateEvidenceRoot": "/home/dev/.local/state/crowley/executor-evidence/native-r9-private-fixture-luna-20261019",
+  "r9FrozenTestSha256": "3ce0b1ed3bef5d21826cfda65eee0c20d3d9835e72c3d245b94c4c22e889d240",
+  "readonlyFiles": [
+    "src/crowley/session/cli.py",
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_runtime.py",
+    "tests/test_session_transitions.py"
+  ],
+  "readonlySha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "71a313798ec3b64f993b262d4b38072f1d7f0eb91401fe6e16da1d5b27bd099f",
+    "tests/test_session_native_regressions.py": "d432a3b37d15afd497a871d40500290cdd77b897ce8490702e175b38d190c04c",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "schema": 1,
+  "sourceFence": [
+    "tests/test_session_native.py"
+  ],
+  "staticChecks": {
+    "astFence": "one new helper and two allowed fixture bindings; existing ASTs unchanged elsewhere",
+    "logMode": "0600",
+    "logPath": "/home/dev/.local/state/crowley/executor-evidence/native-r9-private-fixture-luna-20261019/scoped-static-final.log",
+    "logSha256": "c5a6b2cfe8ce7671666bc19dfb47791e7da0deca2e4bc4224a29e2c51e423343",
+    "result": "Ruff check, Ruff format --check, compile, git diff --check, AST fence: pass"
+  },
+  "status": "candidate_pending_parent_verification",
+  "tests": {
+    "command": "PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019/src:/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019 XDG_RUNTIME_DIR=<private-0700> /home/dev/repos/pegasus/.venv/bin/python -m pytest -q tests/test_session_native.py::test_compiled_region_composes_through_default_daemon_and_stock_model tests/test_session_native.py::test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples",
+    "firstAttempt": "1 failed, 1 passed; exact existing primary stderr assertion caught dbind ServiceUnknown because NO_AT_BRIDGE was initially only injected into dbus-run-session, retained at affected-tests.log",
+    "firstAttemptLogSha256": "1075cd8fbd3dd64c02d4b098c51cca0e0ed3597c2a05e33015a7a89eb6fd2c90",
+    "logMode": "0600",
+    "logPath": "/home/dev/.local/state/crowley/executor-evidence/native-r9-private-fixture-luna-20261019/affected-tests-r2.log",
+    "logSha256": "9025d3755cfa56aaef764c38e3ee004006a5972ae1dcd47c5ca62328b365eb83",
+    "result": "2 passed in 63.10s; exit 0"
+  },
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019"
+}

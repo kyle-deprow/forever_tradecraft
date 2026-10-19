@@ -1,0 +1,106 @@
+{
+  "kind": "parent-native-r9-final-core-verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018",
+  "source_hashes": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "71a313798ec3b64f993b262d4b38072f1d7f0eb91401fe6e16da1d5b27bd099f",
+    "tests/test_session_native.py": "3ce0b1ed3bef5d21826cfda65eee0c20d3d9835e72c3d245b94c4c22e889d240",
+    "tests/test_session_native_regressions.py": "d432a3b37d15afd497a871d40500290cdd77b897ce8490702e175b38d190c04c",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "private_xdg_mode": "0o700",
+  "checks": [
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "check",
+        "src/crowley/session/cli.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_transitions.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.016,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "summary": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "format",
+        "--check",
+        "src/crowley/session/cli.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_transitions.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.016,
+      "log_sha256": "0321fffcb91606a42c0a19d8c1121d5c544379d663821fce616c71a7bb62f6b5",
+      "summary": [
+        "7 files already formatted"
+      ]
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.032,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "summary": []
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-c",
+        "import crowley.session.daemon as d; import crowley.session.controller as c; print(d.__file__); print(c.__file__)"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.214,
+      "log_sha256": "3896a2924fc192fe6bad244f228a7c242d86afab2f3475ee0f98f7433f5993d9",
+      "summary": [
+        "/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src/crowley/session/daemon.py",
+        "/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src/crowley/session/controller.py"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_runtime.py",
+        "-k",
+        "native_capability_admission_and_owner_clear_linearize or native_capability_matches_exact_owner_facts_and_inflight_none_id or native_finalize_transaction_wait_expiry_refuses_before_mutation or native_finalize_transaction_rechecks_final_binding_before_mutation or completed_worker_cannot_publish_into_next_operation_record or native_construction_composes_real_png_runner_and_finalize or native_calibrated_rolls_back_on_transient_durable_write or native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure or default_native_meter_binds_real_child_and_closes_on_retry"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 203.371,
+      "log_sha256": "b7fb4e5d74456373464d3203d8564eba6787b5f810395c1b3c371776746a8dfa",
+      "summary": [
+        "...................                                                      [100%]",
+        "19 passed, 285 deselected in 203.04s (0:03:23)"
+      ]
+    }
+  ],
+  "limits": "Exact final R9 source and additive durability proof. Compiled fixture bus isolation is being corrected separately after retained environment startup failure; this core run does not accept/promote source.",
+  "base_fence_worker_log_hashes_private_permissions": "Independently verified exact seven final/base hashes, seven-file diff fence, worker logs0600/private dir0700.",
+  "controller_r8_to_r9_fence": "AST verified only Controller.native_calibrated changed.",
+  "native_fixture_r8_to_r9_fence": "AST verified only named real-daemon provider fixture changed; subsequent isolated bus fixture is separate.",
+  "additive_proof_fence": "Parent pre-addition snapshot matches worker full-suite seven hashes; only one new two-case regression function added; all existing regression ASTs and other six files unchanged. No single355-test invocation claimed."
+}

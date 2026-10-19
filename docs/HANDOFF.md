@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 00:41 UTC. Repository: `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 01:12 UTC. Repository: `/home/dev/repos/pegasus`.
 Origin: https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley
 package, addon and configuration names remain intentional.
 
@@ -39,14 +39,14 @@ recipe economics, useful shopping lists and launch monitoring remain later work.
 - Canonical daemon is **PAUSED/gen23/unqualified**, neither candidate promoted.
   Collection has been **operator-assisted**; repeated900s starts do not qualify
   autonomous save/upload/ACK/reopen.
-- Latest independently verified sweep **64**:
-  `beta-normal-alliance-1792369910-Arthur-9006`, start00:31:50UTC,
-  428 observations/2467rows/406full/22bounded/zero incomplete; start interval900s.
+- Latest independently verified sweep **66**:
+  `beta-normal-alliance-1792371710-Arthur-6170`, start01:01:50UTC,
+  428 observations/2412rows/407full/21bounded/zero incomplete; start interval900s.
   Parent checked source hash, logical DB digest and production-decoded exact ACK.
-  Server receipt39.601865s after finish; loaded ACK boot1792370441-981586/pending0.
-  AH reopened; next natural scan due00:46:50UTC.
-- Read-only totals:72 sweeps/30816 observations/172441rows, latest receipt
-  2026-10-19T00:40:27.601865UTC. Historical sweeps included.
+  Server receipt26.672819s after finish; loaded ACK boot1792372229-110982/pending0.
+  AH reopened;67 due01:16:50UTC. Starts64–66 were exact900s intervals.
+- Read-only totals:74 sweeps/31672 observations/177283rows, latest receipt
+  2026-10-19T01:10:14.672819UTC. Historical sweeps included.
 - GNOME login-keyring modal blocked AH reopen and dimmed the binary HUD. A typed
   targetexact command was NOT submitted; receipt records open_chat and typing, so
   do not repeat the worker's inaccurate no-input claim. One Xwayland Cancel click
@@ -79,7 +79,7 @@ Requested workflow: Luna implements/operates, Sol reviews, actual Claude CLI Opu
 reviews executor changes. Workers have bounded tasks and may continue without
 per-action approvals. Root owns arbitration, final verification and git.
 
-**Active native R9:** worker `/root/luna_profiler_schema_fix`, worktree
+**Frozen native R9:** worker `/root/luna_profiler_schema_fix`, worktree
 `/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018`,
 base2d63777. Read [R9 plan](../.archive/PLAN-native-capability-transaction-r9.md),
 INCLUDING final Opus arbitration. Four writable files: daemon.py; controller.py
@@ -92,11 +92,29 @@ identity/lease/Guardian binding, transient durable-write rollback before the nor
 error-handler save, actual transaction cancel-wins/deterministic final-wins, strict
 STOPPED refusal, resume type ordering and async old-worker operation identity.
 Rollback includes write-affected history. Tests must reach actual transaction
-entry, not an earlier guard with the same exception. Focused proofs precede final
-three native suites plus named runtime once; root then verifies and obtains focused
-Sol and actual Opus review. No source acceptance/native100/live qualification yet.
+entry, not an earlier guard with the same exception. Worker353 full-suite passes
+and two strictly additive real finalize/error-handler durable-write passes now
+complete. Parent verified seven hashes/base/fence/log permissions and unchanged
+pre-existing ASTs; no combined355-test invocation is claimed. Independent core
+checks passed19 cases203.04s plus scoped statics/imports. Sol and actual Opus
+are reviewing the exact final candidate including fixture isolation below.
+No source acceptance/native100/live qualification yet.
 Legacy read-only stock-capture dispatch remains explicitly deferred; strong input
 fencing claims apply to the configured producer used for qualification.
+
+**Frozen native fixture isolation:** same worker, separate
+`native-r9-private-fixture-20261019`, basefb129d0, seven exact final R9 files copied.
+Read [the fixture plan](../.archive/PLAN-native-r9-private-fixture.md). ONLY
+test_session_native.py is writable, only its two actual private compositor tests.
+Parent repeated a pre-owner_ready protocol timeout. Strace identifies private
+bus activation of desktop portals, then a25s GIO wait until the10s deadline;
+plain GTK/GIO environment flags did not fix it. Controlled minimal private bus
+with no unrelated activation directories plus NO_AT_BRIDGE=1 passed the original
+compiled test1/8.68s under strace, zero unrelated service execs. Encoded fixture
+passed2 worker cases63.10s and2 parent cases62.57s; AST/source/log fences verified.
+No source/deadline/assertion weakening. Keep failed and
+controlled attempts distinct. This is an offline fixture issue; live game remains
+unchanged. A Popen adapter must preserve its class/type checks.
 
 Preserved R8 baseline: `native-final-commit-r8-20261018`, base7ac5c85,
 334 worker passes plus named runtime pass; parent10 targeted passes58.53s.
@@ -148,19 +166,24 @@ Actual pinned-tool tests on fresh isolated Xvfb independently proved exact23-key
 command typing in3.272824s within3.99s and key release/reap0.562473s after actual
 helper SIGKILL while a key was held. These do not establish the full workflow.
 
-No active root exec. Native R8 actual Opus28192 CLOSED0/claude-opus-5-5/NEEDS WORK;
-final arbitration is in R9 plan. Sol full R8 source review and added-proof review
-also NEEDS WORK, accepted corrections above. Earlier six passing cases do not
-establish transaction proof. Helper Opus22003 CLOSED0/MAJOR ISSUES; R7Opus2839
-CLOSED0/NEEDS WORK. Parent3947/42539/42012/76434/6947/41048 and backups30667/73320,
-checkpoint push53971 all CLOSED0. New actual CLI review sessions must remain
-attached/polled <=30s, no fallback; rawJSONL0600 stays private.
-Main **0a2624f** is pushed, including the consolidated handoff and curated current
+Root actual native Opus1469 is running, PID2971504/modelclaude-opus-5-5; Sol
+`/root/sol_final_composition_plan` reviews the same final seven hashes. Initial
+CLI launch rejected missing prompt(exit1/no model); corrected explicit argument
+delimiter, preserved attempt, no downgrade. Parent core82275 and fixture77979
+CLOSED0. Parent initial64656 CLOSED1 at compiled
+owner protocol, diagnostic52501 CLOSED0, environment52662 CLOSED1, private-bus
+74624 CLOSED1(parent adapter type error),65517 CLOSED1(AT-SPI stderr),19870 CLOSED0.
+All failures retained; no broad blind retry. R8 actual Opus and both Sol reviews
+NEEDS WORK; accepted findings are in R9 plan. Earlier helper Opus MAJOR ISSUES.
+New actual CLI review sessions must remain attached/polled <=30s, no fallback;
+rawJSONL0600 stays private.
+Main **fb129d0** is pushed, including the consolidated handoff and curated current
 plans/review/recovery evidence. Use git log for later HEADs.
 Frozen candidate SOURCE is also pushed as `checkpoint/executor-20261018` commit
-`dacefb9`: exact seven R8-proof files plus failed helper pair, nine curated files
-only. It is an UNACCEPTED recovery checkpoint with the native race/helper red suite
-explicit in its commit message; canonical main source/runtime is not promoted.
+`aa5f76d`: exact seven final R9/private-fixture files; old failed helper pair from
+parentdacefb9 remains explicitly unaccepted. Nine curated source files only, no
+raw/private evidence. It is an UNACCEPTED recovery checkpoint, reviews pending;
+canonical main production source/runtime is not promoted.
 
 Read-only live pin precheck23:40: configured authentic CLI0.162.1 SHA628e3548,
 producer SHAcb938cab matches config/user1000/mode0700; live daemonPAUSED/gen23,
@@ -194,9 +217,9 @@ No matcher rewrite is authorized by this benchmark or the unrelated runtime Rust
 
 ## Data preservation and operating references
 
-Hourly snapshot `beta-20261019T001252Z-099a6adfaad4` independently validates;
-manifest SHA256 `01bb962b4846077935d8eb8532e69e89e824f61e5ea2c13d86525f1d08b9ceb9`.
-It includes scan62. Next hourly due01:13UTC. Use
+Hourly snapshot `beta-20261019T011315Z-173f12b60358` independently validates;
+manifest SHA256 `0ece9076f8066f3b10cbb44598fc226f185f838579df9f0c18aa93a4a53d6e2e`.
+Latest independently ingested sweep was66. Next hourly due02:13UTC. Use
 `uv run python tools/market_backup.py snapshot` and independently validate it.
 Keep backups and raw game/private evidence out of git. An earlier isolated
 restore drill already passed; no need to repeat without a reason.

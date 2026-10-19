@@ -1,0 +1,10 @@
+{
+  "kind": "parent-hourly-market-backup-verification",
+  "snapshot_id": "beta-20261019T011315Z-173f12b60358",
+  "validated_at": "2026-10-19T01:14:21.480569+00:00",
+  "manifest_sha256": "0ece9076f8066f3b10cbb44598fc226f185f838579df9f0c18aa93a4a53d6e2e",
+  "independent_validate_snapshot_passed": true,
+  "directory_mode": "0o700",
+  "latest_independently_ingested_sweep": "beta-normal-alliance-1792371710-Arthur-6170",
+  "limits": "Snapshot integrity independently checked. Prior isolated restore drill remains separate; no new restore or autonomous scan claim."
+}

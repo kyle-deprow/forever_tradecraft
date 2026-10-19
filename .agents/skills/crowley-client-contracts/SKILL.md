@@ -158,6 +158,11 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   fixture's GNOME_CAPTURE_LOCK_PATH to its private directory before real backend
   creation, preserving the actual lock implementation. Never unlink the live lock
   to clear contention; identify its owner and clean up only the owned fixture.
+  Default private session buses can activate desktop portals during GTK startup,
+  before producer owner_ready. Give screenshot fixtures an explicit bus config
+  with only required service directories; retain real GTK/protocol dispatch and
+  scope accessibility environment settings to that fixture. Preserve Popen's
+  process type when adapting its argv: driver isinstance checks require a class.
 
 Update the relevant existing skill when live evidence disproves guidance; keep
 incident dumps and transient client facts in the handoff/evidence files.

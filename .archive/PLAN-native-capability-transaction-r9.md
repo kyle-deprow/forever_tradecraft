@@ -141,3 +141,17 @@ This is FINAL arbitration; no Opus hold remains. Finish these bounded correction
 and actual focused proofs, map each to real test/result, then final native three
 suites plus named runtime ONCE on final bytes and scoped checks. Root independently
 verifies and obtains focused Sol + actual Opus review of the final R8-to-R9 delta.
+
+## Test-only proof completion after the full suite (root, 00:46 UTC)
+
+The actual finalize/error-handler transient-write proof remains required; a direct
+controller.native_calibrated test cannot replace it. If the current full-suite
+run passes and this last proof is added without changing production source or
+any existing test/helper AST, do not repeat the whole suite merely to count the
+new test. Preserve the full run's exact seven hashes, add the regression in the
+owned file, run its real cases and scoped checks, then freeze final hashes and
+map the incremental evidence explicitly. Parent checks unchanged production
+hashes and existing ASTs; do not claim a combined single invocation. A production
+change, changed existing test/helper, failure, or genuine new concern requires
+the relevant tests again. This narrow incremental option supersedes the earlier
+final-file-byte wording only for a strictly additive proof.

@@ -1,0 +1,112 @@
+{
+  "baseCommit": "2d637770dab7caad8dc3636bd60318e25b6d7906",
+  "baseSha256": {
+    "src/crowley/session/cli.py": "259570fb2027000e6c77447bfb4db6bc31961b4f08f6ef1c77f17876f84afc36",
+    "src/crowley/session/controller.py": "87f6c48b886ba2efbdabc30342ac29264b40dce69313ada55cae054bb761693f",
+    "src/crowley/session/daemon.py": "972c74057003bb13931cf257fffeaf6b77a802689814c4aa7c35b46c01bb23ae",
+    "tests/test_session_native.py": "f787057139cfaeacad1756ac1799c8fbfbb3f2e06fba31456ee810caf734b9ae",
+    "tests/test_session_native_regressions.py": "07d0dbcc66c78554d3b378208e6e1b7be68bd64617a1ac898f3a5f05b7245945",
+    "tests/test_session_runtime.py": "9d634f603968e85c253dfc4116102deedb09fc18e2ed6b5542c3c1b0d2d64868",
+    "tests/test_session_transitions.py": "07ddff7b102698638ce13f75a8056d5597f1852cfa753c0b437321ddedcd8804"
+  },
+  "checks": {
+    "adjacentAndStatics": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018/finalize-owner-adjacent-and-statics.log",
+      "result": "4 passed, 137 deselected in 44.99s; Ruff/format/compile/diff all passed; exit 0",
+      "sha256": "5850d300ff6cfdcbf90db89ab88c034fb39d2e9b401a9206455557b1da4339be"
+    },
+    "diagnosticRerun": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018/diagnostic-rerun.log",
+      "result": "1 failed in 20.25s; configured compiled warmup exceeded its fixed 0.9s owner protocol deadline; no deadline relaxed.",
+      "sha256": "10e7ec2bb4ed886a83173c57023e5d0b88562763798b94677ff33ed4073d460e"
+    },
+    "finalizeDurability": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018/finalize-owner-durable-proof.log",
+      "result": "2 passed, 139 deselected in 44.41s; exit 0",
+      "sha256": "bc66dd32c97d7c85988c71642301526bdf7040eb8fc5bcf8b22a3d9ce8b171c5"
+    },
+    "fullThreeNativeSuites": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018/final-native-three-suites-rerun.log",
+      "result": "353 passed in 481.06s; exit 0",
+      "sha256": "9526fc0cd1cc99a6a10a138e563402857b208056ce5d27439d2017f2196b016b"
+    },
+    "fullThreeNativeSuitesPreAdditive": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018/final-native-three-suites-rerun.log",
+      "result": "The 353-pass run was on the seven pre-additive source files; the additive regression was appended afterward.",
+      "sha256": "9526fc0cd1cc99a6a10a138e563402857b208056ce5d27439d2017f2196b016b"
+    },
+    "initialFullAttempt": {
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018/final-native-three-suites.log",
+      "result": "351 passed, 2 failed in 455.74s; both were timing/fixture boundaries later corrected or independently retained.",
+      "sha256": "faf89bc0391ea6774648fe79c861afbe307f88a84d4996a8eb0d1fa765d476d4"
+    },
+    "namedRuntimeAndStopped": {
+      "command": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src /home/dev/repos/pegasus/.venv/bin/pytest -q tests/test_session_native.py tests/test_session_runtime.py -k \"compiled_region_composes_through_default_daemon_and_stock_model or default_native_meter_binds_real_child_and_closes_on_retry\"",
+      "path": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018/named-runtime-and-stopped.log",
+      "result": "2 passed in 1.64s; exit 0",
+      "sha256": "2b5ed8f88f5d4aba2bb00363dc3650435dc8faf20f56c6b9829163245f610d43"
+    }
+  },
+  "commands": {
+    "adjacentAndStatics": "pytest adjacent rollback+durability selection, Ruff check/format, py_compile, git diff --check",
+    "finalizeDurability": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src /home/dev/repos/pegasus/.venv/bin/pytest -q tests/test_session_native_regressions.py -k native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure",
+    "fullThreeNativeSuites": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src /home/dev/repos/pegasus/.venv/bin/pytest -q tests/test_session_native.py tests/test_session_native_regressions.py tests/test_session_transitions.py",
+    "namedRuntime": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src /home/dev/repos/pegasus/.venv/bin/pytest -q tests/test_session_native.py -k test_default_native_meter_binds_real_child_and_closes_on_retry",
+    "namedRuntimeAndStopped": "XDG_RUNTIME_DIR=<private-0700> PYTHONPATH=/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src /home/dev/repos/pegasus/.venv/bin/pytest -q tests/test_session_native.py tests/test_session_runtime.py -k \"compiled_region_composes_through_default_daemon_and_stock_model or default_native_meter_binds_real_child_and_closes_on_retry\""
+  },
+  "finalSha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "71a313798ec3b64f993b262d4b38072f1d7f0eb91401fe6e16da1d5b27bd099f",
+    "tests/test_session_native.py": "3ce0b1ed3bef5d21826cfda65eee0c20d3d9835e72c3d245b94c4c22e889d240",
+    "tests/test_session_native_regressions.py": "d432a3b37d15afd497a871d40500290cdd77b897ce8490702e175b38d190c04c",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "imports": {
+    "crowley.session.cli": "/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src/crowley/session/cli.py",
+    "crowley.session.controller": "/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src/crowley/session/controller.py",
+    "crowley.session.daemon": "/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018/src/crowley/session/daemon.py"
+  },
+  "limitations": [
+    "No live desktop, service restart, deployment, game input, or native qualification claim is made.",
+    "The first broad attempt retained two fixed-deadline fixture failures; the corrected rerun passed 353. A separate diagnostic rerun retained a 0.9-second configured producer timing failure without relaxing the deadline.",
+    "Parent must independently verify exact hashes, the additive-only test delta, and final review before promotion."
+  ],
+  "plan": {
+    "path": ".archive/PLAN-native-capability-transaction-r9.md",
+    "sha256": "a00d67208f38039e51b5495c3149cee0cbaa10c63984256cbf3de56b9042d842"
+  },
+  "preAdditiveFullRunSha256": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "71a313798ec3b64f993b262d4b38072f1d7f0eb91401fe6e16da1d5b27bd099f",
+    "tests/test_session_native.py": "3ce0b1ed3bef5d21826cfda65eee0c20d3d9835e72c3d245b94c4c22e889d240",
+    "tests/test_session_native_regressions.py": "5511124bfb23adc33c4c79194742cb7edd32e48a94019c225f007aa24de1af11",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "privateEvidenceRoot": "/home/dev/.local/state/crowley/executor-evidence/runtime-relink/native-capability-transaction-r9-20261018",
+  "privateLogMode": "0600",
+  "proofs": {
+    "capabilityTransaction": "Existing R9 capability tests exercised real public owner admission/revocation, exact facts including legitimate inflight None ID, both linearization orders, and zero dispatch on refusal; included in the 353-pass full run.",
+    "finalBindingAndDeadlines": "Existing PNG-backed identity/Guardian drift and actual finalize transaction deadline barriers passed in the 353-pass run.",
+    "ownerErrorHandlerDurability": "The additive parameterized regression passed both native finalize journal.write boundaries through start_calibration owner worker, then verified recovery_required, nativeCalibration false, NATIVE_CALIBRATION persisted state, no finalized terminal, and fresh owner checkpoint visibility.",
+    "rollback": "Controller native_calibrated archive/save rollback tests passed in the 4-test adjacent selection.",
+    "stoppedFixture": "Compiled/default fixture enters PAUSED then STOPPED via public controller lifecycle and passes named focused check plus full run."
+  },
+  "readonlyR9": [
+    "src/crowley/session/cli.py",
+    "tests/test_session_transitions.py",
+    "tests/test_session_runtime.py"
+  ],
+  "schema": 1,
+  "sourceFence": [
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/controller.py",
+    "tests/test_session_native_regressions.py",
+    "tests/test_session_native.py"
+  ],
+  "status": "r9_candidate_pending_parent_verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-capability-transaction-r9-20261018"
+}

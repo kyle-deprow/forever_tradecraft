@@ -1,0 +1,23 @@
+{
+  "kind": "unaccepted-source-recovery-checkpoint",
+  "branch": "checkpoint/executor-20261018",
+  "commit": "aa5f76df9625305337d508144d484c067a9c8133",
+  "parent": "dacefb98646c39a89e1a0a8443c54d4cd051e165",
+  "pushed": true,
+  "native_final_hashes": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "71a313798ec3b64f993b262d4b38072f1d7f0eb91401fe6e16da1d5b27bd099f",
+    "tests/test_session_native.py": "91fb2bf74e685409401f82369653615b353f8c8464d4ca7fa18213f0b44a28d1",
+    "tests/test_session_native_regressions.py": "d432a3b37d15afd497a871d40500290cdd77b897ce8490702e175b38d190c04c",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "unchanged_old_failed_helper_hashes": {
+    "tools/native_calibration_operator.py": "3cb57dad6b586f7bf1b8b197a70f662689994568c09f7e45c668aa70012b54fa",
+    "tests/test_native_calibration_operator.py": "c0221bdea14d4aeba788500a761e2fdb6c19f50aadbea838cb4b9b1ed61c1b49"
+  },
+  "verification": "Native353 full worker cases plus2 additive durability cases; parent19 core cases plus2 isolated compiled fixture cases, separate invocations. Exact base/file/hash/AST/private-log fences verified. Final Sol and actual Opus reviews running.",
+  "qualification": "UNACCEPTED checkpoint only; no merge to main, deployment or live qualification. Old helper pair remains failed and unaccepted; current causal helper development is separate.",
+  "privacy": "Only source files; raw logs/screenshots/credentials/private evidence not added."
+}

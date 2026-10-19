@@ -1,0 +1,104 @@
+{
+  "kind": "parent-native-r9-private-fixture-verification",
+  "worktree": "/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019",
+  "source_hashes": {
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "71a313798ec3b64f993b262d4b38072f1d7f0eb91401fe6e16da1d5b27bd099f",
+    "tests/test_session_native.py": "91fb2bf74e685409401f82369653615b353f8c8464d4ca7fa18213f0b44a28d1",
+    "tests/test_session_native_regressions.py": "d432a3b37d15afd497a871d40500290cdd77b897ce8490702e175b38d190c04c",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293"
+  },
+  "private_xdg_mode": "0o700",
+  "checks": [
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "check",
+        "src/crowley/session/cli.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_transitions.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.032,
+      "log_sha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "summary": [
+        "All checks passed!"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/ruff",
+        "format",
+        "--check",
+        "src/crowley/session/cli.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_transitions.py"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.032,
+      "log_sha256": "0321fffcb91606a42c0a19d8c1121d5c544379d663821fce616c71a7bb62f6b5",
+      "summary": [
+        "7 files already formatted"
+      ]
+    },
+    {
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.032,
+      "log_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "summary": []
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-c",
+        "import crowley.session.daemon as d; import crowley.session.controller as c; print(d.__file__); print(c.__file__)"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 0.214,
+      "log_sha256": "1788ed4cb94fd965e0eed507da139f10624cb49a313ff00a179bd325f5674bca",
+      "summary": [
+        "/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019/src/crowley/session/daemon.py",
+        "/home/dev/.cache/crowley/worktrees/native-r9-private-fixture-20261019/src/crowley/session/controller.py"
+      ]
+    },
+    {
+      "command": [
+        "/home/dev/repos/pegasus/.venv/bin/python",
+        "-m",
+        "pytest",
+        "-q",
+        "-x",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "tests/test_session_runtime.py",
+        "-k",
+        "compiled_region_composes_through_default_daemon_and_stock_model or paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples"
+      ],
+      "returncode": 0,
+      "elapsed_seconds": 62.922,
+      "log_sha256": "3d5929caa783f8d6eeb8315da5364db4a86b873f9ecc888640a00a685c442131",
+      "summary": [
+        "..                                                                       [100%]",
+        "2 passed, 302 deselected in 62.57s (0:01:02)"
+      ]
+    }
+  ],
+  "limits": "Exact final R9 six unchanged files plus isolated native test fixture; parent separately verified fixture AST scope and worker hashes/private log permissions. No source acceptance/live qualification claimed.",
+  "ast_fence": "Parent verified six exact final R9 hashes, one new helper and exactly two call insertions; all pre-existing ASTs otherwise unchanged.",
+  "worker_evidence": "Parent independently verified exact base/hashes/worker log hashes and0600 permissions, evidence directory0700; no source promotion."
+}
