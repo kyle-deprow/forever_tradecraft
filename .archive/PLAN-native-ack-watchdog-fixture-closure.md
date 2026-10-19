@@ -1,6 +1,8 @@
 # Final native fixture safety correction
 
-Status: parent approved, test-only scope after Sol R3 READY and actual Opus R2.
+Status: COMPLETE. Parent affected3/baseline/static PASS, Sol R4 READY and
+actual CLI Opus R3 READY (exit0 claude-opus-5-5). Test-only scope after prior
+Sol R3 READY and actual Opus R2.
 Production correction and all parent offline gates passed. Opus found no
 production defect; its Should1 test-safety issue is accepted before release.
 

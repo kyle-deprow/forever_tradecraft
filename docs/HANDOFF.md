@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 16:46 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 16:52 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -62,9 +62,11 @@ Latest fully parent-verified cycle **#121**:
 - [scan proof](../.archive/executor-review/build-70450-onehundredtwentyfirst-scan-parent-verification.json)
   and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentyfirst-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792428711 (16:51:51UTC). Sole operator continues full
-assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..121 all have verified exact900s starts.
+Scan122 started exactly1792428711 (16:51:51UTC). PROMOTION READY sent after
+final approvals; sole operator must finish122 full save/ACK/reopen, then closeAH
+for fresh ordinary quiescence and stop before123. This is an explicit planned
+qualification pause. No native or physical-input retry yet. Scans108..121 have
+verified exact900s starts;122 full-chain proof is pending.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
@@ -188,7 +190,7 @@ Parent reproduced affected3 in8.69s, baseline in46.10s and scoped static checks.
 Production/operator bytes and runtime AST outside baseline are unchanged:
 [test-delta proof](../.archive/executor-review/native-ack-test-safety-parent-verification.json).
 Earlier full100/seven-model evidence remains bound to original R2 test hashes.
-[Sol R4 READY](../.archive/executor-review/native-capture-ack-sol-test-safety-r4-review.json); actual Opus R3 bounded test-delta review is running. No installation yet.
+[Sol R4 READY](../.archive/executor-review/native-capture-ack-sol-test-safety-r4-review.json) and [actual Opus R3 READY](../.archive/executor-review/native-capture-ack-opus-test-safety-r3-review.md), exit0 realclaude-opus-5-5, no findings. All offline release gates complete. No installation yet.
 Private final freeze: `native-ack-source-r2-test-safety-r3-20261019/final-test-safety-r3.json`;
 parent logs: `native-ack-test-safety-parent-20261019/`;
 actual reviews: `native-ack-source-opus-r2-20261019/` and
@@ -210,8 +212,8 @@ fixture; it is not a concurrent real-C producer race proof.
 
 ## Next live gates, in order
 
-1. Parent offline checks and Sol approval are complete; obtain actual Opus final
-   source/test approval after the fixture correction. Finish current ordinary
+1. Parent offline checks, Sol and actual Opus final approval are complete.
+   Finish current122 ordinary
    save/ACK/reopen chain; sole GUI owner closes
    AH with fresh pending0/ordinary/released evidence. Promote exact accepted six
    files and restart daemon while quiescent. Use new PID/generation, never stale
