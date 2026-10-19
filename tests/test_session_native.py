@@ -168,6 +168,51 @@ def _write_sidecar_binding_config(tmp_path: Path) -> tuple[Path, str, str, str]:
     )
 
 
+def _install_private_shell_compositor_bus(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Keep the owned compositor bus free of host service activation."""
+
+    monkeypatch.setenv("NO_AT_BRIDGE", "1")
+    bus_dir = tmp_path / "private-session-bus"
+    bus_dir.mkdir(mode=0o700)
+    bus_dir.chmod(0o700)
+    config_path = bus_dir / "session.conf"
+    config_path.write_text(
+        """<busconfig>
+  <type>session</type>
+  <listen>unix:tmpdir=/tmp</listen>
+  <auth>EXTERNAL</auth>
+  <policy context=\"default\">
+    <allow send_destination=\"*\" eavesdrop=\"true\"/>
+    <allow receive_sender=\"*\" eavesdrop=\"true\"/>
+    <allow own=\"*\"/>
+  </policy>
+</busconfig>
+""",
+        encoding="utf-8",
+    )
+    config_path.chmod(0o600)
+
+    original_popen = subprocess.Popen
+
+    class PrivateSessionPopen(original_popen):
+        def __init__(self, command, *args, **kwargs):  # type: ignore[no-untyped-def]
+            if isinstance(command, list) and command and Path(str(command[0])).name == "dbus-run-session":
+                assert "--" in command
+                command = [
+                    command[0],
+                    "--config-file",
+                    str(config_path),
+                    *command[1:],
+                ]
+                environment = dict(kwargs.get("env") or os.environ)
+                environment["NO_AT_BRIDGE"] = "1"
+                kwargs["env"] = environment
+            super().__init__(command, *args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", PrivateSessionPopen)
+    return config_path
+
+
 def test_identity_latency_sidecar_rejects_untrusted_descriptors_and_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -955,7 +1000,13 @@ def test_real_session_daemon_native_provider_route_and_stock_model_capture(
     )
     region_daemon = SessionDaemon(config(region_profile, "region"), driver=region_driver)
     try:
-        with pytest.raises(DriverError, match="configured X11 backend"):
+        started = region_daemon.controller.start()
+        assert started.state is ControllerState.NATIVE_CALIBRATION
+        paused = region_daemon.controller.pause("fixture stop transition")
+        assert paused.state is ControllerState.PAUSED
+        stopped = region_daemon.controller.stop()
+        assert stopped.state is ControllerState.STOPPED
+        with pytest.raises(DriverError, match="controller state does not admit"):
             region_daemon._capture_native_region_for_identity(identity, deadline=time.monotonic() + 5.0)
         assert region_backend.region_captures == 0
         model_bytes = region_daemon._capture_model(deadline=time.monotonic() + 5.0)
@@ -1059,6 +1110,7 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
     )
     assert codex_path.is_file(), "the authentic private Codex CLI is required for fixture startup"
 
+    _install_private_shell_compositor_bus(monkeypatch, tmp_path)
     with harness.private_shell_compositor(
         payloads=[
             png_bytes(native_frame),
@@ -1934,6 +1986,7 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
         frozenset({0x200, 0x201}),
     )
     output_dir = session_dir / "evidence"
+    _install_private_shell_compositor_bus(monkeypatch, tmp_path)
     with harness.private_shell_compositor(
         payloads=payloads,
         full_desktop=desktop.getvalue(),

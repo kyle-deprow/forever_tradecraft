@@ -1067,13 +1067,12 @@ class SessionDaemon:
         }
 
     def _native_construction_capability_matches(self, capability: dict[str, Any]) -> bool:
-        """Check an immutable capability without taking the construction lock.
+        """Check an immutable capability while holding construction lock.
 
-        The check is used at the Guardian execution gate while the controller
-        mutex is held.  Revocation changes the epoch as one atomic Python
-        assignment, so an old producer cannot borrow a later same-generation
-        reservation and this path never acquires the construction lock in the
-        reverse order.
+        Every caller must hold ``_native_construction_lock``.  The producer
+        admission gate keeps that lock through Guardian admission so owner
+        revocation cannot clear the exact capability between this comparison
+        and process registration.
         """
 
         if not isinstance(capability, dict):
@@ -1087,9 +1086,13 @@ class SessionDaemon:
         current_generation = owner.get("generation", owner.get("controllerGeneration"))
         if expected_generation != current_generation:
             return False
+        expected_kind = capability.get("kind")
+        current_kind = owner.get("kind", owner.get("reservationKind"))
+        if expected_kind != current_kind:
+            return False
         expected_id = capability.get("reservationId")
         current_id = owner.get("reservationId")
-        return expected_id is None or expected_id == current_id
+        return expected_id == current_id
 
     def _native_construction_record_terminal_locked(
         self,
@@ -1209,9 +1212,7 @@ class SessionDaemon:
                     current = self._calibration_operation.get("state")
                     if current == "running":
                         raise DriverError("a calibration operation is already running")
-                    if current == "starting" and not (
-                        kind == "native" and self._calibration_operation.get("kind") == "native"
-                    ):
+                    if current == "starting" and self._calibration_operation.get("kind") != kind:
                         raise DriverError("a calibration operation is already starting")
                     deferred = False
                     if kind == "native" and admitted_context is not None:
@@ -1240,7 +1241,7 @@ class SessionDaemon:
                             deferred=deferred,
                             reservation_id=reservation.get("reservationId") if deferred else None,
                         )
-                    self._calibration_operation = {
+                    updated_operation = {
                         "state": "running",
                         "kind": kind,
                         "generation": generation if generation is not None else -1,
@@ -1250,6 +1251,10 @@ class SessionDaemon:
                         "readiness": None,
                         "result": None,
                     }
+                    if current == "starting" and self._calibration_operation.get("kind") == kind:
+                        self._calibration_operation.update(updated_operation)
+                    else:
+                        self._calibration_operation = updated_operation
             except Exception:
                 self._calibration_lock.release()
                 raise
@@ -1295,6 +1300,7 @@ class SessionDaemon:
                         deferred=deferred,
                         reservation_id=reservation.get("reservationId") if deferred else None,
                     )
+                operation_record = self._calibration_operation
 
         def worker() -> None:
             try:
@@ -1311,15 +1317,20 @@ class SessionDaemon:
                     # status snapshot takes the controller lock.  Compute it
                     # before taking the calibration-state lock to preserve the
                     # controller -> construction -> calibration lock order.
-                    self._calibration_operation["result"] = result_snapshot
+                    if self._calibration_operation is operation_record:
+                        operation_record["result"] = result_snapshot
             except Exception as exc:
                 with self._calibration_state_lock:
-                    self._calibration_operation["error"] = str(exc)
+                    if self._calibration_operation is operation_record:
+                        operation_record["error"] = str(exc)
             finally:
                 with self._calibration_state_lock:
-                    if self._calibration_operation.get("state") == "starting":
-                        self._calibration_operation["state"] = "error"
-                        self._calibration_operation["finishedAt"] = int(time.time())
+                    if (
+                        self._calibration_operation is operation_record
+                        and operation_record.get("state") == "starting"
+                    ):
+                        operation_record["state"] = "error"
+                        operation_record["finishedAt"] = int(time.time())
 
         thread = threading.Thread(target=worker, name=f"crowley-{kind}-calibration", daemon=True)
         self._calibration_thread = thread
@@ -1865,12 +1876,15 @@ class SessionDaemon:
         self,
         *,
         run_context: dict[str, Any],
+        reservation_snapshot: dict[str, Any],
         expected_generation: int,
         finalize_deadline: float,
         hook_deadline: float | None,
         final_boot: str,
         final_sequence: int,
         final_crc32: int,
+        final_identity_fingerprint: str,
+        final_capture_identity: str,
         evidence: Any,
     ) -> Any:
         """Commit the final frame and deferred gate under one owner fence."""
@@ -1899,6 +1913,18 @@ class SessionDaemon:
                     or self._native_construction_epoch != run_context.get("epoch")
                 ):
                     raise DriverError("deferred finalize owner was revoked before commit")
+                if (
+                    reservation.get("identityFingerprint") != reservation_snapshot.get("identityFingerprint")
+                    or final_identity_fingerprint != final_capture_identity
+                    or final_identity_fingerprint != reservation.get("identityFingerprint")
+                    or final_capture_identity != reservation.get("identityFingerprint")
+                ):
+                    raise DriverError("deferred finalize capture identity binding changed")
+                guardian = self.driver.guardian
+                if getattr(guardian, "generation", None) != reservation.get("guardianGeneration") or bool(
+                    getattr(guardian, "armed", False)
+                ):
+                    raise DriverError("deferred finalize Guardian binding changed")
                 if now >= finalize_deadline:
                     raise DriverError("deferred finalize frame deadline expired")
                 if hook_deadline is not None and now >= hook_deadline:
@@ -3118,18 +3144,39 @@ class SessionDaemon:
             raise DriverError("native resume-ready observation is not ordinal zero")
         resumed_metrics = getattr(resumed, "metrics", {})
         boundary = deferred_target.get("resumeBoundary", {})
+        resumed_sequence = getattr(resumed, "sequence", None)
+        resumed_update_count = (
+            resumed_metrics.get("updateCount") if isinstance(resumed_metrics, dict) else None
+        )
+        boundary_sequence = boundary.get("sequence") if isinstance(boundary, dict) else None
+        boundary_update_count = boundary.get("updateCount") if isinstance(boundary, dict) else None
+        if (
+            isinstance(resumed_sequence, bool)
+            or not isinstance(resumed_sequence, int)
+            or resumed_sequence < 0
+            or isinstance(resumed_update_count, bool)
+            or not isinstance(resumed_update_count, int)
+            or resumed_update_count < 0
+            or isinstance(boundary_sequence, bool)
+            or not isinstance(boundary_sequence, int)
+            or boundary_sequence < 0
+            or isinstance(boundary_update_count, bool)
+            or not isinstance(boundary_update_count, int)
+            or boundary_update_count < 0
+        ):
+            raise DriverError("native resume-ready observation facts are malformed")
         if (
             not isinstance(resumed_metrics, dict)
             or resumed_metrics.get("nativePhase") != "normal"
             or resumed_metrics.get("nativeOrdinal") != 0
-            or resumed_metrics.get("updateCount", -1) <= boundary.get("updateCount", -1)
+            or resumed_update_count <= boundary_update_count
             or getattr(resumed, "identity_fingerprint", None) != identity.fingerprint
             or getattr(resumed, "boot", None) != boundary.get("boot")
-            or getattr(resumed, "sequence", 0) <= boundary.get("sequence", 0)
+            or resumed_sequence <= boundary_sequence
         ):
             raise DriverError("native resume-ready observation is not a fresh same-boot proof")
         evidence_resume_count = getattr(evidence, "resume_update_count", None)
-        if evidence_resume_count != resumed_metrics.get("updateCount"):
+        if evidence_resume_count != resumed_update_count:
             raise DriverError("native resume-ready evidence count does not match the observation")
         with self._native_construction_lock:
             callback_context = self._native_construction_callback_context_locked()
@@ -3147,7 +3194,7 @@ class SessionDaemon:
             }
             if callback_context.get("deferred"):
                 resume_capture = getattr(resumed, "capture_monotonic", None)
-                resume_sequence = getattr(resumed, "sequence", None)
+                resume_sequence = resumed_sequence
                 if (
                     isinstance(resume_capture, bool)
                     or not isinstance(resume_capture, (int, float))
@@ -3158,7 +3205,6 @@ class SessionDaemon:
                 ):
                     raise DriverError("native resume-ready observation facts are malformed")
                 boundary_capture = boundary.get("captureMonotonic")
-                boundary_sequence = boundary.get("sequence")
                 if (
                     isinstance(boundary_capture, bool)
                     or not isinstance(boundary_capture, (int, float))
@@ -4492,9 +4538,7 @@ class SessionDaemon:
                 raise DriverError("controller generation does not admit a native region capture")
             if expected_state is not None and admitted_status.state is not expected_state:
                 raise DriverError("controller state does not admit a native region capture")
-            if required_state is ControllerState.BLOCKED or (
-                required_state is ControllerState.STOPPED and expected_state is not None
-            ):
+            if required_state in {ControllerState.BLOCKED, ControllerState.STOPPED}:
                 raise DriverError("controller state does not admit a native region capture")
             if admitted_status.stop_requested:
                 raise DriverError("controller stop request does not admit a native region capture")
@@ -4542,11 +4586,16 @@ class SessionDaemon:
                     or current.stop_requested
                 ):
                     raise DriverError("controller generation or state changed before observer admission")
-                if native_capability is not None and not self._native_construction_capability_matches(
-                    native_capability
-                ):
-                    raise DriverError("native region capture capability was revoked")
-                return guardian.observer_dispatch_admission(start)
+                # Controller -> construction -> Guardian is the sole
+                # capability transaction.  Revocation/expiry mutates the
+                # owner under construction lock, so keep that lock through
+                # the actual Guardian process admission.
+                with self._native_construction_lock:
+                    if native_capability is not None and not self._native_construction_capability_matches(
+                        native_capability
+                    ):
+                        raise DriverError("native region capture capability was revoked")
+                    return guardian.observer_dispatch_admission(start)
 
         def observer_reaped(process_group: int) -> None:
             guardian.unregister_observer_process(process_group)
@@ -7317,6 +7366,9 @@ class SessionDaemon:
                 final_observation = None
                 final_boot = ""
                 final_sequence = final_crc32 = 0
+                final_reservation_snapshot: dict[str, Any] | None = None
+                final_identity_fingerprint = ""
+                final_capture_identity = ""
                 last_finalize_error: Exception | None = None
                 while self._native_clock() < final_deadline:
                     self._native_construction_revalidate_finalize_owner(
@@ -7386,6 +7438,22 @@ class SessionDaemon:
                     )
                 if final_observation is None:
                     raise last_finalize_error or DriverError("deferred finalize frame did not settle")
+                with self._native_construction_lock:
+                    final_reservation_snapshot = copy.deepcopy(self._native_construction_reservation)
+                if final_reservation_snapshot is None:
+                    raise DriverError("deferred finalize owner was revoked before binding validation")
+                final_identity = self._native_construction_validate_snapshot(
+                    final_reservation_snapshot,
+                    expected_generation=final_generation,
+                )
+                self._native_construction_observation_identity(final_observation, final_identity)
+                final_identity_fingerprint = final_observation["identityFingerprint"]
+                final_capture_identity = final_observation["captureIdentity"]
+                if (
+                    final_identity_fingerprint != final_capture_identity
+                    or final_identity_fingerprint != final_reservation_snapshot.get("identityFingerprint")
+                ):
+                    raise DriverError("deferred finalize capture identity binding changed")
                 self._native_construction_revalidate_finalize_owner(
                     run_context,
                     expected_generation=final_generation,
@@ -7394,12 +7462,15 @@ class SessionDaemon:
                 )
                 status = self._native_construction_finalize_transaction(
                     run_context=run_context,
+                    reservation_snapshot=final_reservation_snapshot,
                     expected_generation=final_generation,
                     finalize_deadline=final_deadline,
                     hook_deadline=float(hook_deadline) if hook_deadline is not None else None,
                     final_boot=final_boot,
                     final_sequence=final_sequence,
                     final_crc32=final_crc32,
+                    final_identity_fingerprint=final_identity_fingerprint,
+                    final_capture_identity=final_capture_identity,
                     evidence=evidence,
                 )
             if not deferred:

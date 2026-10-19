@@ -1759,6 +1759,12 @@ class Controller:
                 expected_generation=expected_generation, expected_state=expected_state, fence=fence
             ):
                 return self.status()
+            prior_native_calibrated = self._native_calibrated
+            prior_calibration_evidence = copy.deepcopy(self._calibration_evidence)
+            prior_calibration_history = copy.deepcopy(self._calibration_history)
+            prior_calibration_invalidated_reason = self._calibration_invalidated_reason
+            prior_history = copy.deepcopy(self._history)
+            prior_state = self._state
             self._native_calibrated = True
             record = self._evidence_record(evidence)
             if preconstruction_proof is not None:
@@ -1770,8 +1776,17 @@ class Controller:
             del self._calibration_history[:-20]
             self._calibration_invalidated_reason = ""
             self._state = ControllerState.INPUT_CALIBRATION
-            self._archive("evidence", {"kind": "native_calibration", "evidence": copy.deepcopy(record)})
-            self._save(last_action="native_calibrated")
+            try:
+                self._archive("evidence", {"kind": "native_calibration", "evidence": copy.deepcopy(record)})
+                self._save(last_action="native_calibrated")
+            except Exception:
+                self._native_calibrated = prior_native_calibrated
+                self._calibration_evidence = prior_calibration_evidence
+                self._calibration_history = prior_calibration_history
+                self._calibration_invalidated_reason = prior_calibration_invalidated_reason
+                self._history = prior_history
+                self._state = prior_state
+                raise
             return self.status()
 
     def input_calibrated(
