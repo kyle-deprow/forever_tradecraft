@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 11:32 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 11:49 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -48,7 +48,8 @@ observations; no buying, posting or cancelling is part of this task.
   fence/pending0/zero movement/released controls. Assisted #100 started1792408561,
   934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
   2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
-  parent-verified. #101 started on its exact900s deadline1792409461.
+  parent-verified. #101 is also fully parent-verified; #102 started on its
+  exact900s deadline1792410361 and is running.
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -58,19 +59,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #100 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792408561-Arthur-5268`:
+Parent verification #101 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792409461-Arthur-8845`:
 
-- 428 observations, 2,015 rows, 417 full and 11 bounded, all `ok`;
-- 497-second scan, 53.210904 seconds from finish to server receipt;
-- 934-second start interval after #99; 34 seconds late due to calibration;
+- 428 observations, 2,054 rows, 416 full and 12 bounded, all `ok`;
+- 480-second scan, 53.081652 seconds from finish to server receipt;
+- exact900-second start interval after #100;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-onehundredth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-onehundredth-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-onehundredfirst-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-onehundredfirst-ah-reopen-parent-verification.json).
 
-#101 started on its exact900s deadline1792409461; nextdue1792410361.
+#102 started on its exact900s deadline1792410361; nextdue1792411261.
+#100 is fully verified:428observations/2,015rows/417full11bounded/allok,
+497s scan,53.210904s finish-to-serverreceipt,934s after99 due to calibration.
 #99 is fully verified:428observations/2,054rows/418full10bounded/allok,
 479s scan,62.218005s finish-to-serverreceipt,exact900s after98.
 
@@ -422,6 +425,14 @@ would still skip1Hz updates. The estimated876ms path needs realistic jitter
 coverage and the actual100-update gate. The trace does not show Rust scoring
 as a compute bottleneck. Do not add another instrumentation-only round unless
 an unanswered fact actually blocks the reviewed correction.
+
+The first isolated candidate passed its real configured-producer100 integration
+case (137.82s) but failed parent pre-review: its timing replay bypassed production
+scheduling, the revocation regression did not synchronize at actual admission,
+some cheap owner bindings were incomplete, and full composition trace assertions
+had been reduced. Luna is correcting these in the same four-file scope. This
+candidate is not installed or source-reviewed; its passing integration alone
+does not qualify it. Preserve the first-run evidence separately from the fix.
 
 ## Next live gates
 

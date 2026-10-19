@@ -1,0 +1,20 @@
+{
+  "status": "PASS",
+  "qualification": "Complete operator-assisted cycle; no autonomous engine qualification.",
+  "uid": "beta-normal-alliance-1792409461-Arthur-8845",
+  "rawReceiptSha256": "df7de9532552931571657cc4272f9d13df8e9bd94533df9aa04714eb2553d74b",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "88ab5e239ebe5dfc265e8dcec4f418688d5ab5378fe0c263062d65849a386984",
+  "boot": "1792410008-370724",
+  "sequence": 14,
+  "ahOpen": true,
+  "pending": 0,
+  "loadedExactAck": true,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "buttonReleased": true,
+  "characterSpeed": 0,
+  "nextDueAt": 1792410361,
+  "verifierSha256": "bf57866245fffaaaa32b496152aa44ce62bdd61b09408eb10947f6cf7a3c5b2d"
+}
