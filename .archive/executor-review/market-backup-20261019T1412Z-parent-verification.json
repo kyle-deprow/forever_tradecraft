@@ -1,0 +1,9 @@
+{
+  "status": "PASS",
+  "snapshot": "beta-20261019T141236Z-37ca1a7066b4",
+  "manifestSha256": "af0b06dba4009dc7aec3957057fa0fa9d972dfc5846c8411712b3b6017d6d283",
+  "directoryMode": "0700",
+  "coverage": "Includes ingestion through assisted scan110;111 in progress. No new native qualification.",
+  "validation": "tools.market_backup.validate_snapshot",
+  "restoreDrill": "Prior isolated restore drill remains accepted."
+}

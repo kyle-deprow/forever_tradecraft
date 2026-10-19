@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:07 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:12 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -74,7 +74,8 @@ Parent verification #110 completed the operator-assisted scan for UID
 - [scan verification](../.archive/executor-review/build-70450-onehundredtenth-scan-parent-verification.json)
   and [reopen verification](../.archive/executor-review/build-70450-onehundredtenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792418811 (14:06:51 UTC).
+#111 started1792418811 at its exact deadline; fullchain verification pending.
+Next ordinary deadline1792419711 (14:21:51 UTC).
 #109 is fully verified:428observations/2,139rows/413full15bounded/allok,
 478s scan,54.458005s finish-to-serverreceipt,exact900s after108.
 #108 is fully verified:428observations/2,102rows/414full14bounded/allok,
@@ -153,11 +154,11 @@ closed for calibration with exact #91 ACK, pending 0, normal/0, inactive fence,
 closed chat, zero movement and released controls. Public state is PAUSED29.
 Record the resulting calibration-related gap; do not count these as autonomous.
 
-The latest private backup is `beta-20261019T131231Z-4d2b1b2ea98c`, independently
-validated through #106 ingestion, directory mode0700. Manifest SHA256:
-`d208f24f708318d84ee076278920cd3170675070235c7e51ca80a60f23e5147a`.
-See [backup verification](../.archive/executor-review/market-backup-20261019T131230Z-parent-verification.json).
-Next hourly backup: 14:12 UTC. Prior isolated restore drill passed; repeat only
+The latest private backup is `beta-20261019T141236Z-37ca1a7066b4`, independently
+validated through #110 ingestion, directory mode0700. Manifest SHA256:
+`af0b06dba4009dc7aec3957057fa0fa9d972dfc5846c8411712b3b6017d6d283`.
+See [backup verification](../.archive/executor-review/market-backup-20261019T1412Z-parent-verification.json).
+Next hourly backup: 15:12 UTC. Prior isolated restore drill passed; repeat only
 if new evidence warrants it. Raw backup data stays private.
 
 ## Current implementation gate
@@ -594,7 +595,7 @@ release, source, review, and verification pins. Relevant records include:
 - [OCR R2 production verification](../.archive/executor-review/native-chat-ocr-r2-final-parent-verification.json);
 - [#85 scan verification](../.archive/executor-review/build-70450-eightyfifth-scan-parent-verification.json);
 - [#85 reopen verification](../.archive/executor-review/build-70450-eightyfifth-ah-reopen-parent-verification.json);
-- [latest backup verification](../.archive/executor-review/market-backup-20261019T131230Z-parent-verification.json),
+- [latest backup verification](../.archive/executor-review/market-backup-20261019T1412Z-parent-verification.json),
   independently validated through scan106; next hourly backup due about14:12 UTC.
 
 Private raw frames, receipts, process logs, command histories, and backup
