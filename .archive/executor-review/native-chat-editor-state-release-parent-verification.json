@@ -1,0 +1,82 @@
+{
+  "status": "INSTALLED_LIVE_CALIBRATION_PENDING",
+  "objective": "Classify measured chat editor chrome before first input, without interpreting world texture as an empty command buffer. Preserve exact typed command OCR.",
+  "sourceSha256": {
+    "tools/native_calibration_operator.py": "4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b",
+    "tests/test_native_calibration_operator.py": "90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75"
+  },
+  "checks": {
+    "sourcePins": {
+      "tools/native_calibration_operator.py": "4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b",
+      "tests/test_native_calibration_operator.py": "90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75"
+    },
+    "focused": "10 passed,79 deselected in1.20s",
+    "ruff": "PASS",
+    "format": "PASS",
+    "diff": "PASS",
+    "typedOCRAstIdenticalToInstalledBaseline": true,
+    "installedBaselineSha256": "1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211",
+    "privateRunnerSha256": "4c152a3a85cb4cb827cca3c6944a4541a5851b42d346731f1681cc97e1e524ab",
+    "privateResultSha256": "3560b261482f04068f5ee547578cec4c415c9f8a235425eb482159ed6585de77",
+    "productionCrop": [
+      30,
+      938,
+      460,
+      37
+    ],
+    "recordedBackendLimit": "Actual production crop/classifier/OCR/_chat tested; admission/identity context and input/capture backends substituted. No live qualification.",
+    "sourceReadOrigin": "/home/dev/.cache/crowley/worktrees/native-chat-editor-state-20261019/tools/native_calibration_operator.py",
+    "workerFullHelper": {
+      "result": "89 passed,5warnings in350.09s",
+      "exit": 0,
+      "logSha256": "f7ecd8820bdfd157b2985fb2198477b57ec7416f4972a41f4e5bc9c2411949cd",
+      "warnings": "4 existing multiprocessing fork deprecations; existing measurement-failure fixture background KeyError capture; tests pass"
+    }
+  },
+  "productionCropProof": {
+    "status": "PASS",
+    "fixedCommands": 8,
+    "activeEmptyRefused": true,
+    "activeNonemptyRefused": true,
+    "unknownBlackRefused": true,
+    "mixedChromeRefused": true,
+    "malformedRefused": true,
+    "runnerSha256": "4c152a3a85cb4cb827cca3c6944a4541a5851b42d346731f1681cc97e1e524ab",
+    "resultSha256": "3560b261482f04068f5ee547578cec4c415c9f8a235425eb482159ed6585de77",
+    "qualification": "Recorded backends with substituted admission/identity context. No live calibration claim."
+  },
+  "reviews": {
+    "sol": "READY after valid-size mixed-signature negative added",
+    "opus": {
+      "model": "claude-opus-5-5",
+      "verdict": "READY",
+      "exit": 0,
+      "rawSha256": "c5c687f492ea1235177f60b553b4962f8c89b8afdabedb4c0dc8381d7456bff9",
+      "mustFix": [],
+      "shouldFix": [],
+      "optionalNits": "test naming, exact error patterns, redundant fixture assertions, dead fake OCR branches; deferred as nonblocking"
+    }
+  },
+  "ordinaryBeforeInstall": {
+    "retainedQuiescence": "PASS",
+    "boot": "1792399721-288861",
+    "sequence": 142,
+    "frameSha256": "d9feff41c9a2191ca3d2521933b0def190c053c5bd9b201bc1d2ce4d70701268",
+    "receiptSha256": "5ba419e75d927ebf8d3398e8ecceeb03e8651b6c968ab715c08249da9b3bab8a",
+    "chatEdit": {
+      "text": "",
+      "active": false,
+      "focused": false
+    },
+    "qualification": "Retained ordinary quiescent evidence before helper installation; no native100 qualification"
+  },
+  "qualification": "Native100, physical input gate and three autonomous900-second cycles remain unqualified.",
+  "installation": {
+    "serviceRestart": false,
+    "canonicalPinsVerified": {
+      "tools/native_calibration_operator.py": "4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b",
+      "tests/test_native_calibration_operator.py": "90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75"
+    },
+    "activeHelperAtInstall": false
+  }
+}

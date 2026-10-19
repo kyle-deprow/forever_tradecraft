@@ -205,6 +205,11 @@ within existing authorization; respect any current movement limits.
   empty buffers and every fixed command, including short commands; preserve
   refusal before input. Do not
   whitelist OCR junk to make a closed-buffer check pass.
+  An inactive transparent editor can expose changing world graphics. Establish
+  editor state before interpreting its body as text; preserve typed-command OCR
+  when changing the closed-state guard. Check fresh short commands and moving
+  backgrounds before promotion. Bind each artifact to its declared geometry;
+  never crop an editor crop again as though it were a full frame.
   For a timed confirmation, stage a bounded local capture/recognition helper
   before Apply and complete Apply plus the measured confirmation within that
   helper. Model-turn latency can exceed the timer; an expired confirmation

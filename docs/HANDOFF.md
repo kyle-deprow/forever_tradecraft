@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 08:27 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 09:02 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -38,10 +38,11 @@ observations; no buying, posting or cancelling is part of this task.
   Fresh preflight passed, but the subsequent attempt refused the initial closed
   chat readback before input or native samples. Pause and fresh recovery succeeded;
   the latest public state is PAUSED generation 29, native/input false, idle
-  operation/handshake. Assisted scan #89 is now fully verified. Luna is
-  continuing assisted collection after fresh staged-command evidence rejected
-  the first OCR candidate. The implementation worker is diagnosing a revised
-  editor-state guard offline; no new source change is released yet.
+  operation/handshake. Assisted scan #91 is fully verified. Luna closed the AH after its reopen
+  proof and holds a quiescent ordinary scene for helper installation/calibration.
+  The editor-state fix is installed in MAIN after full89 tests, parent focused
+  and recorded-frame proof passes, Sol READY and actual Opus5.5 READY.
+  No service restart was needed. Luna is released for the fresh native chain.
   Read actual status before every transition.
   Do not restart merely to inspect this handoff.
 - Current work must preserve fresh evidence generations, exact commands, and
@@ -50,19 +51,20 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #89 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792397292-Arthur-2445`:
+Parent verification #91 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792399196-Arthur-7269`:
 
-- 428 observations, 2,085 rows, 416 full and 12 bounded observations, all 428
+- 428 observations, 2,047 rows, 419 full and 9 bounded observations, all 428
   with reason `ok`;
-- 481-second scan, 29.818305 seconds from finish to the server receipt;
-- exact saved-variable/server digest agreement and an independently decoded
-  loaded ACK with pending 0, followed by verified auction-house reopening,
-  fresh ordinary boot, normal native phase, inactive fence, released button,
-  and zero movement;
-- the scan/reopen receipts are public in
-  [scan verification](../.archive/executor-review/build-70450-eightyninth-scan-parent-verification.json)
-  and [auction-house reopen verification](../.archive/executor-review/build-70450-eightyninth-ah-reopen-parent-verification.json).
+- 481-second scan, 29.669191 seconds from finish to the server receipt;
+- exact saved-variable/server digest agreement and independently decoded loaded
+  ACK with pending 0; initial reopening failed because another character
+  occluded the old point. One fresh verified auctioneer point and guarded click
+  reopened the AH. Original failed and successful receipts remain unchanged;
+- parent compound proof verified normal native phase, inactive fence, released
+  button, zero movement, and next due time 1792400096;
+- [scan verification](../.archive/executor-review/build-70450-ninetyfirst-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-ninetyfirst-ah-reopen-parent-verification.json).
 
 #87 and #88 both started exactly 900 seconds after their predecessors and are
 fully saved/ACKed/reopened. #86 had a 1,086-second interval, 186 seconds late
@@ -80,7 +82,13 @@ which may intentionally be replaced by the OCR evidence and calibration gates.
 
 #90 actually started at `1792398296` (08:24:56 UTC), a 1,004-second interval
 after #89, 104 seconds late after evidence collection. Its next deadline is
-`1792399196` (08:39:56 UTC). Luna owns its full completion/save/ACK/reopen chain.
+`1792399196` (08:39:56 UTC). Parent now verified its complete 428-observation,
+2,077-row save/ACK/reopen chain, 416 full and 12 bounded observations, all ok.
+#91 started exactly on that deadline, 900 seconds after #90; its next ordinary
+deadline was `1792400096` (08:54:56 UTC). Its chain is complete. The AH is now
+closed for calibration with exact #91 ACK, pending 0, normal/0, inactive fence,
+closed chat, zero movement and released controls. Public state is PAUSED29.
+Record the resulting calibration-related gap; do not count these as autonomous.
 
 The latest private backup is `beta-20261019T081155Z-5ce06f7c778f`, independently
 validated after #88 ingestion, directory mode 0700. Manifest SHA256:
@@ -105,20 +113,19 @@ exited 0.
 Current accepted source pins are:
 
 - helper `tools/native_calibration_operator.py`:
-  `1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211`;
+  `4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b`;
 - helper tests `tests/test_native_calibration_operator.py`:
-  `56a5c50e6ebf071e7cb77defcf0ca28a6bcba01802386f192112ad5fa23d3314`;
+  `90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75`;
 - runtime `tools/template_matcher_runtime.py`:
   `edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d`;
 - runtime tests `tests/test_template_matcher_runtime.py`:
   `302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69`.
 
-The helper executable body is AST-identical to the reviewed and tested
-comment-only predecessor. The final helper run passed 84 tests with 5 warnings
-in 348.83 seconds. Parent focused checks passed 4 tests in 0.92 seconds. The
-public [OCR R2 verification](../.archive/executor-review/native-chat-ocr-r2-final-parent-verification.json)
-binds the installed helper/test pins, the retained-frame production proof,
-and the qualification boundary. Sol and actual Opus both returned READY.
+The helper now includes the reviewed editor-state guard. Full helper tests
+passed 89 tests with 5 existing warnings in 350.09 seconds; parent focused checks
+passed 10. Sol and actual Opus5.5 returned READY. See
+[editor-state release verification](../.archive/executor-review/native-chat-editor-state-release-parent-verification.json).
+The prior OCR R2 verification remains historical evidence for its baseline.
 
 ## Chat OCR contract and proof
 
@@ -133,9 +140,13 @@ box. The cursor probe is 11/13 against the tallest glyph/rule and erases at
 The production path is original full frame -> `X11Screen.chat_crop` ->
 `_capture(crop=True)` -> the actual OCR and normalization -> `_chat`. It does
 not use an externally converted crop, fuzzy replacement, an OCR character
-whitelist, or a per-command fallback. The command allowlist remains fixed. Closed chat must normalize to empty. A nonempty
-closed chat is refused before input. Open typed chat must equal the exact
-expected command body.
+whitelist, or a per-command fallback. The command allowlist remains fixed. The initial crop must positively match
+the inactive chrome profile; active empty/nonempty, unknown and malformed crops
+refuse before input. World texture behind the inactive editor is not OCRed as
+a command. Open typed chat must equal the exact expected command body.
+Chrome assumptions: grayscale rows y=4/7/23/25 over x=40..439; active medians
+>=130/180/180/120 and >=380 pixels at least150 on rows7/23. Inactive medians
+50..100/20..60/45..90/50..100 and rows7/23 maxima<150. Anything else refuses.
 
 All eight retained full-frame command cases passed through that production path:
 `/crowley agent defer`, `release`, `recover`, `hold`, `measure`, `resume`,
@@ -247,16 +258,43 @@ text, and typed case 8 lost the visible slash from `/reload`. See the
 [candidate rejection](../.archive/executor-review/native-chat-border-r3-rejection-parent-verification.json).
 
 The rejected helper is preserved privately and remains only in
-`/home/dev/.cache/crowley/worktrees/native-chat-border-r3-20261019`; MAIN helper
-is still 1cbc51f8. Do not promote it or mask more rows blindly. Luna is measuring
-a deterministic visual editor-state guard while preserving original typed OCR.
+`/home/dev/.cache/crowley/worktrees/native-chat-border-r3-20261019`; MAIN now contains the separate accepted editor-state guard, not that rejected
+candidate. Do not promote the rejected mask or mask more rows blindly.
 Any revised implementation needs a reviewed plan, actual full-frame closed and
 open-empty/nonempty evidence, meaningful refusal tests, full helper checks,
 parent reproduction and Sol/actual Opus review. A helper-only correction needs
 no service restart.
 The failed attempt retained only a crop, so do not claim its full frame exists.
 
-Luna is preserving assisted collection while diagnosis proceeds. No live
+Sol approved the replacement
+[editor-state plan](../.archive/PLAN-native-chat-editor-state.md). Implementation
+is isolated in `/home/dev/.cache/crowley/worktrees/native-chat-editor-state-20261019`,
+with only the helper and its tests in scope. It positively classifies four
+measured chrome rows as active or inactive, refuses unknown/malformed/black
+images before input, and keeps the original typed OCR unchanged.
+
+Parent reproduced ten focused tests, independently decoded all 26 retained
+original frames, verified exact typed OCR source preservation, and reran the
+actual crop/classifier/OCR/chat-guard proof for all eight fixed commands,
+active-empty/nonempty, unknown, mixed-signature and malformed refusals. Fresh gen29 active-empty and restored
+closed frames are separately verified in
+[current active-empty evidence](../.archive/executor-review/native-chat-active-empty-gen29-parent-verification.json).
+These are UI/retained-frame proofs with fixture admission/identity context,
+not live native100 qualification.
+
+The first full helper run returned 9 failed/79 passed because synthetic entry
+and composed fixtures lacked required editor chrome. Luna corrected fixtures
+without relaxing production thresholds. Final full helper passed 89 tests,
+5 existing warnings in 350.09s, log SHA256
+`f7ecd8820bdfd157b2985fb2198477b57ec7416f4972a41f4e5bc9c2411949cd`.
+Sol source review is READY after adding its required mixed-signature negative.
+Actual Opus5.5 source review is READY, exit0, no Must/Should findings. The fix
+is installed without a service restart. Current helper SHA256:
+`4db338bdbf328c59be1020370c1570de2354d5f4a1fcc8c3fc5e78e50935021b`;
+tests `90c9aecd8c766d3a91f98e9f4838529a8692fa6ba3eadbed46c67727ae035a75`.
+The earlier native159 checks and installed calibration20fe remain unchanged.
+
+Luna is released from the closed-AH scene after #91 into the fresh native chain. No live
 native100 success is claimed, and no human input is needed until native100 and
 ordinary recovery pass.
 
@@ -265,7 +303,7 @@ ordinary recovery pass.
 Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
-1. Luna has completed #89 save/upload/ACK/reopen; parent independently verified
+1. Luna has completed #91 save/upload/ACK/reopen; parent independently verified
    the original payload, DB, exact ACK, ordinary state and released controls.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.

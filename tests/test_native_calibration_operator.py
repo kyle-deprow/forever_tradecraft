@@ -189,12 +189,164 @@ ROq2LS0OrOmlI3X3ItIqvogTvWURK3cpN/tOrJ1g6C7rOgBqdHZZQRNl/xHV2HFL5V5t9bu3vVyPBepy
 FZTiJ4Ku2KlairSOYoUPUg55SX3BS3NQfD0eqhtp6m226DFq7cwRl3JHUrlMmg1gdJ0dnWYpjc1IWhigL3Koa7//A/iDnF6J
 hUR2AAAAAElFTkSuQmCC\n"""
 
+# Fresh active-empty and inactive world-texture evidence, reduced to the exact
+# 460x37 grayscale chat region.  No desktop frame, identity, or chat history
+# is retained in these self-contained fixtures.
+_OCR_ACTIVE_EMPTY_CROP_B64 = """\n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
+AAAASUVORK5CYII=\n"""
+_OCR_WORLD_CLOSED_CROP_B64 = """\n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
+krmui+P/A4fERRG4/ZQxAAAAAElFTkSuQmCC\n"""
+
 
 def _write_chat_ocr_fixture(tmp_path: Path, name: str, encoded: str) -> Path:
     path = tmp_path / name
     path.write_bytes(base64.b64decode(encoded))
     path.chmod(0o600)
     return path
+
+
+def _synthetic_chat_state(_path: Path) -> str:
+    return operator.CHAT_EDITOR_INACTIVE
 
 
 def _minimal_chat_ocr_operator(tmp_path: Path, closed: Path, typed: Path):
@@ -220,6 +372,7 @@ def _minimal_chat_ocr_operator(tmp_path: Path, closed: Path, typed: Path):
 
     instance._capture = capture
     instance.ocr = operator.NativeCalibrationOperator._ocr_file
+    instance.chat_state = operator.NativeCalibrationOperator._chat_editor_state
     return instance
 
 
@@ -246,11 +399,86 @@ def test_production_chat_ocr_preserves_reload_command_body(tmp_path):
     assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(typed)) == "/reload"
 
 
+def test_chat_editor_state_classifies_fresh_active_and_inactive_crops(tmp_path):
+    active = _write_chat_ocr_fixture(tmp_path, "active-empty.png", _OCR_ACTIVE_EMPTY_CROP_B64)
+    world = _write_chat_ocr_fixture(tmp_path, "world-closed.png", _OCR_WORLD_CLOSED_CROP_B64)
+    closed = _write_chat_ocr_fixture(tmp_path, "closed.png", _OCR_CLOSED_CROP_B64)
+    for path in (active, world, closed):
+        with Image.open(path) as image:
+            assert image.mode == "L"
+            assert image.size == operator.CHAT_CROP_SIZE
+    assert operator.NativeCalibrationOperator._chat_editor_state(active) == operator.CHAT_EDITOR_ACTIVE
+    assert operator.NativeCalibrationOperator._chat_editor_state(world) == operator.CHAT_EDITOR_INACTIVE
+    assert operator.NativeCalibrationOperator._chat_editor_state(closed) == operator.CHAT_EDITOR_INACTIVE
+
+
+def test_chat_active_empty_refuses_before_ocr_or_input(tmp_path):
+    active = _write_chat_ocr_fixture(tmp_path, "active-empty.png", _OCR_ACTIVE_EMPTY_CROP_B64)
+    typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_RELOAD_TYPED_CROP_B64)
+    instance = _minimal_chat_ocr_operator(tmp_path, active, typed)
+
+    def fail_ocr(_path):
+        raise AssertionError("active editor must refuse before command OCR")
+
+    instance.ocr = fail_ocr
+    with pytest.raises(operator.OperatorError, match="chat editor is active"):
+        instance._chat("/reload")
+    assert instance.input.calls == []
+
+
+def test_chat_inactive_world_texture_does_not_become_command_text(tmp_path):
+    world = _write_chat_ocr_fixture(tmp_path, "world-closed.png", _OCR_WORLD_CLOSED_CROP_B64)
+    typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_RELOAD_TYPED_CROP_B64)
+    instance = _minimal_chat_ocr_operator(tmp_path, world, typed)
+    instance._chat("/reload")
+    assert instance.input.calls == [
+        ("key", "Return"),
+        ("type", "/reload"),
+        ("key", "Return"),
+    ]
+
+
+def test_chat_unknown_or_malformed_state_refuses_before_ocr_or_input(tmp_path):
+    typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_RELOAD_TYPED_CROP_B64)
+    black = tmp_path / "black.png"
+    Image.new("L", operator.CHAT_CROP_SIZE, 0).save(black, format="PNG")
+    malformed = tmp_path / "malformed-state.png"
+    Image.new("L", (operator.CHAT_CROP_SIZE[0] - 1, operator.CHAT_CROP_SIZE[1]), 0).save(
+        malformed, format="PNG"
+    )
+    for closed in (black, malformed):
+        instance = _minimal_chat_ocr_operator(tmp_path, closed, typed)
+        instance.ocr = lambda _path: (_ for _ in ()).throw(
+            AssertionError("unknown editor state must refuse before command OCR")
+        )
+        with pytest.raises(operator.OperatorError, match="(?:unknown|malformed|unavailable)"):
+            instance._chat("/reload")
+        assert instance.input.calls == []
+
+
+def test_chat_mixed_chrome_signature_refuses_as_unknown_before_ocr_or_input(tmp_path):
+    mixed = _write_chat_ocr_fixture(tmp_path, "mixed.png", _OCR_CLOSED_CROP_B64)
+    with Image.open(mixed) as image:
+        image = image.convert("L")
+        for row in (7, 23):
+            for column in range(40, 440):
+                image.putpixel((column, row), 210)
+        image.save(mixed, format="PNG")
+    typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_RELOAD_TYPED_CROP_B64)
+    instance = _minimal_chat_ocr_operator(tmp_path, mixed, typed)
+    instance.ocr = lambda _path: (_ for _ in ()).throw(
+        AssertionError("mixed visual state must refuse before command OCR")
+    )
+    with pytest.raises(operator.OperatorError, match="^chat editor visual state is unknown$"):
+        instance._chat("/reload")
+    assert instance.input.calls == []
+
+
 def test_chat_closed_guard_rejects_nonempty_actual_ocr(tmp_path):
     closed = _write_chat_ocr_fixture(tmp_path, "closed.png", _OCR_CLOSED_CROP_B64)
     typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_TYPED_CROP_B64)
     instance = _minimal_chat_ocr_operator(tmp_path, typed, typed)
-    with pytest.raises(operator.OperatorError, match="closed and empty"):
+    with pytest.raises(operator.OperatorError, match="chat editor is active"):
         instance._chat("/crowley agent recover")
     assert instance.input.calls == []
 
@@ -672,6 +900,12 @@ def _production_main_owner_fixture(
     real_operator = operator.NativeCalibrationOperator
 
     class DebugOperator(real_operator):
+        def __init__(self, *args, **kwargs):
+            # This owner fixture uses a 64x64 synthetic screen and exercises
+            # emitter lifetime, not the measured chat visual contract.
+            kwargs["chat_state"] = _synthetic_chat_state
+            super().__init__(*args, **kwargs)
+
         @staticmethod
         def _ocr_file(path):
             if Path(path).name.startswith("chat-closed-"):
@@ -1681,6 +1915,7 @@ def test_chat_readback_mismatch_escapes_without_submit(tmp_path):
     input_device = FakeInput(screen)
     client = FakeClient(7, ["construction_prepared", "construction_prepared"])
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1710,6 +1945,7 @@ def test_control_preflight_ordinary_reload_branch_is_fixed_and_no_resume(tmp_pat
     input_device = FakeInput(screen)
     client = FakeClient(7, ["recovery_required"] * 8)
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_RECOVER,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1760,6 +1996,7 @@ def test_terminal_pause_requires_strictly_newer_generation(tmp_path):
 
     client = ErrorClient(7, [])
     candidate = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_MEASURE_DEFERRED,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1798,6 +2035,7 @@ def test_calibration_error_is_observed_before_construction_recheck(tmp_path):
             raise AssertionError("terminal error must precede construction recheck")
 
     candidate = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_MEASURE_DEFERRED,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1816,6 +2054,7 @@ def test_calibration_error_is_observed_before_construction_recheck(tmp_path):
 def test_terminal_failure_recheck_preserves_exact_binding_before_pause(tmp_path):
     manifest, construct_scene, restore_scene = make_scenes(tmp_path)
     candidate = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_MEASURE_DEFERRED,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1856,6 +2095,7 @@ def test_control_preflight_runs_actual_construct_then_ordinary_recovery(tmp_path
     input_device.dispatch = client.dispatch
     commands = iter(["/crowley agent defer", "/reload"])
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1885,6 +2125,7 @@ def test_recover_restore_branch_uses_actual_restore_click(tmp_path):
     client = FakeClient(7, [], recovery_kind="restore")
     input_device.dispatch = client.dispatch
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_RECOVER,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1908,6 +2149,7 @@ def test_handshake_skip_is_refused(tmp_path):
     input_device = FakeInput(screen)
     client = FakeClient(7, [])
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_RECOVER,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -1932,6 +2174,7 @@ def test_state_history_skip_is_refused_before_input(tmp_path):
     manifest, _construct_scene, restore_scene = make_scenes(tmp_path)
     screen = FakeScreen(tmp_path, restore_scene, restore_scene)
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_MEASURE_DEFERRED,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3154,6 +3397,7 @@ def test_native_operator_routes_real_daemon_client_prepare_through_actor(tmp_pat
     screen = FakeScreen(tmp_path, construct_scene, restore_scene)
     input_device = FakeInput(screen)
     candidate = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_MEASURE_DEFERRED,
         generation=31,
         config_path=tmp_path / "config.toml",
@@ -3427,6 +3671,7 @@ def test_operator_handoff_updates_existing_cancellation_actor(tmp_path):
     screen = FakeScreen(tmp_path, construct_scene, restore_scene)
     input_device = FakeInput(screen)
     candidate = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3467,6 +3712,7 @@ def test_operator_handoff_updates_existing_cancellation_actor(tmp_path):
 def test_handled_signal_handlers_remain_during_cleanup_and_ignore_repeats(tmp_path):
     manifest, construct_scene, restore_scene = make_scenes(tmp_path)
     candidate = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3532,6 +3778,7 @@ def test_run_receipt_failure_does_not_skip_input_cleanup(tmp_path):
     input_device.dispatch = client.dispatch
     commands = iter(["/crowley agent defer", "/reload"])
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3558,6 +3805,7 @@ def test_active_receipt_event_failure_blocks_first_physical_dispatch(tmp_path):
     screen = FakeScreen(tmp_path, construct_scene, restore_scene)
     input_device = FakeInput(screen)
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3593,6 +3841,7 @@ def test_causal_run_failure_survives_cleanup_close_failure(tmp_path):
 
     input_device = BrokenInput(screen)
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3623,6 +3872,7 @@ def test_input_action_cleanup_failure_is_named_and_retains_causal_error(tmp_path
 
     input_device = BrokenActionInput(screen)
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3672,6 +3922,7 @@ def test_all_fixed_measure_sequence_uses_only_allowlisted_chat_and_ipc(tmp_path)
         return next(commands)
 
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_MEASURE_DEFERRED,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -3900,6 +4151,7 @@ def test_control_preflight_operator_uses_actual_daemon_admissions(tmp_path: Path
     commands = iter(("/crowley agent defer", "/reload"))
     client = operator.DaemonClient(socket_path, request_fn=_socket_request, timeout=15.0)
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_CONTROL_PREFLIGHT,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -4023,6 +4275,7 @@ def test_recover_operator_uses_actual_empty_id_recovery_admission(tmp_path: Path
     input_device = FakeInput(screen)
     client = operator.DaemonClient(socket_path, request_fn=_socket_request, timeout=15.0)
     op = operator.NativeCalibrationOperator(
+        chat_state=_synthetic_chat_state,
         mode=operator.MODE_RECOVER,
         generation=7,
         config_path=tmp_path / "config.toml",
@@ -4279,6 +4532,8 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
 
     def full_desktop(agent: Image.Image) -> bytes:
         image = Image.new("RGB", (1920, 1080), (20, 24, 28))
+        with Image.open(BytesIO(base64.b64decode(_OCR_CLOSED_CROP_B64))) as chat_editor:
+            image.paste(chat_editor.convert("RGB"), (30, 938))
         image.paste(Image.open(construct_template), (1684, 32))
         image.paste(Image.open(restore_template), (1788, 32))
         image.paste(agent, (80, 48))

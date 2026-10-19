@@ -1,0 +1,34 @@
+{
+  "status": "PASS",
+  "parent_independent_original_frame_decode": true,
+  "receipt_sha256": "74729f6bcda162c35aad376f630072db7506d9db203def95ced3ad0bfc5b6185",
+  "frames": [
+    {
+      "role": "activeEmpty",
+      "image_sha256": "7f1cbcce0b856a44752557a78ffa8b62266a8640e87d11339894ab0ae8a2b499",
+      "boot": "1792398829-569788",
+      "sequence": 72,
+      "active": true,
+      "focused": true,
+      "text_empty": true,
+      "ordinary": true,
+      "pending": 0,
+      "stationary": true
+    },
+    {
+      "role": "afterEmptyEscape",
+      "image_sha256": "68e2114dfb6dabeefd2f8ebfc2e8008074006aa630e000e4c5d95f9828a3276e",
+      "boot": "1792398829-569788",
+      "sequence": 77,
+      "active": false,
+      "focused": false,
+      "text_empty": true,
+      "ordinary": true,
+      "pending": 0,
+      "stationary": true
+    }
+  ],
+  "button_released": true,
+  "chat_closed_at_cleanup": true,
+  "qualification": "Current gen29 active-empty and restored closed visual/telemetry evidence only. No native100, physical-user or autonomous-cycle qualification."
+}

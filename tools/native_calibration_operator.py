@@ -74,6 +74,8 @@ CHAT_CROP_SIZE = (460, 37)
 CHAT_OCR_BOX = (40, 7, 400, 13)
 CHAT_OCR_THRESHOLD = 45
 CHAT_OCR_SCALE = 3
+CHAT_EDITOR_ACTIVE = "active"
+CHAT_EDITOR_INACTIVE = "inactive"
 IPC_COMMANDS = frozenset(
     {
         "native_construction_prepare",
@@ -2823,6 +2825,7 @@ class NativeCalibrationOperator:
         input_device: InputAdapter,
         clock: Callable[[], float] = time.monotonic,
         ocr: Callable[[Path], str] | None = None,
+        chat_state: Callable[[Path], str] | None = None,
         receipt_root: Path | None = None,
         helper_source_sha256: str = "",
         dependencies: dict[str, str] | None = None,
@@ -2843,6 +2846,7 @@ class NativeCalibrationOperator:
         self.input = input_device
         self.clock = clock
         self.ocr = ocr or self._ocr_file
+        self.chat_state = chat_state or self._chat_editor_state
         self.absence_checker = absence_checker or _strict_native_absence_image
         self.matcher = TemplateMatcher(
             template_manifest,
@@ -2931,6 +2935,53 @@ class NativeCalibrationOperator:
         except ReceiptError as exc:
             if self._first_failure is None:
                 self._first_failure = exc
+
+    @staticmethod
+    def _chat_editor_state(path: Path) -> str:
+        """Classify the measured editor chrome before any chat OCR or input."""
+        try:
+            with Image.open(path) as image_raw:
+                image = image_raw.convert("L")
+                if image.size != CHAT_CROP_SIZE:
+                    raise OperatorError("fixed chat editor crop geometry is malformed")
+                left, _top, width, _height = CHAT_OCR_BOX
+                rows = {
+                    row: [image.getpixel((column, row)) for column in range(left, left + width)]
+                    for row in (4, 7, 23, 25)
+                }
+
+            def median(row: int) -> int:
+                values = sorted(rows[row])
+                return values[len(values) // 2]
+
+            def count_at_least(row: int, threshold: int) -> int:
+                return sum(value >= threshold for value in rows[row])
+
+            active = (
+                median(4) >= 130
+                and median(7) >= 180
+                and median(23) >= 180
+                and median(25) >= 120
+                and count_at_least(7, 150) >= 380
+                and count_at_least(23, 150) >= 380
+            )
+            inactive = (
+                50 <= median(4) <= 100
+                and 20 <= median(7) <= 60
+                and 45 <= median(23) <= 90
+                and 50 <= median(25) <= 100
+                and max(rows[7]) < 150
+                and max(rows[23]) < 150
+            )
+            if active:
+                return CHAT_EDITOR_ACTIVE
+            if inactive:
+                return CHAT_EDITOR_INACTIVE
+        except OperatorError:
+            raise
+        except (OSError, ValueError, TypeError) as exc:
+            raise OperatorError("chat editor visual state is unavailable") from exc
+        raise OperatorError("chat editor visual state is unknown")
 
     @staticmethod
     def _ocr_file(path: Path) -> str:
@@ -3558,9 +3609,12 @@ class NativeCalibrationOperator:
             crop=True,
             deadline_monotonic=deadline,
         )
-        closed_text = normalize_ocr(self.ocr(closed_path))
-        if closed_text != "":
-            raise OperatorError("chat buffer is not closed and empty")
+        editor_state = self.chat_state(closed_path)
+        if editor_state == CHAT_EDITOR_ACTIVE:
+            raise OperatorError("chat editor is active")
+        if editor_state != CHAT_EDITOR_INACTIVE:
+            raise OperatorError("chat editor visual state is unknown")
+        self._event("chat_editor_state", state=editor_state)
         self._recheck(expected_state, deadline_monotonic=deadline)
         self._identity_guard(deadline)
         # The complete fixed sequence must fit before the first physical
