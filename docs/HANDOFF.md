@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 17:46 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 17:53 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -55,23 +55,23 @@ gate. Gen43 required publicpause44 and separate canonical recovery, nowcomplete.
 Ordinary AH reopened; assisted125 began1792431816 (89slate). No physical-input
 gate yet. Diagnostic release is committed/pushed8277ec1.
 
-Latest fully parent-verified cycle **#124**:
+Latest fully parent-verified cycle **#125**:
 
-- UID `beta-normal-alliance-1792430827-Arthur-9679`;
-- start1792430827, finish1792431303:476s;428 observations/1,952 rows;
-- 410 full/18 bounded, all428 `ok`, zero query failures;
-- exact900s after123;39.037493s finish-to-server receipt;
+- UID `beta-normal-alliance-1792431816-Arthur-2330`;
+- start1792431816, finish1792432290:474s;428 observations/1,892 rows;
+- 412 full/16 bounded, all428 `ok`, zero query failures;
+- 989s after124 (89s calibration delay);34.060940s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredtwentyfourth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentyfourth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredtwentyfifth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentyfifth-ah-reopen-parent-verification.json).
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
 Assisted125 actually began1792431816:989s after124 (89slate), nextdue1792432716
-(17:58:36UTC). Its full-chain proof is pending. After122, parent decoded fresh closedAH/pending0/ordinary
+(17:58:36UTC). Its full-chain proof is now parent-verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
 MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
@@ -304,7 +304,9 @@ record resource overages while reviewing independent native-correctness policy.
 Answer pending. [Concrete proposed separation plan](../.archive/PLAN-native-resource-policy.md)
 is written and [Sol plan review READY](../.archive/executor-review/native-resource-policy-sol-plan-review.json).
 No policy or threshold changed; no failed run reclassified. Continue assisted
-collection while resolving this product requirement. Do not synthesize human
+collection while resolving this product requirement. Sole operator has a bounded
+leash through assisted126..129 and the prepared18:12UTC backup runner; preserve
+original receipts and report to parent, no source/service/policy changes. Do not synthesize human
 input, skip capture guards or erase either failed measurement.
 
 ## Next live gates, in order
