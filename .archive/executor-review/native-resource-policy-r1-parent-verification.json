@@ -1,0 +1,227 @@
+{
+  "status": "PASS",
+  "qualification": "Offline source verification only; no fresh live native or autonomous cycle qualification.",
+  "scope": "Three production files and three test files; driver/helper/operator tests unchanged.",
+  "hashes": {
+    "src/crowley/session/calibration.py": "6635d3f6c53317202544f5cca2d0cec7923ea99427dac70d3d43442b54421018",
+    "src/crowley/session/controller.py": "c9394af9be9ba834151b6a7ee43f23e6f85a6a0241f79d03cc17c6530f40d5c8",
+    "src/crowley/session/daemon.py": "38cb1d125e77a05f118297f842db99b872496bd664e85a7011065f7689cdbbc5",
+    "tests/test_session_native.py": "72be7ab2b793945b06e679d2bb00aa6f9d20837e7885f6758e2b1c4cad055b3e",
+    "tests/test_session_runtime.py": "044a7da73e6d44af357c5c4fa672d0503f5afd0b09406c375bac2c65f0eac472",
+    "tests/test_session_native_regressions.py": "152df0fa16bd82a827730c4c34777ca33bc85b330d04bcf7acf956a033cf70f8",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tools/native_calibration_operator.py": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62"
+  },
+  "parentIndependentChecks": {
+    "focused": {
+      "name": "focused",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_session_native.py",
+        "tests/test_session_native_regressions.py",
+        "-k",
+        "reset5 or resource_assessment or native_memory or native_calibrated_rolls_back_on_transient_durable_write or native_finalize_owner_error_handler_preserves_recovery_after_one_shot_write_failure",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 68.979,
+      "logSha256": "8e71b9fbddccf7d9b1190bb3c336e85ba8b7264a11c0634f861e2d476bf2f80c",
+      "sourceUnchanged": true
+    },
+    "runtime": {
+      "name": "runtime",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_session_runtime.py::test_three_cycle_daemon_and_socket_lifecycle",
+        "tests/test_session_runtime.py::test_live_daemon_binds_owned_visual_and_render_providers",
+        "tests/test_session_runtime.py::test_runtime_reconcile_ready_scanner_is_idle_with_pending_saved_uid",
+        "tests/test_session_runtime.py::test_runtime_uncertain_no_agent_never_recovers_login_or_input",
+        "tests/test_session_runtime.py::test_runtime_ack_reload_missing_full_evidence_does_not_complete",
+        "tests/test_session_runtime.py::test_runtime_qualification_retry_journal_error_preserves_checkpoint",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 82.562,
+      "logSha256": "2e63c67e75416db04cac89c3a60bf67a517cbfee888bc343d189ae112908e1cf",
+      "sourceUnchanged": true
+    },
+    "compiled100": {
+      "name": "compiled100",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 147.085,
+      "logSha256": "5bb99a0d830b046918f588adc1318d93fc943083acdb79f0b6e34451c3dbd425",
+      "sourceUnchanged": true
+    },
+    "archives": {
+      "name": "archives",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_session_native_regressions.py::test_daemon_archives_exact_over_target_assessment_idempotently_and_privately",
+        "tests/test_session_native_regressions.py::test_daemon_archive_diagnostic_stays_private_and_hard_fails_assessment",
+        "tests/test_session_native_regressions.py::test_daemon_under_limit_growth_returns_exact_measurement_without_archive",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 1.914,
+      "logSha256": "0ead1110be795e3aa57f83cff8d7ce0d5b7d58e628ffc8800b055c12a9009e3c",
+      "sourceUnchanged": true
+    },
+    "ruff": {
+      "name": "ruff",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "src/crowley/session/calibration.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_native_regressions.py"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.035,
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "sourceUnchanged": true
+    },
+    "format": {
+      "name": "format",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "src/crowley/session/calibration.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_native_regressions.py"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.06,
+      "logSha256": "ef7d13d02214e98ca902b05257cdbe6a8e84f3b4714508efdc19766460b54209",
+      "sourceUnchanged": true
+    },
+    "diff": {
+      "name": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.03,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourceUnchanged": true
+    },
+    "r2-composed": {
+      "name": "composed",
+      "command": [
+        "uv",
+        "run",
+        "pytest",
+        "-q",
+        "tests/test_session_native_regressions.py::test_real_runner_carries_updates_overage_through_resume_and_finalization",
+        "--tb=short"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 14.26,
+      "logSha256": "0da34bf147e49f5d13680747394884081ac9535eb9e48fdafdc77da45aa69d4e",
+      "sourceUnchanged": true
+    },
+    "r2-ruff": {
+      "name": "ruff",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "check",
+        "src/crowley/session/calibration.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_native_regressions.py"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.049,
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18",
+      "sourceUnchanged": true
+    },
+    "r2-format": {
+      "name": "format",
+      "command": [
+        "uv",
+        "run",
+        "ruff",
+        "format",
+        "--check",
+        "src/crowley/session/calibration.py",
+        "src/crowley/session/controller.py",
+        "src/crowley/session/daemon.py",
+        "tests/test_session_native.py",
+        "tests/test_session_runtime.py",
+        "tests/test_session_native_regressions.py"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.035,
+      "logSha256": "ef7d13d02214e98ca902b05257cdbe6a8e84f3b4714508efdc19766460b54209",
+      "sourceUnchanged": true
+    },
+    "r2-diff": {
+      "name": "diff",
+      "command": [
+        "git",
+        "diff",
+        "--check"
+      ],
+      "exitCode": 0,
+      "elapsedSeconds": 0.03,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "sourceUnchanged": true
+    }
+  },
+  "testCounts": {
+    "focused": 23,
+    "runtimeAffected": 6,
+    "archives": 5,
+    "composedOverage": 1,
+    "compiled100": 1
+  },
+  "workerReportedFullChecks": {
+    "nativeAndRegressionsBeforeTestOnlyAddition": 337,
+    "runtime": 38,
+    "compiled100": 1
+  },
+  "attribution": "Original full/focused/compiled checks bind first freeze; only regressions file gained one test afterward. Parent reproduced that composed test and all six-file static checks on final pins. Production and other eight pins unchanged.",
+  "originalFailureArchivesRemainByteExact": true,
+  "awaiting": [
+    "Sol source review",
+    "Actual CLI Opus source review",
+    "Promotion at fresh quiescence",
+    "Fresh live native100",
+    "Genuine human input calibration",
+    "Three autonomous900s full cycles"
+  ]
+}

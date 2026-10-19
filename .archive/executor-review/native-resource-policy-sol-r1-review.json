@@ -1,0 +1,9 @@
+{
+  "status": "NEEDS WORK",
+  "qualification": "Source review only; nothing installed.",
+  "reportSha256": "7be63d5c281eaacdca02b8b0c9272d3e21059bec206ae1e56162b9968c33e5a9",
+  "accepted": [
+    "replacement assessment remains historical until fresh commit",
+    "canonical persisted evidence fingerprint/hash binding"
+  ]
+}

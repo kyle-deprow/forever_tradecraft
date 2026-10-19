@@ -1,0 +1,31 @@
+{
+  "status": "NEEDS WORK",
+  "qualification": "Source review only; nothing installed.",
+  "reportSha256": "b4e30bf2e64f5d6f81c50a8a414a081c9c32fc523c2be6fb9746a4ccefa86585",
+  "accepted": [
+    "derive current only at status time",
+    "replacement current semantics",
+    "restore causal runtime assertion against daemon config",
+    "focused negative coverage"
+  ],
+  "deferredNits": [
+    "legacy failure helper cleanup",
+    "hash-domain deduplication",
+    "sealed caller derivation simplification"
+  ],
+  "actualCli": {
+    "pid": 3476277,
+    "started_wall": 1792443464.2567742,
+    "worktree": "/home/dev/.cache/crowley/worktrees/native-resource-policy-20261019",
+    "requested_model": "opus",
+    "status": "completed",
+    "returncode": 0,
+    "resolved_models": [
+      "claude-opus-5-5"
+    ],
+    "finished_wall": 1792444045.197156,
+    "raw_sha256": "b8ebd70ca6bb521522d371dd5468f8b2592e70b548cc07d18b79052769e833fa",
+    "has_verdict": true,
+    "source_unchanged": true
+  }
+}
