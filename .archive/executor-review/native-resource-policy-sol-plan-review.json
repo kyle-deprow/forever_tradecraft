@@ -1,0 +1,16 @@
+{
+  "reviewer": "gpt-5.6-sol",
+  "type": "resource-policy proposal review; no implementation",
+  "status": "READY",
+  "mustFix": [],
+  "scope": [
+    "src/crowley/session/calibration.py",
+    "src/crowley/session/controller.py",
+    "src/crowley/session/daemon.py",
+    "tests/test_session_native.py",
+    "tests/test_session_runtime.py",
+    "tests/test_session_native_regressions.py"
+  ],
+  "findings": "Plan preserves structural measurement failures, durable archives, identity,100frame proof, input gates, old failures and restart invalidation while explicitly changing target interpretation. New safe archive kind requires no Journal edit. Use separate assessment canonical domain/typed receipt, never old failure receipt. Corrected finish_window method name.",
+  "authorization": "User resource-policy preference pending; no implementation or qualification change."
+}

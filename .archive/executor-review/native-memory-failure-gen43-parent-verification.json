@@ -1,0 +1,100 @@
+{
+  "status": "VERIFIED_FAILURE",
+  "qualification": "Second live run reached held100 but failed unchanged16MiB whole-process peak cap. Native/input/autonomous unqualified. No further retries.",
+  "failure": "native updates memory growth exceeds its limit",
+  "sourceDrift": false,
+  "boundedTrace": {
+    "retainedAttempts": 16,
+    "acceptedUpdates": [
+      85,
+      99
+    ],
+    "held100Accepted": true,
+    "textureCounts": [
+      2048
+    ],
+    "firstLateMetrics": {
+      "lua_heap": {
+        "after_kib": 123755.455078125,
+        "available": true,
+        "before_kib": 123693.9072265625,
+        "method": "collectgarbage_count",
+        "net_kib": 61.5478515625
+      },
+      "texture_count": 2048,
+      "update_p99_ms": 0,
+      "update_count": 96
+    },
+    "lastMetrics": {
+      "lua_heap": {
+        "after_kib": 126370.6083984375,
+        "available": true,
+        "before_kib": 126309.0185546875,
+        "method": "collectgarbage_count",
+        "net_kib": 61.58984375
+      },
+      "texture_count": 2048,
+      "update_p99_ms": 23.261600017547607,
+      "update_count": 111
+    },
+    "interpretation": "Heap/P99 lag one publication; P99 zero before100publications. Late16 do not attribute/exonerate earlier peaks."
+  },
+  "memory": {
+    "method": "linux_proc_status_vmhwm_reset5",
+    "phase": "updates",
+    "ordinal": 0,
+    "pid": 644491,
+    "process_start": "15495385",
+    "process_executable": "/home/dev/.local/share/lutris/runners/wine/wine-11.16-staging-amd64-x86_64/lib/wine/x86_64-unix/wine-preloader",
+    "identity_fingerprint": "e84a459bda54c891092f049af9c523eb171588ce566a44123723d733baf6918a",
+    "uid": 1000,
+    "kernel_release": "6.14.0-37-generic",
+    "historical_hwm_bytes": 3955490816,
+    "rss_before_reset_bytes": 3909410816,
+    "reset_completed_monotonic": 241458.995462858,
+    "post_reset_hwm_bytes": 3909410816,
+    "rss_after_reset_bytes": 3909410816,
+    "workload_start_monotonic": 241458.995462858,
+    "workload_end_monotonic": 241568.057951956,
+    "workload_start_ordinal": 1,
+    "workload_end_ordinal": 100,
+    "final_hwm_bytes": 3929825280,
+    "final_rss_bytes": 3843600384,
+    "growth_bytes": 20414464,
+    "limit_bytes": 16777216,
+    "reset_value": 5
+  },
+  "passiveSampler": {
+    "samples": 233,
+    "rawSha256": "a37aaff64bcb28e02089e75e2f9b4bf7c0b9c46a5b82f273c7f0c7fc6ca03d63",
+    "samplesInsideUpdatesWindow": 109,
+    "rssMinBytesInsideWindow": 3805929472,
+    "rssMaxBytesInsideWindow": 3928981504,
+    "hwmMaxBytesInsideWindow": 3929825280,
+    "interpretation": "1Hz sampled RSS is not a replacement for reset5 peak archive; interval excludes construction and recovery."
+  },
+  "recovery": {
+    "automaticCleanupErrorRetained": true,
+    "separateCanonicalRecoverySucceeded": true,
+    "generation": 44,
+    "parentDecodedOrdinaryFrame": true,
+    "ordinaryBoot": "1792431767-722641",
+    "ordinarySequence": 24,
+    "ordinaryImageSha256": "8fb5b245463c07868a0d0b68102349568cb180f8ca2cc4d4e6ca90e3de367d3c",
+    "ahOpen": false,
+    "pending": 0,
+    "nativePhase": "normal",
+    "nativeOrdinal": 0,
+    "fence": "inactive",
+    "speed": 0
+  },
+  "rawSha256": {
+    "diagnostic": "46a2acd6be11729168025ffdae571fb4c40dc520ad112ee1bc38d03625efbd74",
+    "measureReceipt": "7a3ed8b0bb88bf2e7e24a76d57bff4f0b0cad74fadc22827ca43eeb1ea0dac1f",
+    "memoryFailureArchive": "48e1aa133e3b0a674cd226ab925e2c4e2ec018c56a3d2730ed57e1fed3f711ab",
+    "recoverReceipt": "4e5637e05c73946287cbc5aab26722f47a2d4db2e79d00c011e59846a684771e",
+    "samplerReceipt": "25524ea4216bf6a8a93bd896ce54b1fb6ac6671e32d281fd41c5ec79e0fa4019",
+    "ordinaryReceipt": "6c87a4edeb71ffc06ea0de04838ea9215fdf140e80bd59ba1ed0bf9ab8015e4c"
+  },
+  "next": "Continue assisted scans. Resource-policy preference pending and concrete revision plan being reviewed; no gate changed."
+}

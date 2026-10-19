@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 17:37 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 17:46 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -48,11 +48,12 @@ and controller generation before mutation. Last native recovery was PAUSED38,
 nativefalse/inputfalse; do not treat this historical generation as fresh.
 
 Daemon service `crowley-session` is active, NEW PID2443858 after reviewed release
-diagnostic release installation at17:36:54UTC. Latest status PAUSED42/nativefalse/inputfalse. Exact final
+diagnostic release installation at17:36:54UTC. Latest status after recovery PAUSED44/nativefalse/inputfalse. Exact final
 identity-budget/ACK-alignment correction is installed and committed/pushedbe71895.
-Live40 reached held100, then failed process-memory gate; automatic recovery
-completed and cleared checkpoint. Ordinary AH reopened; assisted123 began
-1792429927 after the deliberate qualification pause. No physical-input gate yet.
+Live40 and43 both reached held100, then failed the unchanged process-memory
+gate. Gen43 required publicpause44 and separate canonical recovery, nowcomplete.
+Ordinary AH reopened; assisted125 began1792431816 (89slate). No physical-input
+gate yet. Diagnostic release is committed/pushed8277ec1.
 
 Latest fully parent-verified cycle **#124**:
 
@@ -68,7 +69,9 @@ Latest fully parent-verified cycle **#124**:
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
-deadline1792431727 (17:42:07UTC);125 held for one diagnostic native attempt. After122, parent decoded fresh closedAH/pending0/ordinary
+deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
+Assisted125 actually began1792431816:989s after124 (89slate), nextdue1792432716
+(17:58:36UTC). Its full-chain proof is pending. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
 MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
@@ -268,23 +271,53 @@ Private Opus evidence: `native-memory-visibility-opus-r1-20261019/`.
 Full124chain and fresh quiescence parent-verified;2-file diagnostic release
 installed17:36:54UTC with imports/pins checked and service restarted:
 [release proof](../.archive/executor-review/native-memory-visibility-release-parent-verification.json).
-Sole operator now owns exactlyone instrumented chain from42: freshcontrolpreflight,
-resume actualgeneration, native100+passive1sprocess sampler, then ordinary
-recovery. No standalone recovery when checkpoint absent. On second failure,
-preserve metrics and return to assisted collection; resource-policy decision
-requires a separate plan. On pass, only then ask user physical-input availability.
+The one instrumented chain from42 completed as native43 and failed; separate
+canonicalrecover44 succeeded. Details and current user-policy question below.
+No standalone recovery when checkpoint absent, no unchanged native retry.
 Keep16MiB gate and GC behavior unchanged. No user physical input requested yet.
+
+## Instrumented43 result and pending policy choice
+
+[Parent verified failure](../.archive/executor-review/native-memory-failure-gen43-parent-verification.json).
+Fresh42preflight passed; native43 ran135s, source driftfalse, accepted through
+held100 again. Updates whole-process reset5 growth20,414,464 bytes (19.46875MiB)
+exceeded16,777,216-byte target. FinalRSS3,843,600,384 below reset3,909,410,816.
+Late16attempts retained exact2048textures; Luaheapafter123755.455→126370.608KiB;
+lastp9923.2616ms. Heap/P99lagonepublication; initialP99zero. This does not
+attribute the whole-process peak or rule out earlier transients.
+
+Passive sampler233samples,109inside exactupdatewindow; rawsha and metrics are
+in parentproof. Original measure receiptSHA7a3ed8b0bb88bf2e7e24a76d57bff4f0b0cad74fadc22827ca43eeb1ea0dac1f;
+newdiagnostic `3443ba6891f14f0782ea89b7bf25e9c0/failure.json`,
+SHA46a2acd6be11729168025ffdae571fb4c40dc520ad112ee1bc38d03625efbd74.
+Full failurearchive `.session.json.archives/native_memory_failures/00000000000000000002.json`,
+SHA48e1aa133e3b0a674cd226ab925e2c4e2ec018c56a3d2730ed57e1fed3f711ab.
+
+Helper ended with reservation_cancel_failed/actor retained. Sole operator made
+one publicpause43→44, then canonicalrecover44 SUCCEEDED; parent checked the
+separate original receipt and independently decoded fresh ordinary normal0/AH
+closed/pending0/inactive/speed0 frame. AH subsequently reopened and assisted125
+is running. No further native attempts authorized against this unchanged gate.
+
+User async policy preference asked: keep16MiB whole-game peak hardblock, or
+record resource overages while reviewing independent native-correctness policy.
+Answer pending. [Concrete proposed separation plan](../.archive/PLAN-native-resource-policy.md)
+is written and [Sol plan review READY](../.archive/executor-review/native-resource-policy-sol-plan-review.json).
+No policy or threshold changed; no failed run reclassified. Continue assisted
+collection while resolving this product requirement. Do not synthesize human
+input, skip capture guards or erase either failed measurement.
 
 ## Next live gates, in order
 
 1. COMPLETE: Parent offline gates, Sol/actual Opus approval, full122 chain,
    fresh quiescence, exact accepted six-file promotion and service restart.
-2. Diagnose the live40 memory peak with passive ordinary context and source
-   audit. Current ordinary recovery is complete/checkpoint absent. After an
-   evidence-backed correction or controlled diagnostic, run fresh native control
-   preflight, resume and measured native100 with full evidence.
-   Verify operation/finalization and native true. Failure requires preserved
-   trace/frame, fresh pause, ordinary recovery/reopen; no unchanged blind rerun.
+2. Resolve resource-policy preference and review the concrete separation plan
+   before any policy/source change. Keep original failures unchanged. If strict
+   cap retained, profile a concrete allocation target before a new run. Any new
+   implementation uses Luna/Sol and actual Opus plus parent verification.
+   Only a fresh reviewed release with a justified live plan permits another
+   native100; do not reclassify old43. Native qualification must include all
+   current identity/cadence/ordinal/ownership/cleanup/recovery evidence.
 3. Public pause then canonical ordinary recovery: PAUSED/native true/inputfalse,
    checkpoint clear, no stale operation/action. **Only then ask user availability**
    for physical input calibration.
