@@ -178,3 +178,15 @@ Run focused correctness first, all seven model vectors and genuine baseline,
 then exact compiled100. Freeze final six hashes and mapping, parent reproduce
 changed tests, and review the bounded R7-to-final correction plus affected
 context with Sol and actual Opus. R7 source is preserved for comparison.
+
+### Final verification scope clarification
+
+The dedicated full-run missing-callable regression was a parent-added detail,
+not a separate Sol/Opus requested failure case. It is deferred as redundant:
+callable guards retain their original behavior; the full actual callback
+rejection and real-runner post-notification provider failure cover the changed
+ordering and cleanup. Inspect callable validation in source. Do not reopen the
+frozen candidate solely to duplicate that branch. Receipt semantic tests drive
+the actual provider/daemon with a modeled external capture seam; actual compiled
+producer coverage is a separate integration gate, not a concurrent real-C
+receipt-substitution proof.

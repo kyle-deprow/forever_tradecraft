@@ -1,0 +1,24 @@
+{
+  "status": "READY",
+  "scope": "Source review only; parent integration gates and live qualification remain separate.",
+  "reviewer": "Sol native worker /root/sol_final_composition_plan",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "946e02bd467cecb7d720181e032bb54c2fc280076c884e406f680b51ab085d50",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "9f0c99e21ade83aba9f74b8f245d2780f7d7a17a5b0d1c1e3e59bd7c74d24d8c",
+    "tests/test_session_runtime.py": "a6eacc9c699757f0e0870937eec2ae2a320c2ecbd966ee2757003c0395097456"
+  },
+  "hashesMatchedBeforeAfter": true,
+  "mustFix": [],
+  "shouldFix": [],
+  "nits": [],
+  "previouslyDeferred": "Opus R1 N1/N2/N4 remain explicitly nonblocking with recorded parent reasons.",
+  "closed": [
+    "Exact local receipt finalized after backend cleanup, private per-call sink consumed exactly once for eligible updates, generic keyword compatibility preserved.",
+    "Both resume callbacks validated; resume_required succeeds before retained held100 notification and resume provider. Callback rejection preserves causal error and ordinary cleanup.",
+    "Real eligible held/active/release-failed refusals; every spawned refusal/post-dispatch rejection asserts retirement and removed attempt directories.",
+    "Reduced baseline keeps anchor/admission; local virtual retry waits;0.167ms real capture edge and exact counts; restored coupling regression; broad/error-text retry removed."
+  ]
+}

@@ -1,0 +1,175 @@
+{
+  "status": "PASS",
+  "qualification": "Independent final offline source/integration/model gates only; native live/input/autonomous qualification remain pending.",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "946e02bd467cecb7d720181e032bb54c2fc280076c884e406f680b51ab085d50",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "9f0c99e21ade83aba9f74b8f245d2780f7d7a17a5b0d1c1e3e59bd7c74d24d8c",
+    "tests/test_session_runtime.py": "a6eacc9c699757f0e0870937eec2ae2a320c2ecbd966ee2757003c0395097456"
+  },
+  "exactCompiled100Node": "tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]",
+  "parentRunnerSha256": "65067248fa179741305b3eb468b191d86d21f093c3b95d6bafbbb69071e7269d",
+  "checks": {
+    "short": {
+      "job": "short",
+      "returncode": 0,
+      "wallSeconds": 2.218863757996587,
+      "sourceUnchanged": true,
+      "logSha256": "26ad91a475eaa813705c222808751dc15063f9a9db444cda37e2c6cb0f02f0ab"
+    },
+    "callback": {
+      "job": "callback",
+      "returncode": 0,
+      "wallSeconds": 13.737670166010503,
+      "sourceUnchanged": true,
+      "logSha256": "1592fad0cb1d8134f13ded959c55093032657f1deb68939cbf366c3aac37f3ef"
+    },
+    "matrix": {
+      "job": "matrix",
+      "returncode": 0,
+      "wallSeconds": 57.656866188015556,
+      "sourceUnchanged": true,
+      "logSha256": "929120927a11921b7802af185e876c834e1cf2602349c2bb157fb85d814a5a2a"
+    },
+    "model": {
+      "job": "model",
+      "returncode": 0,
+      "wallSeconds": 130.92121451502317,
+      "sourceUnchanged": true,
+      "logSha256": "3e022ed7a17c1b2a8c33d06f4196c5b28c05e55512f7e45fb30d787e342ec09b"
+    },
+    "baseline": {
+      "job": "baseline",
+      "returncode": 0,
+      "wallSeconds": 56.60401855901,
+      "sourceUnchanged": true,
+      "logSha256": "3391354eac9e38dfcf448f7349fca315838772842f335969e0ae545d3e22bb92"
+    },
+    "compiled100": {
+      "job": "compiled100",
+      "returncode": 0,
+      "wallSeconds": 136.52878822397906,
+      "sourceUnchanged": true,
+      "logSha256": "f6dba3bc649e734b5fe4e8ca1a694ab6dad5b602f7d872394329ee9100732694"
+    }
+  },
+  "timingCases": [
+    {
+      "case": "reference",
+      "acceptedStreamingUpdates": 99,
+      "error": null,
+      "maxActiveTransitionMs": 882.576,
+      "firstPhaseAgeMs": 0.0,
+      "timelineSha256": "5fd78db6f4a2cd8fe721d4cfd6a8148148f66c88882fe44f5a1b905aaa520932"
+    },
+    {
+      "case": "slower",
+      "acceptedStreamingUpdates": 99,
+      "error": null,
+      "maxActiveTransitionMs": 888.576,
+      "firstPhaseAgeMs": 499.99999997089617,
+      "timelineSha256": "5f220b231a3326914b464f898e01407a948d14d92445b9e5b10f41fbd9da50b2"
+    },
+    {
+      "case": "alternating",
+      "acceptedStreamingUpdates": 99,
+      "error": null,
+      "maxActiveTransitionMs": 889.076,
+      "firstPhaseAgeMs": 0.0,
+      "timelineSha256": "326433f759040eb470e0d2d17e721485e8af1a3f4b1e73ce01ad0c8cdaf2dd8f"
+    },
+    {
+      "case": "phase900",
+      "acceptedStreamingUpdates": 99,
+      "error": null,
+      "maxActiveTransitionMs": 882.576,
+      "firstPhaseAgeMs": 899.9999999941792,
+      "timelineSha256": "f7cc921486f094ddbb154ca697d160851250107b53688cf951cf458a8850660b"
+    },
+    {
+      "case": "overbudget",
+      "acceptedStreamingUpdates": 99,
+      "error": null,
+      "maxActiveTransitionMs": 961.576,
+      "firstPhaseAgeMs": 0.0,
+      "timelineSha256": "f0a96388f7efd424e7105ece08ab76eea82779615150ca98d016be1a43af11af"
+    },
+    {
+      "case": "phase951",
+      "acceptedStreamingUpdates": 1,
+      "error": "CalibrationError(\"native update 2 measurement failed: native updates/2 returned 'updates'/3\")",
+      "maxActiveTransitionMs": 0.0,
+      "firstPhaseAgeMs": 950.9999999718275,
+      "timelineSha256": "5a0a2f0928ddbd57ee70a41b1d2777f33c5ac1726eb30bbea4ec7bb2528c01b1"
+    },
+    {
+      "case": "publisher1100",
+      "acceptedStreamingUpdates": 99,
+      "error": null,
+      "maxActiveTransitionMs": 1437.161,
+      "firstPhaseAgeMs": 0.0,
+      "timelineSha256": "deaad2e5248858ead453cd447dbb034e7b3353aa3575bfd98efc3f952f0bb45d"
+    }
+  ],
+  "baseline": [
+    {
+      "accepted": 3,
+      "case": "old",
+      "error": "native update 4 measurement failed: native updates/4 returned 'updates'/5",
+      "max_active_transition_ms": 1384.5689999999997,
+      "poll_backend_glue": 4
+    },
+    {
+      "accepted": 99,
+      "case": "reduced",
+      "error": null,
+      "max_active_transition_ms": 1435.1610000000219,
+      "poll_backend_glue": 119
+    }
+  ],
+  "static": {
+    "checks": [
+      {
+        "command": [
+          "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/ruff",
+          "check",
+          "src/crowley/session/calibration.py",
+          "src/crowley/session/daemon.py",
+          "src/crowley/session/driver.py",
+          "tests/test_native_calibration_operator.py",
+          "tests/test_session_native.py",
+          "tests/test_session_runtime.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/ruff",
+          "format",
+          "--check",
+          "src/crowley/session/calibration.py",
+          "src/crowley/session/daemon.py",
+          "src/crowley/session/driver.py",
+          "tests/test_native_calibration_operator.py",
+          "tests/test_session_native.py",
+          "tests/test_session_runtime.py"
+        ],
+        "returncode": 0
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "returncode": 0
+      }
+    ],
+    "sourceUnchanged": true,
+    "logSha256": "899431ded41f52f0e596057b046dea82d3c0e3557b51b29f591e62f24ab0c713"
+  },
+  "scope": "Same six frozen files as final-freeze-r2.json; parent source snapshot independent of worker.",
+  "coverage": "Receipt/diagnostic/witness9; callbackorder+realRunnercleanup2; actualcompiledmatrix22; seven timing cases; genuineold/reducedbaseline; exactcompiled100 observer/sealedretainedheld100."
+}

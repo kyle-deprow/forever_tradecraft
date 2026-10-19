@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 16:17 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 16:33 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,20 +51,20 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#119**:
+Latest fully parent-verified cycle **#120**:
 
-- UID `beta-normal-alliance-1792426011-Arthur-9542`;
-- start1792426011, finish1792426489:478s;428 observations/2,000 rows;
+- UID `beta-normal-alliance-1792426911-Arthur-7320`;
+- start1792426911, finish1792427392:481s;428 observations/1,991 rows;
 - 412 full/16 bounded, all428 `ok`, zero query failures;
-- exactly900s after118;33.613747s finish-to-server receipt;
+- exactly900s after119;52.473916s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundrednineteenth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundrednineteenth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredtwentieth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentieth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792426911 (16:21:51UTC). Sole operator continues full
+Next ordinary deadline1792427811 (16:36:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..119 all have verified exact900s starts.
+or physical-input retry yet. Scans108..120 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
@@ -113,174 +113,90 @@ The accepted Rust matcher/runtime and addon79 remain installed. No runtime
 build, shell/Python matcher fallback or artifact substitution. Provenance and
 release pins remain in the [Rust/helper verification](../.archive/executor-review/native-helper-rust-final-release-parent-verification.json).
 
-## Current blocker and implementation
+## Frozen correction and release status
 
-Livegen37 requested update2 but captured3; recovery38 succeeded. Parent decoded
-the retained offending PNG. Screenshot starts were1384.571ms apart; screenshot
-work28.957ms. Timed identity work926.812ms plus another142.073ms deferred-owner
-interval dominates. This does not establish Rust computation as a bottleneck.
-[Live timing proof](../.archive/executor-review/native-live-budget-failure-gen37-parent-verification.json).
+Livegen37 requested update2 but captured3. Parent decoded the rejected image:
+screenshot starts1384.571ms apart, screenshot28.957ms, identity work926.812ms
+plus142.073ms deferred-owner validation. This did not establish a Rust compute
+bottleneck. [Live timing proof](../.archive/executor-review/native-live-budget-failure-gen37-parent-verification.json).
 
-Isolated worktree:
-`/home/dev/.cache/crowley/worktrees/native-identity-budget-20261019`, base1cbaadf,
-offline venv. Exact allowed files:
+Approved scope: [identity budget](../.archive/PLAN-native-identity-budget.md),
+[pre-ACK alignment](../.archive/PLAN-native-capture-ack-alignment.md), and
+[parent closure checklist](../.archive/PLAN-native-ack-review-closure.md).
+Only six source/test files. Preserve three fresh backend-pre/backend-post/
+runner-post resolves and all identity/owner/lease/Guardian/generation/run/epoch/
+B0/CRC/ordinal/cadence/deadline/cleanup guards. Only the three approved duplicate
+identity resolves are removed on exact eligible deferred updates. No Guardian,
+producer, addon, Rust, helper, service, configuration or public schema changes.
 
-- `src/crowley/session/{daemon,calibration,driver}.py`;
-- `tests/test_session_runtime.py`;
-- `tests/test_session_native.py`;
-- `tests/test_native_calibration_operator.py`.
+FINAL frozen worktree: `/home/dev/.cache/crowley/worktrees/native-ack-source-r2-20261019`,
+base1cbaadf. Private manifest `native-ack-source-r2-20261019/final-freeze-r2.json`
+uses key `files`. Original R7 worktree `native-identity-budget-20261019` is frozen
+for comparison, not the candidate to install. Final SHA256:
 
-No Guardian, lease, binary/protocol, addon, Rust, helper, service, config or public
-schema changes. Preserve fresh backend-pre/backend-post/runner-post identity
-checks, full fallback checks and every owner/generation/lease/profile/B0/pixel/
-CRC/ordinal/sequence/cadence/freshness guard. Only three approved redundant
-identity resolutions may be removed for the exact deferred update provider.
+- `src/crowley/session/calibration.py`: `d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b`;
+- `src/crowley/session/daemon.py`: `946e02bd467cecb7d720181e032bb54c2fc280076c884e406f680b51ab085d50`;
+- `src/crowley/session/driver.py`: `05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc`;
+- `tests/test_native_calibration_operator.py`: `275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62`;
+- `tests/test_session_native.py`: `9f0c99e21ade83aba9f74b8f245d2780f7d7a17a5b0d1c1e3e59bd7c74d24d8c`;
+- `tests/test_session_runtime.py`: `a6eacc9c699757f0e0870937eec2ae2a320c2ecbd966ee2757003c0395097456`;
 
-Authoritative plans:
+The receipt remains local through backend cleanup and is handed to eligible
+provider calls once, finalized; generic backend keywords stay unchanged.
+Held100 is reported retained only after both callback checks and successful
+resume-required publication. Publisher alignment uses immutable first receipt
+S1/U1 and prior decoded uptime, constant50ms guard, pre-ACK wait outside locks,
+then synchronized controller/construction/Guardian/backend admission. Original
+per-attempt/frame/operation/reservation deadlines never extend.
 
-1. [Identity-budget base](../.archive/PLAN-native-identity-budget.md).
-2. [Pre-ACK alignment correction](../.archive/PLAN-native-capture-ack-alignment.md),
-   approved Sol R2/parent. This supersedes the failed pre-backend alignment.
-3. [Current staged review closure](../.archive/PLAN-native-ack-review-closure.md),
-   parent-approved to implement accepted Sol source-review findings; it is not
-   itself a claim of Sol source approval.
+All independent parent offline gates PASSED on unchanged final six hashes:
 
-Timing origin uses verified receipt hostS1 and publisher uptimeU1, then
-`S1 + unsigned_delta(U_previous,U1)/1000 + 1.050` for eligible updates2..99.
-Publisher callback drift is real: verified two-tick delta2014ms. Never accumulate
-phase guard, restamp clocks, move independent ticks after capture, skip/retry an
-ordinal mismatch or hide active work. Preserve pinned cases and900ms active
-budget; count all actual validations/ACK admission and retry work. Held100 is
-separately outside streaming work bound but retains every exact terminal proof.
+- receipt/diagnostic/witness9 in1.90s; callback order and real-runner cleanup2
+  in13.47s; actual compiled boundary matrix22 in57.33s;
+- all seven actual-runner modeled scenarios in130.66s; positive active maxima
+  882.576/888.576/889.076/882.576ms, phase951 naturally protocol-refuses;
+  negative budgets961.576/1437.161ms; exact positive charge counts
+  capability1085, target98, ACK98, glue99;
+- genuine baseline56.30s: old refuses update4(received5), accepted3, max
+  1384.569ms/glue4; reduced accepts99, max1435.161ms/glue119;
+- exact compiled100 in136.20s, real observer103 accepted attempts including
+  retained held100 and sealed path/hash; scoped Ruff/format/diff checks passed.
 
-**Current action: source/model/operator fixes are frozen; Luna corrects only
-the final boundary tests before another source review.**
-Sol formal source-review R1 was NEEDS WORK; parent accepted all findings:
-
-1. Notify actual retained held100 evidence after all checks/resume_required and
-   before resume; keep path/hash and `retained` ownership, never false release.
-2. Bind the exact locally validated receipt to the anchor, avoiding a later
-   mutable last-receipt reread. Test same-digest receipt substitution.
-3. Carry one original bounded attempt deadline, preserve15s producer upper
-   bound, and recheck shutdown/expiry under final Guardian lock after contention.
-4. Charge actual old deferred validation142.073ms and separate final ACK
-   admission0.500ms; phase951 must really protocol-fail.
-5. Arm compositor entry markers and cover actual typed success/deadline/expiry/
-   unhealthy/PID/process/epoch/finalACK races, exact zero/one ACK/capture and
-   cleanup. Existing broad passes do not cover omitted paths.
-
-[Formal review findings](../.archive/executor-review/native-capture-ack-sol-source-r1-review.json).
-Closure-plan SHA `113a3513af6e15c169da1d6363f1192b5e81fb15ec59a54d3b6ebb7a682c3759`.
-Worker must map every requirement to a named test/result before freezing again.
-
-## Offline evidence and remaining review
-
-Earlier candidates are partial/rejected, not installed or qualified:
-
-- [Rejected phase-reanchored model](../.archive/executor-review/native-ack-model-reanchoring-parent-rejection.json).
-- [Parent R1 gate](../.archive/executor-review/native-capture-ack-parent-r1-gate.json).
-- [Frozen R2 compiled100 failure](../.archive/executor-review/native-capture-ack-parent-r2-compiled100-failure.json).
-
-R2 worker focused15 tests passed145.01s. Parent twice reproduced8 semantic cases
-with unchanged six-file pins. Exact long compiled100 node FAILED132.53s because
-the observer omitted retained held100. Parent independently checked journal
-held100/updateCount101/seq102 and normal0/resume seq103; this is partial journal
-inspection, not a passing full gate. Parent preserved71 regular artifacts
-outside pytest retention under private
-`native-ack-parent-focused-r2-20261019T1420Z/failed-compiled100-artifacts`.
-Full R2 source pins/snapshots/logs are in that private parent directory.
-Worker logs: private `native-identity-budget-alignment-20261019/`.
-
-R3 worker exact compiled100 PASSED135.83s with sealed retained-path/hash checks.
-Parent independently reproduced10 short checks, all7 timing cases135.95s, and
-old/reduced/aligned characterization24.51s. Positive active maxima<=888.909ms;
-phase951 naturally refused, and negative budgets exceeded900ms. [Parent model
-and remaining boundary-test gate](../.archive/executor-review/native-ack-parent-r3-model-and-boundary-gate.json).
-Parent immutable verification WT is `native-ack-parent-verify-20261019`, with
-private snapshots/logs under `native-ack-parent-r3-20261019/`. The worker's R5
-native tests were reopened: their final-lock gate can hit an earlier nested lock
-and incorrectly accept a fixture timeout. Parent preserved exact R5 test bytes.
-R7 now binds the intended final-lock
-callsite, uses predeclared expiry and arms real compositor entry markers. Parent
-reproduced final19 compiled boundary cases: PASS50.19s. Native-test AST changes
-since R3 are only the two compiled tests and typing.Any import; other5 files
-remain frozen. Parent exact compiled100 PASSED136.55s, all six pins unchanged. Scoped Ruff
-check/format and diff checks also passed. [Final parent evidence](../.archive/executor-review/native-ack-final-r7-parent-verification.json).
-Sol R2 returned NEEDS WORK with three accepted remaining corrections: exact
-per-call receipt before daemon consumption, retained notification after successful
-resume-required callback, and eligible held/active/release-failure retirement
-coverage. [R2 findings](../.archive/executor-review/native-capture-ack-sol-source-r2-review.json).
-The closure plan is amended. Luna is implementing all three corrections in
-NEW isolated worktree `native-ack-source-r2-20261019` (base1cbaadf plus exact
-R7 six files). The original `native-identity-budget-20261019` remains frozen for comparison.
-Actual Opus R1 completed NEEDS WORK; see below. Its model-fidelity findings
-supersede the earlier characterization claims: reduced mode failed a fixture
-binding guard, and replay omitted0.167ms glue plus virtual retry waits. Prior
-outputs remain preserved, but final acceptance requires corrected reruns. Parent will test and review
-the new final six hashes. No installation.
-
-Required exact long node after final focused checks, pins and milestone:
+[Final parent proof](../.archive/executor-review/native-ack-final-r2-parent-verification.json).
+Private independent source/logs/timelines: `native-ack-parent-r2-final-20261019/`;
+verification WT `native-ack-parent-verify-20261019`. Worker exact gate136.22s,
+focused runtime21/native23 and actual callback rejection130.80s also passed.
+Exact long node (short compositor tests do not substitute):
 
 ```text
 tests/test_native_calibration_operator.py::test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]
 ```
 
-Short six-second region compositor tests do not replace it. Retain the real
-observer's exact construct0,held0,updates1..99,retained held100,resume0 sequence.
-No fixture-manual spans/finish calls or unlogged test pipelines. Full private
-logs and six-file pins before every long test; no unchanged blind reruns.
+[Sol R3 READY](../.archive/executor-review/native-capture-ack-sol-source-r3-review.json),
+all six pins checked before/after; no new Must/Should/Nits. Actual Opus R2 is
+RUNNING, resolved `claude-opus-5-5`, no approval claimed. Private runner/evidence
+`native-ack-source-opus-r2-20261019/`, attached session30198; poll at most30s.
+Reviews focus on preserved R7-to-final correction plus affected context.
+Do not install until actual Opus verdict and all final source pins are accepted.
 
-Sol R2 and actual Opus R1 both returned NEEDS WORK. Opus resolved actual
-`claude-opus-5-5`, exit0, all six R7 pins unchanged. [Full review](../.archive/executor-review/native-capture-ack-opus-source-r1-review.md)
-and [parent arbitration](../.archive/executor-review/native-capture-ack-opus-source-r1-arbitration.json).
-Its retained/ownership findings overlap Sol. Other accepted corrections: genuine
-reduced-mode baseline,0.167ms glue and retry-wait modeling, restored diagnostic
-regression, provider-level receipt test, removal of broad/error-text retry, and
-exact timing-charge counts. Three nonblocking nits deferred with reasons.
-Luna owns all bounded corrections in the new R2 worktree; read the amended
-closure plan. Parent must reproduce final focused/model/compiled100 and obtain
-Sol plus actual Opus review of the correction delta and affected context.
-Private first Opus runner/evidence: `native-identity-budget-opus-r1-20261019/`.
-
-New R2 worktree remains unfrozen. Intermediate exact100 passed136.18s and
-actual resume-required rejection passed130.80s after held100, cleanup/recovery
-verified by worker. Parent inspected local finalized receipt/generic keyword fix.
-Worker's intermediate seven-model/baseline results are REJECTED: reduced mode
-counted genuine sleep as active work;0.167ms glue and virtual retry waits remain
-missing, and the broad DriverError retry remained in source. Luna acknowledged
-and is fixing those three first, before another long100. A private target-math
-helper may force reduced-mode target to now while retaining real anchor/final
-admission; physical shots must actually be unpaced. Provider retry sleeps must
-advance local virtual wait, never active work. Remaining full closure plan still
-applies, including provider-level receipt substitution, missing callback and
-after-notification provider failure cleanup. Do not promote intermediate greens.
-
-Corrected worker seven-case replay now PASS130.15s: positive maxima
-882.576/888.576/889.076/882.576ms, overbudget961.576ms, phase951 real
-protocol refusal, publisher1100 budget1437.161ms. Exact positive charges:
-capability1085, target98, ACK98, glue99; owner/provider2 terminal calls each.
-Log private `native-ack-source-r2-20261019/model-seven-final-r2.log`, SHA
-`48d9d7f1e6e32e90589d248b7304065ae91f6299af99a182daf08876b0b8ca52`.
-This is worker evidence, not final source approval; remaining regression and
-corrected baseline proof are still required before freeze. Parent runner is
-prepared in private `native-ack-parent-r2-final-20261019/run.py`; its source
-input is deliberately absent until the final snapshot is verified. Actual Opus
-correction-review runner/prompt prepared (not launched) in
-`native-ack-source-opus-r2-20261019/`, focused on R7-to-final delta and context.
-Worker corrected baseline also PASS45.96s: old naturally refused update4
-(received5), accepted3, max active1384.569ms/glue4; reduced accepted99 but
-max active1435.161ms/glue119. The actual provider-level same-digest receipt
-substitution regression passed0.64s. These worker results are pending parent
-reproduction and final snapshot; missing-callback/post-notification failure
-regressions and final source freeze are not yet complete.
-
-
-
+Earlier partial/rejected candidates remain historical evidence:
+[Sol R1](../.archive/executor-review/native-capture-ack-sol-source-r1-review.json),
+[Sol R2](../.archive/executor-review/native-capture-ack-sol-source-r2-review.json),
+[Opus R1](../.archive/executor-review/native-capture-ack-opus-source-r1-review.md),
+[parent arbitration](../.archive/executor-review/native-capture-ack-opus-source-r1-arbitration.json),
+and [failed compiled100](../.archive/executor-review/native-capture-ack-parent-r2-compiled100-failure.json).
+Earlier replay omitted0.167ms glue/retry wait and had an invalid reduced-mode
+baseline; those outputs are superseded by the corrected parent proof. The
+root-added dedicated full-run missing-callable test is explicitly deferred as
+redundant with unchanged guard and actual callback-rejection cleanup; accepted
+reject/post-notification failure and receipt propagation regressions remain.
+Modeled receipt substitution uses the real provider with an external capture
+fixture; it is not a concurrent real-C producer race proof.
 
 ## Next live gates, in order
 
-1. Complete focused/model/actual compiled checks and Sol plus actual Opus source
-   approval. Finish current ordinary save/ACK/reopen chain; sole GUI owner closes
+1. Parent offline checks and Sol approval are complete; obtain actual Opus R2
+   source approval. Finish current ordinary save/ACK/reopen chain; sole GUI owner closes
    AH with fresh pending0/ordinary/released evidence. Promote exact accepted six
    files and restart daemon while quiescent. Use new PID/generation, never stale
    bindings. Main has no conflicting changes in these six files since1cbaadf.
