@@ -1,0 +1,7 @@
+{
+  "status": "READY",
+  "reviewer": "sol",
+  "reviewSha256": "8bafec02a451435ffd2752e3594fa90ed9ebcc2649c95ea1956d46b36be0827e",
+  "candidate": "Frozen R5; six pins unchanged; no findings.",
+  "readOnly": true
+}

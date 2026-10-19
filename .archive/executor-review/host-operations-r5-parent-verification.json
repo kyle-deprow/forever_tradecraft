@@ -1,0 +1,122 @@
+{
+  "status": "PASS",
+  "qualification": "Frozen R5 source checks only; no live host timer installation.",
+  "sourceSha256": {
+    "deploy/crowley-health.service": "63ec45000562b8b2df179229e09085674bbf56b3648b09ab4e0d978c88b27f20",
+    "deploy/crowley-health.timer": "3a671ca989998b98365edc7b4c188ad7cba2d664dc5dc1fae1acfbaa061d1e3c",
+    "deploy/crowley-market-backup.service": "22c830514a563a67ebe516856767fa28deb54780ef2bfb708136894799fa1fe4",
+    "deploy/crowley-market-backup.timer": "e6daed5f7a783429c6587dbb4c1c8d375e6d58ebae753d3f7ae43dcdc30cc26b",
+    "tests/test_crowley_ops.py": "4eaf12681eae7edffba71864f04f25c54889254530f07df1eafa10a7fde61b33",
+    "tools/crowley_ops.py": "372f5bf206eed13a61082d43cde5256701f49ed1c422e69d77762750d1124853"
+  },
+  "parentChecks": {
+    "checks": {
+      "pytest": {
+        "command": [
+          "uv",
+          "run",
+          "--offline",
+          "pytest",
+          "-q",
+          "tests/test_crowley_ops.py",
+          "--tb=short"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 1.397,
+        "logSha256": "f2d3362e6664e55afe06138c59356ff28c2ea9d8d44e3ff82e142bc758b08670"
+      },
+      "ruff": {
+        "command": [
+          "uv",
+          "run",
+          "--offline",
+          "ruff",
+          "check",
+          "tools/crowley_ops.py",
+          "tests/test_crowley_ops.py"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 0.027,
+        "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+      },
+      "format": {
+        "command": [
+          "uv",
+          "run",
+          "--offline",
+          "ruff",
+          "format",
+          "--check",
+          "tools/crowley_ops.py",
+          "tests/test_crowley_ops.py"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 0.028,
+        "logSha256": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938"
+      },
+      "compile": {
+        "command": [
+          "uv",
+          "run",
+          "--offline",
+          "python",
+          "-m",
+          "py_compile",
+          "tools/crowley_ops.py",
+          "tests/test_crowley_ops.py"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 0.063,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "units": {
+        "command": [
+          "systemd-analyze",
+          "verify",
+          "deploy/crowley-health.service",
+          "deploy/crowley-health.timer",
+          "deploy/crowley-market-backup.service",
+          "deploy/crowley-market-backup.timer"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 0.087,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      "calendar": {
+        "command": [
+          "systemd-analyze",
+          "calendar",
+          "*-*-* *:12:00"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 0.006,
+        "logSha256": "9dca1bd88c3c5fd06a6df1be425ee9c80080b4b7dcf09579b7c40e7992dd4f55"
+      },
+      "timespan": {
+        "command": [
+          "systemd-analyze",
+          "timespan",
+          "2min"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 0.005,
+        "logSha256": "60f79392465a73adc1de5816ebe9faa2203af9926e17e0346a68391dc2448712"
+      },
+      "diff": {
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "exitCode": 0,
+        "elapsedSeconds": 0.004,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    "sourceUnchanged": true,
+    "passed": true
+  },
+  "testResult": "....................................................                     [100%]\n52 passed in 1.08s",
+  "sourceSnapshotRetained": true,
+  "candidateManifestSha256": "ea3a281b96548fdd5068e2806e9af3115fb1d6931457d87a19b0264e239bfba4"
+}

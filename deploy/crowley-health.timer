@@ -1,0 +1,12 @@
+[Unit]
+Description=Frequent Crowley read-only collection health check
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=2min
+AccuracySec=1s
+Unit=crowley-health.service
+
+[Install]
+WantedBy=timers.target
+

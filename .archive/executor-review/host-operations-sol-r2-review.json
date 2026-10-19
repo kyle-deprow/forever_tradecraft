@@ -1,0 +1,12 @@
+{
+  "status": "NEEDS WORK",
+  "reviewer": "Sol source R2",
+  "candidate": "Host R4 before R5 mutation",
+  "reviewSha256": "69812a98764b9f3c34aacbdf85a2dabb7171f821d3c095be4ae041899b3474f8",
+  "readOnly": true,
+  "sourceDrift": "Report explicitly excludes later R5 bytes.",
+  "findingsAccepted": [
+    "Repository failure must force ATTENTION even when valid controller is gated.",
+    "Preserve canonical method:null and evidenceHash:null in not_measured resource assessment."
+  ]
+}

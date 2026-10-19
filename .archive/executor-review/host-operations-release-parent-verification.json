@@ -1,0 +1,52 @@
+{
+  "status": "PASS",
+  "sourceSha256": {
+    "deploy/crowley-health.service": "63ec45000562b8b2df179229e09085674bbf56b3648b09ab4e0d978c88b27f20",
+    "deploy/crowley-health.timer": "3a671ca989998b98365edc7b4c188ad7cba2d664dc5dc1fae1acfbaa061d1e3c",
+    "deploy/crowley-market-backup.service": "22c830514a563a67ebe516856767fa28deb54780ef2bfb708136894799fa1fe4",
+    "deploy/crowley-market-backup.timer": "e6daed5f7a783429c6587dbb4c1c8d375e6d58ebae753d3f7ae43dcdc30cc26b",
+    "tests/test_crowley_ops.py": "4eaf12681eae7edffba71864f04f25c54889254530f07df1eafa10a7fde61b33",
+    "tools/crowley_ops.py": "372f5bf206eed13a61082d43cde5256701f49ed1c422e69d77762750d1124853"
+  },
+  "solReviewSha256": "8bafec02a451435ffd2752e3594fa90ed9ebcc2649c95ea1956d46b36be0827e",
+  "opusReviewSha256": "a00e721234b3ab606d3ef63ad35b6d21373dd056b53ee6d9c442695117146ef0",
+  "opusModels": [
+    "claude-opus-5-5"
+  ],
+  "opusExitCode": 0,
+  "parentTests": "52 passed",
+  "backup": {
+    "status": "PASS",
+    "snapshot": "beta-20261019T214631Z-5b430d502121",
+    "manifestSha256": "45b2b5da05ea2f364e0f066400639344f4cc8a7f60b817363062061e77f82631",
+    "lastGoodRecordSha256": "f9e0f86c224545643fe8acb216e6f44419ff786fdab386cd43e7779c91349583",
+    "completedAt": "2026-10-19T21:46:43Z",
+    "independentValidation": "tools.market_backup.validate_snapshot, complete manifest/database/raw validation",
+    "privateModes": true,
+    "restoreDrill": "Previous isolated restore drill accepted; not repeated."
+  },
+  "timers": {
+    "enabled": true,
+    "backupSchedule": "Hourly at minute12; Persistent=true",
+    "nextBackupUtc": "2026-10-19T22:12:00Z",
+    "healthSchedule": "OnBootSec=2min, OnUnitActiveSec=2min",
+    "statusLogSha256": "7bf8605f8375fc44101a39969bd633d15d5e0bf1fb7182f3f348d31a119087ef"
+  },
+  "health": {
+    "classification": "attention",
+    "issues": [
+      "calibration_operation_error"
+    ],
+    "statusState": "PAUSED",
+    "generation": 47,
+    "nativeCalibration": false,
+    "inputCalibration": false,
+    "truthfulCalibrationFailure": true,
+    "recordSha256": "00e384fa89f05571f09bf43a36318fc1b8f0217798d4d30a0f3fa17a66ab27eb",
+    "expectedServiceExitCode": 2
+  },
+  "sessionPidUnchanged": 184662,
+  "companionPidUnchanged": 21909,
+  "duplicateManualHourlyBackup": "Stopped; prepared22:12fallback not launched.",
+  "qualification": "Host scheduler operational; native/input calibration and three autonomous cycles still pending."
+}

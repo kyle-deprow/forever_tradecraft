@@ -1,0 +1,12 @@
+{
+  "status": "READY",
+  "reviewer": "opus",
+  "reviewSha256": "a00e721234b3ab606d3ef63ad35b6d21373dd056b53ee6d9c442695117146ef0",
+  "candidate": "Frozen R5; six pins unchanged; no findings.",
+  "readOnly": true,
+  "exitCode": 0,
+  "resolvedModels": [
+    "claude-opus-5-5"
+  ],
+  "rawStreamSha256": "fa983b30694b5e7094353ca5621d2ded0135a21ac2891679943233426c4affd1"
+}
