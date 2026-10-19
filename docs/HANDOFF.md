@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 15:04 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 15:19 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,23 +51,28 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#114**:
+Latest fully parent-verified cycle **#115**:
 
-- UID `beta-normal-alliance-1792421511-Arthur-0996`;
-- start1792421511, finish1792421986:475s;428 observations/2,112 rows;
-- 414 full/14 bounded, all428 `ok`, zero query failures;
-- exactly900s after113;29.113818s finish-to-server receipt;
+- UID `beta-normal-alliance-1792422411-Arthur-4984`;
+- start1792422411, finish1792422886:475s;428 observations/2,091 rows;
+- 412 full/16 bounded, all428 `ok`, zero query failures;
+- exactly900s after114;54.041881s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredfourteenth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredfourteenth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredfifteenth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredfifteenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792422411 (15:06:51UTC). Sole operator continues full
+Next ordinary deadline1792423311 (15:21:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..114 all have verified exact900s starts.
+or physical-input retry yet. Scans108..115 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
+
+Scan115 reopening required a separate fresh Auctioneer Buckler target after the
+old position hovered another player. Parent combined the two retained receipts
+with their original hashes, decoded both ACK/reopen pixels, and preserved the
+failed stale-target attempt unchanged. This remains assisted evidence.
 
 Generic parent verifier, only after the complete retained flow receipt exists:
 
@@ -194,9 +199,13 @@ and remaining boundary-test gate](../.archive/executor-review/native-ack-parent-
 Parent immutable verification WT is `native-ack-parent-verify-20261019`, with
 private snapshots/logs under `native-ack-parent-r3-20261019/`. The worker's R5
 native tests were reopened: their final-lock gate can hit an earlier nested lock
-and incorrectly accept a fixture timeout. Parent preserved exact R5 test bytes;
-Luna must bind the intended callsite and use real predeclared expiry. Other5
-files remain frozen at R3 pins; Sol/Opus source approval is still pending.
+and incorrectly accept a fixture timeout. Parent preserved exact R5 test bytes.
+R7 now binds the intended final-lock
+callsite, uses predeclared expiry and arms real compositor entry markers. Parent
+reproduced final19 compiled boundary cases: PASS50.19s. Native-test AST changes
+since R3 are only the two compiled tests and typing.Any import; other5 files
+remain frozen. Parent exact compiled100 is running; Sol R2 and actual Opus
+source reviews are running on identical final six pins.
 
 Required exact long node after final focused checks, pins and milestone:
 
@@ -209,10 +218,10 @@ observer's exact construct0,held0,updates1..99,retained held100,resume0 sequence
 No fixture-manual spans/finish calls or unlogged test pipelines. Full private
 logs and six-file pins before every long test; no unchanged blind reruns.
 
-Sol must re-review fixed frozen source. **Actual Opus source review has not
-started.** Its prepared private runner/prompt are under
-`native-identity-budget-opus-r1-20261019/`; update input/prompt to final six-file
-scope and current closure plan before launch. Requires actual
+Sol R2 and actual Opus source reviews are running. Opus resolved actual
+`claude-opus-5-5`; no verdict or approval is claimed yet. Private runner/prompt
+are under `native-identity-budget-opus-r1-20261019/`; input pins and prompt
+include the final six-file scope and current closure plan. Requires actual
 claude-opus-5-5/exit0/STATUS, no fallback; monitor attached process at most30s
 intervals. Parent must inspect/reproduce relevant final checks and compiled100.
 
@@ -249,11 +258,11 @@ Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use exact returned generations and canonical ownership/fence/recovery protocol.
 
-Latest validated private backup: `beta-20261019T141236Z-37ca1a7066b4`, through110
+Latest validated private backup: `beta-20261019T151230Z-83075ca8e641`, through114
 ingestion; directory0700, manifestSHA
-`af0b06dba4009dc7aec3957057fa0fa9d972dfc5846c8411712b3b6017d6d283`.
-[Backup verification](../.archive/executor-review/market-backup-20261019T1412Z-parent-verification.json).
-Next hourly backup about15:12UTC. Prior isolated restore drill remains accepted.
+`68f193ce6dad6745e9d34df62c63c0de69009564dc3e93d126097ba7a642a7c4`.
+[Backup verification](../.archive/executor-review/market-backup-20261019T1512Z-parent-verification.json).
+Next hourly backup about16:12UTC. Prior isolated restore drill remains accepted.
 API: `tools.market_backup.snapshot` then `validate_snapshot`; retain full
 invocation output privately and publish only sanitized hash/coverage/mode proof.
 

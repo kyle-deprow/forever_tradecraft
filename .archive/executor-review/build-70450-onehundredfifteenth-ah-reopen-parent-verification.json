@@ -1,0 +1,25 @@
+{
+  "status": "PASS",
+  "qualification": "Complete operator-assisted cycle; no autonomous engine qualification.",
+  "uid": "beta-normal-alliance-1792422411-Arthur-4984",
+  "rawReceiptSha256": "41ed7f16941393f00333bd7b517a4ae51e701927103783a3bb3f219704d5bd12",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "f4709dc2263308d5969f1a35a23adfc59a500200b506281b997a4dc7e50bb49b",
+  "boot": "1792422954-768471",
+  "sequence": 98,
+  "ahOpen": true,
+  "pending": 0,
+  "loadedExactAck": true,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "buttonReleased": true,
+  "characterSpeed": 0,
+  "nextDueAt": 1792423311,
+  "verifierSha256": "bf57866245fffaaaa32b496152aa44ce62bdd61b09408eb10947f6cf7a3c5b2d",
+  "recoveryProvenance": {
+    "initialFlowReceiptSha256": "bae6f9695fba0d91749eb8b5e4483a7a291620e58c0418411ced866ba5bbe57",
+    "targetedReopenReceiptSha256": "137895f4b3dd53dc4b14d6c004825e2252a20bbdb07345cd327acf6ac6228237",
+    "note": "Initial stale-target AH reopening failed after successful exact ACK. Separate fresh tooltip target reopened AH. Private composed receipt retains both source hashes and original error."
+  }
+}
