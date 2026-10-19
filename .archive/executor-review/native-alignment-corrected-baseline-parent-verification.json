@@ -1,0 +1,66 @@
+{
+  "status": "PRE-BACKEND ALIGNMENT REJECTED",
+  "qualification": "Parent independently reproduced expected MODEL budget failure; no source release or live qualification.",
+  "selector": "tests/test_session_runtime.py::test_native_update_fast_trace_replay_uses_real_runner_and_provider",
+  "environmentCase": "alternating",
+  "returncode": 0,
+  "sourceUnchanged": true,
+  "sourceHashes": {
+    "src/crowley/session/daemon.py": "683bf4f64385b935e0f836a77864fed640d805393c421d489ab616b86961113f",
+    "src/crowley/session/calibration.py": "0b722e46ccff5c5d949e6839229465e3462e88c756997bc21cf5819decc3418d",
+    "src/crowley/session/driver.py": "ca0ca123d0fa09d8361c8632d9cc1c2c501d87adf99cb3cc268688dd4291a166",
+    "tests/test_session_runtime.py": "023cbf3c0539b6edb13023abdb33bad12c699113bb858bb228101360370cd3db",
+    "tests/test_native_calibration_operator.py": "480892f17f2b8e8840ac451ed9f589dc0352239477165c8ca0960da71a10fe61",
+    "tests/test_session_native.py": "d0f3cbe99c5cf2d1df5ac3790e77d8487730a72b06abcf8eacf2253141dd57ec"
+  },
+  "maxActiveTransitionMs": 1489.444,
+  "acceptedUpdates": 99,
+  "backendCaptures": 106,
+  "duplicateScreenshotSpacingMs": 995.5400000035297,
+  "firstDistinctUpdateShots": [
+    {
+      "active_work_ms": 303.157,
+      "attempt": 1,
+      "boot": "1000-856168",
+      "capture_started": 225832.825186189,
+      "crc32": 1760917145,
+      "intentional_wait_ms": 0.0,
+      "ordinal": 1,
+      "phase": "updates",
+      "publisher_uptime_ms": 937591360,
+      "sequence": 4,
+      "update_count": 3
+    },
+    {
+      "active_work_ms": 1183.566,
+      "attempt": 2,
+      "boot": "1000-856168",
+      "capture_started": 225833.820726189,
+      "crc32": 1760917145,
+      "intentional_wait_ms": 115.1310000801459,
+      "ordinal": 1,
+      "phase": "updates",
+      "publisher_uptime_ms": 937591360,
+      "sequence": 4,
+      "update_count": 3
+    },
+    {
+      "active_work_ms": 1792.6009999999999,
+      "attempt": 3,
+      "boot": "1000-856168",
+      "capture_started": 225834.42976118898,
+      "crc32": 251348772,
+      "intentional_wait_ms": 115.1310000801459,
+      "ordinal": 2,
+      "phase": "updates",
+      "publisher_uptime_ms": 937592360,
+      "sequence": 5,
+      "update_count": 4
+    }
+  ],
+  "logSha256": "4f3c9c3f81f48acfdfcae947475502479a928521a01041a28d29f64a9b33a2c3",
+  "timelineSha256": "a3baf39aec523ac214ef53258a16599d7097d5b03c2854b4aab314dfa9d76bfd",
+  "timelineLimit": "Sampler invokes twice on an internal stale-frame reread of one attempt. Original timeline preserved; repeated identical attempt/timestamp/sequence entries excluded only from this physical-shot summary. Collector must be corrected before qualification.",
+  "sourceInstalled": false,
+  "nextAction": "Review pre-ACK alignment with validated publisher deltas, constant phase guard, and real driver cancellation proof."
+}

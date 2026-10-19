@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 13:15 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 13:26 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -51,8 +51,8 @@ observations; no buying, posting or cancelling is part of this task.
   parent-verified. #101 through #106 are also fully parent-verified; all started
   on exact900s deadlines. After #106 the client disconnected (WOW51900319).
   Normal reconnect succeeded without credentials. Parent decoded retained reopen
-  bytes: #107 started1792415211,350s late; nextdue1792416111. It is still running;
-  no new complete scan is claimed.
+  bytes: #107 started1792415211,350s late, and is now fully parent-verified.
+  #108 started on its exact900s deadline1792416111; nextdue1792417011.
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -62,19 +62,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #106 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792413961-Arthur-0203`:
+Parent verification #107 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792415211-Arthur-7147`:
 
-- 428 observations, 2,098 rows, 416 full and 12 bounded, all `ok`;
-- 479-second scan, 31.627216 seconds from finish to server receipt;
-- exact900-second start interval after #105;
+- 428 observations, 2,098 rows, 413 full and 15 bounded, all `ok`;
+- 485-second scan, 54.638861 seconds from finish to server receipt;
+- 1250-second start interval after #106;350s late due to disconnect/recovery;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-onehundredsixth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-onehundredsixth-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-onehundredseventh-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-onehundredseventh-ah-reopen-parent-verification.json).
 
-#107 started1792415211,350s late due to disconnect/recovery; nextdue1792416111.
+#108 started1792416111 on exact900s deadline; nextdue1792417011.
+#106 is fully verified:428observations/2,098rows/416full12bounded/allok,
+479s scan,31.627216s finish-to-serverreceipt,exact900s after105.
 #105 is fully verified:428observations/2,067rows/416full12bounded/allok,
 481s scan,22.672271s finish-to-serverreceipt,exact900s after104.
 #104 is fully verified:428observations/2,061rows/415full13bounded/allok,
@@ -497,6 +499,21 @@ boot1792415028-366418/sequence169/ordinary normal0/inactive/pending0/speed0/AHop
 and107start1792415211. The receipt lacks per-capture monotonic timing, so this
 does not establish independent freshness or calibration qualification. The
 start interval after106 is1250s,350s late due to disconnect/recovery.
+
+Parent independently reproduced the corrected alternating baseline at unchanged
+six-file pins: [model failure verification](../.archive/executor-review/native-alignment-corrected-baseline-parent-verification.json),
+max active1489.444ms, exact99updates/held100/resume. Second shot was995.540ms
+after first and repeatedordinal1. Full0600log and timeline retained in private
+`native-alignment-parent-alternating-20261019T131855Z`; runtime pin023cbf3c.
+One identical sampler callback duplicated a single attempt's record; it is
+documented and must be fixed before qualification, not counted as a new capture.
+
+Sol rejected the ACK plan's first revision: Agent.lua recursively schedules
+After(1), and verified live two-tick delta2014ms means an absolute1000ms schedule
+can drift early. R2 is under review: verifiedS1/U1 and prior accepted publisher
+delta plus constant50ms phase guard, realistic1007/[1000,1014] publisher cases,
+explicit phase envelope, exact PID/one-shot ACK and nonblocking Guardian health
+guard, separate final ACK admission cost. No production ACK implementation yet.
 
 ## Next live gates
 

@@ -42,8 +42,8 @@ approved three duplicate resolves.
 ## Actual capture alignment
 
 Remove the pre-backend admission wait. After update1 is provider-accepted,
-retain its verified producer receipt's `capture_started` as an immutable host
-monotonic origin. Require a fresh receipt for this exact capture: output digest,
+retain its verified producer receipt's `capture_started` as immutable host
+origin S1 and its exact decoded uint32 publisher `uptime_ms` as U1. Require a fresh receipt for this exact capture: output digest,
 nonce/request, owner, binary, rectangle, retirement and original identity/run
 bindings must agree. A diagnostic or caller-supplied timestamp is insufficient.
 Keep this origin separate from existing admission-based `captureMonotonic` used
@@ -56,8 +56,20 @@ on construction, replacement, failure and completion. Runner-post rejection
 must prevent any later eligible use. Missing, malformed, future or mismatched
 origin refuses. Never replace the origin with a later capture or retry.
 
-For eligible updates N=2..99 compute once the absolute target:
-`origin_capture_started + (N - 1) * 1.000s`.
+Agent.lua recursively schedules `C_Timer.After(1)` after publication; the live
+trace's2,014ms over two ticks demonstrates cumulative callback delay. For
+eligible updates N=2..99 compute once:
+`S1 + unsigned_delta(U_previous, U1) / 1000 + 1.000s + 0.050s`.
+U_previous is the exact prior decoded publication, usable only after the same
+runner validates/releases it and requests N. Use existing wrap-safe uint32
+delta semantics, rejecting malformed, ambiguous/backwards or ordinal-inconsistent
+values; preserve existing750..1250ms inter-publication validation. Bind every
+uptime to its original retained frame/CRC/boot/sequence and run capability.
+The50ms phase guard is constant, never multiplied by ordinal or accumulated.
+This uses elapsed publisher deltas, cancelling its unknown clock offset without
+restamping any timestamp. It does not assert a common host/game clock origin.
+Qualification covers the pinned0..14ms callback-excess and update1 phase-age
+envelope below, not every cadence allowed by the rejection contract.
 Late setup must remain late; never roll the schedule forward, skip an ordinal,
 retry a mismatch or hide an over-budget transition.
 
@@ -76,18 +88,27 @@ operation, reservation and producer deadlines; never extend them. Reject a targe
 that cannot fit those deadlines. Count every guard and target calculation as
 active work, with only actual sleep excluded.
 
-The final ACK send must be synchronized, not a validate-then-send race. Pass a
-one-shot ACK dispatch closure to the daemon continuation callback. Immediately
+The final ACK send must be synchronized, not a validate-then-send race. The
+private callback contract is `(actual_producer_pid, dispatch_ack_once) -> None`.
+The backend supplies the PID of its admitted Popen and a closure bound to that
+exact process/nonce/socket/epoch. The daemon also captures the PID from the
+existing observer-admission result and requires exact equality; it must not
+trust a caller-chosen or merely registered PID. Immediately
 before invoking it, acquire controller -> construction -> Guardian in the existing
 order, validate the exact capability and unchanged observer-admission invariants,
 require the exact producer PID in Guardian's observer registry and live watchdog,
 held lease, unarmed Guardian, no unresolved held input/active input groups and no
-release failure. Use existing locks/health guards; do not register a second
+release failure. Require nonblocking `Guardian.admission_gate_ready()` under
+the Guardian lock. Do not call `_watchdog_state()` or wait for watchdog ACK
+there. Use existing locks/health guards; do not register a second
 observer or release its exec gate again. The dispatch closure then takes the
 existing backend process lock, rechecks capture epoch, deadline, process liveness
 and admitted executable/process proof, and sends the unchanged ACK once. No
-sleep or readiness wait occurs under these authority locks. A callback that
-returns without dispatch, dispatches twice or throws must fail and clean up.
+sleep or readiness wait occurs under these authority locks. No-dispatch and
+pre-dispatch exception must fail with zero ACK/capture. Reject second dispatch
+before sending a second ACK. A second call or exception after the first dispatch
+can have started capture: require at most one ACK, no accepted evidence and
+complete cleanup, rather than falsely claiming zero capture.
 
 Pre-observer revocation still requires zero producer starts. For a revoke after
 spawn/before ACK, require zero ACK, zero ScreenshotArea call/capture, kill/reap,
@@ -123,12 +144,48 @@ that same callback after modeled verified setup and before sampling. It may
 replace only external device/process pixels and actual sleep; production target,
 guards, ordering, runner/provider, CRC and cleanup remain real. All capability
 validation calls cost0.500ms and all target calculations0.050ms in this declared
-model; count actual calls rather than eligibility spans alone.
+model; count actual calls rather than eligibility spans alone. Additionally
+charge each actual final synchronized ACK admission0.500ms for its new
+registry/watchdog/held/release checks, excluding separately counted inner
+capability validation. Report real durations separately. Existing backend
+process-lock/process-proof/ACK work stays in the117.511ms gen37 lock-to-shot
+total, never double-counted. Declare a model split of1.000ms of that existing
+total after the wait and116.511ms before it; these are explicit phase-model
+assumptions, not newly measured gen37 components. A boundary case moves5.000ms
+of the same total after the wait, keeping the total unchanged. Retain actual
+owner_ready/wait/ACK/capture timestamps in compiled-producer proof.
 
 Keep the previously pinned reference, slower(+2/+2/+2ms), alternating
 (odd+3/+1/+3, even post+1ms) and over-budget(pre+40/post+40ms) vectors unchanged.
-Reference/slower/alternating must reach exact100 and<=900ms active per accepted
-streaming shot transition. Include all retry work; report sleep separately.
+Add publisher interval vectors1000ms,1007ms, and alternating1000/1014ms. They
+drive the real Agent timer callbacks and payload uptimes, independently of
+captures. The callback excess0..14ms is the qualified model envelope; the
+750..1250ms validation contract is unchanged and is not a universal sampling
+guarantee. Fix these combined cases before implementation, avoiding a full
+Cartesian test explosion:
+
+- Reference costs /1000ms publisher / update1 phase-age0ms /1ms ACK tail: pass.
+- Slower costs /1007ms publisher / update1 phase-age500ms /1ms ACK tail: pass.
+- Alternating costs /1000,1014ms publisher / phase-age0ms /1ms ACK tail: pass.
+- Reference costs /1007ms publisher / phase-age900ms /5ms ACK tail: pass.
+- Over-budget costs /1000ms publisher / phase-age0ms /1ms ACK tail: budget fail.
+- Reference costs /1000ms publisher / phase-age951ms /1ms ACK tail: expected
+  no-skip/protocol failure, not qualification.
+- Reference costs /1100ms publisher / phase-age0ms /1ms ACK tail: expected
+  retry/budget failure outside the qualified callback-delay envelope.
+
+Initial phase age is the retained difference between actual Measure publication
+and first actual shot. The fixture may schedule external Measure/device startup
+timing to realize these declared initial scenarios before the stream origin;
+record actual times and assert the named phase age. It must not introduce a
+consumer wait or move a publisher phase after observing a failure. Passing
+cases require phase-age<=900ms and every actual shot before the following
+publication (no-skip envelope). Boundary negatives must refuse, not weaken
+ordinal/CRC/cadence/freshness validation. Runtime live100 remains the final
+qualification outside these declared model assumptions.
+
+Passing cases must reach exact100 and<=900ms active per accepted streaming shot
+transition. Include all retry work; report sleep separately.
 Over-budget must visibly fail the budget without a fabricated protocol outcome.
 Old/reduced-without-hook modes expose natural failure/overrun. Update99->held100
 remains outside the streaming-work bound with all exact terminal proofs retained.
