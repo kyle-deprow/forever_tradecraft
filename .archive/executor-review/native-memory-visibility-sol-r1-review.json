@@ -1,0 +1,18 @@
+{
+  "reviewer": "gpt-5.6-sol",
+  "status": "READY",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "22327c5c6c4d772afe515d8c09c4c744214709b55ccc557d33606495676e7c37",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6",
+    "tests/test_session_runtime.py": "7bae80b98b08d13b193ea1472e734724ad4b8e275ead206e9fc7d832a6fe9857"
+  },
+  "hashesVerifiedBeforeAndAfter": true,
+  "mustFix": [],
+  "shouldFix": [],
+  "nits": [],
+  "summary": "Closed copied primitive Luaheap/texture/P99 fields preserve unknown and unavailable states. Existing last16/size/privacy/failure-only and best-effort bounds unchanged. Actual Agent\u2192CRS1\u2192PixelDecoder\u2192persist test verifies post-record mutation isolation; no threshold, GC, capture, admission, deadline or cleanup change.",
+  "qualification": "Source review for diagnostic-only delta; no live qualification claim."
+}

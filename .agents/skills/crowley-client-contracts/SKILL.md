@@ -92,9 +92,11 @@ correct controller state alone cannot prove the next input action is armed.
 Inject virtual time only into the simulated provider/runner. Globally replacing
 stdlib time functions also changes guardian, socket and background-thread timing
 and can conceal or manufacture lifecycle failures.
-Round-trip blocked and diagnostic states through the real frame decoder too.
-Inspecting a producer table alone misses unsupported reason enums; use actual
-Agent publication bytes when adding or changing status behavior.
+Round-trip blocked states and diagnostic metrics from actual Agent publication
+bytes through the real frame decoder into the persisted artifact. Direct mock
+snapshots or a black PNG beside copied metrics do not validate that path. For
+nested decoded metrics, mutate the source after recording and verify the saved
+values remain unchanged. Producer tables alone also miss unsupported reason enums.
 For multi-observation admission, validate every consumed publication, including
 an intermediate post-release barrier. A later allowed frame cannot erase an
 observed failure. Test through the default provider and public daemon entrypoint;

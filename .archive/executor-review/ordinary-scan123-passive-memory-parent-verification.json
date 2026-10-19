@@ -1,0 +1,44 @@
+{
+  "status": "PASS",
+  "qualification": "Passive ordinary active-scan context only. No reset5 or matched baseline; sampled RSS range cannot establish native peak causality or replace memory qualification.",
+  "receiptSha256": "1700b1ac330a3722de9e136b834c0b2f183eebf118c77fb5c61ff5a3c6c289a8",
+  "rawSamplesSha256": "a1a3937558375105289dddd7652f21e6bca5af7fd2fd106f297e3e2d71568b8a",
+  "samples": 110,
+  "durationSeconds": 109.00739069399424,
+  "rssMinBytes": 3807035392,
+  "rssMaxBytes": 3898204160,
+  "rssRangeBytes": 91168768,
+  "hwmMinBytes": 4086501376,
+  "hwmMaxBytes": 4086501376,
+  "parentIndependentlyDecodedFrames": {
+    "before": {
+      "imageSha256": "d4574494a771bb0b588d473bca591258a33b7eea465e7a25fe84f33130e43504",
+      "boot": "1792429685-715289",
+      "sequence": 314,
+      "luaHeap": {
+        "method": "collectgarbage_count",
+        "available": true,
+        "beforeKiB": 134865.09375,
+        "afterKiB": 134896.6904296875,
+        "netKiB": 31.5966796875
+      },
+      "textureCount": 2048,
+      "updateP99Ms": 20.74050000309944
+    },
+    "after": {
+      "imageSha256": "2e319bdebee17b1b2b7819fc8755ef1ff18d9e46eec5745ce454ef8f29e85292",
+      "boot": "1792429685-715289",
+      "sequence": 425,
+      "luaHeap": {
+        "method": "collectgarbage_count",
+        "available": true,
+        "beforeKiB": 137977.322265625,
+        "afterKiB": 138008.93359375,
+        "netKiB": 31.611328125
+      },
+      "textureCount": 2048,
+      "updateP99Ms": 19.79100000858307
+    }
+  },
+  "reportedNoClearRefsGcOrInput": true
+}

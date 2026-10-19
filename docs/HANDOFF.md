@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 17:14 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 17:24 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -54,20 +54,20 @@ Live40 reached held100, then failed process-memory gate; automatic recovery
 completed and cleared checkpoint. Ordinary AH reopened; assisted123 began
 1792429927 after the deliberate qualification pause. No physical-input gate yet.
 
-Latest fully parent-verified cycle **#122**:
+Latest fully parent-verified cycle **#123**:
 
-- UID `beta-normal-alliance-1792428711-Arthur-2069`;
-- start1792428711, finish1792429183:472s;428 observations/2,002 rows;
-- 413 full/15 bounded, all428 `ok`, zero query failures;
-- exactly900s after121;39.213126s finish-to-server receipt;
+- UID `beta-normal-alliance-1792429927-Arthur-5536`;
+- start1792429927, finish1792430406:479s;428 observations/1,963 rows;
+- 412 full/16 bounded, all428 `ok`, zero query failures;
+- 1216s after122 (316s deliberate qualification delay);86.201070s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredtwentysecond-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentysecond-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredtwentythird-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentythird-ah-reopen-parent-verification.json).
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
-chain is pending; next actual ordinary deadline1792430827 (17:27:07UTC). After122, parent decoded fresh closedAH/pending0/ordinary
+chain is verified; next actual ordinary deadline1792430827 (17:27:07UTC). After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
 MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
@@ -243,10 +243,23 @@ restored=false is not current-scene proof: parent decoded fresh ordinary state
 [ordinary proof](../.archive/executor-review/native-memory-failure-gen40-ordinary-parent-verification.json)
 and independently decoded reopenedAH normal0/inactive/pending0/speed0/released.
 
-Current work: sole operator maintains123+assisted900s chains and runs one110s
-passive ordinary /proc RSS/HWM comparison (no reset/GC/input). Implementation
-worker read-only audits Agent allocation/render path; root will define the
-smallest evidence-backed diagnostic or correction before another native run.
+Current work: sole operator maintains123+assisted900s chains. Parent independently
+verified110 passive ordinary samples over109.007s: RSS range91,168,768 bytes,
+HWM constant4,086,501,376 bytes; normal/0/AHopen/speed0. No reset/GC/input.
+[Passive comparison](../.archive/executor-review/ordinary-scan123-passive-memory-parent-verification.json).
+Source audit found2048pooled textures, bounded100sample/timer state, no obvious
+unbounded retention; transient copies/serialization/compression remain unprofiled.
+Sol approved [bounded diagnostic plan](../.archive/PLAN-native-memory-visibility.md).
+Luna owns only daemon.record_candidate and runtime tests in isolated
+`native-memory-visibility-20261019`, adding existing Luaheap/texture/updateP99
+fields to private last16trace. Root reproduces tests then Sol+actual Opus review.
+Frozen candidate daemon22327c5c6c4d772afe515d8c09c4c744214709b55ccc557d33606495676e7c37,
+runtime test7bae80b98b08d13b193ea1472e734724ad4b8e275ead206e9fc7d832a6fe9857.
+Parent9focusedPASS2.07s plus static; outside2private methods AST unchanged:
+[proof](../.archive/executor-review/native-memory-visibility-parent-verification.json).
+[Sol READY](../.archive/executor-review/native-memory-visibility-sol-r1-review.json),
+actual Opus running at `native-memory-visibility-opus-r1-20261019/`.
+No promotion or new native attempt yet; exactlyone instrumented retry is planned.
 Keep16MiB gate and GC behavior unchanged. No user physical input requested yet.
 
 ## Next live gates, in order

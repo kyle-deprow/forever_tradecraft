@@ -1,0 +1,88 @@
+{
+  "status": "PASS",
+  "qualification": "Diagnostic-only offline verification; native-memory gate failure and input/autonomous qualification remain outstanding.",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "22327c5c6c4d772afe515d8c09c4c744214709b55ccc557d33606495676e7c37",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6",
+    "tests/test_session_runtime.py": "7bae80b98b08d13b193ea1472e734724ad4b8e275ead206e9fc7d832a6fe9857"
+  },
+  "beforeHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "946e02bd467cecb7d720181e032bb54c2fc280076c884e406f680b51ab085d50",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6",
+    "tests/test_session_runtime.py": "d7da65ad2f1704357ef94e15c2acffb93dfdc5481df494fee5a403801723c96e"
+  },
+  "outsideDiagnosticMethodsAstUnchanged": true,
+  "helperUnchangedSha256": "63fd2b97e84f77b11f12f120dc0300e822611dcedce19213f5b949b40e657462",
+  "parentRunnerSha256": "c97f3e6194b781229938cfd4242bea34d74cb8ebf98be6fb41c60fd2412698b8",
+  "patchSha256": "c62300d298e18f27f542d29ca8c651a320614a027f66a8cbe3d3fdb282dd4d43",
+  "tests": {
+    "status": "PASS",
+    "sourceUnchanged": true,
+    "wallSeconds": 2.561351230018772,
+    "checks": [
+      {
+        "command": [
+          "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/python",
+          "-m",
+          "pytest",
+          "-q",
+          "tests/test_session_runtime.py",
+          "-k",
+          "native_observation or diagnostic",
+          "--tb=short"
+        ],
+        "returncode": 0,
+        "logSha256": "36b1262814c3b95e97e7356082f7375d96a031cfa07b5de8f53d75d735a03222"
+      },
+      {
+        "command": [
+          "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/ruff",
+          "check",
+          "src/crowley/session/daemon.py",
+          "tests/test_session_runtime.py"
+        ],
+        "returncode": 0,
+        "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+      },
+      {
+        "command": [
+          "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/ruff",
+          "format",
+          "--check",
+          "src/crowley/session/daemon.py",
+          "tests/test_session_runtime.py"
+        ],
+        "returncode": 0,
+        "logSha256": "3bc53bf3e981a98a34a852e175bf9b77af841edea74fca595d9aedcbaf9a4938"
+      },
+      {
+        "command": [
+          "/home/dev/.cache/crowley/worktrees/native-ack-parent-verify-20261019/.venv/bin/python",
+          "-m",
+          "compileall",
+          "-q",
+          "src/crowley/session/daemon.py",
+          "tests/test_session_runtime.py"
+        ],
+        "returncode": 0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      },
+      {
+        "command": [
+          "git",
+          "diff",
+          "--check"
+        ],
+        "returncode": 0,
+        "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    ]
+  },
+  "originalIntegrationEvidence": "native-ack-final-r2-parent-verification.json (original exact hashes, no claim of rerunning100/seven-model for this diagnostic delta)"
+}
