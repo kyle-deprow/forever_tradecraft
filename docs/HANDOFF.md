@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:02 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:07 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -177,6 +177,15 @@ without actual runner refusal or budget failure. [Parent inspection findings](..
 Preserve those results as partial evidence only. Luna is correcting the fixture;
 no source freeze, installation or live qualification has occurred. Assisted110
 started1792417911 on its exact deadline and is now fully parent-verified.
+
+Parent preserved the first frozen six-file candidate and independently passed8
+selected runtime checks with unchanged hashes. [R1 gate](../.archive/executor-review/native-capture-ack-parent-r1-gate.json)
+remains NEEDS WORK: exact model cost accounting, scoped virtual sleep, zero-ACK/
+ScreenshotArea pre-dispatch assertions, actual eligible daemon pre-ACK race
+coverage, and the exact long compiled-native100 success node. Luna owns these
+bounded fixes; no paid source review or installation has started. An old piped
+WT replay/Guardian process was identified separately from the completed parent
+check and assigned bounded identity-checked cleanup.
 
 ## Accepted installed release
 

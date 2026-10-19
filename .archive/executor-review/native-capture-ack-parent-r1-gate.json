@@ -1,0 +1,42 @@
+{
+  "status": "NEEDS_WORK",
+  "stage": "Parent pre-review gate R1",
+  "source_hashes": {
+    "src/crowley/session/daemon.py": "560dbe24ddf781082fcce5730591244ed8932d8dac7680dbf00daaf57ddffba6",
+    "src/crowley/session/calibration.py": "0b722e46ccff5c5d949e6839229465e3462e88c756997bc21cf5819decc3418d",
+    "src/crowley/session/driver.py": "a11da8a20f7d008fde4422cab6729d382539e739b0d1edd583aa2e9ddde9eb96",
+    "tests/test_session_runtime.py": "5dedb4a79625ccfda53d6e2198e0bc565c9e681f269791ccc82226bc537b5432",
+    "tests/test_native_calibration_operator.py": "87f120769d83f3cf9e97edb94cbde91d6f4d07102a5ad750575ecb2aff047a50",
+    "tests/test_session_native.py": "29b9e0c6e5cdf1bfb17400f01dc86e5a0abe67e70219f1c2cb4348bec099c299"
+  },
+  "parent_verification": {
+    "selected_runtime_cases": 8,
+    "returncode": 0,
+    "pytest_reported_seconds": 1.3,
+    "source_unchanged": true,
+    "full_log_sha256": "dcd6dfd88f79e5e5adb3ddbb7d6623791622aadebac6568261997b2e55298dcc"
+  },
+  "remaining_musts": [
+    {
+      "area": "Cost-model fidelity",
+      "detail": "Charge every actual capability validation and the separate final ACK admission. Split the existing117.511ms setup total around ACK wait instead of adding ACK tail to the full total."
+    },
+    {
+      "area": "Virtual-time isolation",
+      "detail": "Patch only the simulated module binding or injected sleep; replacing the shared stdlib time.sleep changes Guardian/background timing."
+    },
+    {
+      "area": "Pre-dispatch protocol oracle",
+      "detail": "No-dispatch and pre-dispatch exception require zero ACK and no ScreenshotArea-entry marker plus unchanged completed-call log. Current +1 allowance cannot establish zero capture."
+    },
+    {
+      "area": "Eligible daemon pre-ACK race coverage",
+      "detail": "Exercise the new typed ordinal2 path through actual admitted producer, receipt origin, wait and final locked ACK transaction. Existing legacy Guardian races and direct callback matrix do not cover these boundaries."
+    },
+    {
+      "area": "Exact compiled native100 integration",
+      "detail": "The six-second region compositor test is useful but is not test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]. Run the exact latter node after final corrections."
+    }
+  ],
+  "qualification": "No source approval, installation, live native/input qualification or autonomous cycles."
+}
