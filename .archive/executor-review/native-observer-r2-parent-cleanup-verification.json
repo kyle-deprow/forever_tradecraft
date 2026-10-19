@@ -1,0 +1,29 @@
+{
+  "status": "NEEDS_CORRECTIONS",
+  "stage": "Parent pre-review R2 independent cleanup probe",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "53c753ccb7557a7277725cf83caedef5a15e16edaced769e4ea23d7ede69d825",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "35563c91ef75408dd48ca4843cc45aa779c22e60686a78f18fe74240dc017d0f",
+    "src/crowley/session/driver.py": "2a1f3097884c29dbb02dc1402e77437db02605355326f549323c74516deb8cd8",
+    "tests/test_native_calibration_operator.py": "d63c15afe394e1500286be1e74338ffd4f9cf3ce630c823570bcc2c192008923",
+    "tests/test_session_driver_actions.py": "ad41870e5d68e5eb1fd37ec2f98262bf45c701294311b4e8e4e2b61ec0cc15a3",
+    "tests/test_session_native.py": "8a2eb509900435d5966f7aa2b2b9b12238dea12b645d38bae986c7359576d6f7",
+    "tests/test_session_native_regressions.py": "480b9ebb9eaae22ae13676057329d908102c07ce7be100ea6abc9b355c21d430",
+    "tests/test_x11_identity_observer.py": "2079fd0a524637aea0277b70a11d076949d7d694980ceea54c35b42f65141326",
+    "tools/build_x11_identity_observer.py": "974c695fa14145110bc22f8e0b74c27282462462802669f724bb115d87b3b9e2",
+    "tools/native_calibration_operator.py": "9e688fd3ce5f0dc8026784273f0c9fe9171539c1768167c56d55566fd0c4001f"
+  },
+  "probe": "Five exact owned sleeping C ELF processes with30ms observation deadline; after each timeout, waitpid30ms later returned that exact unreaped child. Parent probe reaped every fixture. No livegame/GUI/input involved.",
+  "failedTrials": 5,
+  "totalTrials": 5,
+  "rawProbeSha256": "3f84bdd7fd97f690174ca23bef9c43530286cd21b954ba2a0dd1829d280fd84a",
+  "cause": "Cleanup reused exhausted observationdeadline so wait(0) could expire and its exception was suppressed without retained reaperownership.",
+  "decision": "Luna corrects bounded observerlifecycle seam and decisive actualprocess regressions before formalreview.",
+  "workerOnlyEvidence": "Corrected composed1Hz pathpassed143.64s; workermaxactive365.881204ms. Parent has not yet reproducedR2composition.",
+  "formalSolOpusReview": "NOT_STARTED",
+  "liveInstallation": false,
+  "autonomousQualificationCycles": 0
+}

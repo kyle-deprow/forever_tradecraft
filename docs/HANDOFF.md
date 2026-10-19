@@ -105,11 +105,18 @@ closed-production no-fallback refusal, both WM_CLASS values/reference identity
 parity, immutable build-input/linker provenance and all3 Rust source pins in the
 sealed helper evidence. Actual Xvfb mutation coverage and retained numerical
 performance measurements also need completion. Luna has planned the corrections;
-parent forced-race regression passed1 case in23.11s. The broad check reached
+parent forced-race regression passed1 case in23.11s. The R1 broad check reached
 149passed/0failed257.40s before deliberateSIGINT/exit2 because source corrections
-were already required; this is NOT a full-suite pass. Luna now implements the
-accepted consolidated corrections with a longer leash.
-[Parent development proof](../.archive/executor-review/native-observer-r1-parent-verification.json).
+were already required; this is NOT a full-suite pass. Luna's corrected R2
+composition passed143.64s in the worker, reporting99 updates and365.881ms worst
+active work. Parent froze R2 and independently reproduced one remaining lifecycle
+bug:5/5 real owned C ELF timeout trials returned with the exact child unreaped.
+Parent reaped all fixtures. Cleanup reused an exhausted observation deadline for
+wait(0) and suppressed failure without retained reaper ownership. Luna is fixing
+only that observer lifecycle/test seam, including actual timeout/cancel/pipe
+cleanup assertions; no full parent R2 composition or formal source review occurred.
+[Parent R1 proof](../.archive/executor-review/native-observer-r1-parent-verification.json)
+and [R2 cleanup proof](../.archive/executor-review/native-observer-r2-parent-cleanup-verification.json).
 Sol and actual CLI Opus source review have not started. The narrow
 finalize/recheck terminal-reread patch remains within the approved plan extension;
 its forced real-finalize regression passed independently as recorded above.
