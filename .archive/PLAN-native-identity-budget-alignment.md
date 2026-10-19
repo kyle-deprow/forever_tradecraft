@@ -1,6 +1,6 @@
 # Native update capture alignment amendment
 
-Status: DRAFT for Sol review. No installation or long composition gate yet.
+Status: APPROVED by Sol R2 and parent. Implementation remains isolated; no installation before the source and verification gates.
 
 ## Objective and retained requirements
 
@@ -37,13 +37,19 @@ to host time or restamp any publication, capture or receipt timestamp. Since
 backend-pre and producer setup follow admission on both samples, stable setup
 cost gives approximately one second between actual screenshots as well.
 
-Record enough private measurement state to prove that the anchor belongs to
-the immediately prior accepted update of this same generation, identity, boot
-and deferred run/epoch/reservation. Reset that anchor on construction and
-stage/run replacement. Never derive an anchor from held0, a rejected/duplicate
-attempt, a prior run, an arbitrary caller or a later ordinal. Missing or malformed
-anchor state after eligible update1 must refuse rather than silently waive the
-alignment contract. Future/nonfinite timestamps and inconsistent ordinals refuse.
+The daemon stores a provisional provider-accepted anchor before the runner
+finishes validating that observation. Do not label it runner-accepted at that
+point. It is consumable only when the same live exact runner subsequently calls
+the next ordinal: `run()` validates/releases N before requesting N+1, and any
+runner hash/identity/cell/decode/cadence rejection terminates that run. Retain
+private anchor bindings for ordinal N, generation, identity, boot and deferred
+run/epoch/reservation. Construction, run/stage replacement, completion or failure
+clears it. Prove with a runner-post rejection that no later eligible provider
+call or anchor consumption occurs. Never derive an anchor from held0, a
+rejected/duplicate attempt, a prior run, an arbitrary caller or a later ordinal.
+Missing/malformed anchor state after eligible update1 refuses rather than
+silently waiving alignment. Future/nonfinite timestamps and inconsistent
+ordinals refuse.
 
 At provider entry retain the existing frame deadline. Wait, when needed, before
 the next capture admission and outside controller/construction/Guardian locks.
@@ -54,6 +60,11 @@ Never extend any deadline. Refuse if a target cannot be reached before either
 deadline, and revalidate immediately after waiting before capture. A revoke or
 shutdown while waiting must start zero producers. Keep actual observer-admission
 validation under the existing lock order and all fresh identity fences.
+Every capability-validation invocation performs active process/profile/Guardian/
+lease/deadline work, including invocations made between wait chunks. Count and
+charge each actual invocation at its real production site. Only the duration in
+the sleep primitive is intentional wait; target calculation and guard execution
+are active. Retain their call counts and durations in the timing evidence.
 
 Apply alignment at the real per-attempt boundary, with a valid prior accepted
 update anchor. A duplicate still follows the actual existing rejection/poll
@@ -98,12 +109,29 @@ retains the full identity path and the publisher stops advancing in that held
 phase. Report that terminal transition separately while retaining exact held100
 sequence, cadence, identity, memory-window and cleanup requirements.
 
-Qualify the exact measured vector and a small explicitly named bounded jitter
-set at real boundaries (including slower and alternating backend/setup costs).
-Report its tested envelope, not an arbitrary-jitter guarantee. Failures remain
-visible. No fixture-only wait before a provider call is permitted; all intentional
-alignment must originate from the changed production function. The test must
-fail when that production alignment is disabled or deleted.
+Pin these numeric model cases before implementation. All retain the full exact
+gen37 vector, charging0.500ms for every actual fast capability-validation call
+and0.050ms for every actual alignment-target calculation. Those new-work costs
+are explicit model assumptions, not measurements from gen37; report real
+diagnostic durations separately. Do not reduce the assumptions to obtain a pass.
+
+- Reference: unchanged named vector plus these counted new-work charges; expect
+  aligned exact100 and active<=900ms for each streaming transition.
+- Slower backend/setup: add2ms each to backend-pre, backend-post and lock-to-shot
+  on every attempt; same expected pass.
+- Alternating: on odd screenshot attempts add3ms backend-pre,1ms backend-post
+  and3ms lock-to-shot; on even attempts add only1ms backend-post. Same expected
+  pass; count retries and apply the vector by actual attempt, not requested ordinal.
+- Over-budget: add40ms each to backend-pre and backend-post on every attempt.
+  Expect a visible active-budget failure; retain the actual protocol outcome
+  rather than forcing a particular skipped ordinal.
+
+If a proposed passing case fails, report that failure for review instead of
+changing its clock phase or numeric vector. Report the tested envelope, not an
+arbitrary-jitter guarantee. The aligned fixture replaces only the private sleep
+primitive for waiting; actual production target calculation and rechecks execute.
+No fixture-only pre-provider wait is permitted. The qualification must fail when
+production alignment is disabled or deleted.
 
 ## Negatives, real composition and release
 

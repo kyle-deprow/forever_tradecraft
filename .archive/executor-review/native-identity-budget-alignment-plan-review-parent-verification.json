@@ -1,0 +1,33 @@
+{
+  "status": "APPROVED",
+  "reviewKind": "Plan review only; not source or live qualification.",
+  "reviewer": "Sol native worker",
+  "round1": {
+    "reviewedPlanSha256": "e5b15268005cfd446a619a7024fc8af39c65db8ab5aed13313baea98f8f5efa1",
+    "status": "NEEDS WORK",
+    "must": [
+      "Define provisional provider-accepted anchor and runner-next-ordinal acceptance boundary.",
+      "Count actual validation and target-calculation work as active, excluding only sleep."
+    ],
+    "should": [
+      "Pin numeric jitter vectors and expected outcomes."
+    ]
+  },
+  "round2": {
+    "reviewedPlanSha256": "57788ca05982547bd95bdb1f477d2e33acba9349277e566f4ff4f8298990520f",
+    "status": "READY",
+    "must": [],
+    "should": [],
+    "nits": []
+  },
+  "approvedDocumentSha256": "235116d2f95c6253058181632f560147ec7557dad5053e1272af4ff38ea7d907",
+  "postReviewChange": "Status line only; requirements match reviewed plan.",
+  "sourceFence": [
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/calibration.py",
+    "tests/test_session_runtime.py",
+    "tests/test_native_calibration_operator.py"
+  ],
+  "modelQualification": "New validation/target costs are explicit model assumptions; actual live native100 still required.",
+  "parentAccepted": true
+}

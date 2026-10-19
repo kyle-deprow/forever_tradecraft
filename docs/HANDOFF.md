@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 12:12 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 12:19 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -49,7 +49,7 @@ observations; no buying, posting or cancelling is part of this task.
   934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
   2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
   parent-verified. #101, #102 and #103 are also fully parent-verified; all started
-  on exact900s deadlines. Nextdue1792412161 (12:16:01 UTC).
+  on exact900s deadlines. #104 started exactly1792412161; nextdue1792413061.
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -71,7 +71,7 @@ Parent verification #103 completed the operator-assisted scan for UID
 - [scan verification](../.archive/executor-review/build-70450-onehundredthird-scan-parent-verification.json)
   and [reopen verification](../.archive/executor-review/build-70450-onehundredthird-ah-reopen-parent-verification.json).
 
-#104 nextdue1792412161.
+#104 started exactly1792412161; #105 nextdue1792413061.
 #102 is fully verified:428observations/2,091rows/416full12bounded/allok,
 479s scan,55.017523s finish-to-serverreceipt,exact900s after101.
 #101 is fully verified:428observations/2,054rows/416full12bounded/allok,
@@ -445,8 +445,12 @@ correct reduced vector is876.026ms. An unaligned consumer can capture a duplicat
 then pay active retry costs exceeding900ms. Luna is replacing that replay with
 the actual runner lifecycle and independent1000ms publisher, preserving its
 genuine outcome. The [alignment amendment](../.archive/PLAN-native-identity-budget-alignment.md)
-is a draft under Sol review. No production alignment edits, long integration
-rerun or source approval until that plan is settled. Assisted collection continues.
+is approved by Sol R2 and parent; [approval evidence](../.archive/executor-review/native-identity-budget-alignment-plan-review-parent-verification.json).
+Luna is implementing production alignment and the actual-run fixture within
+the same four-file scope. Every new cheap validation and target calculation is
+counted as active modeled work; only sleeper duration is wait. Numeric jitter
+cases and the terminal held100 budget exception are pinned in the plan.
+No source approval or installation yet. Assisted collection continues.
 
 ## Next live gates
 
