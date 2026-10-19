@@ -1,6 +1,6 @@
 # Native identity budget plan
 
-Status: proposed for Sol/parent review. This is a plan only; no production or test changes are authorized by this file.
+Status: APPROVED by Sol R2 and parent. Implementation is delegated in an isolated worktree; no production installation until the verification and source-review gates pass.
 
 ## Objective and measured boundary
 

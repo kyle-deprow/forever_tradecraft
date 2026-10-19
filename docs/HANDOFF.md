@@ -49,8 +49,8 @@ observations; no buying, posting or cancelling is part of this task.
   934s after #99 and34s late due to calibration; nextdue1792409461. Its428-item,
   2,015-row sweep finished with0 query failures; fullsave/ACK/reopen is now
   parent-verified. #101 started on its exact900s deadline1792409461.
-- Sole GUI operator continues assisted collection while Sol reviews the new
-  native identity-budget plan. No unchanged native retry or physical GTK gate.
+- Sole GUI operator continues assisted collection while Luna implements the
+  Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
@@ -410,8 +410,10 @@ another142.073ms pre-poll interval containing deferred-owner revalidation.
 Do not double-count backend identity spans inside the capture span. Lock-to-
 screenshot setup117.511ms is not fully split into admission/spawn/protocol I/O.
 
-The [identity-budget plan](../.archive/PLAN-native-identity-budget.md) is proposed
-for Sol/parent review. It targets duplicate full-window resolves on the eligible
+The [identity-budget plan](../.archive/PLAN-native-identity-budget.md) is approved
+by Sol R2 and parent; [approval evidence](../.archive/executor-review/native-identity-budget-plan-review-parent-verification.json). Implementation is isolated in
+`native-identity-budget-20261019` at base1cbaadf with only daemon/calibration
+and their two named test files in scope. It targets duplicate full-window resolves on the eligible
 configured deferred X11 provider while retaining fresh backend pre/post and
 independent runner-post checks plus all cheap owner/generation/lease/process/
 profile/source/B0 and exact pixel/cadence/sequence guards. This is not installed.

@@ -1,0 +1,24 @@
+{
+  "status": "READY",
+  "reviewer": "Sol R2 and parent",
+  "reviewedPlanSha256": "0f78dfc7e60dfa66ce2585b31d8ac9f2c4557381b831e2d4703810bf849e9c48",
+  "currentPlanSha256": "8c1011a224840d629a3c11e1e0c15db16e7c872deda126c1302e4a64909962bc",
+  "onlyPostReviewChange": "Approval status line; implementation requirements unchanged.",
+  "must": [],
+  "should": [],
+  "nits": [],
+  "contract": [
+    "Closed daemon-owned exact-provider update-only eligibility, default false for custom/wrapped/nondeferred paths.",
+    "Immutable construction capability and exact NATIVE state/generation rechecked through pre-Popen admission.",
+    "Trace-derived nonoverlapping delay vector; active work separated from deliberate alignment wait.",
+    "Real provider scheduling replay and actual configured-producer100-update composition with per-attempt timings/callcounts."
+  ],
+  "implementationScope": [
+    "src/crowley/session/daemon.py",
+    "src/crowley/session/calibration.py",
+    "tests/test_session_runtime.py",
+    "tests/test_native_calibration_operator.py"
+  ],
+  "implementationWorktreeBase": "1cbaadf",
+  "installed": false
+}
