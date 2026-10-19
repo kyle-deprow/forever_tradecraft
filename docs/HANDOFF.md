@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 15:39 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 15:46 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,20 +51,20 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#116**:
+Latest fully parent-verified cycle **#117**:
 
-- UID `beta-normal-alliance-1792423311-Arthur-0204`;
-- start1792423311, finish1792423793:482s;428 observations/2,137 rows;
-- 412 full/16 bounded, all428 `ok`, zero query failures;
-- exactly900s after115;38.904579s finish-to-server receipt;
+- UID `beta-normal-alliance-1792424211-Arthur-7573`;
+- start1792424211, finish1792424690:479s;428 observations/2,063 rows;
+- 413 full/15 bounded, all428 `ok`, zero query failures;
+- exactly900s after116;36.831037s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredsixteenth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredsixteenth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredseventeenth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredseventeenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792424211 (15:36:51UTC). Sole operator continues full
+Next ordinary deadline1792425111 (15:51:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..116 all have verified exact900s starts.
+or physical-input retry yet. Scans108..117 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
@@ -213,7 +213,10 @@ coverage. [R2 findings](../.archive/executor-review/native-capture-ack-sol-sourc
 The closure plan is amended. Luna is implementing all three corrections in
 NEW isolated worktree `native-ack-source-r2-20261019` (base1cbaadf plus exact
 R7 six files). The original `native-identity-budget-20261019` remains frozen for comparison.
-Actual Opus R1 completed NEEDS WORK; see below. Parent will test and review
+Actual Opus R1 completed NEEDS WORK; see below. Its model-fidelity findings
+supersede the earlier characterization claims: reduced mode failed a fixture
+binding guard, and replay omitted0.167ms glue plus virtual retry waits. Prior
+outputs remain preserved, but final acceptance requires corrected reruns. Parent will test and review
 the new final six hashes. No installation.
 
 Required exact long node after final focused checks, pins and milestone:
