@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:46 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 15:04 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,20 +51,20 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#113**:
+Latest fully parent-verified cycle **#114**:
 
-- UID `beta-normal-alliance-1792420611-Arthur-0821`;
-- start1792420611, finish1792421087:476s;428 observations/2,146 rows;
-- 413 full/15 bounded, all428 `ok`, zero query failures;
-- exactly900s after112;30.120801s finish-to-server receipt;
+- UID `beta-normal-alliance-1792421511-Arthur-0996`;
+- start1792421511, finish1792421986:475s;428 observations/2,112 rows;
+- 414 full/14 bounded, all428 `ok`, zero query failures;
+- exactly900s after113;29.113818s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredthirteenth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredthirteenth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredfourteenth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredfourteenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792421511 (14:51:51UTC). Sole operator continues full
+Next ordinary deadline1792422411 (15:06:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..113 all have verified exact900s starts.
+or physical-input retry yet. Scans108..114 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
@@ -148,7 +148,8 @@ ordinal mismatch or hide active work. Preserve pinned cases and900ms active
 budget; count all actual validations/ACK admission and retry work. Held100 is
 separately outside streaming work bound but retains every exact terminal proof.
 
-**Current action: Luna implements the consolidated five-Must fix round.**
+**Current action: source/model/operator fixes are frozen; Luna corrects only
+the final boundary tests before another source review.**
 Sol formal source-review R1 was NEEDS WORK; parent accepted all findings:
 
 1. Notify actual retained held100 evidence after all checks/resume_required and
@@ -184,6 +185,18 @@ outside pytest retention under private
 `native-ack-parent-focused-r2-20261019T1420Z/failed-compiled100-artifacts`.
 Full R2 source pins/snapshots/logs are in that private parent directory.
 Worker logs: private `native-identity-budget-alignment-20261019/`.
+
+R3 worker exact compiled100 PASSED135.83s with sealed retained-path/hash checks.
+Parent independently reproduced10 short checks, all7 timing cases135.95s, and
+old/reduced/aligned characterization24.51s. Positive active maxima<=888.909ms;
+phase951 naturally refused, and negative budgets exceeded900ms. [Parent model
+and remaining boundary-test gate](../.archive/executor-review/native-ack-parent-r3-model-and-boundary-gate.json).
+Parent immutable verification WT is `native-ack-parent-verify-20261019`, with
+private snapshots/logs under `native-ack-parent-r3-20261019/`. The worker's R5
+native tests were reopened: their final-lock gate can hit an earlier nested lock
+and incorrectly accept a fixture timeout. Parent preserved exact R5 test bytes;
+Luna must bind the intended callsite and use real predeclared expiry. Other5
+files remain frozen at R3 pins; Sol/Opus source approval is still pending.
 
 Required exact long node after final focused checks, pins and milestone:
 

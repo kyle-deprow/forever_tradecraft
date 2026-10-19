@@ -1,0 +1,101 @@
+{
+  "status": "PARTIAL_OFFLINE_GATES_PASS_BOUNDARY_TEST_FIX_PENDING",
+  "source_hashes": {
+    "src/crowley/session/calibration.py": "86627fdb495cbabbd04456f33dfe8693a1ef2ef45e7952fca3ee2167ce8107e7",
+    "src/crowley/session/daemon.py": "90a41328692ed543f602b5b7ee7ece22a730ba02118d898d681e2b8180e2fbca",
+    "src/crowley/session/driver.py": "200c347dae3e8e2c18d0262b1feb2e041f4c3414afedba2b756210e6fb2d6bda",
+    "tests/test_native_calibration_operator.py": "8ebfcdccfabfc41f3d25e33571f04f37f132f6cc567a7b94dff3614ca4a66dba",
+    "tests/test_session_native.py": "7d09a629f6bc4732582ca8594ee785c7251056e2137815015ab71db0b570b12c",
+    "tests/test_session_runtime.py": "0fd2868fbf3734079c1f8024e723ad466a715a888cb4926c3fa8d02ebd9ed667"
+  },
+  "parent_short": {
+    "cases": 10,
+    "returncode": 0,
+    "log_sha256": "b1fa9e8a2c31c3f7137de122ec0764fbd7aeb5970cd5a424b725f60d808342e8"
+  },
+  "parent_seven_case_model": {
+    "returncode": 0,
+    "wall_seconds": 135.94785260601202,
+    "source_unchanged": true,
+    "log_sha256": "c49fa90100f487b139d8b0f02af3433fb279978f7c178f86be9e2dcf318ae221",
+    "cases": [
+      {
+        "case": "reference",
+        "error": null,
+        "max_active_transition_ms": 882.4090000000001,
+        "requested_phase_age_ms": 0.0,
+        "first_phase_age_ms": 0.0,
+        "timeline_sha256": "8b61370f9eb5069eed10ac5ea22a6d471ad1da125f0f0075e89e7415e89c156c"
+      },
+      {
+        "case": "slower",
+        "error": null,
+        "max_active_transition_ms": 888.4090000000001,
+        "requested_phase_age_ms": 500.0,
+        "first_phase_age_ms": 500.0,
+        "timeline_sha256": "2b209540eb5a6d1846d38d5d88bb7901b84af0be639822888439ad98f34898a2"
+      },
+      {
+        "case": "alternating",
+        "error": null,
+        "max_active_transition_ms": 888.9090000000142,
+        "requested_phase_age_ms": 0.0,
+        "first_phase_age_ms": 0.0,
+        "timeline_sha256": "8433502bb63f054cc838a63fe5f4536cebf3a76433f7d79bcee0d951d9e8e6f8"
+      },
+      {
+        "case": "phase900",
+        "error": null,
+        "max_active_transition_ms": 882.4090000000001,
+        "requested_phase_age_ms": 900.0,
+        "first_phase_age_ms": 899.9999999941792,
+        "timeline_sha256": "0c019e0a43c70e31c51cf194400f4d975be8e59a7a5269da2d8ab7d7c5673727"
+      },
+      {
+        "case": "overbudget",
+        "error": null,
+        "max_active_transition_ms": 961.4090000000001,
+        "requested_phase_age_ms": 0.0,
+        "first_phase_age_ms": 0.0,
+        "timeline_sha256": "2f90d63b7dcb6d1bd85ab69803cad9973c4922743d058bb3bfe2286f240c8e00"
+      },
+      {
+        "case": "phase951",
+        "error": "CalibrationError(\"native update 2 measurement failed: native updates/2 returned 'updates'/3\")",
+        "max_active_transition_ms": 0.0,
+        "requested_phase_age_ms": 951.0,
+        "first_phase_age_ms": 950.9999999718275,
+        "timeline_sha256": "b9d920455ef125b104f6d095442163cadcdea3ed86b4374a47df4da500a4bc7f"
+      },
+      {
+        "case": "publisher1100",
+        "error": null,
+        "max_active_transition_ms": 1436.827,
+        "requested_phase_age_ms": 0.0,
+        "first_phase_age_ms": 0.0,
+        "timeline_sha256": "dec9385abe8e412b328d164fd54f1166d5cf46f01f8e1e2a75383f43568d944c"
+      }
+    ],
+    "passing_max_active_ms": 888.9090000000142
+  },
+  "parent_old_reduced_aligned_characterization": {
+    "returncode": 0,
+    "wall_seconds": 24.505842426005984,
+    "log_sha256": "3f9ce8e6fe2f5091d12607f9294ed1b6c59fae5d42c30e91d17deb27e62b9e22",
+    "scope": "Asserts natural old/reduced failure or overrun and successful aligned completion; no per-mode numeric metrics claimed."
+  },
+  "worker_exact_compiled100": {
+    "node": "test_actual_operator_measure_composes_x11_screen_daemon_and_agent[success]",
+    "reported_pytest_seconds": 135.83,
+    "log_sha256": "b6be3f565174d886d057ad0b96fbcd35e10254694fd148a102e3cbb192c6dbc0",
+    "result": "PASS with sealed retained terminal path/hash assertions; parent independent reproduction still required"
+  },
+  "remaining_test_findings": {
+    "inspected_native_test_sha256": "aa5175fe0942a0c49f8cd894136b48483ea9e0992071150cb585ee8d0a38a155",
+    "basis": "Parent source inspection; no runtime reproduction of this false-positive claimed.",
+    "detail": "Final-lock barrier gates first Guardian acquisition, potentially nested inside earlier capability validation; expiry mutation then contends for construction lock and fixture DriverError timeout can satisfy broad expected refusal.",
+    "fix": "Bind barrier to exact final transaction callsite, make fixture timeout a test failure, predeclare deadlines and allow real expiry without acquiring locks held by capture thread.",
+    "scope": "Only native tests reopened; production/model/operator hashes remain frozen."
+  },
+  "qualification": "No source approval, installation, live calibration or autonomous cycles. Sol re-review, actual Opus, parent compiled100 and live gates remain."
+}

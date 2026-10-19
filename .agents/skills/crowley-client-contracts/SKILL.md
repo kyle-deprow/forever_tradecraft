@@ -75,6 +75,9 @@ deadline error from an earlier outer check does not establish the inner guard.
 An absent entry marker proves nothing if the fixture never enabled it. Arm the
 entry barrier and prove a successful control creates that marker before using
 its absence as a zero-side-effect oracle.
+Fixture-barrier timeouts must fail the test, never satisfy an expected production
+refusal. Bind lock barriers to the intended call site; the first nested acquisition
+can block earlier while holding a lock the test itself then needs.
 Keep the failing owner alive through its normal error handler before recreating
 it from disk. Immediate owner destruction can hide a catch path that persists
 partly mutated counters over the recoverable checkpoint.
