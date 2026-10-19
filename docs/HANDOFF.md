@@ -111,15 +111,25 @@ were already required; this is NOT a full-suite pass. Luna's corrected R2
 composition passed143.64s in the worker, reporting99 updates and365.881ms worst
 active work. Parent froze R2 and independently reproduced one remaining lifecycle
 bug:5/5 real owned C ELF timeout trials returned with the exact child unreaped.
-Parent reaped all fixtures. Cleanup reused an exhausted observation deadline for
-wait(0) and suppressed failure without retained reaper ownership. Luna is fixing
-only that observer lifecycle/test seam, including actual timeout/cancel/pipe
-cleanup assertions; no full parent R2 composition or formal source review occurred.
-[Parent R1 proof](../.archive/executor-review/native-observer-r1-parent-verification.json)
-and [R2 cleanup proof](../.archive/executor-review/native-observer-r2-parent-cleanup-verification.json).
-Sol and actual CLI Opus source review have not started. The narrow
+Parent reaped all fixtures. R3 corrected the bounded process cleanup; parent's
+independent5-trial real-ELF probe passed with no FD growth. The frozen production
+observer/driver/full-native suite passed232tests389.04s. The composed check then
+failed before measurement at simulatedConstruct mouseup ACK. A deterministic
+private replay confirmed the fixture's multi-write log records can be consumed as
+EOF fragments, losing the exact ACK; retained history does not prove the precise
+past fragment interleaving. Luna corrected only the operator TEST writer/reader
+and its barrier regression. Parent reproduced that regression successfully.
+Existing nonzero-screen-before-pin regression exposed one tiny constructor-order
+regression (1failed3passed in the scoped run); Luna now fixes the existing screen
+validation order in driver.py and will rerun scoped checks/final composition.
+No full232-suite rerun is needed for that small ordering branch and the separate
+test-only framing correction; preserve the R3 result and exact source delta.
+[Parent R1 proof](../.archive/executor-review/native-observer-r1-parent-verification.json),
+[R2 cleanup proof](../.archive/executor-review/native-observer-r2-parent-cleanup-verification.json),
+[R3 verification](../.archive/executor-review/native-observer-r3-parent-verification.json).
+Sol and actual CLI Opus formal source review have not started. The narrow
 finalize/recheck terminal-reread patch remains within the approved plan extension;
-its forced real-finalize regression passed independently as recorded above.
+its forced real-finalize regression passed independently1 case23.11s earlier.
 No unchanged live native retry is authorized.
 The compact client-contract skill now explicitly distinguishes separate component
 and mocked-identity composition evidence.

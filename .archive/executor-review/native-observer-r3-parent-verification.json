@@ -1,0 +1,38 @@
+{
+  "status": "NEEDS_DISPLAY_ORDER_CORRECTION",
+  "stage": "Parent pre-review development verification R3",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "53c753ccb7557a7277725cf83caedef5a15e16edaced769e4ea23d7ede69d825",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "35563c91ef75408dd48ca4843cc45aa779c22e60686a78f18fe74240dc017d0f",
+    "src/crowley/session/driver.py": "0d0e1ad5a6cbb82b96b6b2288e4c35e2e5159d4de8be07d0fcc9ea74761774de",
+    "tests/test_native_calibration_operator.py": "d63c15afe394e1500286be1e74338ffd4f9cf3ce630c823570bcc2c192008923",
+    "tests/test_session_driver_actions.py": "7e1242290958540d59dcea64a74784da47cb887fae20bcec385773f6201d884c",
+    "tests/test_session_native.py": "8a2eb509900435d5966f7aa2b2b9b12238dea12b645d38bae986c7359576d6f7",
+    "tests/test_session_native_regressions.py": "480b9ebb9eaae22ae13676057329d908102c07ce7be100ea6abc9b355c21d430",
+    "tests/test_x11_identity_observer.py": "2079fd0a524637aea0277b70a11d076949d7d694980ceea54c35b42f65141326",
+    "tools/build_x11_identity_observer.py": "974c695fa14145110bc22f8e0b74c27282462462802669f724bb115d87b3b9e2",
+    "tools/native_calibration_operator.py": "9e688fd3ce5f0dc8026784273f0c9fe9171539c1768167c56d55566fd0c4001f"
+  },
+  "independentChecks": {
+    "timeoutCleanup": "PASS5/5 exactownedC-ELF timeouts; everychildreaped; FD5before/5after",
+    "observerDriverFullNative": "PASS232tests389.04s. Production+these3testfilesremainedR3; unrelated operator TESTfile framing correctionoccurredinparallel and is notpartofthissuite.",
+    "fragmentDisplayConstructor": "Fragment+2constructorchecksPASS; existingnonzero-screen-before-pincheckFAIL (1failed3passed26deselected).",
+    "realComposition": "FAILEDbeforemeasurement: firstconstructmouseuprecordreceivednoACK; watchdogmouseupACKexists; emitterERRORreportedreleasefailure.",
+    "parentPathFailure": "Earlierlongprivatebasetemp exceededAF_UNIXpathlimit; parentrunnernowuses shortprivate/tmp. Thiswasparenttestharnesspathselection, notcandidatefault."
+  },
+  "diagnosis": "Private deterministicprobe confirms multifragment recorderlinecanbeconsumedatEOF before newline; prefixdiscard and emptyPID ACKloseexactactionACK. Finalfailurelogdoesnotprovethehistoricalpartialreadsequence.",
+  "remaining": "Fixturewriter/readerframingfixedinoperatorTESTfile; tinyexistingnonzero-screenvalidationorderfixauthorizedindriver; scopedretestandfinalrealcompositionmustpassbeforeformalreview.",
+  "logSha256": {
+    "real-composition.log": "7fd6aeed0eb984cf624772ce890b31573303238b6263d3122c1a20732d9e4329",
+    "component-driver-full-native.log": "9e0d112576aaf98baf4bec6ffc6b14a5ef1a1f490680262a277a748906d3d266",
+    "fragment-display-constructor.log": "24ed0d7a11b1e0671cf24859d95e14056f1d41f92514f5719d4cd4435bd18f73"
+  },
+  "timeoutProbeSha256": "d84e10a58fa04dda31980c281bc10945a9cd8eaff99be02bfbec44c0991c5984",
+  "partialReadProbeSha256": "226e1926a840d247f1d9588889be95554c08ce0ba6fa4ee3339315c67fe743c9",
+  "formalSolOpusReview": "NOT_STARTED",
+  "liveInstallation": false,
+  "autonomousQualificationCycles": 0
+}

@@ -40,6 +40,10 @@ Derive phase deadlines and terminal controller states from the real producer's
 lifecycle, not field names or scripted replies that preserve an earlier state.
 Trace integration failures to the actual guard before blaming development inputs;
 verify the exact constructor call before claiming an unavailable-resource blocker.
+When a fixture tails an action log, consume only complete newline records and
+validate PID/argument count before dispatch or ACK; retain an incomplete fragment
+at its original offset. A missing ACK locates the boundary, not the cause.
+Distinguish a reproduced interleaving from proof of the historical byte sequence.
 For restart checks, create a fresh driver and owner without process-local evidence.
 For owner-death tests, signal the actual helper owner PID, not its emitter child.
 Prove independent release and reservation cancellation while that owner is dead;
