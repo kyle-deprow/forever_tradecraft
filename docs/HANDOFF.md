@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 08:04 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 08:27 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -35,28 +35,34 @@ observations; no buying, posting or cancelling is part of this task.
 - The corrected service restarted successfully at 08:03:22 UTC, PID 781512,
   initially PAUSED at generation 27 with native/input false and idle calibration
   operation/handshake. The restart advanced the generation from 26 to 27.
-  Luna is released for fresh recovery/preflight/native100/pause/ordinary recovery.
-  Read actual status before any transition; do not replay generation 27 after
-  the live chain advances it. Do not restart merely to inspect this handoff.
+  Fresh preflight passed, but the subsequent attempt refused the initial closed
+  chat readback before input or native samples. Pause and fresh recovery succeeded;
+  the latest public state is PAUSED generation 29, native/input false, idle
+  operation/handshake. Assisted scan #89 is now fully verified. Luna is
+  continuing assisted collection after fresh staged-command evidence rejected
+  the first OCR candidate. The implementation worker is diagnosing a revised
+  editor-state guard offline; no new source change is released yet.
+  Read actual status before every transition.
+  Do not restart merely to inspect this handoff.
 - Current work must preserve fresh evidence generations, exact commands, and
   the physical game-window boundaries. Do not infer a live result from a stale
   screenshot, a private fixture, or an external OCR crop.
 
 ## Latest accepted collection
 
-Parent verification #88 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792396249-Arthur-9558`:
+Parent verification #89 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792397292-Arthur-2445`:
 
-- 428 observations, 2,060 rows, 416 full and 12 bounded observations, all 428
+- 428 observations, 2,085 rows, 416 full and 12 bounded observations, all 428
   with reason `ok`;
-- 479-second scan, 29.828405 seconds from finish to the server receipt;
+- 481-second scan, 29.818305 seconds from finish to the server receipt;
 - exact saved-variable/server digest agreement and an independently decoded
   loaded ACK with pending 0, followed by verified auction-house reopening,
   fresh ordinary boot, normal native phase, inactive fence, released button,
   and zero movement;
 - the scan/reopen receipts are public in
-  [scan verification](../.archive/executor-review/build-70450-eightyeighth-scan-parent-verification.json)
-  and [auction-house reopen verification](../.archive/executor-review/build-70450-eightyeighth-ah-reopen-parent-verification.json).
+  [scan verification](../.archive/executor-review/build-70450-eightyninth-scan-parent-verification.json)
+  and [auction-house reopen verification](../.archive/executor-review/build-70450-eightyninth-ah-reopen-parent-verification.json).
 
 #87 and #88 both started exactly 900 seconds after their predecessors and are
 fully saved/ACKed/reopened. #86 had a 1,086-second interval, 186 seconds late
@@ -67,11 +73,20 @@ stationary and released controls. The ordinary #89 due time, `1792397149`
 (08:05:49 UTC), may intentionally be replaced by calibration. Retain the actual
 resulting gap. Root must not mutate the controller while Luna owns the live chain.
 
-The latest private backup is `beta-20261019T071147Z-11a0798b1d0b`, independently
-validated after #85 ingestion, directory mode 0700. Manifest SHA256:
-`db5c48d13f1d67ea6efe55af2577e311d7df0fcde7050d7661513325fbda7828`.
-See [backup verification](../.archive/executor-review/market-backup-20261019T071147Z-parent-verification.json).
-Next hourly backup: 08:12 UTC. Prior isolated restore drill passed; repeat only
+#89 actually started at `1792397292` (08:08:12 UTC), a 1,043-second interval
+after #88 and 143 seconds late because of calibration cleanup. It is fully
+saved/ACKed/reopened. Its next ordinary deadline is `1792398192` (08:23:12 UTC),
+which may intentionally be replaced by the OCR evidence and calibration gates.
+
+#90 actually started at `1792398296` (08:24:56 UTC), a 1,004-second interval
+after #89, 104 seconds late after evidence collection. Its next deadline is
+`1792399196` (08:39:56 UTC). Luna owns its full completion/save/ACK/reopen chain.
+
+The latest private backup is `beta-20261019T081155Z-5ce06f7c778f`, independently
+validated after #88 ingestion, directory mode 0700. Manifest SHA256:
+`f767cb84f4f83c0055725595d289ee5c8535490caafc1cd04badf983805a08eb`.
+See [backup verification](../.archive/executor-review/market-backup-20261019T081155Z-parent-verification.json).
+Next hourly backup: 09:12 UTC. Prior isolated restore drill passed; repeat only
 if new evidence warrants it. Raw backup data stays private.
 
 ## Accepted installed release
@@ -166,7 +181,7 @@ Helper CLI takes `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use actual returned generations; never guess or replay an old transition.
 
-## Current blocker: native publication versus capture cadence
+## Native publication correction and current chat blocker
 
 Actual gen25 measure-deferred reached construction/hold/measure with all entered
 commands accepted, then refused `native update 2 publication cadence is not 1Hz`.
@@ -213,16 +228,44 @@ and six default desktop lease refusals. These unchanged fixtures need separate
 isolation/maintenance; do not claim that suite passed or weaken the live lease.
 The actual compiled helper integration passed independently against the fix.
 
-The accepted three files were promoted and the service restarted after #88.
-Luna now owns fresh live qualification. No live native100 success is claimed
-yet, and no human input is needed until native100 and ordinary recovery pass.
+The accepted three files were committed and pushed as `7d33d11`, and the service
+restarted after #88. Fresh gen27 preflight passed. Gen28 measure-deferred then
+refused the first closed-chat readback before any key/text dispatch or native
+sample. Public pause advanced to 29 and canonical recovery succeeded; parent
+independently decoded the ordinary stationary post-recovery frame. See
+[live refusal and recovery](../.archive/executor-review/native-publication-cadence-live-chat-refusal-parent-verification.json).
+
+Exact production OCR on the retained failed crop returns `el a a ee`. The
+empty text interior has no pixels above threshold 45 outside its first row;
+that row contains the brighter frame border. Comparing an accepted closed crop
+shows the same texture brightened by the composited background. Do not whitelist
+the OCR output. The [R3 correction plan](../.archive/PLAN-native-chat-ocr-border-r3.md)
+was approved after correcting the mask ordering, but its isolated candidate
+failed the required fresh full-frame promotion gate. Parent checked 24 original
+frames: 22 passed; closed case 6 still OCRed changing world/character texture as
+text, and typed case 8 lost the visible slash from `/reload`. See the
+[candidate rejection](../.archive/executor-review/native-chat-border-r3-rejection-parent-verification.json).
+
+The rejected helper is preserved privately and remains only in
+`/home/dev/.cache/crowley/worktrees/native-chat-border-r3-20261019`; MAIN helper
+is still 1cbc51f8. Do not promote it or mask more rows blindly. Luna is measuring
+a deterministic visual editor-state guard while preserving original typed OCR.
+Any revised implementation needs a reviewed plan, actual full-frame closed and
+open-empty/nonempty evidence, meaningful refusal tests, full helper checks,
+parent reproduction and Sol/actual Opus review. A helper-only correction needs
+no service restart.
+The failed attempt retained only a crop, so do not claim its full frame exists.
+
+Luna is preserving assisted collection while diagnosis proceeds. No live
+native100 success is claimed, and no human input is needed until native100 and
+ordinary recovery pass.
 
 ## Next live gates
 
 Run these gates in order, preserving the fresh generation and the exact command
 history in each receipt:
 
-1. Luna has completed #88 save/upload/ACK/reopen; parent independently verified
+1. Luna has completed #89 save/upload/ACK/reopen; parent independently verified
    the original payload, DB, exact ACK, ordinary state and released controls.
 2. If a checkpoint exists, recover it first. A failed checkpoint recovery blocks
    the next calibration attempt until a fresh recovery attempt completes.

@@ -1,0 +1,34 @@
+{
+  "status": "LIVE_HELPER_REFUSED_BEFORE_NATIVE_MEASUREMENT",
+  "installed_calibration_sha256": "20fe37ca1bc8b69cae1aa8f3ce559ac08f822bd666243e303f249f4857a4a3ae",
+  "helper_sha256": "1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211",
+  "preflight": {
+    "generation": 27,
+    "outcome": "success",
+    "receipt_sha256": "4ee70a80b1d26bb56cf781a24fd7673b7d6c6def9860ebed39c4cf3d41b23f52"
+  },
+  "attempt": {
+    "generation": 28,
+    "failure_code": "chat_readback_refused",
+    "receipt_sha256": "02a582f56f61e4c5c7111941f89bcc318fa204c8e5ce6aebaa6796e14ef2113b",
+    "stage": "initial closed-chat readback",
+    "key_or_text_dispatch": false,
+    "native_samples": 0
+  },
+  "cleanup": {
+    "generation": 29,
+    "public_state": "PAUSED",
+    "recovery": "success",
+    "receipt_sha256": "4c97066162dffd36ba7395f79f8f425cb192890389553a496a6def9a6641dc46",
+    "independent_original_scene_decode": true,
+    "scene_sha256": "ae24840a276cd78f8e20d9e2eae8073c202653d475b7e5c244ac9f9715958e8e",
+    "boot": "1792397159-211468",
+    "sequence": 99,
+    "ordinary": true,
+    "pending": 0,
+    "ah_open": false,
+    "fence": "inactive",
+    "character_speed": 0
+  },
+  "qualification": "Installed clock correction remains live-unqualified. Fresh post-recovery ordinary frame does not reconstruct the pre-failure chat state. Sole GUI is restoring assisted cadence while the retained failed crop is diagnosed; no blind native retry or guard relaxation."
+}

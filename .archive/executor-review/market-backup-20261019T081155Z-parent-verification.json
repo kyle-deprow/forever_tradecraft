@@ -1,0 +1,11 @@
+{
+  "status": "PASS",
+  "snapshot": "beta-20261019T081155Z-5ce06f7c778f",
+  "manifestSha256": "f767cb84f4f83c0055725595d289ee5c8535490caafc1cd04badf983805a08eb",
+  "independentValidation": true,
+  "directoryMode": "0700",
+  "latestCompletedOperatorAssistedCycle": 88,
+  "currentCycle89NotYetIngested": true,
+  "qualification": "Private hourly snapshot validated after scan88 ingestion. Raw archive/database metadata and receipts remain private. Prior isolated restore drill remains qualified; no repeat without new need.",
+  "nextHourlyBackupUtc": "2026-10-19 09:12 UTC"
+}

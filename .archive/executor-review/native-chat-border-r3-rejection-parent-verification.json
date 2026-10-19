@@ -1,0 +1,38 @@
+{
+  "status": "REJECTED_BEFORE_PROMOTION",
+  "candidate_helper_sha256": "b784b58c5e6f0d33087f554d5535a1376ce761334c8d3699f956b760aa84c372",
+  "installed_helper_unchanged": "1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211",
+  "fresh_original_full_frame_receipt_sha256": "806c14992dea27eeab2f1445d82f7c2f299cb476c15ed7faafc6d4c484060e4a",
+  "parent_independent_checks": {
+    "original_image_hashes": "PASS",
+    "original_geometry": "1920x1080",
+    "chat_crop": [
+      30,
+      938,
+      460,
+      37
+    ],
+    "count": 24,
+    "passed": 22,
+    "failures": [
+      {
+        "case": 6,
+        "kind": "closed after Escape",
+        "expected": "",
+        "old_normalized": "nn ee fs a eee",
+        "candidate_normalized": "~ \u00bbo sa has 7s _-",
+        "observed_cause": "Actual changing world/character texture behind the inactive transparent editor; no command text."
+      },
+      {
+        "case": 8,
+        "kind": "typed",
+        "expected": "/reload",
+        "old_normalized": "/reload",
+        "candidate_normalized": "reload",
+        "observed_cause": "Leading slash is visibly present in original frame but lost by candidate OCR segmentation."
+      }
+    ]
+  },
+  "arbitration": "No promotion or live unchanged retry. Preserve original typed OCR while measuring a deterministic editor-state guard. Revise and review plan before another source change. Assisted collection continues under sole GUI owner.",
+  "qualification": "Candidate failures preserved; no helper release or native100 qualification."
+}
