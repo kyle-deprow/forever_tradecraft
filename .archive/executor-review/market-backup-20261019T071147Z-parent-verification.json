@@ -1,0 +1,7 @@
+{
+  "status": "PASS",
+  "snapshot": "beta-20261019T071147Z-11a0798b1d0b",
+  "manifestSha256": "db5c48d13f1d67ea6efe55af2577e311d7df0fcde7050d7661513325fbda7828",
+  "mode": "0700",
+  "validation": "Independent validate_snapshot completed without error; after scan85 ingestion; contents remain private."
+}

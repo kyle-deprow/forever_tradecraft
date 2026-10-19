@@ -1,0 +1,56 @@
+{
+  "status": "PREFLIGHT_SUCCESS_NATIVE_RUNNING",
+  "sourceHelperSha256": "1cbc51f825fe775847733801354d80ad250201ac0b9e8c5eeb4842980dfad211",
+  "preflightReceiptSha256": "25159980829f243a73ce90332bbd2e07bf55f73a57eb09ef57d93cb3ef9f4b21",
+  "events": [
+    "cancellation_actor_ready",
+    "cancellation_actor_updated",
+    "prepared",
+    "capture",
+    "key_dispatch",
+    "text_dispatch",
+    "capture",
+    "chat_readback",
+    "key_dispatch",
+    "chat_submitted",
+    "capture",
+    "click",
+    "cancellation_actor_updated",
+    "recovery_begin",
+    "daemon_recheck_summary",
+    "capture",
+    "key_dispatch",
+    "text_dispatch",
+    "capture",
+    "chat_readback",
+    "key_dispatch",
+    "chat_submitted",
+    "capture",
+    "click",
+    "reload_boundary",
+    "recovery_complete",
+    "terminal",
+    "daemon_recheck_summary"
+  ],
+  "chatReadbacks": [
+    {
+      "accepted": true,
+      "command": "/crowley agent defer"
+    },
+    {
+      "accepted": true,
+      "command": "/crowley agent recover"
+    }
+  ],
+  "parentPublicStatus": {
+    "state": "NATIVE_CALIBRATION",
+    "generation": 25,
+    "nativeCalibration": false,
+    "inputCalibration": false,
+    "nativeHandshake": "running",
+    "operationKind": "native",
+    "operationState": "running",
+    "operationError": ""
+  },
+  "qualification": "Actual live recovery and control preflight succeeded; native measurement running. Native100/ordinary final recovery/human/autonomous remain unqualified."
+}
