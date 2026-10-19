@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:00 UTC. This is the active operational handoff. The exact
+Updated 2026-10-19 14:02 UTC. This is the active operational handoff. The exact
 617-line handoff that preceded this consolidation is preserved in the
 [pre-consolidation history](../.archive/executor-review/handoff-history-before-consolidation-20261019T0707Z.md).
 
@@ -52,7 +52,7 @@ observations; no buying, posting or cancelling is part of this task.
   on exact900s deadlines. After #106 the client disconnected (WOW51900319).
   Normal reconnect succeeded without credentials. Parent decoded retained reopen
   bytes: #107 started1792415211,350s late, and is now fully parent-verified.
-  #108 and #109 are fully parent-verified after exact900s starts. Latest109 start1792417011; nextdue1792417911.
+  #108 and #109 are fully parent-verified after exact900s starts. Latest110 start1792417911; nextdue1792418811.
 - Sole GUI operator continues assisted collection while Luna implements the
   Sol R2/parent-approved native identity-budget plan in an isolated worktree. No unchanged native retry or physical GTK gate.
   Obtain fresh controller state/generation before any future mutation.
@@ -62,19 +62,21 @@ observations; no buying, posting or cancelling is part of this task.
 
 ## Latest accepted collection
 
-Parent verification #109 completed the operator-assisted scan for UID
-`beta-normal-alliance-1792417011-Arthur-0161`:
+Parent verification #110 completed the operator-assisted scan for UID
+`beta-normal-alliance-1792417911-Arthur-4490`:
 
-- 428 observations, 2,139 rows, 413 full and 15 bounded, all `ok`;
-- 478-second scan, 54.458005 seconds from finish to server receipt;
-- exact900-second start interval after #108;
+- 428 observations, 2,132 rows, 413 full and 15 bounded, all `ok`;
+- 478-second scan, 28.383301 seconds from finish to server receipt;
+- exact900-second start interval after #109;
 - exact saved-variable/server digest agreement and independently decoded exact
   loaded ACK/pending0, reopened AH, ordinary normal0/inactive fence, released
   controls and zero movement;
-- [scan verification](../.archive/executor-review/build-70450-onehundredninth-scan-parent-verification.json)
-  and [reopen verification](../.archive/executor-review/build-70450-onehundredninth-ah-reopen-parent-verification.json).
+- [scan verification](../.archive/executor-review/build-70450-onehundredtenth-scan-parent-verification.json)
+  and [reopen verification](../.archive/executor-review/build-70450-onehundredtenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792417911 (13:51:51 UTC).
+Next ordinary deadline1792418811 (14:06:51 UTC).
+#109 is fully verified:428observations/2,139rows/413full15bounded/allok,
+478s scan,54.458005s finish-to-serverreceipt,exact900s after108.
 #108 is fully verified:428observations/2,102rows/414full14bounded/allok,
 478s scan,77.555394s finish-to-serverreceipt,exact900s after107.
 #107 is fully verified:428observations/2,098rows/413full15bounded/allok,
@@ -174,7 +176,7 @@ the publisher after its first screenshot and permitted the phase951 negative
 without actual runner refusal or budget failure. [Parent inspection findings](../.archive/executor-review/native-ack-model-reanchoring-parent-rejection.json).
 Preserve those results as partial evidence only. Luna is correcting the fixture;
 no source freeze, installation or live qualification has occurred. Assisted110
-started1792417911 on its exact deadline; fullchain verification remains pending.
+started1792417911 on its exact deadline and is now fully parent-verified.
 
 ## Accepted installed release
 
