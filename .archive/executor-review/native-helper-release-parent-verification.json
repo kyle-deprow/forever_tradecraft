@@ -1,0 +1,26 @@
+{
+  "returncode": 0,
+  "elapsed": 367.9763810634613,
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/pytest",
+    "-q",
+    "tests/test_native_calibration_operator.py",
+    "--disable-warnings"
+  ],
+  "sourceHashes": {
+    "tools/native_calibration_operator.py": "6f8f87efad4e818d3c401d600d7fabe34d8ba48c405832ff20e53924bb5ddbac",
+    "tests/test_native_calibration_operator.py": "39f7c5c769e9769561f44d45b9cd6b759ae329fec45ef9aa6ba4a0ae45503bee",
+    "src/crowley/session/cli.py": "df59d15c05fc1ae723b99927ce3cecefacd418442ffd08f8e4b75ee349041220",
+    "src/crowley/session/controller.py": "dcdc7387e9c0f39bec3473e1bcfaa9a8c108987fd03c67a7029f84fa876b82e4",
+    "src/crowley/session/daemon.py": "5c55f9b3080649cebf7bb57fbdcd14f69ddcbac83f5172500ba045c745d9ea58",
+    "tests/test_session_native.py": "bd719bb26e25ae23583658680d26a14fcf45defbd03f1887f4a4fa7e9b55f1ef",
+    "tests/test_session_native_regressions.py": "253245cf4f55c6ad9265d008d4598127ba4cbbde842c72e46dcd8ea9c8e7f6ce",
+    "tests/test_session_runtime.py": "d762163925d61d5a42d40123fa9815fabe7bb24a2f0382726fd8bc33ca3f616f",
+    "tests/test_session_transitions.py": "6b0bc711eedad30c4bc400584fb4357ce7e53784542be5e39aaa45959cc08293",
+    "addon/Crowley/Agent.lua": "d8f181d5ed2141066e97a42fa8fedfa04acb15aaeb718ff33e41ea44a2ab4441",
+    "tests/test_addon.py": "e2f2de9f0b69ad6d541d18bce4389db70f792026147c3afdbc528d1f851a3133",
+    "tests/wow_harness.py": "d58ea219de6c5d723e8fc152aeb9ed40d521d27fc9d7216b4a47561c7fe1f206"
+  },
+  "logSha256": "8e4e0f121b77fe7f0585c4e91e19e8992282d9b9f8c25c7deb47bf7b74167715",
+  "resultTail": "........................................................................ [ 98%]\n.                                                                        [100%]\n73 passed, 3 warnings in 367.61s (0:06:07)\n"
+}

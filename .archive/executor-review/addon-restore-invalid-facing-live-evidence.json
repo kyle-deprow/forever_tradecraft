@@ -1,0 +1,12 @@
+{
+  "kind": "actual-addon-restore-first-publication-failure",
+  "observedAt": "2026-10-19T03:37:57.055384+00:00",
+  "savedMtime": 1792380928.9356596,
+  "originalSha256": "8ba82cd2acc729248dfa0fef84eb1438c3af51695e983a8245bc8110d883a342",
+  "retainedCause": "first publication: Interface/AddOns/Crowley/Agent.lua:501: Interface/AddOns/Crowley/Agent.lua:158: Crowley movement telemetry has invalid facing",
+  "markerState": "failed",
+  "markerAttempts": 1,
+  "agentSourceSha256": "b46e679f22b5f26a27975d71c4e6d04c396ae56686a7588cb2b225137d2bb4f0",
+  "collection": "Operator-assisted normal reload flush, no edited SavedVariables.",
+  "interpretation": "First checked publication during restore_pending initialization rejected facing. Exact invalid native value is not recorded; do not claim nil specifically."
+}

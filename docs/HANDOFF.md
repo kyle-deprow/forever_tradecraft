@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 03:33 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 04:05 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -52,43 +52,62 @@ remains visible; completion expired. #74 due03:01:50 was MISSED while fenced.
 Do not report continuous cadence or a decoded ordinary boot.
 Installed Agent/Commands/Core/Scanner were exact main before this diagnostic.
 
-Root found restore_pending startup discards allocation and first/second checked
-publication errors before permanently clearing surface/markingfailed. Root model
-unavailable UnitPosition atADDON_LOADED reproduces permanent failure even after
-native API becomes available, but exact LIVE CAUSE IS UNKNOWN. No timing fix yet.
-Initial diagnostic-only Agent6985b8a7/testd82141fd passed worker8/parent8/SolREADY
-but startup chat was not observed. Follow-up RETENTION Agentb46e679f/testaf761acb
-passed worker9/parent9(1.84s)/SolREADY and is COPIED main+installed and LOADED.
-It clears `ns.db.agentRestoreFailure` at fresh restore_pending initialization,
-then retains exact phase+cause after any existing failure cleanup. Other startup
-paths preserve it. No lifecycle/admission/timing change. Source plan and both
-parent verification/ review records in executor-review.
-One subsequent reviewed-source Restore reached handler+reload, but cause still
-not visible. `/run print(...)` had malformed shifted punctuation; `/dump` was
-staged under GameMenu and never executed. Current GameMenu open, chatinactive;
-all old operator input closed. Last on-disk marker restore_pending/token
-recovery:10650bfc6c32450ce73c8025, no persisted errorfield YET.
-NEW sole GUI Luna has compact current task: close GameMenu normally, stage and
-visuallyverify short `/reload`, submit with real observed key action, flush
-CURRENT in-memory failedmarker+retained diagnostic for ROOT offline parse.
-No additional Restore/ticket needed merely to read the field. Normal nonrestore
-reload should preserve it. Never edit SavedVariables to repair it. Alternative
-short `/dump CrowleyDB.agentRestoreFailure` is localread-only, but no more
-punctuation/historyquery dead ends. Root waiting ACTUAL cause before timingfix.
-No blind repeated clicks, no ordinary HUD requirement at deliberate absence.
+**LIVE CAUSE CONFIRMED by flushed original bytes:**
+`first publication: Interface/AddOns/Crowley/Agent.lua:501:
+Interface/AddOns/Crowley/Agent.lua:158: Crowley movement telemetry has invalid facing`.
+Marker failed/attempts1; savedmtime1792380928.9356596, original SHA
+8ba82cd2acc729248dfa0fef84eb1438c3af51695e983a8245bc8110d883a342.
+Root preserved original bytes in a0600 file under private native-restore-facing-failure-
+20261019 evidence; public addon-restore-invalid-facing-live-evidence.json.
+Exact invalid native value unknown, don't assert nil. Parent model unavailable
+facing reproduces guard/permanent failure after later validworldevent too.
+Actual savedmarker is valid and modeled ready-load restores ordinary normally.
+
+Diagnostic retention Agentb46e679f/testaf761acb is installed+loaded and committed
+c8498ce (pushed). Worker9/parent9(1.84s)/SolREADY. It retains optional private
+CrowleyDB.agentRestoreFailure after existing failurecleanup, clears only fresh
+restore_pending initialization, no lifecycle/admission change. New soleGUI Luna
+finished normal /reload flush (no moreRestore needed), GameMenu closed, Arthur
+stationary/world/identity unchanged, allinputsclosed. Old actor is inactive.
+No more live inputs until reviewed behavioralfix is installed.
+
+BEHAVIORAL FIX accepted and installed at04:04UTC. Final Agent SHA
+79aa0d6853d4122d0a968cc7b1cd8cead8cccff349afb8c698e5aee983ed9edb;
+test189fd6368503458ea43940fe8eff38172142b95d256d108661359edb36a0fa70;
+harnessd58ea219de6c5d723e8fc152aeb9ed40d521d27fc9d7216b4a47561c7fe1f206.
+Existing installed Crowley directory symlink resolves to repository addon, same
+inode; copy into main installs next-reload bytes. No service restart/SavedVars edits.
+Initial Sol READY; actual Opus r1 noMusts/sourcecorrect, accepted2testShoulds plus
+small early-timeout fix. Final full249pass; parent17pass2.30s; actual
+claude-opus-5-5 DELTA r2 READY/rc0, unchanged frozen sources. Optional extra
+recovery-path test nit is nonblocking. Public parent/install/review reports retained.
+SoleGUI luna_live_recovery received CODE-INSTALLED signal and owns full live
+reload→publicrecovery→Restore→ordinary/checkpointclear→AHreopen outcome.
+No live success inferred until actual receipts. No native100/input qualification
+or autonomous cycles yet.
+
+| Client assumption | Required handling / evidence |
+| --- | --- |
+| Native movement can be invalid at ADDON_LOADED during reload. | Restore waits for actual PLAYER_ENTERING_WORLD and exact valid movementTelemetry; may retry after world entry for at most30s. This bound is a refusal, not an assumption that world entry guarantees readiness. Live correction validation pending. |
 
 Actual private controls manifest:
 `~/.local/state/crowley/executor-evidence/native-live-controls-20261019/templates.json`.
 Retained actual WoW panel source SHA bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2.
 98x27 templates; actual fresh Restore match score0.00063. Fixed Python matcher
 on retained real frame costs2.5531s Construct/2.5208s Restore in region220x84.
-Root wrote bounded PLAN-rust-template-matching.md, Sol reviewed revised exact
-SEARCH/SCORE_AT/SAD/protocol/build-trust/benchmark contract READY. No Rust
-matcher implementation yet. Parent installed official manifest-verified Rust/Cargo
-1.85.1 plus rustfmt PRIVATELY under
-~/.cache/crowley/rust-toolchain-1.85.1/toolchain; no global PATH/game/service changes.
-See rust-toolchain-parent-verification.json and private installation.json.
-Prioritize restoring scans. Actual-image evidence is computation-only.
+Standalone Rust scorer implementation passes parent21tests and two independently
+reproduced byte-identical release builds SHA75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c.
+Parent actual retained-frame benchmark: prep62.74ms, ConstructSEARCH43.55ms,
+Restore42.61ms, SCORE9.45/8.64ms, exclusive52.38ms, dual86.45ms. Includes
+serialization/startup/IPC/parse per call; not fresh live qualification.
+Sol implementation NEEDSWORK: accepted build env/config isolation, private stable
+source snapshot, stale binary test binding, stronger tie/ambiguity cases and
+retained benchmark runner. Same Luna owns6files + new benchmarktool. Scoring
+itself reviewed correct. Unfinished Opus r1 superseded/terminated143 without
+verdict BEFORE source edits; preserve record, no acceptance claim. Final review
+required after corrections. No helper/runtime integration yet.
+Private official Rust/Cargo1.85.1+rustfmt installed under
+~/.cache/crowley/rust-toolchain-1.85.1/toolchain; global PATH/game/services unchanged.
 
 Private receipts/images/original payloads:
 `~/.local/state/crowley/executor-evidence/runtime-relink`.
@@ -156,63 +175,27 @@ Initial immediate post-restart assertion failed before its report; subsequent
 independent verification passed without repeating the restart. Public receipt:
 `native-paused-install-parent-verification.json`.
 
-## Active helper correction: real failure recovery/all modes/provenance
+## Helper release corrections: final offline candidate
 
-Worker **`/root/luna_profiler_schema_fix`**, NEW task in
-`/home/dev/.cache/crowley/worktrees/native-helper-final-integration-20261019`,
-basec5e5772. Root copied seven exact nativeR10d files plus helperffc8/testd483.
-Own TWO files only: tools/native_calibration_operator.py and its test. Seven native
-files/driver/Guardian/addon/config/service/GUI/git are forbidden/read-only.
-Read **PLAN-native-helper-release-corrections.md** IN FULL; it supersedes earlier
-metadata-only freeze instructions. Reference PLAN-native-helper-final-integration.md.
-Main writes ONLY native-helper-release-corrections-{closure.md,freeze.json}.
+Worker final pair in `native-helper-final-integration-20261019`:
+helper6f8f87efad4e818d3c401d600d7fabe34d8ba48c405832ff20e53924bb5ddbac,
+test39f7c5c769e9769561f44d45b9cd6b759ae329fec45ef9aa6ba4a0ae45503bee.
+Full73pass/364.98s, no unresolved real fixture failures. Public
+native-helper-release-corrections-{closure.md,freeze.json} pin actual source/logs.
+Real modes: success100→publicpause→freshordinaryrecovery/checkpointNone;
+measurementfailure→newPAUSED/recovery/originalfailurepreserved; controlpreflight;
+ordinary/Restore recovery; readiness/PRESSED budget/posthandoffcancel negatives.
+Sameactual sealed input and production _source_bindings provenance. Fixes actual
+pause response contract, deadline min, emitter/Watchdog allocation and inheritedFDs.
 
-Final Sol helper review NEEDS WORK, accepted concrete findings in
-native-helper-causal-final-sol-review.md:
-1. REAL BUG: pause mutation response has controller fields/state/generation/
-   leaseGeneration, no calibrationOperation or guardian. Current helper wrongly
-   requires them, so actual Operator.run failure recovery always fails. Validate
-   immediate newPAUSED/higherlease; fetch aggregate status for nonrunning native
-   op; require new binding higherGuardian/unarmed BEFORE recovery input. Preserve
-   original error and failed receipt through actual successful recovery.
-2. Reuse actual causal compiled fixture for ALL modes: measure, preflight,
-   ordinary_reload recovery, restore recovery, failure/newPAUSED/emptyID,
-   post-handoff cancel, real readiness and READY/watchdog/GO/PRESSED budget
-   negatives. Old other-mode tests use FakeScreen/FakeInput/rawobs/directclient.
-3. Share actual sealed input artifact for screen/input factory; real helper SHA
-   and _source_bindings; receipt assertions bind config/templates/producer/input/
-   native dependencies. Current causal receipt omits/mismatches these.
-4. Monotone _record_operation_deadline must min(existing,new), not silently extend.
-5. Allocation matrix: invalid OwnedEmitter pgid abort/reap actual spawned child;
-   Watchdog missing owner-start refuses; cancellation child closes inherited
-   nonprotocol descriptors; preserve causal errors/cleanup/no unpressed releases.
-6. Actual successful measure→publicpause→fresh MODE_RECOVER→ordinary Lua
-   SavedVariables reload: checkpointNone, PAUSED/nativeCalTRUE/inputFALSE,
-   unarmed/clean. Needed before human GTK gate; no fake human calibration.
-
-Previous helper baseline is IMMUTABLE in
-`native-operator-causal-composition-20261018`: helper
-`ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5`, test
-`d4834f543333a66e9bc9d31e150ef9e085195a27cc93656df5c8d81683fd8b48`.
-Worker66pass/189.07s, parent independently66pass/188.77s with private0700XDG,
-full0600log SHA3c026e3f41c5881edfa0bafa83e6400fefd7a39471f2a40384b26443631effea.
-Two warnings are explicit subprocess fixture fork DeprecationWarnings, no hidden
-thread failures. These green tests DO NOT cover the real pause bug/allmodes.
-Seven baseline dependencies were frozenR8, not accepted native; new correction
-uses exactR10d. Parent native-operator-causal-parent-verification.json records it.
-
-Old helper agent `/root/luna_runtime_instrumentation` ended integration task at
-metadata only (NO implementation/source changes); its integration closure/freeze
-explicitly mark missing proof. Native worker is now implementing actual code.
-Do not accept another metadata-only final/redDONE. Complete focused cases then
-fullhelper once, exact7readonly/imports/authenticCLI/private0700XDG/capturelock/
-bus/complete0600logs opened before commands/cleanup. Parent meaningful repro,
-Sol and actual Opus review, then eventual helper promotion.
-
-The real one-Hz external Lua publication ticker is now correct; no delays in
-provider/admission wrappers or restamped captures. Earlier parent diagnostic
-failed update2 cadence and is retained separately. Original failed helper3cb57/
-c0221 reports61pass3fail remain history. Do not resurrect them.
+Parent inspected production delta and final workflow assertions; independent full73
+PASSED367.61s (session60695 completed0) in fresh `helper-addon-parent-composition-20261019` with
+canonical accepted seven native files plus initial d8addon (exact pins retained).
+Private helper-addon-parent-composition-20261019/input.json,tests.log,result.json.
+Addon follow-up test changes/timeout nit are separate; do not relabel tested bytes.
+Sol+actualOpus final helper review now RUNNING after parent pass, then accepted helper/Rust
+integration separate round. Helper is NOT main/installed; never run rejected old
+ffc8/d483 or failing3cb57/c0221 candidates. InitialR8 and66pass are historical.
 
 ## Remaining live gates
 

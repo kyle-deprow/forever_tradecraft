@@ -1,0 +1,17 @@
+{
+  "verifiedAtUnix": 1792382666.8587937,
+  "installedAgentSha256": "79aa0d6853d4122d0a968cc7b1cd8cead8cccff349afb8c698e5aee983ed9edb",
+  "mainAgentSha256": "79aa0d6853d4122d0a968cc7b1cd8cead8cccff349afb8c698e5aee983ed9edb",
+  "installMechanism": "Existing installed Crowley directory symlink resolves to canonical repository addon; parent copied reviewed source into main, both paths same inode. No duplicate copy required.",
+  "scope": "Agent.lua and offline tests only; no service restart/config/SavedVariables changes",
+  "review": {
+    "sol": "initial source READY",
+    "opusFinal": "READY",
+    "model": [
+      "claude-opus-5-5"
+    ],
+    "returncode": 0,
+    "rawSha256": "b762698fce4de39073c0e4f4a07c8b6f27f4819e0b2270fdcc8b4cb6570920f7"
+  },
+  "liveQualification": "pending sole GUI reload/recovery"
+}

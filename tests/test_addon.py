@@ -73,6 +73,19 @@ def deferred_native_client() -> WowClient:
     return client
 
 
+def pending_restore_savedvars() -> dict:
+    source = WowClient()
+    source.login()
+    source.slash("agent defer")
+    source.slash("agent recover")
+    source.click_native("restore")
+    return savedvars.loads(source.saved_variables())["CrowleyDB"]
+
+
+def queued_timer_count(client: WowClient) -> int:
+    return len(list(client.lua.globals()._timers.values()))
+
+
 def decoded_payload(client: WowClient) -> dict:
     raw = next(iter(savedvars.loads(client.saved_variables())["CrowleyDB"]["scans"].values()))
     return validate_v2_envelope(envelope(raw))["decoded"]
@@ -648,6 +661,224 @@ def test_native_partial_texture_failure_hides_every_owned_texture():
     assert client.lua.globals().CrowleyDB.nativeConstruction.state == "failed"
     assert client.visible_native_textures
     assert all(shown is False for shown in client.visible_native_textures)
+
+
+def test_native_restore_invalid_facing_at_addon_loaded_waits_for_world_entry():
+    client = WowClient(initial_savedvars=pending_restore_savedvars(), facing=None)
+    client.fire("ADDON_LOADED", "Crowley")
+    assert client.ns.Agent.Lifecycle() == "restore_pending"
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "restore_pending"
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    restore_button = client.lua.globals().CrowleyNativeConstructionRestore
+    assert restore_button.IsShown(restore_button) is True
+    assert restore_button.IsEnabled(restore_button) is False
+    assert queued_timer_count(client) == 1
+
+    client.set_motion(facing=1.25)
+    client.set_canonical_plan()
+    client.fire("PLAYER_ENTERING_WORLD")
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+    assert client.lua.globals().CrowleyDB.agentRestoreFailure is None
+    assert client.ns.Scanner.NativeConstructionFence() is False
+    frame = client.agent_frame
+    textures = client.texture_count
+    client.advance_with_timers(30)
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+    assert client.agent_frame == frame
+    assert client.texture_count == textures
+    assert queued_timer_count(client) == 0
+
+
+def test_native_restore_duplicate_world_events_do_not_commit_twice():
+    client = WowClient(initial_savedvars=pending_restore_savedvars(), facing=None)
+    client.login()
+    assert client.ns.Agent.Lifecycle() == "restore_pending"
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.lua.globals().CrowleyDB.nativeConstruction.state == "restore_pending"
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    restore_button = client.lua.globals().CrowleyNativeConstructionRestore
+    assert restore_button.IsShown(restore_button) is True
+    assert restore_button.IsEnabled(restore_button) is False
+
+    client.set_motion(facing=1.25)
+    client.set_canonical_plan()
+    client.fire("PLAYER_ENTERING_WORLD")
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+    assert client.lua.globals().CrowleyDB.agentRestoreFailure is None
+    assert client.ns.Scanner.NativeConstructionFence() is False
+    decoded = decode_frame(client.agent_frame).snapshot.value
+    assert decoded["render"]["nativePhase"] == "normal"
+    assert decoded["render"]["nativeOrdinal"] == 0
+    frame = client.agent_frame
+    textures = client.texture_count
+    client.fire("PLAYER_ENTERING_WORLD")
+    client.advance_with_timers(30)
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+    assert client.agent_frame == frame
+    assert client.texture_count == textures
+    assert queued_timer_count(client) == 0
+
+
+def test_native_restore_transient_facing_failure_retries_once_and_drains_stale_timeout():
+    client = WowClient(initial_savedvars=pending_restore_savedvars(), facing=None)
+    client.fire("ADDON_LOADED", "Crowley")
+    client.fire("PLAYER_ENTERING_WORLD")
+    assert client.ns.Agent.Lifecycle() == "restore_pending"
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.texture_count == 0
+    assert queued_timer_count(client) == 2
+
+    client.set_canonical_plan()
+    # Keep the existing cooldown active so the release timer remains visible
+    # while this test proves that no query starts during readiness polling.
+    client.lua.globals().CrowleyDB.lastSweepStart = int(client.lua.globals().time())
+    client.fire("AUCTION_HOUSE_SHOW")
+    events = schedule_trace(client)["events"]
+    assert any(
+        event["type"] == "refusal"
+        and event["reason"] == "native_construction_fence"
+        and event["source"] == "ah_show"
+        for event in events
+    )
+    assert client.state.queryCalls == 0
+
+    client.set_motion(facing=1.25)
+    client.advance_with_timers(0.1)
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.ns.Agent.Surface() is not None
+    assert queued_timer_count(client) == 2
+    events = schedule_trace(client)["events"]
+    assert events[-1]["type"] == "timer_create"
+    assert events[-1]["source"] == "native_construction_release"
+    frame = client.agent_frame
+    textures = client.texture_count
+    client.fire("PLAYER_ENTERING_WORLD")
+    client.advance_with_timers(30)
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+    assert client.agent_frame == frame
+    assert client.texture_count == textures
+    assert client.state.queryCalls == 0
+    client.fire("AUCTION_HOUSE_CLOSED")
+    client.advance_with_timers(900)
+    assert queued_timer_count(client) == 0
+
+
+def test_native_restore_missing_world_entry_times_out_with_recovery_route():
+    client = WowClient(initial_savedvars=pending_restore_savedvars())
+    client.fire("ADDON_LOADED", "Crowley")
+    assert client.ns.Agent.Lifecycle() == "restore_pending"
+    assert client.ns.Agent.Surface() is None
+    assert queued_timer_count(client) == 1
+    client.advance_with_timers(30)
+    assert client.ns.Agent.Lifecycle() == "failed"
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    assert (
+        client.lua.globals().CrowleyDB.agentRestoreFailure == "world readiness: missing PLAYER_ENTERING_WORLD"
+    )
+    marker = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    assert marker["state"] == "failed" and marker["attempts"] == 1
+    restore_button = client.lua.globals().CrowleyNativeConstructionRestore
+    assert restore_button.IsShown(restore_button) is True
+    assert restore_button.IsEnabled(restore_button) is True
+    assert queued_timer_count(client) == 0
+    client.slash("agent recover")
+    client.click_native("restore")
+    recovered = WowClient(initial_savedvars=savedvars.loads(client.saved_variables())["CrowleyDB"])
+    recovered.login()
+    assert recovered.ns.Agent.Lifecycle() == "ordinary"
+    assert recovered.lua.globals().CrowleyDB.nativeConstruction is None
+
+
+def test_native_restore_permanent_facing_failure_times_out_with_exact_reason():
+    client = WowClient(initial_savedvars=pending_restore_savedvars(), facing=None)
+    client.fire("ADDON_LOADED", "Crowley")
+    client.fire("PLAYER_ENTERING_WORLD")
+    client.advance_with_timers(30)
+    client.advance_with_timers(1)
+    assert client.ns.Agent.Lifecycle() == "failed"
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Scanner.NativeConstructionFence() is True
+    failure = str(client.lua.globals().CrowleyDB.agentRestoreFailure)
+    assert failure.startswith("world readiness: ")
+    assert failure.endswith("invalid facing (nil:nil)")
+    assert queued_timer_count(client) == 0
+
+
+def test_native_restore_deadline_refuses_before_native_probe():
+    client = WowClient(initial_savedvars=pending_restore_savedvars())
+    client.fire("ADDON_LOADED", "Crowley")
+    calls = {"count": 0}
+
+    def facing_probe():
+        calls["count"] += 1
+        return 1.25
+
+    client.lua.globals().GetPlayerFacing = facing_probe
+    client.lua.globals()._now = 1760000030
+    client.fire("PLAYER_ENTERING_WORLD")
+    assert calls["count"] == 0
+    assert client.ns.Agent.Lifecycle() == "failed"
+    assert "deadline exceeded before native probe" in str(client.lua.globals().CrowleyDB.agentRestoreFailure)
+    client.run_timers()
+    assert calls["count"] == 0
+    assert queued_timer_count(client) == 0
+
+
+def test_native_restore_accepts_unknown_ctm_and_ground_states_when_movement_is_valid():
+    client = WowClient(
+        initial_savedvars=pending_restore_savedvars(),
+        ctm_mode="nil",
+        ground_modes={
+            "flying": "nil",
+            "falling": "nil",
+            "swimming": "nil",
+            "submerged": "nil",
+            "mounted": "nil",
+            "taxi": "nil",
+        },
+    )
+    client.fire("ADDON_LOADED", "Crowley")
+    client.set_canonical_plan()
+    client.fire("PLAYER_ENTERING_WORLD")
+    assert client.ns.Agent.Lifecycle() == "ordinary"
+    frame = decode_frame(client.agent_frame).snapshot.value
+    assert frame["motion"]["native"]["ctm"]["state"] == "unknown"
+    assert frame["motion"]["native"]["ground"]["state"] == "unknown"
+    assert client.lua.globals().CrowleyDB.nativeConstruction is None
+    assert client.ns.Scanner.NativeConstructionFence() is False
+
+
+def test_native_restore_stale_nonce_callbacks_are_inert():
+    client = WowClient(initial_savedvars=pending_restore_savedvars(), facing=None)
+    client.fire("ADDON_LOADED", "Crowley")
+    client.fire("PLAYER_ENTERING_WORLD")
+    original = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    newer = dict(original)
+    # This token replacement is an artificial boundary; real Restore and
+    # BeginRecovery refuse while the readiness transaction is pending.
+    newer["token"] = "recovery:" + "b" * 24
+    client.lua.globals().CrowleyDB.nativeConstruction = client._to_lua(newer)
+    client.set_motion(facing=1.25)
+    client.advance_with_timers(0.1)
+    assert client.ns.Agent.Lifecycle() == "restore_pending"
+    assert client.ns.Agent.Surface() is None
+    assert client.texture_count == 0
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == newer
+    client.advance_with_timers(30)
+    assert client.ns.Agent.Lifecycle() == "restore_pending"
+    assert client.ns.Agent.Surface() is None
+    assert queued_timer_count(client) == 0
 
 
 def test_native_restore_load_publication_failure_keeps_failed_surfaceless():

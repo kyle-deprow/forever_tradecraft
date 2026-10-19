@@ -15,6 +15,8 @@ local CROP_X, CROP_Y = 80, 48
 local POSITION_LIMIT = 1000000
 local FACING_LIMIT = 6.283185307179586
 local SPEED_LIMIT = 1000
+local RESTORE_READINESS_TIMEOUT = 30
+local RESTORE_READINESS_POLL = 0.1
 local sequence = 0
 local boot
 local bootReady = false
@@ -44,6 +46,13 @@ local restoreAttempt = 0
 local measurementCompleted = false
 local loadId = 0
 local loadInitialized = false
+local restoreReadinessOwner = 0
+local restoreReadinessDeadline = 0
+local restoreReadinessWorldSeen = false
+local restoreReadinessFailure
+local restoreReadinessPollScheduled = false
+local restoreReadinessToken
+local restoreReadinessLoad = 0
 -- Forward declaration: deferred construction installs the same publication
 -- callback as an ordinary boot before its first publish.
 local attachSurfaceScript
@@ -155,7 +164,13 @@ end
 local function finiteNumber(value, name, minimum, maximum)
   if type(value) ~= "number" or value ~= value or value == math.huge or value == -math.huge or
       value < minimum or value > maximum then
-    error("Crowley movement telemetry has invalid " .. name)
+    local detail = ""
+    if name == "facing" then
+      local text = tostring(value)
+      if #text > 32 then text = text:sub(1, 32) end
+      detail = " (" .. type(value) .. ":" .. text .. ")"
+    end
+    error("Crowley movement telemetry has invalid " .. name .. detail)
   end
   return value
 end
@@ -731,10 +746,132 @@ attachSurfaceScript = function()
   end)
 end
 
+local function restoreOwnerActive(owner, expectedLoad, expectedToken)
+  local current = marker()
+  return restoreInFlight and lifecycle == "restore_pending" and bootReady and
+    restoreReadinessOwner == owner and loadId == expectedLoad and type(current) == "table" and
+    current.state == "restore_pending" and current.token == expectedToken
+end
+
+local function failRestoreReadiness(owner, expectedLoad, expectedToken, reason)
+  if not restoreOwnerActive(owner, expectedLoad, expectedToken) then return end
+  restoreReadinessOwner = restoreReadinessOwner + 1
+  clearSurface()
+  local failed = marker()
+  if type(failed) == "table" then
+    failed.state, failed.attempts = "failed", 1
+    setMarker(failed)
+  end
+  if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(true) end
+  lifecycle = "failed"
+  restoreInFlight = false
+  recoveryAdmitted, recoveryMode = false, false
+  local failure = "world readiness: " .. tostring(reason)
+  ns.db.agentRestoreFailure = failure
+  if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+  if ns.Print then ns.Print("agent restore failed: " .. failure) end
+end
+
+local function restoreCommit()
+  restoreReadinessOwner = restoreReadinessOwner + 1
+  local ok, failure = createSurface()
+  if ok then
+    attachSurfaceScript()
+    -- The pending marker and armed fence remain in force through the first
+    -- proof.  A fresh ordinary frame is then published with the fence
+    -- released before the marker is committed away.
+    local firstPublished, firstFailure = publishChecked()
+    if not firstPublished then
+      clearSurface()
+      local failed = marker()
+      if type(failed) == "table" then
+        failed.state, failed.attempts = "failed", 1
+        setMarker(failed)
+      end
+      lifecycle = "failed"
+      restoreInFlight = false
+      if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+      ns.db.agentRestoreFailure = "first publication: " .. tostring(firstFailure)
+      if ns.Print then ns.Print("agent restore failed: first publication: " .. tostring(firstFailure)) end
+    else
+      if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
+      lifecycle = "ordinary"
+      local secondPublished, secondFailure = publishChecked()
+      if secondPublished then
+        ns.db.nativeConstruction = nil
+        restoreInFlight = false
+        if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+        if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
+      else
+        -- A failed unarmed proof must leave a recoverable, nonordinary boot.
+        -- Clear every frame-owned object before rearming the fence so a
+        -- partially written surface cannot be mistaken for acceptance.
+        clearSurface()
+        local failed = marker()
+        if type(failed) == "table" then
+          failed.state, failed.attempts = "failed", 1
+          setMarker(failed)
+        end
+        if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(true) end
+        lifecycle = "failed"
+        restoreInFlight = false
+        recoveryAdmitted, recoveryMode = false, false
+        if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+        ns.db.agentRestoreFailure = "second publication: " .. tostring(secondFailure)
+        if ns.Print then ns.Print("agent restore failed: second publication: " .. tostring(secondFailure)) end
+      end
+    end
+  else
+    local failed = marker()
+    if type(failed) == "table" then
+      failed.state, failed.attempts = "failed", 1
+      setMarker(failed)
+    end
+    lifecycle = "failed"
+    restoreInFlight = false
+    if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
+    ns.db.agentRestoreFailure = "createSurface: " .. tostring(failure)
+    if ns.Print then ns.Print("agent restore failed: createSurface: " .. tostring(failure)) end
+  end
+end
+
+local probeRestoreReadiness
+
+local function scheduleRestorePoll(owner, expectedLoad, expectedToken)
+  if restoreReadinessPollScheduled then return end
+  restoreReadinessPollScheduled = true
+  C_Timer.After(RESTORE_READINESS_POLL, function()
+    if not restoreOwnerActive(owner, expectedLoad, expectedToken) then return end
+    restoreReadinessPollScheduled = false
+    probeRestoreReadiness(owner, expectedLoad, expectedToken)
+  end)
+end
+
+probeRestoreReadiness = function(owner, expectedLoad, expectedToken)
+  if not restoreOwnerActive(owner, expectedLoad, expectedToken) then return end
+  if GetTime() >= restoreReadinessDeadline then
+    local reason = restoreReadinessWorldSeen and
+      (restoreReadinessFailure or "restore readiness deadline exceeded before native probe") or
+      "missing PLAYER_ENTERING_WORLD"
+    failRestoreReadiness(owner, expectedLoad, expectedToken, reason)
+    return
+  end
+  if not restoreReadinessWorldSeen then return end
+  local ready, failure = pcall(movementTelemetry)
+  if ready then
+    restoreCommit()
+    return
+  end
+  restoreReadinessFailure = tostring(failure)
+  scheduleRestorePoll(owner, expectedLoad, expectedToken)
+end
+
 local function initializeLoad()
   local decision = type(ns.NativeDecision) == "function" and ns.NativeDecision() or
     { kind = "unknown", state = "unknown", marker = nil }
   loadId = loadId + 1
+  restoreReadinessOwner = restoreReadinessOwner + 1
+  restoreReadinessPollScheduled = false
   sequence, measurementCompleted, releaseAdmitted = 0, false, false
   recoveryAdmitted, recoveryMode = false, false
   restoreInFlight = false
@@ -771,65 +908,20 @@ local function initializeLoad()
     lifecycle = "restore_only"
   elseif state == "restore_pending" then
     ns.db.agentRestoreFailure = nil
-    local ok, failure = createSurface()
-    if ok then
-      attachSurfaceScript()
-      -- The pending marker and armed fence remain in force through the first
-      -- proof.  A fresh ordinary frame is then published with the fence
-      -- released before the marker is committed away.
-      local firstPublished, firstFailure = publishChecked()
-      if not firstPublished then
-        clearSurface()
-        local failed = marker()
-        if type(failed) == "table" then
-          failed.state, failed.attempts = "failed", 1
-          setMarker(failed)
-        end
-        lifecycle = "failed"
-        restoreInFlight = false
-        if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
-        ns.db.agentRestoreFailure = "first publication: " .. tostring(firstFailure)
-        if ns.Print then ns.Print("agent restore failed: first publication: " .. tostring(firstFailure)) end
-      else
-        if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
-        lifecycle = "ordinary"
-        local secondPublished, secondFailure = publishChecked()
-        if secondPublished then
-          ns.db.nativeConstruction = nil
-          restoreInFlight = false
-          if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
-          if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(false) end
-        else
-          -- A failed unarmed proof must leave a recoverable, nonordinary boot.
-          -- Clear every frame-owned object before rearming the fence so a
-          -- partially written surface cannot be mistaken for acceptance.
-          clearSurface()
-          local failed = marker()
-          if type(failed) == "table" then
-            failed.state, failed.attempts = "failed", 1
-            setMarker(failed)
-          end
-          if ns.Scanner and ns.Scanner.SetNativeConstructionFence then ns.Scanner.SetNativeConstructionFence(true) end
-          lifecycle = "failed"
-          restoreInFlight = false
-          recoveryAdmitted, recoveryMode = false, false
-          if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
-          ns.db.agentRestoreFailure = "second publication: " .. tostring(secondFailure)
-          if ns.Print then ns.Print("agent restore failed: second publication: " .. tostring(secondFailure)) end
-        end
-      end
-    else
-      local failed = marker()
-      if type(failed) == "table" then
-        failed.state, failed.attempts = "failed", 1
-        setMarker(failed)
-      end
-      lifecycle = "failed"
-      restoreInFlight = false
-      if ns.Commands and ns.Commands.Refresh then ns.Commands.Refresh() end
-      ns.db.agentRestoreFailure = "createSurface: " .. tostring(failure)
-      if ns.Print then ns.Print("agent restore failed: createSurface: " .. tostring(failure)) end
-    end
+    restoreInFlight = true
+    restoreReadinessWorldSeen = false
+    restoreReadinessFailure = nil
+    restoreReadinessDeadline = GetTime() + RESTORE_READINESS_TIMEOUT
+    restoreReadinessToken = current.token
+    restoreReadinessLoad = loadId
+    local owner, expectedLoad, expectedToken = restoreReadinessOwner, restoreReadinessLoad, restoreReadinessToken
+    C_Timer.After(RESTORE_READINESS_TIMEOUT, function()
+      if not restoreOwnerActive(owner, expectedLoad, expectedToken) then return end
+      local reason = restoreReadinessWorldSeen and
+        (restoreReadinessFailure or "restore readiness deadline exceeded before native probe") or
+        "missing PLAYER_ENTERING_WORLD"
+      failRestoreReadiness(owner, expectedLoad, expectedToken, reason)
+    end)
   end
 end
 
@@ -842,4 +934,12 @@ ns.On("ADDON_LOADED", function(_, name)
     }
     initializeLoad()
   end
+end)
+
+ns.On("PLAYER_ENTERING_WORLD", function()
+  if not restoreInFlight or lifecycle ~= "restore_pending" then return end
+  local owner, expectedLoad, expectedToken = restoreReadinessOwner, restoreReadinessLoad, restoreReadinessToken
+  if not restoreOwnerActive(owner, expectedLoad, expectedToken) then return end
+  restoreReadinessWorldSeen = true
+  probeRestoreReadiness(owner, expectedLoad, expectedToken)
 end)

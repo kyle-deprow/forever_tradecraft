@@ -1,0 +1,14 @@
+{
+  "kind": "restore-facing-startup-baseline-model-reproduction",
+  "beforeNativeReady": {
+    "lifecycle": "failed",
+    "surface": false,
+    "failure": "first publication: Agent.lua:501: Agent.lua:158: Crowley movement telemetry has invalid facing"
+  },
+  "afterValidFacingWorldEventAnd3s": {
+    "lifecycle": "failed",
+    "surface": false,
+    "failure": "first publication: Agent.lua:501: Agent.lua:158: Crowley movement telemetry has invalid facing"
+  },
+  "qualification": "Model reproduces exact invalid-facing guard and permanent failure; live invalid native value remains unknown."
+}

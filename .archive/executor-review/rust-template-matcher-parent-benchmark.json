@@ -1,0 +1,216 @@
+{
+  "sourceSha256": "bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2",
+  "binarySha256": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+  "preparationOnceMs": 62.736697000218555,
+  "timingDefinition": "Each elapsed includes packet serialization, process startup, stdin/stdout IPC, matching and JSON parse. Preparation decodes PNGs/converts RGB once and is separate. Composed samples invoke two fresh processes and serialize each input. Three samples per shape; retained actual frame only, no GUI or live qualification.",
+  "search": {
+    "construct": [
+      {
+        "elapsedMs": 48.02972899051383,
+        "serializeMs": 6.321164983091876,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1685,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 43.551101989578456,
+        "serializeMs": 1.5051359951030463,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1685,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 42.34292698674835,
+        "serializeMs": 1.7153069784399122,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1685,
+            33,
+            98,
+            27
+          ]
+        }
+      }
+    ],
+    "restore": [
+      {
+        "elapsedMs": 43.481120985234156,
+        "serializeMs": 1.4673559926450253,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1789,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 42.609738011378795,
+        "serializeMs": 1.504036015830934,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1789,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 42.389867012389004,
+        "serializeMs": 1.4908559969626367,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1789,
+            33,
+            98,
+            27
+          ]
+        }
+      }
+    ]
+  },
+  "scoreAt": {
+    "construct": [
+      {
+        "elapsedMs": 9.502737986622378,
+        "serializeMs": 1.5508969954680651,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1685,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 9.327787003712729,
+        "serializeMs": 1.4642860041931272,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1685,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 9.451966994674876,
+        "serializeMs": 1.3808849907945842,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1685,
+            33,
+            98,
+            27
+          ]
+        }
+      }
+    ],
+    "restore": [
+      {
+        "elapsedMs": 8.557244000257924,
+        "serializeMs": 1.0369739902671427,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1789,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 9.339017007732764,
+        "serializeMs": 0.9531830146443099,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1789,
+            33,
+            98,
+            27
+          ]
+        }
+      },
+      {
+        "elapsedMs": 8.6408439965453,
+        "serializeMs": 1.302115008002147,
+        "result": {
+          "status": "matched",
+          "sad": 0,
+          "count": 7938,
+          "box": [
+            1789,
+            33,
+            98,
+            27
+          ]
+        }
+      }
+    ]
+  },
+  "composed": {
+    "exclusive": {
+      "samplesMs": [
+        50.13029699330218,
+        52.487227017991245,
+        52.38183701294474
+      ],
+      "medianMs": 52.38183701294474
+    },
+    "dual": {
+      "samplesMs": [
+        85.95439800410531,
+        86.72443198156543,
+        86.45030099432915
+      ],
+      "medianMs": 86.45030099432915
+    }
+  }
+}

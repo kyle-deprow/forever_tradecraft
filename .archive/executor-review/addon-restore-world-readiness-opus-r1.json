@@ -1,0 +1,15 @@
+{
+  "pid": 3971297,
+  "started_wall": 1792381814.3443708,
+  "worktree": "/home/dev/.cache/crowley/worktrees/restore-world-readiness-20261019",
+  "requested_model": "opus",
+  "status": "completed",
+  "returncode": 0,
+  "resolved_models": [
+    "claude-opus-5-5"
+  ],
+  "finished_wall": 1792382317.156045,
+  "raw_sha256": "3ef0f52cc4090d56b69d9009cd7facb85dc5f6a1966335f5ed35fbe552a89a6b",
+  "has_verdict": true,
+  "source_unchanged": true
+}

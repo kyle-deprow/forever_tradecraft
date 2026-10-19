@@ -1,0 +1,24 @@
+{
+  "sourceHashes": {
+    "addon/Crowley/Agent.lua": "79aa0d6853d4122d0a968cc7b1cd8cead8cccff349afb8c698e5aee983ed9edb",
+    "tests/test_addon.py": "189fd6368503458ea43940fe8eff38172142b95d256d108661359edb36a0fa70",
+    "tests/wow_harness.py": "d58ea219de6c5d723e8fc152aeb9ed40d521d27fc9d7216b4a47561c7fe1f206"
+  },
+  "parentCheck": {
+    "command": [
+      "uv",
+      "run",
+      "pytest",
+      "-q",
+      "tests/test_addon.py",
+      "-k",
+      "native_restore"
+    ],
+    "worktree": "/home/dev/.cache/crowley/worktrees/restore-world-readiness-20261019",
+    "result": "17 passed, 232 deselected in 2.30s",
+    "returncode": 0,
+    "toolSession": 30560
+  },
+  "workerFullAddon": "249 passed",
+  "review": "Final actual claude-opus-5-5 delta READY, rc0; optional extra test nit nonblocking; live recovery pending"
+}

@@ -1334,6 +1334,7 @@ class WowClient:
 
     def login(self) -> None:
         self.fire("ADDON_LOADED", "Crowley")
+        self.fire("PLAYER_ENTERING_WORLD")
 
     @property
     def reload_calls(self) -> int:
