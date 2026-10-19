@@ -14,6 +14,10 @@ Validate the installed entrypoint and real backend together. Manually calling mo
 controller transitions or supplying calibration booleans does not prove an autonomous
 session. Exercise captured native file/event fixtures before requesting live input.
 Cover default service construction and its public calibration entrypoint.
+When replacing a backend, compose the new pinned binary through that default
+path. A separate component pass plus a legacy composed test that mocks identity
+proves two separate paths. Bind the new binary/source pins and its actual fresh
+invocations to the composed evidence before claiming integration.
 Required meters and providers must be wired without manual fixture assignment.
 For helper composition, drive the actual SessionDaemon/SessionIPC handlers;
 scripted client replies cannot establish that the three production modes compose.
@@ -147,8 +151,9 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   long sweep that has already produced only timeouts.
 - Scanner completion can transition directly to `scheduled`, not only `ready`.
   Detect a fresh saved UID for the observed run, its pending ownership and terminal
-  scanner state; preserve partial results too. Use the actual finish timestamp,
-  rather than when a watcher noticed the transition, for upload latency.
+  scanner state; preserve partial results too. Read actual start/finish timestamps
+  from the published or saved run; a planned deadline or reused watcher default
+  is not an observed start. Use actual finish time for upload latency.
 - Verify stages independently: addon loaded, house/plan correct, scan saved,
   original payload accepted, real retained prices stored, acknowledgement loaded.
   A successful probe or zero-row ingestion proves only the stages it exercised.

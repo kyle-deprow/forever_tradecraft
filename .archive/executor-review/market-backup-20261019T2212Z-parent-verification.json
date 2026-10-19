@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "snapshot": "beta-20261019T221201Z-55a31b91c82d",
+  "manifestSha256": "b0c607d275009fb030431e936205e348a5063cbde206ed280ec31ee9b432dcdc",
+  "completedUtc": "2026-10-19T22:12:10Z",
+  "independentValidation": "tools.market_backup.validate_snapshot",
+  "directoryMode": "0700",
+  "fileModes": "0600",
+  "trigger": "Enabled systemd calendar timer, observed LastTrigger22:12UTC",
+  "nextTriggerUtc": "2026-10-19T23:12:00Z",
+  "timerReceiptSha256": "ab87f7bbcfb04fd49476afe549c7a5756ec5333a174da273e35a79fa3fcddd84",
+  "serviceJournalSha256": "6e819fcd00c7f3f32885f343ad0d12e2d3f800540b994246dc25a289300c13d9",
+  "manualOrModelBackupInvocation": false,
+  "restoreDrill": "Prior accepted isolated drill not repeated.",
+  "qualification": "Scheduled backup recurrence only; no autonomous scan qualification."
+}

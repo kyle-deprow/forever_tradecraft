@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 22:04 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 22:13 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -86,7 +86,14 @@ Replace CLI fanout with one fresh pinned observer per existing identity boundary
 preserve all three boundaries and all calibration guards. Cheaper /proc filtering
 and Pillow cell checks were measured privately but were insufficient alone. No
 new observer is installed yet. Luna implements in an isolated worktree; parent,
-Sol and actual CLI Opus must approve before live promotion.
+Sol and actual CLI Opus must approve before live promotion. Rust component
+(10 cases), driver actions(30), config subset(6) and the legacy composed
+reference-path control have passed in the worker checkout. These totals do not
+qualify the new integrated path: Luna must finish the actual Rust/default-factory
+composition with an independent1Hz publisher, all100 updates and<900ms active
+work before freezing for parent verification/review. No Rust observer is installed.
+The compact client-contract skill now explicitly distinguishes separate component
+and mocked-identity composition evidence.
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
@@ -416,12 +423,15 @@ Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 Use exact returned generations and canonical ownership/fence/recovery protocol.
 
 Latest independently validated private backup:
-`beta-20261019T214631Z-5b430d502121`, through139, manifest
-`45b2b5da05ea2f364e0f066400639344f4cc8a7f60b817363062061e77f82631`.
-Real new systemd backup service succeeded; directory0700/files0600 verified.
-[Host release/backup verification](../.archive/executor-review/host-operations-release-parent-verification.json).
-Next backup22:12UTC via enabled `crowley-market-backup.timer`; prepared manual
-fallback is cancelled/not launched. Prior isolated restore drill accepted.
+`beta-20261019T221201Z-55a31b91c82d`, after verified141, manifest
+`b0c607d275009fb030431e936205e348a5063cbde206ed280ec31ee9b432dcdc`.
+The systemd timer actually fired22:12UTC and completed22:12:10; parent independently
+fully validated this new snapshot and directory0700/files0600.
+[Scheduled backup proof](../.archive/executor-review/market-backup-20261019T2212Z-parent-verification.json).
+Next backup23:12UTC via enabled `crowley-market-backup.timer`; no manual/model
+invocation. Prepared manual fallback was not launched. Prior isolated restore
+drill accepted. Automatic two-minute health recurrence is also
+[verified](../.archive/executor-review/host-operations-timer-recurrence-parent-verification.json).
 
 Host maintenance commands:
 
