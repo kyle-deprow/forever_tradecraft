@@ -1,0 +1,65 @@
+{
+  "status": "ACCEPTED_AND_INSTALLED",
+  "source": {
+    "tools/native_calibration_operator.py": "e6cde9058a3b8318599824ca6168cd5c3f60a60cb30f28ed1b4a13180d10340f",
+    "tests/test_native_calibration_operator.py": "7aae4d94e3b7e436950f519ed1603f2ebbc5b43f3a7c007151ce6b54e620db25"
+  },
+  "originalFullFrameProof": {
+    "status": "PASS",
+    "source": {
+      "tools/native_calibration_operator.py": "e6cde9058a3b8318599824ca6168cd5c3f60a60cb30f28ed1b4a13180d10340f",
+      "tests/test_native_calibration_operator.py": "7aae4d94e3b7e436950f519ed1603f2ebbc5b43f3a7c007151ce6b54e620db25"
+    },
+    "originalFullFrames": {
+      "before-stage.png": "1d4c34e38da0e9797eb43913319addfebd93cae2db1a33556ac84f39ef4c9340",
+      "staged-02.png": "a53ecd61c37f61440aaa43f4850bc9303c77dbd70128f477a203153631856458"
+    },
+    "path": "Original full capture -> actual NativeCalibrationOperator._capture(crop=True) -> actual _ocr_file -> normalize_ocr -> actual _chat guard; only external capture/identity/input/IPC replaced. No desktop input.",
+    "closed": "",
+    "typed": "say: /crowley agent recover",
+    "acceptedFixedCommandActions": [
+      [
+        "key",
+        "Return"
+      ],
+      [
+        "type",
+        "/crowley agent recover"
+      ],
+      [
+        "key",
+        "Return"
+      ]
+    ],
+    "nonemptyClosedRefusedBeforeInput": true
+  },
+  "parentFocusedTests": {
+    "passed": 3,
+    "deselected": 80,
+    "seconds": 0.85
+  },
+  "sol": {
+    "verdict": "READY",
+    "mustFix": [],
+    "shouldFix": [],
+    "nits": []
+  },
+  "opus": {
+    "model": [
+      "claude-opus-5-5"
+    ],
+    "verdict": "READY",
+    "rawSha256": "b68352a3362e11f284c051a65dcfd53355656826fd0da0231ace45c44683b09d",
+    "sourceUnchanged": true,
+    "mustFix": [],
+    "shouldFix": [],
+    "deferredNonblockingNits": [
+      "Comment says one-pixel cursor though observed cursor is two columns.",
+      "Document one-row descender clipping and border-adjacent measured interior.",
+      "Defensive constant-box bounds check is presently unreachable.",
+      "Use with Image.open in test-only size assertions.",
+      "Convert public grayscale fixture to RGB; actual full-frame parent proof already covers RGB path."
+    ]
+  },
+  "qualification": "Retained full-frame OCR acceptance only; live preflight/native100/ordinary recovery remain required. No actual game input from parent."
+}

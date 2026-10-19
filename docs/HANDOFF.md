@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 06:13 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 06:36 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -441,6 +441,44 @@ No service restart: accepted native7 unchanged. Sole GUI released to complete81
 save/upload/ACK then actual preflight/native100/publicpause/freshrecover/Restore/
 ordinary cleared checkpoint. No physical user gate or autonomous success yet.
 Do not rerun architecture reviews or suites without concrete failure.
+
+## New live blocker after promotion
+
+Actual control-preflight06:12 refused BEFORE any key/mouse at closed-chatOCR.
+Private native-calibration-operator/native-calibration-control-preflight-
+20261019T061245160385Z-2199488-df1ec3be/receipt.json,
+SHA6c6959963a93e2e7f9928a72a1bcd4b033ed61d94477ca51fec13da075aaa114.
+Parent retainedcrop actualtesseract--psm7 returns `i`; GUIfreshchatEdit inactive/
+unfocused/empty proves rightborderfalsepositive, notopenchat. Reservationcancelled;
+publicPAUSEDgen24. New .archive/PLAN-native-chat-ocr-border.md, sameLunaRustworker
+owns ONLYhelper/test inprivateWT; actual measured current stagedfixedslashcommand
+fullframe/crop comingfromsoleGUI, thenEscape/noReturn. No guardwhitelisting/bypass.
+Solboundedplanreview; actualOCR+focusedparenttests thenSol/actualOpusdelta before
+promotionretry. GUIkeeps82assistedcycle ifpatchnotreadyat06:17:43.
+
+## Chat OCR fix accepted and installed — current helper supersedes 4c3c
+
+Helper e6cde9058a3b8318599824ca6168cd5c3f60a60cb30f28ed1b4a13180d10340f,
+helpertest7aae4d94e3b7e436950f519ed1603f2ebbc5b43f3a7c007151ce6b54e620db25.
+Actual fullframes closed1d4c34...9340 / stageda53ecd...6458 independently hashed,
+production_capture(crop=True)->actualOCR/normalize->_chat PASS closedempty,
+typedexact `say: /crowley agent recover`, nonemptyclosedguardnoinput. Parent3PASS0.85s,
+worker4PASS/Ruff/compile. Smalltwofilegeometry/preprocessingdelta only; unchanged
+98-testrelease evidence remainsversionbound, notrelabelednewsource.
+SolREADYnofindings; actualclaude-opus-5-5 READY/noMustShould,
+rawSHAb68352a3362e11f284c051a65dcfd53355656826fd0da0231ace45c44683b09d.
+Fivecomment/testnits nonblocking/deferred; no sourcechurn. Originalruntimeedc,
+artifact75/native7/addon79 unchanged. MainCLIhelp0. Public
+native-chat-ocr-final-parent-verification.json; private native-chat-ocr-review-
+20261019/{review.txt,process.json}, native-chat-ocr-parent-20261019/result.json.
+SoleGUIreleased actualcanonicalpreflight/native100/recovery AFTER83saved+ACKed;
+83started1792391563 (06:32:43), no midscaninput. No actualnative100success yet.
+Latestcompleted82 independent428/2095rows/411full17bounded/0incomplete,
+900s after81,finish→server42.222884s, exactACK/pending0/AHtrue/ordinary0/inactive/
+stationary/released. Publicbuild-70450-eightysecond-{scan,ah-reopen}-parent-verification.
+Compactlocal-game-control skilladdsfullframeOCRborderlesson; skillvalidatePASS.
+Solread-onlyderivingpublichumanGTKsequence afterpause/recover; awaitingreport.
+No activeOpusprocess (10716closed0), no ownedoldOCRexperimentleft.
 
 ## Remaining live gates
 

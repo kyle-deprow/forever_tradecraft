@@ -35,6 +35,156 @@ sys.modules[spec.name] = operator
 spec.loader.exec_module(operator)
 
 
+# These are small grayscale chat-only crops derived from the retained GUI
+# evidence.  They contain the fixed editor rectangle, not a desktop frame or
+# private client state, and keep this regression independent of private paths.
+_OCR_CLOSED_CROP_B64 = """\n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
+gg==\n"""
+_OCR_TYPED_CROP_B64 = """\n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\n"""
+
+
+def _write_chat_ocr_fixture(tmp_path: Path, name: str, encoded: str) -> Path:
+    path = tmp_path / name
+    path.write_bytes(base64.b64decode(encoded))
+    path.chmod(0o600)
+    return path
+
+
+def _minimal_chat_ocr_operator(tmp_path: Path, closed: Path, typed: Path):
+    instance = object.__new__(operator.NativeCalibrationOperator)
+    instance._phase_deadlines = {}
+    instance._release_dispatch = None
+    instance._history_before_action = 0
+    instance._state_history = []
+    instance.clock = time.monotonic
+    deadline = time.monotonic() + 30.0
+    instance._deadline = lambda phase=None: deadline
+    instance._recheck = lambda expected_state, deadline_monotonic: None
+    instance._identity_guard = lambda deadline_monotonic: None
+    instance._event = lambda name, **fields: None
+    instance.input = FakeInput(None)
+
+    def capture(label, **kwargs):
+        source = closed if "chat-closed" in label else typed
+        target = tmp_path / f"{label}.png"
+        target.write_bytes(source.read_bytes())
+        target.chmod(0o600)
+        return target, None, None
+
+    instance._capture = capture
+    instance.ocr = operator.NativeCalibrationOperator._ocr_file
+    return instance
+
+
+def test_production_chat_ocr_preserves_closed_empty_and_typed_fixed_command(tmp_path):
+    closed = _write_chat_ocr_fixture(tmp_path, "closed.png", _OCR_CLOSED_CROP_B64)
+    typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_TYPED_CROP_B64)
+    assert Image.open(closed).size == operator.CHAT_CROP_SIZE
+    assert Image.open(typed).size == operator.CHAT_CROP_SIZE
+    assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(closed)) == ""
+    assert (
+        operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(typed))
+        == "say: /crowley agent recover"
+    )
+    malformed = tmp_path / "malformed.png"
+    Image.new("L", (operator.CHAT_CROP_SIZE[0] - 1, operator.CHAT_CROP_SIZE[1])).save(malformed, format="PNG")
+    with pytest.raises(operator.OperatorError, match="crop geometry is malformed"):
+        operator.NativeCalibrationOperator._ocr_file(malformed)
+
+
+def test_chat_closed_guard_rejects_nonempty_actual_ocr(tmp_path):
+    closed = _write_chat_ocr_fixture(tmp_path, "closed.png", _OCR_CLOSED_CROP_B64)
+    typed = _write_chat_ocr_fixture(tmp_path, "typed.png", _OCR_TYPED_CROP_B64)
+    instance = _minimal_chat_ocr_operator(tmp_path, typed, typed)
+    with pytest.raises(operator.OperatorError, match="closed and empty"):
+        instance._chat("/crowley agent recover")
+    assert instance.input.calls == []
+
+    instance = _minimal_chat_ocr_operator(tmp_path, closed, typed)
+    instance._chat("/crowley agent recover")
+    assert instance.input.calls == [
+        ("key", "Return"),
+        ("type", "/crowley agent recover"),
+        ("key", "Return"),
+    ]
+
+
 @dataclass(frozen=True)
 class Identity:
     fingerprint: str = "a" * 64

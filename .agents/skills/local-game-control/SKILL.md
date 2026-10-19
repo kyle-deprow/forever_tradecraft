@@ -200,6 +200,10 @@ within existing authorization; respect any current movement limits.
   A buffer staged before a long wait is not current dispatch evidence. Immediately
   before Return, verify fresh addon `chatEdit` is active, focused and contains the
   exact command; then require the actual boot/file transition for a reload.
+  Chat borders and insertion cursors can become OCR letters even in an empty
+  editor. Retain original full frames and verify production cropping/OCR against
+  both empty and exactly typed buffers; preserve refusal before input. Do not
+  whitelist OCR junk to make a closed-buffer check pass.
   For a timed confirmation, stage a bounded local capture/recognition helper
   before Apply and complete Apply plus the measured confirmation within that
   helper. Model-turn latency can exceed the timer; an expired confirmation

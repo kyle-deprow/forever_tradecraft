@@ -62,6 +62,16 @@ FIXED_COMMANDS = (
     "/reload",
 )
 FIXED_COMMAND_SET = frozenset(FIXED_COMMANDS)
+# The production profile captures this fixed chat editor rectangle from the
+# 1920x1080 client.  OCR uses only its measured text interior; the surrounding
+# frame contains the border pixels that produced the closed-buffer false hit.
+CHAT_CROP_SIZE = (460, 37)
+# Exclude the frame rules and leave the one-pixel insertion cursor for the
+# bounded preprocessing below to remove.  The box is measured from the
+# retained full-frame captures, rather than inferred from OCR output.
+CHAT_OCR_BOX = (12, 8, 428, 13)
+CHAT_OCR_THRESHOLD = 45
+CHAT_OCR_SCALE = 3
 IPC_COMMANDS = frozenset(
     {
         "native_construction_prepare",
@@ -925,7 +935,7 @@ class X11Screen:
                     self.tool = None
             raise
         self.root = root
-        self.chat_crop = (30, 938, 460, 37)
+        self.chat_crop = (30, 938, *CHAT_CROP_SIZE)
         self.agent_crop = self.config.profile.canvas_crop
 
     def resolve_identity(
@@ -2922,16 +2932,58 @@ class NativeCalibrationOperator:
 
     @staticmethod
     def _ocr_file(path: Path) -> str:
+        temporary: Path | None = None
         try:
+            with Image.open(path) as image_raw:
+                image = image_raw.convert("L")
+                if image.size != CHAT_CROP_SIZE:
+                    raise OperatorError("fixed chat OCR crop geometry is malformed")
+                left, top, width, height = CHAT_OCR_BOX
+                if (
+                    left < 0
+                    or top < 0
+                    or width <= 0
+                    or height <= 0
+                    or left + width > image.width
+                    or top + height > image.height
+                ):
+                    raise OperatorError("fixed chat OCR interior geometry is malformed")
+                prepared = image.crop((left, top, left + width, top + height))
+                prepared = prepared.point(lambda value: 255 if value > CHAT_OCR_THRESHOLD else 0)
+                # The focused chat editor draws a two-column insertion cursor
+                # through the interior.  It is taller than every command glyph
+                # and otherwise becomes a trailing `]` in psm 7 output.  Drop
+                # only such full-height columns; command text remains governed
+                # by the exact readback comparison below.
+                for column in range(width):
+                    foreground = sum(prepared.getpixel((column, row)) // 255 for row in range(height))
+                    if foreground >= height - 1:
+                        for row in range(height):
+                            prepared.putpixel((column, row), 0)
+                prepared = prepared.resize(
+                    (width * CHAT_OCR_SCALE, height * CHAT_OCR_SCALE),
+                    Image.Resampling.BICUBIC,
+                )
+                temporary = path.with_name(f".{path.name}.{secrets.token_hex(4)}.ocr.png")
+                prepared.save(temporary, format="PNG")
+                os.chmod(temporary, 0o600)
             result = subprocess.run(
-                ["tesseract", str(path), "stdout", "--psm", "7"],
+                ["tesseract", str(temporary), "stdout", "--psm", "7"],
                 check=True,
                 capture_output=True,
                 text=True,
                 timeout=2.0,
             )
-        except (OSError, subprocess.SubprocessError) as exc:
+        except OperatorError:
+            raise
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
             raise OperatorError("fixed chat OCR failed") from exc
+        finally:
+            if temporary is not None:
+                try:
+                    temporary.unlink()
+                except OSError:
+                    pass
         return result.stdout
 
     @contextmanager

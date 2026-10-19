@@ -1,0 +1,32 @@
+{
+  "status": "REFUSED_BEFORE_INPUT",
+  "sourceCommit": "9cca2bf",
+  "receiptSha256": "6c6959963a93e2e7f9928a72a1bcd4b033ed61d94477ca51fec13da075aaa114",
+  "failureCode": "chat_readback_refused",
+  "observedEvents": [
+    "cancellation_actor_ready",
+    "cancellation_actor_updated",
+    "prepared",
+    "capture",
+    "terminal",
+    "reservation_cancelled",
+    "daemon_recheck_summary"
+  ],
+  "keyOrMouseDispatchEvents": 0,
+  "productionOcr": {
+    "command": "tesseract retained-chat-closed.png stdout --psm 7",
+    "result": "i",
+    "imageSha256": "06c1e995340072a8c3cdf97916e042dc33280d30b5f7154bfcb13a6cd539eee2"
+  },
+  "guiIndependentFreshState": {
+    "chatEdit": {
+      "active": false,
+      "focused": false,
+      "text": ""
+    },
+    "ahOpen": true,
+    "sameGameIdentity": true
+  },
+  "cause": "Closed editor right border is recognized as i; no text in interior. Measured geometry fix pending actual typed-command capture.",
+  "qualification": "Live refusal only, no native100/human/autonomous qualification."
+}
