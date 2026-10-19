@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 16:03 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 16:12 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -62,7 +62,8 @@ Latest fully parent-verified cycle **#118**:
 - [scan proof](../.archive/executor-review/build-70450-onehundredeighteenth-scan-parent-verification.json)
   and [reopen proof](../.archive/executor-review/build-70450-onehundredeighteenth-ah-reopen-parent-verification.json).
 
-Next ordinary deadline1792426011 (16:06:51UTC). Sole operator continues full
+Scan119 started exactly1792426011 (16:06:51UTC), full chain in progress.
+Next ordinary deadline1792426911 (16:21:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
 or physical-input retry yet. Scans108..118 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
@@ -255,6 +256,20 @@ advance local virtual wait, never active work. Remaining full closure plan still
 applies, including provider-level receipt substitution, missing callback and
 after-notification provider failure cleanup. Do not promote intermediate greens.
 
+Corrected worker seven-case replay now PASS130.15s: positive maxima
+882.576/888.576/889.076/882.576ms, overbudget961.576ms, phase951 real
+protocol refusal, publisher1100 budget1437.161ms. Exact positive charges:
+capability1085, target98, ACK98, glue99; owner/provider2 terminal calls each.
+Log private `native-ack-source-r2-20261019/model-seven-final-r2.log`, SHA
+`48d9d7f1e6e32e90589d248b7304065ae91f6299af99a182daf08876b0b8ca52`.
+This is worker evidence, not final source approval; remaining regression and
+corrected baseline proof are still required before freeze. Parent runner is
+prepared in private `native-ack-parent-r2-final-20261019/run.py`; its source
+input is deliberately absent until the final snapshot is verified. Actual Opus
+correction-review runner/prompt prepared (not launched) in
+`native-ack-source-opus-r2-20261019/`, focused on R7-to-final delta and context.
+
+
 
 ## Next live gates, in order
 
@@ -289,11 +304,11 @@ Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use exact returned generations and canonical ownership/fence/recovery protocol.
 
-Latest validated private backup: `beta-20261019T151230Z-83075ca8e641`, through114
+Latest validated private backup: `beta-20261019T161201Z-50bfce1be0f0`, through118
 ingestion; directory0700, manifestSHA
-`68f193ce6dad6745e9d34df62c63c0de69009564dc3e93d126097ba7a642a7c4`.
-[Backup verification](../.archive/executor-review/market-backup-20261019T1512Z-parent-verification.json).
-Next hourly backup about16:12UTC. Prior isolated restore drill remains accepted.
+`0a1e4826c881f637453a2a444567f2bc2ac1f996104c72b0024bd960e5d6195c`.
+[Backup verification](../.archive/executor-review/market-backup-20261019T1612Z-parent-verification.json).
+Next hourly backup about17:12UTC. Prior isolated restore drill remains accepted.
 API: `tools.market_backup.snapshot` then `validate_snapshot`; retain full
 invocation output privately and publish only sanitized hash/coverage/mode proof.
 
