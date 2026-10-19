@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 14:39 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 14:46 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,21 +51,20 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#112**:
+Latest fully parent-verified cycle **#113**:
 
-- UID `beta-normal-alliance-1792419711-Arthur-9122`;
-- start1792419711, finish1792420209:498s;428 observations/2,132 rows;
-- 414 full/14 bounded, all428 `ok`, zero query failures;
-- exactly900s after111;28.238854s finish-to-server receipt;
+- UID `beta-normal-alliance-1792420611-Arthur-0821`;
+- start1792420611, finish1792421087:476s;428 observations/2,146 rows;
+- 413 full/15 bounded, all428 `ok`, zero query failures;
+- exactly900s after112;30.120801s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredtwelfth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwelfth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredthirteenth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredthirteenth-ah-reopen-parent-verification.json).
 
-**#113 started1792420611 (14:36:51UTC) exactly on deadline.** Fullchain pending;
-next ordinary deadline1792421511 (14:51:51UTC). Sole operator continues full
+Next ordinary deadline1792421511 (14:51:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..112 all have verified exact900s starts.
+or physical-input retry yet. Scans108..113 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.

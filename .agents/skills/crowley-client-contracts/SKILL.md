@@ -72,6 +72,9 @@ exist at the injection point. A guessed callback count may fail before the reset
 or dispatch and leave the intended cleanup branch untested.
 For transaction-expiry tests, observe actual transaction entry; an identical
 deadline error from an earlier outer check does not establish the inner guard.
+An absent entry marker proves nothing if the fixture never enabled it. Arm the
+entry barrier and prove a successful control creates that marker before using
+its absence as a zero-side-effect oracle.
 Keep the failing owner alive through its normal error handler before recreating
 it from disk. Immediate owner destruction can hide a catch path that persists
 partly mutated counters over the recoverable checkpoint.
