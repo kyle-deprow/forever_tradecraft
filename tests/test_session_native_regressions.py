@@ -4387,6 +4387,64 @@ def test_native_recovery_begin_refuses_competing_capture_before_second_observati
         child.wait(timeout=3)
 
 
+def test_native_recovery_restart_refuses_live_reservation(tmp_path: Path) -> None:
+    """A restart-style recovery cannot bypass a live public preflight owner."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        preflight = daemon.native_construction_control_preflight(expected_generation=7)
+        reservation_id = preflight["reservation"]["reservationId"]
+        with pytest.raises(DriverError, match="recovery restart cannot overlap a live reservation"):
+            daemon.native_construction_recovery_begin(expected_generation=7, reservation_id="")
+        assert daemon._native_construction_reservation is not None
+        assert daemon._native_construction_reservation["reservationId"] == reservation_id
+        assert daemon._native_construction_inflight is None
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_context_rejects_existing_owner_without_guardian_generation(tmp_path: Path) -> None:
+    """Only a truly ownerless legacy start may sample the current Guardian generation."""
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    try:
+        with daemon._native_construction_lock:
+            context = daemon._native_construction_start_context_locked(generation=7, deferred=False)
+            assert context["guardianGeneration"] == driver.guardian.generation
+            daemon._native_construction_run_context = None
+            daemon._native_construction_reservation = {"reservationId": "malformed-owner"}
+            with pytest.raises(DriverError, match="missing Guardian generation"):
+                daemon._native_construction_start_context_locked(generation=7, deferred=True)
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_native_snapshot_rejects_live_guardian_generation_drift(tmp_path: Path) -> None:
+    """Snapshot validation compares the immutable owner generation to live Guardian state."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path)
+    try:
+        daemon._native_construction_observation_provider = lambda: _construction_frame(
+            identity, boot="boot-a", sequence=2
+        )
+        prepared = daemon.native_construction_prepare(expected_generation=7)
+        reservation = prepared["reservation"]
+        driver.guardian.generation += 1
+        with pytest.raises(DriverError, match="Guardian binding changed"):
+            daemon._native_construction_validate_snapshot(reservation, expected_generation=7)
+    finally:
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
 def test_native_recovery_cancel_revokes_inflight_capture_epoch(tmp_path: Path) -> None:
     daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
     entered = threading.Event()
@@ -5556,7 +5614,10 @@ def _prepare_deferred_resume_required(
     return reservation["reservationId"], reservation["expectedConstructorBoot"], boundary
 
 
-@pytest.mark.parametrize("malformed_kind", ["missing_capture", "nonfinite_sequence"])
+@pytest.mark.parametrize(
+    "malformed_kind",
+    ["missing_capture", "missing_sequence", "none_sequence", "nonfinite_sequence"],
+)
 def test_native_resume_ready_malformed_facts_refuse_before_publication(
     tmp_path: Path, malformed_kind: str
 ) -> None:
@@ -5581,6 +5642,10 @@ def test_native_resume_ready_malformed_facts_refuse_before_publication(
         }
         if malformed_kind == "missing_capture":
             del resumed_values["capture_monotonic"]
+        elif malformed_kind == "missing_sequence":
+            del resumed_values["sequence"]
+        elif malformed_kind == "none_sequence":
+            resumed_values["sequence"] = None
         else:
             resumed_values["sequence"] = float("nan")
         with pytest.raises(DriverError, match="native resume-ready observation facts are malformed"):
@@ -6153,6 +6218,10 @@ def test_native_capability_matches_exact_owner_facts_and_inflight_none_id(tmp_pa
                 {**capability, "kind": "measure"},
                 {**capability, "reservationId": None},
                 {**capability, "epoch": int(capability["epoch"]) + 1},
+                {
+                    **capability,
+                    "guardianGeneration": int(capability["guardianGeneration"]) + 1,
+                },
             ]
             assert all(
                 not daemon._native_construction_capability_matches(candidate)
@@ -6266,6 +6335,161 @@ def test_native_capability_matches_exact_owner_facts_and_inflight_none_id(tmp_pa
         if second_child is not None:
             second_child.terminate()
             second_child.wait(timeout=3)
+
+
+@pytest.mark.parametrize("revoke_first", [True, False])
+def test_native_guardian_generation_fence_covers_real_child_admission(
+    tmp_path: Path, revoke_first: bool
+) -> None:
+    """The private owner generation fences an actual child at Guardian admission."""
+
+    daemon, driver, identity, child = _construction_daemon(tmp_path, state=ControllerState.PAUSED)
+    producer = Path("/bin/true")
+    configured_profile = replace(
+        driver.profile,
+        telemetry_region_executable=producer,
+        telemetry_region_executable_sha256=hashlib.sha256(producer.read_bytes()).hexdigest(),
+    )
+    driver.profile = configured_profile
+    daemon.config = replace(daemon.config, profile=configured_profile)
+    # _native_driver intentionally constructs an isolated backend without a
+    # live display.  Populate the real release bookkeeping used when the
+    # Guardian revokes an admitted observer.
+    driver.backend._active_processes = set()
+    driver.backend._active_process_groups = set()
+    driver.backend._process_lock = threading.RLock()
+    driver.backend._capture_revocation_epoch = 0
+    driver.backend._cancel_active = threading.Event()
+    driver.backend._process_generations = {}
+    driver.backend._held_keys = set()
+    driver.backend._held_buttons = set()
+    started: list[subprocess.Popen[str]] = []
+    admitted = threading.Event()
+    release_capture = threading.Event()
+    capture_errors: list[BaseException] = []
+    try:
+        with daemon._native_construction_lock:
+            daemon._native_construction_epoch += 1
+            epoch = daemon._native_construction_epoch
+            daemon._native_construction_inflight = {
+                "epoch": epoch,
+                "generation": 7,
+                "guardianGeneration": driver.guardian.generation,
+                "kind": "preflight",
+            }
+            capability = daemon._native_construction_capability_locked()
+        assert capability is not None
+        backend_epoch = getattr(driver.backend, "_capture_revocation_epoch", 0)
+
+        def capture(
+            _identity: WindowIdentity,
+            *,
+            destination: Path | None = None,
+            observer_admission: Callable[[Callable[[], object]], object] | None = None,
+            observer_reaped: Callable[[int], None] | None = None,
+            **_kwargs: object,
+        ) -> Path:
+            assert observer_admission is not None and observer_reaped is not None
+
+            def start_process() -> object:
+                process = subprocess.Popen(["/bin/sleep", "30"], start_new_session=True)
+                started.append(process)
+                return SimpleNamespace(process=process, release_admission_gate=lambda: None)
+
+            admitted_process = observer_admission(start_process)
+            admitted.set()
+            assert release_capture.wait(3.0)
+            process = getattr(admitted_process, "process", None)
+            if process is None:
+                process = getattr(getattr(admitted_process, "observer", None), "process", None)
+            assert process is not None
+            process.terminate()
+            process.wait(timeout=3.0)
+            observer_reaped(process.pid)
+            output = destination or (tmp_path / "real-child-capture.png")
+            output.write_bytes(b"capture")
+            return output
+
+        driver.capture_native_region_for_identity = capture  # type: ignore[method-assign]
+
+        if revoke_first:
+            # Hold the controller mutex so the capture is stopped at the real
+            # controller admission boundary, then revoke while its callback is
+            # waiting on the construction transaction.
+            controller_ready = threading.Event()
+
+            def blocked_capture() -> None:
+                try:
+                    daemon._capture_native_region_for_identity(
+                        identity,
+                        expected_generation=7,
+                        expected_state=ControllerState.PAUSED,
+                        deadline=time.monotonic() + 5.0,
+                        native_capability=capability,
+                    )
+                except BaseException as exc:
+                    capture_errors.append(exc)
+                finally:
+                    controller_ready.set()
+
+            with daemon.controller.lock:
+                thread = threading.Thread(target=blocked_capture, name="guardian-generation-revoke-first")
+                thread.start()
+                time.sleep(0.05)
+                revoker = threading.Thread(
+                    target=lambda: driver.guardian.revoke("native generation race"),
+                    name="guardian-generation-revoker",
+                )
+                revoker.start()
+                assert _wait_for(lambda: driver.guardian.generation != capability["guardianGeneration"])
+            revoker.join(timeout=3.0)
+            thread.join(timeout=3.0)
+            assert not thread.is_alive() and not revoker.is_alive()
+            assert capture_errors and "capability" in str(capture_errors[0]).lower()
+            assert started == []
+        else:
+            thread = threading.Thread(
+                target=lambda: daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=7,
+                    expected_state=ControllerState.PAUSED,
+                    deadline=time.monotonic() + 5.0,
+                    native_capability=capability,
+                ),
+                name="guardian-generation-admission-first",
+            )
+            thread.start()
+            assert admitted.wait(3.0)
+            assert len(started) == 1 and started[0].poll() is None
+            driver.guardian.revoke("native generation after admission")
+            release_capture.set()
+            thread.join(timeout=3.0)
+            assert not thread.is_alive()
+            assert driver.guardian.observer_process_groups == frozenset()
+            assert driver.guardian.active_process_groups == frozenset()
+            assert all(process.poll() is not None for process in started)
+            with pytest.raises(DriverError, match="capability"):
+                daemon._capture_native_region_for_identity(
+                    identity,
+                    expected_generation=7,
+                    expected_state=ControllerState.PAUSED,
+                    deadline=time.monotonic() + 5.0,
+                    native_capability=capability,
+                )
+            assert len(started) == 1
+        if revoke_first:
+            assert getattr(driver.backend, "_capture_revocation_epoch", 0) == backend_epoch
+        else:
+            assert getattr(driver.backend, "_capture_revocation_epoch", 0) > backend_epoch
+    finally:
+        release_capture.set()
+        for process in started:
+            if process.poll() is None:
+                process.terminate()
+                process.wait(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
 
 
 def test_public_paused_preflight_cancel_before_producer_admission_dispatches_no_process(
@@ -6695,6 +6919,15 @@ def test_completed_worker_cannot_publish_into_next_operation_record(tmp_path: Pa
         old_post_finish_release.set()
         old_thread.join(timeout=3.0)
         assert not old_thread.is_alive()
+        # The old worker has now published its result/error and run its
+        # identity-guarded finally.  The successor record must still be
+        # untouched before its own worker is released.
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["kind"] == "native"
+            assert current["state"] == "running"
+            assert current["result"] is None
+            assert current["error"] == ""
         new_release.set()
         new_thread = daemon._calibration_thread
         assert new_thread is not None
@@ -6714,6 +6947,195 @@ def test_completed_worker_cannot_publish_into_next_operation_record(tmp_path: Pa
         thread = daemon._calibration_thread
         if thread is not None:
             thread.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_completed_worker_cannot_flip_next_starting_operation_record(
+    tmp_path: Path,
+) -> None:
+    """A stale worker's finally cannot turn a newly published starting record into error."""
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path)
+    old_release = threading.Event()
+    old_finished = threading.Event()
+    old_post_finish_release = threading.Event()
+    new_worker_entered = threading.Event()
+    new_begin_release = threading.Event()
+    new_entered = threading.Event()
+    new_release = threading.Event()
+    try:
+
+        def old_runner(
+            *, expected_generation: int | None = None, admitted_context: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            daemon._begin_calibration("native", expected_generation, admitted_context=admitted_context)
+            if not old_release.wait(3.0):
+                raise DriverError("old worker fixture did not release")
+            daemon._finish_calibration(state="complete")
+            old_finished.set()
+            if not old_post_finish_release.wait(3.0):
+                raise DriverError("old worker post-finish fixture did not release")
+            raise DriverError("late old worker failure")
+
+        def new_runner(
+            *, expected_generation: int | None = None, admitted_context: dict[str, object] | None = None
+        ) -> dict[str, object]:
+            new_worker_entered.set()
+            if not new_begin_release.wait(3.0):
+                raise DriverError("new worker start fixture did not release")
+            daemon._begin_calibration("native", expected_generation, admitted_context=admitted_context)
+            new_entered.set()
+            if not new_release.wait(3.0):
+                raise DriverError("new worker fixture did not release")
+            daemon._finish_calibration(state="complete")
+            return {"owner": "new"}
+
+        native_calls = [0]
+
+        def native_runner(**kwargs: object) -> dict[str, object]:
+            native_calls[0] += 1
+            if native_calls[0] == 1:
+                return old_runner(**kwargs)  # type: ignore[arg-type]
+            return new_runner(**kwargs)  # type: ignore[arg-type]
+
+        daemon.run_native_calibration = native_runner  # type: ignore[method-assign]
+        daemon.start_calibration("native", expected_generation=7)
+        old_thread = daemon._calibration_thread
+        assert old_thread is not None
+        old_release.set()
+        assert old_finished.wait(2.0)
+
+        daemon.start_calibration("native", expected_generation=7)
+        assert new_worker_entered.wait(2.0)
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["state"] == "starting"
+            assert current["kind"] == "native"
+            assert current["result"] is None
+            assert current["error"] == ""
+
+        old_post_finish_release.set()
+        old_thread.join(timeout=3.0)
+        assert not old_thread.is_alive()
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["state"] == "starting"
+            assert current["result"] is None
+            assert current["error"] == ""
+
+        new_begin_release.set()
+        assert new_entered.wait(2.0)
+        new_release.set()
+        new_thread = daemon._calibration_thread
+        assert new_thread is not None
+        new_thread.join(timeout=3.0)
+        assert not new_thread.is_alive()
+        with daemon._calibration_state_lock:
+            current = daemon._calibration_operation
+            assert current["state"] == "complete"
+            assert current["error"] == ""
+            assert current["result"] is not None
+    finally:
+        old_release.set()
+        old_post_finish_release.set()
+        new_begin_release.set()
+        new_release.set()
+        thread = daemon._calibration_thread
+        if thread is not None:
+            thread.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_input_start_owns_record_and_publishes_worker_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The public input start reaches its own running record before a controlled sample error."""
+
+    from crowley.session.calibration import InputCalibrationWorkflow
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path, state=ControllerState.INPUT_CALIBRATION)
+    sample_entered = threading.Event()
+    release_sample = threading.Event()
+
+    def reject_sample(self: object) -> object:
+        del self
+        sample_entered.set()
+        if not release_sample.wait(10.0):
+            raise DriverError("controlled input sample fixture did not release")
+        raise DriverError("controlled input sample failure")
+
+    monkeypatch.setattr(InputCalibrationWorkflow, "run", reject_sample)
+    monkeypatch.setattr(daemon, "_validate_runtime_paths", lambda: None)
+    try:
+        started = daemon.start_calibration("input", expected_generation=7)
+        assert started["calibrationOperation"]["state"] in {"starting", "running"}, started[
+            "calibrationOperation"
+        ]  # type: ignore[index]
+        assert sample_entered.wait(2.0)
+        with daemon._calibration_state_lock:
+            assert daemon._calibration_operation["state"] == "running"
+            assert daemon._calibration_operation["kind"] == "input"
+            assert daemon._calibration_operation["result"] is None
+            assert daemon._calibration_operation["error"] == ""
+        release_sample.set()
+        worker = daemon._calibration_thread
+        assert worker is not None
+        worker.join(timeout=5.0)
+        assert not worker.is_alive()
+        with daemon._calibration_state_lock:
+            current = copy.deepcopy(daemon._calibration_operation)
+        assert current["kind"] == "input"
+        assert current["state"] == "error"
+        assert current["error"] == "controlled input sample failure"
+        assert current["result"] is None
+    finally:
+        release_sample.set()
+        worker = daemon._calibration_thread
+        if worker is not None:
+            worker.join(timeout=3.0)
+        driver.close()
+        child.terminate()
+        child.wait(timeout=3)
+
+
+def test_public_input_start_rejects_cross_kind_worker_while_starting(tmp_path: Path) -> None:
+    """A real starting input record blocks a competing native worker."""
+
+    daemon, driver, _identity, child = _construction_daemon(tmp_path, state=ControllerState.INPUT_CALIBRATION)
+    release_input = threading.Event()
+    input_entered = threading.Event()
+
+    def held_input(**_kwargs: object) -> dict[str, object]:
+        input_entered.set()
+        if not release_input.wait(3.0):
+            raise DriverError("held input fixture did not release")
+        return {"calibration": "input"}
+
+    daemon.run_input_calibration = held_input  # type: ignore[method-assign]
+    try:
+        daemon.start_calibration("input", expected_generation=7)
+        assert input_entered.wait(2.0)
+        with daemon._calibration_state_lock:
+            assert daemon._calibration_operation["state"] == "starting"
+            assert daemon._calibration_operation["kind"] == "input"
+        with pytest.raises(DriverError, match="already starting"):
+            daemon._begin_calibration("native", 7)
+        release_input.set()
+        worker = daemon._calibration_thread
+        assert worker is not None
+        worker.join(timeout=3.0)
+        assert not worker.is_alive()
+        with daemon._calibration_state_lock:
+            assert daemon._calibration_operation["state"] == "error"
+    finally:
+        release_input.set()
+        worker = daemon._calibration_thread
+        if worker is not None:
+            worker.join(timeout=3.0)
         driver.close()
         child.terminate()
         child.wait(timeout=3)

@@ -18,6 +18,7 @@ import sys
 import threading
 import time
 import types
+from collections.abc import Callable
 from dataclasses import replace
 from io import BytesIO
 from pathlib import Path
@@ -1002,6 +1003,9 @@ def test_real_session_daemon_native_provider_route_and_stock_model_capture(
     try:
         started = region_daemon.controller.start()
         assert started.state is ControllerState.NATIVE_CALIBRATION
+        with pytest.raises(DriverError, match="configured X11 backend"):
+            region_daemon._capture_native_region_for_identity(identity, deadline=time.monotonic() + 5.0)
+        assert region_backend.region_captures == 0
         paused = region_daemon.controller.pause("fixture stop transition")
         assert paused.state is ControllerState.PAUSED
         stopped = region_daemon.controller.stop()
@@ -1285,9 +1289,12 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
                 daemon._native_construction_inflight = {
                     "epoch": provisional_epoch,
                     "generation": paused_generation,
+                    "guardianGeneration": driver.guardian.generation,
                     "kind": "preflight",
                 }
                 provisional_capability = daemon._native_construction_capability_locked()
+                assert provisional_capability is not None
+                assert provisional_capability["guardianGeneration"] == driver.guardian.generation
             provisional_capture: Path | None = None
             try:
                 provisional_capture = daemon._capture_native_region_for_identity(
@@ -1854,6 +1861,210 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
         finally:
             if retained_capture is not None:
                 daemon.release_native_capture(retained_capture)
+            daemon._cleanup_native_owned_captures()
+            driver.close()
+
+
+@pytest.mark.parametrize("revoke_before_admission", [True, False])
+def test_compiled_private_owner_guardian_generation_revoke_orders(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, revoke_before_admission: bool
+) -> None:
+    """Exercise both Guardian-generation orders through the compiled producer."""
+
+    root = Path(__file__).resolve().parents[1]
+    harness_spec = importlib.util.spec_from_file_location(
+        "region_guardian_generation_harness", root / "tools/gnome-telemetry-region/offline_harness.py"
+    )
+    assert harness_spec is not None and harness_spec.loader is not None
+    harness = importlib.util.module_from_spec(harness_spec)
+    harness_spec.loader.exec_module(harness)
+    freeze = json.loads(
+        (root / ".archive/executor-review/gnome-telemetry-region-r6-final-freeze.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    frozen_producer = Path(freeze["private_cache"]) / "prefix/bin/gnome-screenshot"
+    producer_sha256 = hashlib.sha256(frozen_producer.read_bytes()).hexdigest()
+    assert producer_sha256 == freeze["build"]["private_binary_sha256"]
+
+    client = WowClient()
+    client.set_canonical_plan()
+    client.login()
+    client.publish_agent()
+    client.update_agent(1.0)
+    first_status = client.render_agent_capture()
+    client.update_agent(1.0)
+    second_status = client.render_agent_capture()
+
+    def png_bytes(image: Image.Image) -> bytes:
+        output = BytesIO()
+        image.save(output, format="PNG")
+        return output.getvalue()
+
+    rectangle = (123, 77, 256, 256)
+    full_bytes = png_bytes(Image.new("RGB", (1920, 1080), (31, 37, 41)))
+    session_dir = tmp_path / "compiled-generation-session"
+    session_dir.mkdir(mode=0o700)
+    producer = session_dir / "gnome-screenshot-r6"
+    producer.write_bytes(frozen_producer.read_bytes())
+    producer.chmod(0o700)
+    xauthority = session_dir / "Xauthority"
+    xauthority.touch(mode=0o600)
+    plan_json = "{}"
+    plan_hash = hashlib.sha256(plan_json.encode()).hexdigest()
+    codex_path = Path(
+        "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/"
+        "vendor/x86_64-unknown-linux-musl/bin/codex"
+    )
+    assert codex_path.is_file()
+    _install_private_shell_compositor_bus(monkeypatch, tmp_path)
+    with harness.private_shell_compositor(
+        payloads=[png_bytes(first_status), png_bytes(second_status), png_bytes(second_status)],
+        full_desktop=full_bytes,
+        rectangle=rectangle,
+        allow_area_gate=True,
+    ) as compositor:
+
+        def wait_for(predicate: Callable[[], bool], *, timeout: float = 3.0) -> bool:
+            deadline = time.monotonic() + timeout
+            while time.monotonic() < deadline:
+                if predicate():
+                    return True
+                time.sleep(0.01)
+            return bool(predicate())
+
+        monkeypatch.setattr(driver_module, "GNOME_CAPTURE_LOCK_PATH", tmp_path / "private-capture.lock")
+        identity = WindowIdentity(
+            0x100,
+            os.getpid(),
+            "WowB.exe",
+            "World of Warcraft",
+            "wowb.exe",
+            0x101,
+            (0, 0, 1928, 1092),
+            (0, 0, 1920, 1080),
+            0x100,
+            Path("/proc/self/stat").read_text(encoding="ascii").split(")", 1)[1].split()[19],
+            compositor["display"],
+            "compiled-generation-private-window-identity",
+            0x100,
+            0x100,
+            frozenset({0x100, 0x101}),
+        )
+        profile = DriverProfile(
+            display=compositor["display"],
+            xauthority=str(xauthority),
+            wine_prefix="/private-fixture-only",
+            client_width=1920,
+            client_height=1080,
+            outer_width=1928,
+            outer_height=1092,
+            canvas_crop=rectangle,
+            model_crop=(80, 48, 640, 480),
+            telemetry_region_executable=producer,
+            telemetry_region_executable_sha256=producer_sha256,
+        )
+        backend = X11Backend(profile)
+        backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+        driver = DesktopDriver(profile=profile, backend=backend, lease_path=session_dir / "desktop.lock")
+        config = SessionConfig(
+            profile=profile,
+            journal=session_dir / "journal.json",
+            socket=session_dir / "session.sock",
+            capture_dir=session_dir / "captures",
+            plan_hash=plan_hash,
+            plan_json=plan_json,
+            codex_path=str(codex_path),
+        )
+        daemon = SessionDaemon(config, driver=driver)
+        try:
+            started = daemon.controller.start()
+            assert started.state is ControllerState.NATIVE_CALIBRATION
+            # Traverse the configured NATIVE_CALIBRATION producer gate before
+            # the PAUSED capability proof.  This is the real X11 backend,
+            # compiled producer, Guardian admission, decoder fixture, and
+            # process cleanup path; the later race remains owner-bound.
+            native_capture = daemon._capture_native_region_for_identity(
+                identity,
+                expected_generation=started.generation,
+                expected_state=ControllerState.NATIVE_CALIBRATION,
+                deadline=time.monotonic() + 10.0,
+            )
+            assert native_capture.is_file()
+            daemon._remove_native_capture(native_capture)
+            paused = daemon.controller.pause("Guardian generation race")
+            assert paused.state is ControllerState.PAUSED
+            from crowley.session.cli import SessionIPC
+
+            ipc = SessionIPC(daemon.controller, owner=daemon)
+            preflight = ipc.dispatch(
+                {"command": "native_construction_control_preflight", "generation": paused.generation}
+            )
+            assert preflight["ok"] is True, preflight
+            with daemon._native_construction_lock:
+                capability = daemon._native_construction_capability_locked()
+            assert capability is not None
+            assert capability["guardianGeneration"] == driver.guardian.generation
+            area_log = compositor["area_log"]
+            before_area = len(json.loads(area_log.read_text(encoding="utf-8"))) if area_log.exists() else 0
+            capture_errors: list[BaseException] = []
+
+            def capture_with_capability() -> None:
+                try:
+                    path = daemon._capture_native_region_for_identity(
+                        identity,
+                        expected_generation=paused.generation,
+                        expected_state=ControllerState.PAUSED,
+                        deadline=time.monotonic() + 10.0,
+                        native_capability=capability,
+                    )
+                    daemon._remove_native_capture(path)
+                except BaseException as exc:
+                    capture_errors.append(exc)
+
+            if revoke_before_admission:
+                with daemon.controller.lock:
+                    capture_thread = threading.Thread(
+                        target=capture_with_capability, name="compiled-generation-revoke-first"
+                    )
+                    capture_thread.start()
+                    revoker = threading.Thread(
+                        target=lambda: driver.guardian.revoke("compiled generation revoke-first"),
+                        name="compiled-generation-revoker",
+                    )
+                    revoker.start()
+                    assert wait_for(lambda: driver.guardian.generation != capability["guardianGeneration"])
+                    assert wait_for(
+                        lambda: daemon._native_construction_reservation is None,
+                    )
+                revoker.join(timeout=3.0)
+                capture_thread.join(timeout=8.0)
+                assert not revoker.is_alive() and not capture_thread.is_alive()
+                assert capture_errors and "capability" in str(capture_errors[0]).lower()
+                assert len(json.loads(area_log.read_text(encoding="utf-8"))) == before_area
+                assert not backend._active_processes and not backend.active_process_groups
+                assert not driver.guardian.observer_process_groups
+            else:
+                compositor["area_block_path"].touch(mode=0o600)
+                capture_thread = threading.Thread(
+                    target=capture_with_capability, name="compiled-generation-admission-first"
+                )
+                capture_thread.start()
+                assert wait_for(lambda: compositor["area_started_path"].exists(), timeout=5.0)
+                assert len(driver.guardian.observer_process_groups) == 1
+                driver.guardian.revoke("compiled generation admission-first")
+                compositor["area_block_path"].unlink(missing_ok=True)
+                compositor["area_release_path"].touch(mode=0o600)
+                capture_thread.join(timeout=8.0)
+                assert not capture_thread.is_alive()
+                assert capture_errors and "revoked" in str(capture_errors[0]).lower()
+                # Revocation terminates the admitted producer while its real
+                # Shell call is blocked, so the compositor has not published
+                # a second receipt even though the child reached admission.
+                assert len(json.loads(area_log.read_text(encoding="utf-8"))) == before_area
+                assert not backend._active_processes and not backend.active_process_groups
+                assert not driver.guardian.observer_process_groups
+        finally:
             daemon._cleanup_native_owned_captures()
             driver.close()
 

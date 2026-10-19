@@ -1062,6 +1062,7 @@ class SessionDaemon:
         return {
             "epoch": self._native_construction_epoch,
             "generation": owner.get("generation", owner.get("controllerGeneration")),
+            "guardianGeneration": owner.get("guardianGeneration"),
             "reservationId": owner.get("reservationId"),
             "kind": owner.get("kind", owner.get("reservationKind")),
         }
@@ -1085,6 +1086,8 @@ class SessionDaemon:
         expected_generation = capability.get("generation")
         current_generation = owner.get("generation", owner.get("controllerGeneration"))
         if expected_generation != current_generation:
+            return False
+        if capability.get("guardianGeneration") != owner.get("guardianGeneration"):
             return False
         expected_kind = capability.get("kind")
         current_kind = owner.get("kind", owner.get("reservationKind"))
@@ -1168,10 +1171,23 @@ class SessionDaemon:
         """Seal one callback context while the admission lock is held."""
 
         self._native_construction_epoch += 1
+        owner = self._native_construction_inflight or self._native_construction_reservation
+        if owner is None:
+            # A legacy ownerless start creates its binding here while the
+            # construction lock is held.  Once an owner exists, however, a
+            # missing original generation is malformed and must fail closed;
+            # sampling the current Guardian generation would let stale state
+            # borrow a newer owner.
+            guardian_generation = self._native_construction_guardian_generation()
+        elif not isinstance(owner, dict) or "guardianGeneration" not in owner:
+            raise DriverError("native construction owner is missing Guardian generation")
+        else:
+            guardian_generation = owner["guardianGeneration"]
         context = {
             "runId": secrets.token_hex(16),
             "epoch": self._native_construction_epoch,
             "generation": generation,
+            "guardianGeneration": guardian_generation,
             "deferred": deferred,
             "reservationId": reservation_id,
             "closed": False,
@@ -1403,6 +1419,19 @@ class SessionDaemon:
             and "\x00" not in value
         )
 
+    def _native_construction_guardian_generation(self) -> int:
+        """Capture the current Guardian generation as an owner fact."""
+
+        guardian = getattr(self.driver, "guardian", None)
+        guardian_lock = getattr(guardian, "_lock", None)
+        if guardian is None or guardian_lock is None:
+            raise DriverError("native construction Guardian binding is unavailable")
+        with guardian_lock:
+            generation = getattr(guardian, "generation", None)
+        if not isinstance(generation, int) or isinstance(generation, bool) or generation < 0:
+            raise DriverError("native construction Guardian generation is malformed")
+        return generation
+
     def _native_construction_binding(
         self,
         *,
@@ -1413,6 +1442,9 @@ class SessionDaemon:
         expected_boot: str,
         identity: WindowIdentity,
         expires_monotonic: float,
+        guardian_generation: int | None = None,
+        guardian_armed: bool | None = None,
+        desktop_lease_held: bool | None = None,
     ) -> dict[str, Any]:
         guardian = getattr(self.driver, "guardian", None)
         lease = getattr(guardian, "lease", None)
@@ -1424,14 +1456,33 @@ class SessionDaemon:
         expected_constructor_boot = f"native-construction:{expected_boot}"
         if len(expected_constructor_boot.encode("utf-8")) > 96:
             raise DriverError("native construction boot is too long")
+        if guardian_armed is None or desktop_lease_held is None:
+            guardian_lock = getattr(guardian, "_lock", None)
+            if guardian is None or guardian_lock is None:
+                raise DriverError("native construction Guardian binding is unavailable")
+            # The owner generation is supplied by the owner-creation
+            # transaction.  Only the auxiliary armed/lease facts are sampled
+            # here; a missing or stale generation is never replaced with a
+            # later current value.
+            with guardian_lock:
+                if guardian_armed is None:
+                    guardian_armed = bool(getattr(guardian, "armed", False))
+                if desktop_lease_held is None:
+                    desktop_lease_held = bool(getattr(lease, "held", False))
+        if (
+            not isinstance(guardian_generation, int)
+            or isinstance(guardian_generation, bool)
+            or guardian_generation < 0
+        ):
+            raise DriverError("native construction Guardian generation is malformed")
         return {
             "reservationId": reservation_id,
             "reservationKind": reservation_kind,
             "reservationState": reservation_state,
             "controllerGeneration": controller_generation,
-            "desktopLeaseHeld": bool(getattr(lease, "held", False)),
-            "guardianGeneration": int(getattr(guardian, "generation", -1)),
-            "guardianArmed": bool(getattr(guardian, "armed", False)),
+            "desktopLeaseHeld": bool(desktop_lease_held),
+            "guardianGeneration": guardian_generation,
+            "guardianArmed": bool(guardian_armed),
             "ownerPid": os.getpid(),
             "ownerProcessStart": owner_start,
             "profileFingerprint": self._native_construction_profile_fingerprint(self.driver.profile),
@@ -1705,6 +1756,20 @@ class SessionDaemon:
         lease = getattr(getattr(self.driver, "guardian", None), "lease", None)
         if not bool(getattr(lease, "held", False)):
             raise DriverError("native construction desktop lease is not held")
+        original_guardian_generation = reservation.get("guardianGeneration")
+        if (
+            not isinstance(original_guardian_generation, int)
+            or isinstance(original_guardian_generation, bool)
+            or original_guardian_generation < 0
+        ):
+            raise DriverError("native construction reservation Guardian generation is malformed")
+        # The immutable generation captured at owner creation is passed into
+        # the binding snapshot above.  Separately read the live Guardian
+        # generation under its real lock so a revoked owner cannot validate
+        # merely by comparing the reservation back to itself.
+        current_guardian_generation = self._native_construction_guardian_generation()
+        if current_guardian_generation != original_guardian_generation:
+            raise DriverError("native construction Guardian binding changed (generation)")
         identity = self.driver.resolve_identity()
         guardian = self.driver.guardian
         current = self._native_construction_binding(
@@ -1715,6 +1780,7 @@ class SessionDaemon:
             expected_boot=reservation["B0"],
             identity=identity,
             expires_monotonic=reservation["expiresMonotonic"],
+            guardian_generation=reservation.get("guardianGeneration"),
         )
         for key in (
             "desktopLeaseHeld",
@@ -1767,6 +1833,7 @@ class SessionDaemon:
                 or current.get("reservationId") != reservation_snapshot.get("reservationId")
                 or current_ticket.get("reservationId") != ticket_snapshot.get("reservationId")
                 or current_ticket.get("epoch") != ticket_snapshot.get("epoch")
+                or current_ticket.get("guardianGeneration") != ticket_snapshot.get("guardianGeneration")
             ):
                 raise DriverError("native recovery owner was revoked during polling")
             current_snapshot = copy.deepcopy(current)
@@ -1783,6 +1850,7 @@ class SessionDaemon:
                 or current.get("reservationId") != reservation_snapshot.get("reservationId")
                 or current_ticket.get("reservationId") != ticket_snapshot.get("reservationId")
                 or current_ticket.get("epoch") != ticket_snapshot.get("epoch")
+                or current_ticket.get("guardianGeneration") != ticket_snapshot.get("guardianGeneration")
             ):
                 raise DriverError("native recovery owner was revoked during validation")
         return identity, capability or {}
@@ -2041,9 +2109,11 @@ class SessionDaemon:
                     raise DriverError("native calibration is already running")
             self._native_construction_epoch += 1
             epoch = self._native_construction_epoch
+            guardian_generation = self._native_construction_guardian_generation()
             self._native_construction_inflight = {
                 "epoch": epoch,
                 "generation": expected_generation,
+                "guardianGeneration": guardian_generation,
                 "kind": kind,
             }
             capability = self._native_construction_capability_locked()
@@ -2083,6 +2153,7 @@ class SessionDaemon:
                 expected_boot=boot,
                 identity=identity,
                 expires_monotonic=deadline,
+                guardian_generation=guardian_generation,
             )
             checkpoint = {
                 "schema": 1,
@@ -2365,9 +2436,11 @@ class SessionDaemon:
             if not expired:
                 self._native_construction_epoch += 1
                 epoch = self._native_construction_epoch
+                guardian_generation = self._native_construction_guardian_generation()
                 self._native_construction_inflight = {
                     "epoch": epoch,
                     "generation": expected_generation,
+                    "guardianGeneration": guardian_generation,
                     "kind": "recovery",
                     "reservationId": reservation_id or None,
                 }
@@ -2448,6 +2521,7 @@ class SessionDaemon:
                         expected_boot=checkpoint["B0"],
                         identity=identity,
                         expires_monotonic=deadline,
+                        guardian_generation=guardian_generation,
                     )
                 else:
                     current_reservation = copy.deepcopy(current_reservation)
@@ -2469,6 +2543,7 @@ class SessionDaemon:
                     ),
                     "beginCaptureMonotonic": observation.get("captureMonotonic", self._native_clock()),
                     "controllerGeneration": expected_generation,
+                    "guardianGeneration": current_reservation.get("guardianGeneration"),
                     "recoveryKind": recovery_kind,
                     "epoch": epoch,
                 }
@@ -4595,7 +4670,19 @@ class SessionDaemon:
                         native_capability
                     ):
                         raise DriverError("native region capture capability was revoked")
-                    return guardian.observer_dispatch_admission(start)
+
+                    def start_with_guardian_generation() -> Any:
+                        # observer_dispatch_admission invokes this callback
+                        # while holding the real Guardian lock.  This is the
+                        # final pre-Popen generation fence; an earlier sample
+                        # would leave a revoke-first race at the callback.
+                        if native_capability is not None and guardian.generation != native_capability.get(
+                            "guardianGeneration"
+                        ):
+                            raise DriverError("native region capture Guardian generation is stale")
+                        return start()
+
+                    return guardian.observer_dispatch_admission(start_with_guardian_generation)
 
         def observer_reaped(process_group: int) -> None:
             guardian.unregister_observer_process(process_group)
