@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 16:12 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 16:17 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -51,21 +51,20 @@ Daemon service `crowley-session` is active, PID3891378 since10:08:17UTC.
 No identity-budget/ACK-alignment candidate is installed. Assisted operation
 continues while offline correctness/performance work proceeds.
 
-Latest fully parent-verified cycle **#118**:
+Latest fully parent-verified cycle **#119**:
 
-- UID `beta-normal-alliance-1792425111-Arthur-5541`;
-- start1792425111, finish1792425587:476s;428 observations/2,036 rows;
-- 413 full/15 bounded, all428 `ok`, zero query failures;
-- exactly900s after117;34.755733s finish-to-server receipt;
+- UID `beta-normal-alliance-1792426011-Arthur-9542`;
+- start1792426011, finish1792426489:478s;428 observations/2,000 rows;
+- 412 full/16 bounded, all428 `ok`, zero query failures;
+- exactly900s after118;33.613747s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredeighteenth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredeighteenth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundrednineteenth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundrednineteenth-ah-reopen-parent-verification.json).
 
-Scan119 started exactly1792426011 (16:06:51UTC), full chain in progress.
 Next ordinary deadline1792426911 (16:21:51UTC). Sole operator continues full
 assisted900s chains until root has a concrete reviewed release ready. No native
-or physical-input retry yet. Scans108..118 all have verified exact900s starts.
+or physical-input retry yet. Scans108..119 all have verified exact900s starts.
 After106 a real WOW51900319 disconnect caused107 to start350s late; normal
 reconnect succeeded without credentials. The old memory notification said8hours
 ago; no new OOM cause is established. See archived links for exact proofs.
@@ -268,6 +267,13 @@ prepared in private `native-ack-parent-r2-final-20261019/run.py`; its source
 input is deliberately absent until the final snapshot is verified. Actual Opus
 correction-review runner/prompt prepared (not launched) in
 `native-ack-source-opus-r2-20261019/`, focused on R7-to-final delta and context.
+Worker corrected baseline also PASS45.96s: old naturally refused update4
+(received5), accepted3, max active1384.569ms/glue4; reduced accepted99 but
+max active1435.161ms/glue119. The actual provider-level same-digest receipt
+substitution regression passed0.64s. These worker results are pending parent
+reproduction and final snapshot; missing-callback/post-notification failure
+regressions and final source freeze are not yet complete.
+
 
 
 
