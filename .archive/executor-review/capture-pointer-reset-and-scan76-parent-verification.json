@@ -1,0 +1,51 @@
+{
+  "status": "PASS",
+  "scope": "Parent verified retained artifacts; no parent GUI input and no autonomous qualification.",
+  "motion_probe": {
+    "receipt_sha256": "b2c3ecd3c8eec59cb4b4201ed2914d9ef37e3c08868208c15c81dacd30b77f34",
+    "raw_xi2_sha256": "10fb5557b58594224fa434e45461a6b53ed89885ff0bcb44ddac885f6a44c55d",
+    "pointer_xy_sequence": [
+      [
+        284,
+        177
+      ],
+      [
+        284,
+        177
+      ],
+      [
+        1400,
+        100
+      ],
+      [
+        1400,
+        100
+      ],
+      [
+        284,
+        177
+      ]
+    ],
+    "observation": "Injected move reached and held endpoint before capture; during capture a source7 event changed pointer back. No buttons or keys recorded. Root and pinned queries agreed.",
+    "correction": "Receipt raw_motion_events count0 is inaccurate: retained observer_events/raw log include one source4 RawMotion."
+  },
+  "ah_reopen": {
+    "receipt_sha256": "f8360e2c981bb95d768415c1a65c81d8572331aed3a71a9af54bca36af247810",
+    "png_sha256": "860ca642f9f4ebf3a2c799167808419e884c59b1fdbc079a232ef819f53baf9c",
+    "parent_production_decoded": true,
+    "boot": "1792384493-546133",
+    "sequence": 771,
+    "loaded_ack_uid": "beta-normal-alliance-1792383934-Arthur-2146",
+    "pending_count": 0,
+    "ah_open": true,
+    "native_phase": "normal",
+    "native_ordinal": 0,
+    "scanner_fence": "inactive",
+    "character_speed": 0,
+    "button_released": true,
+    "scan76_started_at": 1792385263,
+    "scan76_due_at": 1792386163,
+    "scan75_to76_seconds": 1329
+  },
+  "arbitration": "AH reopen at04:47 preceded motion probe04:50. Probe diagnoses capture reset; it did not cause earlier reopen. Collector orders final capture/focus, final move, fresh pointer/window query, immediate guarded click. Candidate production FixedInput already avoids capture between move and press; no input-tool/native changes needed."
+}

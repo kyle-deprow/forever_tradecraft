@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19, 04:35 UTC. Repo `/home/dev/repos/pegasus`.
+Updated 2026-10-19, 04:59 UTC. Repo `/home/dev/repos/pegasus`.
 Origin https://github.com/kyle-deprow/forever_tradecraft . Existing Crowley names
 remain intentional. User revoked AGENTS.md rules; ongoing fixes/install/recovery/
 commits/pushes are authorized. Do not re-ask routine permission.
@@ -36,24 +36,47 @@ Seven accepted native files are installed; helper remains uninstalled.
 See native-paused-install-parent-verification.json for hashes/pins/process proof.
 Collection is still **operator-assisted**; GUI Luna keeps it flowing.
 
-Latest parent independently verified **74**, UID
-`beta-normal-alliance-1792383034-Arthur-7115`, start04:10:34UTC:
-428obs/2144rows/410full/16bounded/2incomplete (query_timeout, unknown notempty).
-Actual start interval5024s after73, duration534s, finish→server70.117346s.
-Parent preserved actual ACK-reload SavedVariables SHA
-3ac50317ffae92a008b6af5f36d786bf506ff24423488a758bb53031851bcedc;
-DBlogicaldigest matches, exact ACK production-decoded from retained freshPNG.
-Public build-70450-seventyfourth-scan-parent-verification.json. Earlier preflush
-copy3e498 was the OLD scan and is not mislabeled as74; firstsaveSHAafe differs
-from actual lateroriginalpreservedbytes, allpartialfailedhelperreceipts retained.
-GUI curatedfullcycle5a4b284b references actualsave/upload/ACK/AHphase receipts.
-Privatehelpers fixeddecoderrebind+postsaveoriginalcopy forfuturecycles.
+Latest parent independently verified **76**
+UID `beta-normal-alliance-1792385263-Arthur-2687`, start04:47:43UTC,
+finish04:55:42UTC (479s):428obs/2057rows/412full/16bounded/0incomplete.
+Parent original SHA2ce5b4d2f5b38a6676565783550cb4291195cdc1ef8739670affa769b1004adb
+and DBlogicaldigest match; exact76ACK loaded in boot1792385864-340613, pending0,
+normal0/inactivefence. finish→server105.968071s, interval1329s after75 (429s late).
+Public build-70450-seventysixth-scan-parent-verification.json. Raw receipt ends
+failed at later tooltip-OCR; ACK stage succeeded and independent normalization
+preserves that distinction. SoleGUI AH-reopen continuation underway.
 
-**75** started1792383934 exactly900s after74 and completed1792384411
-(04:33:31), 428attempted/2113rows/0failures; save/upload/ACK/reopen underway.
-GUI owns75 AND76 wholecycles, not just observations; keepdataflowing while
-calibration is fixed. #76due1792384834 (04:40:34). These are operator-assisted.
-No autonomousqualification. Nextparentverifier75prior_start1792383034.
+Previously parent independently verified **75**, UID
+`beta-normal-alliance-1792383934-Arthur-2146`, start04:25:34UTC:
+428obs/2113rows/414full/14bounded/0incomplete; exact900s after74;
+duration477s, finish→server41.017916s. Actual post-save-beforeACK original
+SHA6da236d697d8ed7cb8b09b98fc297fc4a186fd2c58a5799a595af048568bd781;
+DBlogicaldigest matches; exact loadedACK PNG independently production-decoded.
+Public build-70450-seventyfifth-scan-parent-verification.json. Data saved/ACKed.
+AH reopened at04:47:43 after final reposition immediately before click. Scan76
+started1792385263, due1792386163 (05:02:43): gap1329s after75, 429s late.
+The 04:40:34 start was missed. Collection remains operator-assisted.
+
+**Pointer issue diagnosed:** repeated post75 AH clicks failed because capture
+can reset the pointer. Parent independently checked motion-only probe rawXI2,
+core+sealedtool queries:284,177→1400,100, held beforecapture→284,177 duringcapture;
+source4 injected move worked, later source7 motion reset endpoint. No button/key
+probe inputs. Receipt raw_motion_events0 is a counting error: actual rawtrace has
+RawMotion. Successful AH reopen04:47 preceded the04:50 diagnostic; do not invert
+causality. Final collector order: scene/focus capture→final explicit reposition→
+fresh endpoint/window guard→immediate button pair, no intervening capture/focus.
+Parent production-decoded retained AH-open PNG860ca642...: exact75ACK/pending0,
+normal0/inactivefence, scan76 active, character stationary. Public
+capture-pointer-reset-and-scan76-parent-verification.json pins rawreceipt/PNG.
+Candidate production FixedInput already has this order; no native/inputtool or
+new desktop workaround needed. SoleGUI continues76 completion/save/ACK/reopen.
+
+74 previously verified428/2144rows/410full16bounded2query_timeout; actualstartgap
+5024s after73, finish→server70.117346s. Its complete save/ACK/AHcycle succeeded;
+75startedexact900s later. Sources/partials remain hash-bound and preserved.
+GUIprivatehelper first75save failed KeyError(savedvars_before) AFTERactualsave+
+upload; continuation preservedactualnewpayloadandloadedACK, don'tduplicateupload.
+#74oldpreflushbaseline3e498 isnotnewpayload; rootpreservedactualACKreloadbytes3ac503.
 
 **Recovery now succeeded in the live client (04:09 UTC).** Parent independently
 production-decoded actual retained PNG: boot1792382956-926241, normal/0,
@@ -132,8 +155,13 @@ edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d,
 teste2775104d0974b158f8bff8838a8a64bda80007bf1347ab2df61edf6de1151ca.
 OnlyclosedenvLC_ALL=C/cwd=/, verifiedFD/codeownedpins, strictprotocol, deadline/
 actualkillreap+FDtests. In private rust-matcher-runtime-integration-20261019.
-Lunaworkerrust_matcher NOW prepareshelpermatching/CLI/sourcebindings wiring there,
-leaving _record_operation_deadline andoldhelpertestfileuntouched. Parentwillmerge
+Lunaworkerrust_matcher completedpreliminarymatching/CLI/sourcebindings wiring there,
+helperSHAe0b8c04eeae1e212c47ee34454d4e665b834a9007bbff1fa62dc54a12f43e545;
+runtimetestSHA302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69.
+Parent18focusedPASS1.11s andactualretainedframevsoriginalPythonreference: exclusive
+206.79/207.32ms,dual240.53ms, setup0.868ms, includesPNG/hash/process/rolelogic.
+AllactualOperatorreceiptsmergeverifiedruntimepins, deterministicimport/script+module
+help green. Leaves _record_operation_deadline andoldhelpertestfileuntouched. Parentwillmerge
 finalproofworker's phase-minmethod+actualcausaltestbaseline beforefullintegration
 checks/review/deploy. ReviewedPLAN-rust-matcher-helper-integration.md includes
 parallelpreparation. FinalintegrationOpus reviewsallcombinedchanges once; no early
@@ -243,6 +271,13 @@ Must actualpublicpause→freshrecovery; firstkeyREADY→watchdogACK→expirybefo
 withzeroactualactions/reap/emptyownership; narrowdeadline/allocation/inheritedFD
 branches; exact independently knownbytes vsallreceiptdependencydigests. Fullonce
 stable, parent changedbranches+successcase meaningfulrepro, deltaSol/actualOpus.
+Actualrecover-restore r2/r3/debug repeatedly61s AdmissionIndeterminate. Independent
+Sol diagnosis found compositor .b64 payloadfiles overwrittenwithRAWPng afterreal
+Restore; GJSreadBase64cannotpublishnextScreenshotArea, secondaryactortimeout.
+Lunaappliesbase64encodedatomic600payloadupdates; rawPNGonlyrequestedoutputfile.
+No native/deadline/ownershiprelaxation. Sourcehelperphase-minfixremainsnarrow;
+finalcausaltests/hashhandoffpending. Diagnosticrawlogs private runtime-relink/
+native-helper-proof-closure-20261019. Separatewiringworktree untouchedbyproofworker.
 Helper NOT main/installed; never run rejected old candidates. R8/66pass historical.
 
 ## Remaining live gates
@@ -269,7 +304,7 @@ Helper NOT main/installed; never run rejected old candidates. R8/66pass historic
 
 Latest hourly backup `beta-20261019T041237Z-bf0631a88c00`, parentvalidate PASS,
 manifest SHA7ce5a0fe3ea4ff3701287f8e6fa0129fc6f71b7d45f49ae6c702873b7a7892ff,
-0700 directory, data through73 (current74stillinmemory). Next hourly05:13UTC. Run
+0700 directory, data through73 (74/75 ingested afterward; originals retained). Next hourly05:13UTC. Run
 `uv run python tools/market_backup.py snapshot`; independentlyvalidate_snapshot.
 Prior isolated restore drill passed; no repeat without reason. Raw/private files
 stay out of git. Historical handoff: handoff-history-before-consolidation-

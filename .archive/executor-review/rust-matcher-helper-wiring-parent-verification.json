@@ -1,0 +1,58 @@
+{
+  "command": [
+    "/home/dev/repos/pegasus/.venv/bin/pytest",
+    "-q",
+    "tests/test_template_matcher_runtime.py",
+    "tests/test_native_calibration_operator.py",
+    "-k",
+    "template"
+  ],
+  "testReturncode": 0,
+  "testOutput": "..................                                                       [100%]\n18 passed, 72 deselected in 1.11s\n",
+  "testLogSha256": "8bff96654b6d5a15a0a4c94026a8948c4eca767f62fedea16fd23777a0709d10",
+  "sourceHashes": {
+    "tools/native_calibration_operator.py": "e0b8c04eeae1e212c47ee34454d4e665b834a9007bbff1fa62dc54a12f43e545",
+    "tools/template_matcher_runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "tests/test_template_matcher_runtime.py": "302f74f2098dbd8a2eb6f1d3f417e8fd757b89bf66a6d854e921008661dbfa69"
+  },
+  "runnerSha256": "48f25385191c32c9e1f6046774c949f4657a318f246c0bf82b5617b89a79b422",
+  "frameSha256": "bfe7fb9ce7c7169fbf52e714e140c0e1f1e560c0077dc8ba4e46c5fe1e2b42c2",
+  "templateManifestSha256": "1866fe230e8a49104c2a126501b585c31a8279dc0f172389413b225de26425ec",
+  "referenceHelperSha256": "ffc8ae4f2e338d36d521002e7de5d894c3876a06f621aca5166361055fa9b2e5",
+  "setupVerificationMs": 0.8680110040586442,
+  "timings": {
+    "exclusive-construct": {
+      "samplesMs": [
+        206.7913769860752,
+        204.9614150018897,
+        209.91317101288587
+      ],
+      "medianMs": 206.7913769860752
+    },
+    "exclusive-restore": {
+      "samplesMs": [
+        205.67528600804508,
+        216.39456902630627,
+        207.32144900830463
+      ],
+      "medianMs": 207.32144900830463
+    },
+    "dual": {
+      "samplesMs": [
+        240.53291798918508,
+        243.61617100657895,
+        240.36571799661033
+      ],
+      "medianMs": 240.53291798918508
+    }
+  },
+  "sourceBindings": {
+    "template-matcher-runtime.py": "edc5242e9eaf864e98b78b9904b28f8fac51927cc90a6001047a32ab8d36700d",
+    "template-matcher-binary": "75b18bd04cc3a9248f99ecdca3a1cdebe6e0d89c4d33eaebd600788177bcd80c",
+    "template-matcher-Cargo.toml": "3307fd9c7503479a443bbd23554958cda94343596985f9772ceba4187aeb7cd8",
+    "template-matcher-Cargo.lock": "ea23646a59c8a3956ede087e8fea60643cbd016771f435fe84c24c467861a9b2",
+    "template-matcher-src/main.rs": "bb3647dc12804670d391170563284799fce7b931a07f663726767e95402b47a3"
+  },
+  "definition": "Actual candidate TemplateMatcher calls include template and capture PNG reading/RGB conversion, SHA checks, verified-FD process startup+IPC/native scoring/parse, and composed role logic. Runtime setup verification separate. Exact decisions independently matched original pure Python helper. Retained frame only, no GUI or complete helper qualification.",
+  "qualification": "Partial matching/provenance wiring only; corrected causal helper suite and final integration reviews still required. No live helper install."
+}
