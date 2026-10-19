@@ -1,0 +1,16 @@
+{
+  "status": "PASS",
+  "qualification": "Ordinary quiescence before diagnostic-only release; no native/input qualification.",
+  "rawReceiptSha256": "4a6777fb1010a590c8a12640e1d160bb1cd4d5cc46fce77a3c59a9bbf93fc7e0",
+  "parentIndependentProductionDecode": true,
+  "imageSha256": "1f64e8141dd336ec5fa095b042bd058bc9632cb2656313bc2239474f39a4ff58",
+  "boot": "1792431357-144088",
+  "sequence": 28,
+  "ahOpen": false,
+  "pending": 0,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "speed": 0,
+  "controlsReleased": true
+}

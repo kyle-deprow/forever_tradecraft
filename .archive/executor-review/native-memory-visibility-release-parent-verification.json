@@ -1,0 +1,39 @@
+{
+  "status": "PASS",
+  "qualification": "Diagnostic-only reviewed source installed quiescently. One instrumented native retry pending; memory/input/autonomous gates not qualified.",
+  "sourceHashes": {
+    "src/crowley/session/calibration.py": "d342224339777e103b47aad008608f56f396711e5aff3999367286319990d26b",
+    "src/crowley/session/daemon.py": "22327c5c6c4d772afe515d8c09c4c744214709b55ccc557d33606495676e7c37",
+    "src/crowley/session/driver.py": "05e5ed98d0b94019aa29eb0f4bd6ac3174cf45dca93deb9059425eeb815738cc",
+    "tests/test_native_calibration_operator.py": "275854aca13bd70aff559e10268ed83624046f678a548bd1790de8b9eab0ee62",
+    "tests/test_session_native.py": "dd50b41bad852eeabc01245ca356c153a0b48a51b739b98c73c21e06b5f22ad6",
+    "tests/test_session_runtime.py": "7bae80b98b08d13b193ea1472e734724ad4b8e275ead206e9fc7d832a6fe9857"
+  },
+  "importOrigins": {
+    "daemon": "/home/dev/repos/pegasus/src/crowley/session/daemon.py"
+  },
+  "service": {
+    "mainPid": 2443858,
+    "active": "active",
+    "subState": "running"
+  },
+  "controller": {
+    "state": "PAUSED",
+    "generation": 42,
+    "nativeCalibration": false,
+    "inputCalibration": false
+  },
+  "artifactSha256": {
+    "promotion-admission.json": "24e536f9a8001bfc6786ff43c92affb0d9a4532432c052ba2f72f42fa2d24c40",
+    "before.json": "facc0b3c4d8b246475936b9600d8fb7cbb8faf7e6e33cca81b36d4a730ec85e7",
+    "after.json": "f62debc99d911da510982ef7f8d6f96211d9d864c5380de1ddf5d3e0139fde2a",
+    "status-after.json": "8a9dc9ec413be50d94a06e3f9e2807d0d453d9af79c72379851ff01d11b3f2dd",
+    "promote.py": "c8103ee5555732818d672d8203e4bd212e132a8bfcd1f29dd5fd741ba386318c"
+  },
+  "evidence": [
+    "native-memory-visibility-parent-verification.json",
+    "native-memory-visibility-sol-r1-review.json",
+    "native-memory-visibility-opus-r1-review.md",
+    "native-memory-visibility-quiescence-parent-verification.json"
+  ]
+}

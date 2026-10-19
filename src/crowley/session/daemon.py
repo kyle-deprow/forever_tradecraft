@@ -837,6 +837,9 @@ class _NativeObservationDiagnostic:
                     "publisher_uptime_ms": None,
                     "capture_monotonic": None,
                     "capture_sha256": None,
+                    "lua_heap": None,
+                    "texture_count": None,
+                    "update_p99_ms": None,
                 },
                 "backend_receipt": None,
                 "spans": self._empty_spans(),
@@ -925,6 +928,55 @@ class _NativeObservationDiagnostic:
                 render = value.get("render", {}) if isinstance(value, dict) else {}
                 if not isinstance(render, dict):
                     render = {}
+                # Agent.Publish reports the heap sample from the previous completed
+                # publication. Preserve that observed lag; this is diagnostic context,
+                # not a peak or an attribution claim.
+                lua_heap_value = render.get("luaHeap")
+                lua_heap: dict[str, Any] | None = None
+                if isinstance(lua_heap_value, dict):
+                    expected_lua_heap_keys = {
+                        "method",
+                        "available",
+                        "beforeKiB",
+                        "afterKiB",
+                        "netKiB",
+                    }
+                    before_kib = lua_heap_value.get("beforeKiB")
+                    after_kib = lua_heap_value.get("afterKiB")
+                    net_kib = lua_heap_value.get("netKiB")
+                    numeric_metrics = (before_kib, after_kib, net_kib)
+                    numeric = all(
+                        isinstance(item, (int, float))
+                        and not isinstance(item, bool)
+                        and math.isfinite(float(item))
+                        for item in numeric_metrics
+                    )
+                    available = lua_heap_value.get("available")
+                    unavailable_sentinels = all(item == 0 for item in numeric_metrics)
+                    if (
+                        set(lua_heap_value) == expected_lua_heap_keys
+                        and lua_heap_value.get("method") == "collectgarbage_count"
+                        and isinstance(available, bool)
+                        and numeric
+                        and (available or unavailable_sentinels)
+                    ):
+                        lua_heap = {
+                            "method": lua_heap_value["method"],
+                            "available": available,
+                            "before_kib": before_kib,
+                            "after_kib": after_kib,
+                            "net_kib": net_kib,
+                        }
+                texture_count = render.get("textureCount")
+                if isinstance(texture_count, bool) or not isinstance(texture_count, int):
+                    texture_count = None
+                update_p99_ms = render.get("updateP99Ms")
+                if (
+                    isinstance(update_p99_ms, bool)
+                    or not isinstance(update_p99_ms, (int, float))
+                    or not math.isfinite(float(update_p99_ms))
+                ):
+                    update_p99_ms = None
                 self._current["actual"] = {
                     "kind": getattr(sample, "kind", None),
                     "phase": render.get("nativePhase"),
@@ -935,6 +987,9 @@ class _NativeObservationDiagnostic:
                     "publisher_uptime_ms": getattr(frame, "uptime_ms", None),
                     "capture_monotonic": getattr(sample, "capture_monotonic", None),
                     "capture_sha256": digest,
+                    "lua_heap": lua_heap,
+                    "texture_count": texture_count,
+                    "update_p99_ms": update_p99_ms,
                 }
                 self._current_path = Path(path) if path is not None else None
             except Exception:

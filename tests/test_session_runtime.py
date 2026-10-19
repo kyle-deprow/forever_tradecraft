@@ -36,7 +36,7 @@ from crowley.session.calibration import (
 )
 from crowley.session.cli import _socket_request, serve
 from crowley.session.daemon import _NativeObservationDiagnostic
-from crowley.session.decoder import Sample
+from crowley.session.decoder import PixelDecoder, Sample
 from crowley.session.driver import (
     DriverError,
     DriverProfile,
@@ -2578,7 +2578,24 @@ def test_runtime_native_observation_diagnostic_is_bounded_private_and_bound(tmp_
     capture = tmp_path / "candidate.png"
     Image.new("RGB", (256, 256), (0, 0, 0)).save(capture, format="PNG")
     frame = SimpleNamespace(
-        snapshot=SimpleNamespace(value={"render": {"nativePhase": "updates", "nativeOrdinal": 20}}),
+        snapshot=SimpleNamespace(
+            value={
+                "render": {
+                    "nativePhase": "updates",
+                    "nativeOrdinal": 20,
+                    "updateCount": 19,
+                    "luaHeap": {
+                        "method": "collectgarbage_count",
+                        "available": True,
+                        "beforeKiB": 100.0,
+                        "afterKiB": 161.5,
+                        "netKiB": 61.5,
+                    },
+                    "textureCount": 2048,
+                    "updateP99Ms": 3.25,
+                }
+            }
+        ),
         boot="boot-7",
         sequence=27,
         uptime_ms=20_000,
@@ -2619,6 +2636,15 @@ def test_runtime_native_observation_diagnostic_is_bounded_private_and_bound(tmp_
     assert len(payload["attempts"]) == 16
     assert payload["attempts"][0]["requested_ordinal"] == 5
     assert payload["attempts"][-1]["actual"]["publisher_uptime_ms"] == 20_000
+    assert payload["attempts"][-1]["actual"]["lua_heap"] == {
+        "method": "collectgarbage_count",
+        "available": True,
+        "before_kib": 100.0,
+        "after_kib": 161.5,
+        "net_kib": 61.5,
+    }
+    assert payload["attempts"][-1]["actual"]["texture_count"] == 2048
+    assert payload["attempts"][-1]["actual"]["update_p99_ms"] == 3.25
     assert payload["attempts"][-1]["spans"]["identity_poll"]["duration_ns"] is not None
     assert payload["attempts"][-1]["spans"]["cells"]["duration_ns"] is None
     assert payload["attempts"][-1]["release_outcome"] == "released"
@@ -2630,6 +2656,114 @@ def test_runtime_native_observation_diagnostic_is_bounded_private_and_bound(tmp_
     assert (
         payload["failure"]["offending_capture_sha256"] == hashlib.sha256(offending.read_bytes()).hexdigest()
     )
+
+
+def test_runtime_native_observation_render_metrics_are_closed_and_unavailable(tmp_path: Path) -> None:
+    daemon = _diagnostic_fixture_daemon(tmp_path)
+    diagnostic = _NativeObservationDiagnostic(daemon)
+    diagnostic.start_run()
+
+    known_heap = {
+        "method": "collectgarbage_count",
+        "available": True,
+        "beforeKiB": 10.0,
+        "afterKiB": 12.5,
+        "netKiB": 2.5,
+    }
+    known_render = {
+        "nativePhase": "updates",
+        "nativeOrdinal": 1,
+        "updateCount": 0,
+        "luaHeap": known_heap,
+        "textureCount": 2048,
+        "updateP99Ms": 1.75,
+    }
+    client = WowClient(
+        faction="Alliance",
+        realm="Classic Beta PvE 2",
+        zone="Stormwind",
+        current_region=110,
+        current_region_name="beta",
+    )
+    client.set_canonical_plan()
+    client.login()
+    client.publish_agent()
+    encoded_snapshot = client.snapshot_agent()
+    encoded_snapshot["sequence"] = 8
+    encoded_snapshot["uptimeMs"] = 1_000
+    encoded_snapshot["render"].update(known_render)
+    client.ns.Agent.Snapshot = lambda: client._to_lua(encoded_snapshot)
+    client.publish_agent()
+
+    raw = client.agent_frame
+    packed_cells = b"".join(raw[row * 16 : (row + 1) * 16].translate(_REVERSE_BITS) for row in range(128))
+    crop = (
+        Image.frombytes("1", (128, 128), packed_cells)
+        .resize((256, 256), Image.Resampling.NEAREST)
+        .convert("RGB")
+    )
+    decoded_sample = PixelDecoder().decode(crop, monotonic=10.0, window_identity="diagnostic-frame")
+    assert decoded_sample.frame is not None
+    assert decoded_sample.frame.snapshot.value["render"]["luaHeap"] == known_heap
+    diagnostic.begin_attempt("updates", 1)
+    diagnostic.record_candidate(decoded_sample, "a" * 64)
+    decoded_sample.frame.snapshot.value["render"]["luaHeap"]["afterKiB"] = 999.0
+    diagnostic.finish_attempt(status="no_change")
+
+    unavailable_sample = SimpleNamespace(
+        kind="FRESH",
+        frame=SimpleNamespace(
+            snapshot=SimpleNamespace(
+                value={
+                    "render": {
+                        "nativePhase": "updates",
+                        "nativeOrdinal": 2,
+                        "luaHeap": {
+                            "method": "collectgarbage_count",
+                            "available": False,
+                            "beforeKiB": 0,
+                            "afterKiB": 0,
+                            "netKiB": 0,
+                        },
+                        "textureCount": "unknown",
+                        "updateP99Ms": float("nan"),
+                        "privateDiagnosticField": "must not escape",
+                    }
+                }
+            ),
+            boot="boot-7",
+            sequence=9,
+            uptime_ms=2_000,
+        ),
+        capture_monotonic=11.0,
+    )
+    diagnostic.begin_attempt("updates", 2)
+    diagnostic.record_candidate(unavailable_sample, "b" * 64)
+    diagnostic.fail("diagnostic fixture mismatch", stage="updates", ordinal=2)
+
+    assert diagnostic.failure_path is not None
+    payload = json.loads(diagnostic.failure_path.read_text())
+    known_actual = payload["attempts"][-2]["actual"]
+    assert known_actual["lua_heap"] == {
+        "method": "collectgarbage_count",
+        "available": True,
+        "before_kib": 10.0,
+        "after_kib": 12.5,
+        "net_kib": 2.5,
+    }
+    assert known_actual["texture_count"] == 2048
+    assert known_actual["update_p99_ms"] == 1.75
+    unavailable_actual = payload["attempts"][-1]["actual"]
+    assert unavailable_actual["lua_heap"] == {
+        "method": "collectgarbage_count",
+        "available": False,
+        "before_kib": 0,
+        "after_kib": 0,
+        "net_kib": 0,
+    }
+    assert unavailable_actual["texture_count"] is None
+    assert unavailable_actual["update_p99_ms"] is None
+    assert "privateDiagnosticField" not in unavailable_actual
 
 
 def test_runtime_native_observation_diagnostic_persistence_failure_preserves_cause(

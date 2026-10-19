@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 17:29 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 17:37 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -47,27 +47,28 @@ child0x2000011, fingerprint
 and controller generation before mutation. Last native recovery was PAUSED38,
 nativefalse/inputfalse; do not treat this historical generation as fresh.
 
-Daemon service `crowley-session` is active, NEW PID1566769 after reviewed release
-installation at17:02UTC. Latest status PAUSED41/nativefalse/inputfalse. Exact final
+Daemon service `crowley-session` is active, NEW PID2443858 after reviewed release
+diagnostic release installation at17:36:54UTC. Latest status PAUSED42/nativefalse/inputfalse. Exact final
 identity-budget/ACK-alignment correction is installed and committed/pushedbe71895.
 Live40 reached held100, then failed process-memory gate; automatic recovery
 completed and cleared checkpoint. Ordinary AH reopened; assisted123 began
 1792429927 after the deliberate qualification pause. No physical-input gate yet.
 
-Latest fully parent-verified cycle **#123**:
+Latest fully parent-verified cycle **#124**:
 
-- UID `beta-normal-alliance-1792429927-Arthur-5536`;
-- start1792429927, finish1792430406:479s;428 observations/1,963 rows;
-- 412 full/16 bounded, all428 `ok`, zero query failures;
-- 1216s after122 (316s deliberate qualification delay);86.201070s finish-to-server receipt;
+- UID `beta-normal-alliance-1792430827-Arthur-9679`;
+- start1792430827, finish1792431303:476s;428 observations/1,952 rows;
+- 410 full/18 bounded, all428 `ok`, zero query failures;
+- exact900s after123;39.037493s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredtwentythird-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentythird-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredtwentyfourth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredtwentyfourth-ah-reopen-parent-verification.json).
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
-chain is verified; next actual ordinary deadline1792430827 (17:27:07UTC). After122, parent decoded fresh closedAH/pending0/ordinary
+chain is verified;124 also complete at exact900s. Next nominal ordinary
+deadline1792431727 (17:42:07UTC);125 held for one diagnostic native attempt. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
 MAIN, then service restarted: [release proof](../.archive/executor-review/native-ack-release-parent-verification.json).
@@ -264,9 +265,14 @@ Reviewer wrote scratch/plan notes outside repo; parent retained them privately,
 source unchanged. Nonblocking nits: P99 also lags and is zero before100updates;
 redundant privacy assertion harmless. Do not change frozen source for these.
 Private Opus evidence: `native-memory-visibility-opus-r1-20261019/`.
-PROMOTION READY sent for AFTER full124chain (started1792430827 exact900s).
-Sole operator must finish124thenfreshclosedAHquiescence before125. No new
-measurement yet; exactlyone instrumented retry after2-filepromotion/restart.
+Full124chain and fresh quiescence parent-verified;2-file diagnostic release
+installed17:36:54UTC with imports/pins checked and service restarted:
+[release proof](../.archive/executor-review/native-memory-visibility-release-parent-verification.json).
+Sole operator now owns exactlyone instrumented chain from42: freshcontrolpreflight,
+resume actualgeneration, native100+passive1sprocess sampler, then ordinary
+recovery. No standalone recovery when checkpoint absent. On second failure,
+preserve metrics and return to assisted collection; resource-policy decision
+requires a separate plan. On pass, only then ask user physical-input availability.
 Keep16MiB gate and GC behavior unchanged. No user physical input requested yet.
 
 ## Next live gates, in order
