@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 21:24 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-19 21:29 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -47,14 +47,15 @@ child0x2000011, fingerprint
 and controller generation before mutation. Latest verified native recovery was PAUSED44,
 nativefalse/inputfalse; do not treat this historical generation as fresh.
 
-Daemon service `crowley-session` is active, PID2443858 after the reviewed
-diagnostic release installation at17:36:54UTC. Latest recovery status is
-PAUSED44/nativefalse/inputfalse. Exact final
-identity-budget/ACK-alignment correction is installed and committed/pushedbe71895.
-Live40 and43 both reached held100, then failed the unchanged process-memory
-gate. Gen43 required publicpause44 and separate canonical recovery, nowcomplete.
-Ordinary AH reopened; assisted125 began1792431816 (89slate). No physical-input
-gate yet. Diagnostic release is committed/pushed8277ec1.
+Daemon `crowley-session` restarted after accepted resource-policy R2 installation
+at21:28UTC, PID184662, PAUSED45/nativefalse/inputfalse. All six accepted files and
+three unchanged boundaries match final pins; MAIN imports verified; copy occurred
+while stopped. [Release proof](../.archive/executor-review/native-resource-policy-release-parent-verification.json).
+Parent decoded fresh closedAH normal0/inactive/pending0/speed0/released boundary
+before install: [quiescence](../.archive/executor-review/native-resource-policy-quiescence-parent-verification.json).
+Original gen40/43 failure archives remain byte-exact. Sole operator now performs
+ONE fresh native100 on the reviewed policy; no input calibration or autonomous
+cycles yet. Ordinary140 is held for this qualification; retain the real cadence gap.
 
 Latest fully parent-verified cycle **#139**:
 
@@ -310,8 +311,8 @@ Exact reset5 memory measurements and128MiB/16MiB targets remain. Verified
 resource overages receive separate durable assessments; correctness qualification
 still requires a fresh100-update run and all existing identity/cadence/ownership/
 recovery guards. Old failure archives remain byte-exact and unqualified.
-No new policy is installed yet. Parent reproduction, Sol and actual Opus source
-review precede promotion. Human input remains a separate genuine-human gate.
+Policy separation is installed after parent reproduction and Sol/actual Opus
+approval. Human input remains a separate genuine-human gate.
 
 First source candidate passed337 native/regression tests,38 runtime tests and
 compiled100. Parent reproduced23 focused,6 runtime,5 archive cases and compiled100;
@@ -325,10 +326,12 @@ persisted fingerprint/hash validation, replacement/historical current semantics,
 causal runtime assertion and focused negative coverage. R2 parent independently passed32 focused,6 runtime and real compiled100 plus
 static checks: [R2 evidence](../.archive/executor-review/native-resource-policy-r2-parent-verification.json).
 [Sol R2 READY](../.archive/executor-review/native-resource-policy-sol-r2-review.json);
-actual Opus R2 still running. New private evidence:
-`native-resource-policy-source-r2-20261019`. No candidate installed yet.
+[Actual Opus5.5 R2 READY](../.archive/executor-review/native-resource-policy-opus-r2-review.json),
+exit0 and all nine hashes unchanged. New private evidence:
+`native-resource-policy-source-r2-20261019`. R2 is installed; fresh live gates pending.
 
-Collection continues through assisted140 while validation runs.
+Assisted139 is complete. Ordinary140 is intentionally held after the parent-verified
+closedAH boundary for reviewed installation and one fresh native calibration.
 Scan134 reopened through a separate fresh tooltip-verified Auctioneer target;
 the stale-target failure is retained unchanged and its hash plus the recovery
 hash appear in the parent reopen proof. The20:12UTC backup is complete and

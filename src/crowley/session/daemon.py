@@ -31,6 +31,7 @@ from .calibration import (
     LinuxProcStatusVmHwmReset5,
     NativeCalibrationRunner,
     NativeMemoryArchiveReceipt,
+    NativeMemoryAssessmentArchiveReceipt,
     NativeMemoryMeasurement,
     NativeMemoryMeasurementArchiveReceipt,
     NativePreconstructionEvidence,
@@ -4628,21 +4629,19 @@ class SessionDaemon:
 
         meter: LinuxProcStatusVmHwmReset5 | None = None
 
-        def archive_over_limit(
-            measurement: NativeMemoryMeasurement, failure: str
-        ) -> NativeMemoryMeasurementArchiveReceipt:
+        def archive_over_limit(measurement: NativeMemoryMeasurement) -> NativeMemoryAssessmentArchiveReceipt:
             try:
                 if meter is None:
-                    raise DriverError("native failed-memory meter is not owned")
-                receipt = self._archive_native_memory_failure(meter, measurement, failure)
-                if not isinstance(receipt, NativeMemoryMeasurementArchiveReceipt):
-                    raise DriverError("native failed-memory archive returned no typed receipt")
+                    raise DriverError("native resource-assessment meter is not owned")
+                receipt = self._archive_native_memory_assessment(meter, measurement)
+                if not isinstance(receipt, NativeMemoryAssessmentArchiveReceipt):
+                    raise DriverError("native resource assessment archive returned no typed receipt")
                 receipt.verify(measurement)
                 return receipt
             except Exception:
-                # Keep only a fixed private token.  The meter suppresses this
-                # diagnostic failure and raises its original limit error.
-                self._native_memory_archive_diagnostic = "native_memory_failure_archive_failed"
+                # Keep only a fixed private token.  The meter re-raises this
+                # hard failure instead of allowing an unassessed overage.
+                self._native_memory_archive_diagnostic = "native_memory_assessment_archive_failed"
                 raise
 
         meter = LinuxProcStatusVmHwmReset5(
@@ -4725,6 +4724,72 @@ class SessionDaemon:
             ):
                 raise DriverError("native failed-memory archive result is invalid")
             receipt = NativeMemoryMeasurementArchiveReceipt.from_archive(measurement, archived)
+            receipt.verify(measurement)
+            return receipt
+
+    def _archive_native_memory_assessment(
+        self,
+        meter: LinuxProcStatusVmHwmReset5,
+        measurement: NativeMemoryMeasurement,
+    ) -> NativeMemoryAssessmentArchiveReceipt:
+        """Durably record one exact over-target result before native completion."""
+
+        measurement.verify()
+        if measurement.growth_bytes <= measurement.limit_bytes:
+            raise DriverError("native resource assessment is not target-exceeded")
+        if (
+            measurement.method != meter.METHOD
+            or measurement.pid != meter.pid
+            or measurement.process_start != meter.process_start
+            or measurement.process_executable != meter.process_executable
+            or measurement.identity_fingerprint != meter.identity_fingerprint
+            or measurement.uid != meter.expected_uid
+            or measurement.kernel_release != meter.kernel_release
+            or not meter.completion_matches(measurement)
+        ):
+            raise DriverError("native resource assessment is not bound to its completing meter")
+
+        with self.controller.lock:
+            if self.controller.status().state != ControllerState.NATIVE_CALIBRATION:
+                raise DriverError("native resource assessment requires NATIVE_CALIBRATION")
+            if self.driver.native_memory_meter is not meter:
+                raise DriverError("native resource assessment meter ownership changed")
+            identity = self.driver.resolve_identity()
+            if (
+                identity.fingerprint != measurement.identity_fingerprint
+                or identity.pid != measurement.pid
+                or identity.process_start != measurement.process_start
+            ):
+                raise DriverError("native resource assessment client identity changed")
+            meter._verify_identity()
+
+            kind = "native_memory_assessments"
+            measurement_payload = measurement.to_dict()
+            outcome_payload = {
+                "kind": kind,
+                "schema": 1,
+                "classification": "target_exceeded",
+                "measurement": measurement_payload,
+            }
+            outcome_id = hashlib.sha256(
+                json.dumps(outcome_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            payload = {
+                **outcome_payload,
+                "outcomeId": outcome_id,
+                "phase": measurement.phase,
+                "ordinal": measurement.ordinal,
+            }
+            archived = self.controller.journal.append_archive(kind, payload)
+            if (
+                not isinstance(archived, dict)
+                or set(archived) != set(payload) | {"archiveOrdinal", "archivedAt"}
+                or any(archived.get(key) != value for key, value in payload.items())
+                or isinstance(archived.get("archivedAt"), bool)
+                or not isinstance(archived.get("archivedAt"), int)
+            ):
+                raise DriverError("native resource assessment archive result is invalid")
+            receipt = NativeMemoryAssessmentArchiveReceipt.from_archive(measurement, archived)
             receipt.verify(measurement)
             return receipt
 
@@ -10295,6 +10360,7 @@ class SessionDaemon:
             },
             "calibrationHistory": durable.get("calibrationHistory", []),
             "calibrationInvalidated": durable.get("calibrationInvalidated", ""),
+            "nativeResourceAssessment": self.controller.native_resource_assessment(),
             "nativeBootstrapPending": self._native_bootstrap_ready.is_set(),
             "nativeBootstrapReady": self._native_baseline_ready.is_set(),
             "nativeBootstrap": self._native_baseline_observation or self._native_bootstrap_observation,

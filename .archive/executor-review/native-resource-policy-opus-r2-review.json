@@ -1,0 +1,22 @@
+{
+  "status": "READY",
+  "reportSha256": "1eca123e0686983a956eb8ba6f31a7caea62d7f97ae2475949baecdfd8e87b4d",
+  "actualCli": {
+    "pid": 4124505,
+    "started_wall": 1792444721.9628932,
+    "worktree": "/home/dev/.cache/crowley/worktrees/native-resource-policy-20261019",
+    "requested_model": "opus",
+    "status": "completed",
+    "returncode": 0,
+    "resolved_models": [
+      "claude-opus-5-5"
+    ],
+    "finished_wall": 1792445109.3242207,
+    "raw_sha256": "693d16f6022554c641609b045794949664e523709fcdf47079b806466e817d96",
+    "has_verdict": true,
+    "source_unchanged": true
+  },
+  "acceptedFindingsResolved": true,
+  "remainingNits": "No release-blocking issue; BLOCKED-arm/drift-cause test refinements deferred. Production snapshot exactly matches R1 reviewed pins; regression snapshot uses earlier R1 first freeze (00ba7ba1), not later reviewed test pin (152df0fa); no test-delta claim from that snapshot.",
+  "qualification": "Source approval only; fresh live native/input/autonomous gates still required."
+}

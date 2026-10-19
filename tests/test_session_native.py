@@ -40,8 +40,8 @@ from crowley.session.calibration import (
     NativeCalibrationEvidence,
     NativeCalibrationRunner,
     NativeMemoryArchiveReceipt,
+    NativeMemoryAssessmentArchiveReceipt,
     NativeMemoryMeasurement,
-    NativeMemoryMeasurementArchiveReceipt,
     NativePreconstructionEvidence,
     NativeRenderObservation,
     NativeRestorationReceipt,
@@ -8333,7 +8333,7 @@ def test_reset5_preserves_transient_peak_after_rss_falls_and_requires_two_window
             meter.close()
 
 
-def test_reset5_archives_complete_over_limit_measurement_before_exact_error() -> None:
+def test_reset5_archives_complete_over_limit_assessment_before_returning_measurement() -> None:
     child = subprocess.Popen(["/bin/sleep", "20"])
     meter: LinuxProcStatusVmHwmReset5 | None = None
     try:
@@ -8359,21 +8359,22 @@ def test_reset5_archives_complete_over_limit_measurement_before_exact_error() ->
         meter._status = lambda: next(statuses)  # type: ignore[method-assign]
         order: list[str] = []
 
-        def retain(measurement, failure):  # type: ignore[no-untyped-def]
-            archived.append((measurement, failure))
+        def retain(measurement):  # type: ignore[no-untyped-def]
+            archived.append((measurement, "target_exceeded"))
             order.append("archived")
             outcome = hashlib.sha256(
                 json.dumps(
                     {
-                        "kind": "native_memory_failures",
+                        "kind": "native_memory_assessments",
+                        "schema": 1,
+                        "classification": "target_exceeded",
                         "measurement": measurement.to_dict(),
-                        "failure": failure,
                     },
                     sort_keys=True,
                     separators=(",", ":"),
                 ).encode("utf-8")
             ).hexdigest()
-            return NativeMemoryMeasurementArchiveReceipt(
+            return NativeMemoryAssessmentArchiveReceipt(
                 outcome,
                 hashlib.sha256(
                     json.dumps(measurement.to_dict(), sort_keys=True, separators=(",", ":")).encode("utf-8")
@@ -8391,32 +8392,76 @@ def test_reset5_archives_complete_over_limit_measurement_before_exact_error() ->
                 record, archive_id="before-reset"
             ),
         )
-        with pytest.raises(CalibrationError) as failure:
-            meter.finish_window(
-                pending,
-                workload_start_monotonic=pending.reset_completed_monotonic,
-                workload_end_monotonic=pending.reset_completed_monotonic,
-                workload_start_ordinal=0,
-                workload_end_ordinal=0,
-            )
-        order.append("raised")
-        assert str(failure.value) == "native construction memory growth exceeds its limit"
-        assert failure.value.__cause__ is None
-        assert failure.value.__context__ is None
+        result = meter.finish_window(
+            pending,
+            workload_start_monotonic=pending.reset_completed_monotonic,
+            workload_end_monotonic=pending.reset_completed_monotonic,
+            workload_start_ordinal=0,
+            workload_end_ordinal=0,
+        )
         assert len(archived) == 1
-        measurement, archived_failure = archived[0]
+        measurement, classification = archived[0]
         measurement.verify()
-        assert archived_failure == str(failure.value)
-        assert measurement.final_hwm_bytes == 1_000 + 200 * 1024 * 1024
-        assert measurement.growth_bytes == 200 * 1024 * 1024
-        assert measurement.historical_hwm_bytes == 1_000
-        assert measurement.post_reset_hwm_bytes == 1_000
-        assert order == ["archived", "raised"]
+        assert classification == "target_exceeded"
+        assert result == measurement
+        assert result.final_hwm_bytes == 1_000 + 200 * 1024 * 1024
+        assert result.growth_bytes == 200 * 1024 * 1024
+        assert result.historical_hwm_bytes == 1_000
+        assert result.post_reset_hwm_bytes == 1_000
+        assert order == ["archived"]
     finally:
         if meter is not None:
             meter.close()
         child.terminate()
         child.wait(timeout=3)
+
+
+@pytest.mark.parametrize(
+    ("construction_growth", "updates_growth", "classification"),
+    [
+        (0, 0, "within_targets"),
+        (1, 0, "target_exceeded"),
+        (0, 1, "target_exceeded"),
+        (1, 1, "target_exceeded"),
+    ],
+    ids=["at-target", "construction-plus-one", "updates-plus-one", "both-plus-one"],
+)
+def test_native_evidence_resource_assessment_derives_both_phase_boundaries(
+    tmp_path: Path,
+    construction_growth: int,
+    updates_growth: int,
+    classification: str,
+) -> None:
+    """Sealed evidence reports target+1 in either reset5 phase without rejecting it."""
+
+    from tests.test_session import native_calibration
+
+    base = native_calibration(process_start="resource-assessment")
+    construction, updates = base.memory_measurements
+    measurements = (
+        replace(
+            construction,
+            growth_bytes=construction.limit_bytes + construction_growth,
+            final_hwm_bytes=construction.post_reset_hwm_bytes
+            + construction.limit_bytes
+            + construction_growth,
+        ),
+        replace(
+            updates,
+            growth_bytes=updates.limit_bytes + updates_growth,
+            final_hwm_bytes=updates.post_reset_hwm_bytes + updates.limit_bytes + updates_growth,
+        ),
+    )
+    evidence = replace(base, memory_measurements=measurements, fingerprint="", evidence_hash="")
+    evidence = replace(evidence, fingerprint=evidence.content_fingerprint()).with_hash()
+    evidence.verify_seal()
+    assessment = evidence.resource_assessment()
+    assert assessment["classification"] == classification
+    assert "current" not in assessment
+    assert assessment["construction"]["growthBytes"] == measurements[0].growth_bytes
+    assert assessment["updates"]["growthBytes"] == measurements[1].growth_bytes
+    assert assessment["construction"]["withinTarget"] is (construction_growth == 0)
+    assert assessment["updates"]["withinTarget"] is (updates_growth == 0)
 
 
 @pytest.mark.parametrize("failure_point", ["final_read", "identity"])
@@ -8444,7 +8489,7 @@ def test_reset5_final_accounting_failure_never_fabricates_measurement(failure_po
             return next(statuses)
 
         meter._status = read_status  # type: ignore[method-assign]
-        meter._over_limit_archive = lambda measurement, _failure: archived.append(measurement)  # type: ignore[method-assign]
+        meter._over_limit_archive = lambda measurement: archived.append(measurement)  # type: ignore[method-assign]
         pending = meter.begin_window(
             "construction",
             0,

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import re
 import threading
 import time
 from collections.abc import Callable
@@ -12,6 +13,7 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from .calibration import CalibrationError, NativeCalibrationEvidence, NativeMemoryMeasurement
 from .driver import DesktopDriver, DriverError
 from .evidence import BASELINE_MEDIAN_SECONDS, SweepEvidence
 from .journal import Journal, JournalError
@@ -1747,6 +1749,7 @@ class Controller:
             if not callable(verify):
                 raise DriverError("native calibration evidence is not sealed")
             verify()
+            resource_assessment = self._resource_assessment_record(evidence)
         except (DriverError, RuntimeError) as exc:
             with self._mutex:
                 if not self._admitted(
@@ -1767,6 +1770,7 @@ class Controller:
             prior_state = self._state
             self._native_calibrated = True
             record = self._evidence_record(evidence)
+            record["resourceAssessment"] = copy.deepcopy(resource_assessment)
             if preconstruction_proof is not None:
                 record["preconstruction"] = self._proof_record(preconstruction_proof)
             self._calibration_evidence["native"] = record
@@ -1788,6 +1792,205 @@ class Controller:
                 self._state = prior_state
                 raise
             return self.status()
+
+    @staticmethod
+    def _resource_assessment_record(evidence: Any) -> dict[str, Any]:
+        derive = getattr(evidence, "resource_assessment", None)
+        if not callable(derive):
+            raise DriverError("native calibration evidence has no resource assessment")
+        assessment = derive()
+        if not isinstance(assessment, dict):
+            raise DriverError("native resource assessment is malformed")
+        expected = {"classification", "method", "evidenceHash", "construction", "updates"}
+        if set(assessment) != expected:
+            raise DriverError("native resource assessment fields are incomplete")
+        if assessment.get("classification") not in {"within_targets", "target_exceeded"}:
+            raise DriverError("native resource assessment classification is invalid")
+        if (
+            not isinstance(assessment.get("method"), str)
+            or not assessment["method"]
+            or not isinstance(assessment.get("evidenceHash"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", assessment["evidenceHash"])
+        ):
+            raise DriverError("native resource assessment identity is invalid")
+        expected_hash = getattr(evidence, "evidence_hash", None)
+        if assessment["evidenceHash"] != expected_hash:
+            raise DriverError("native resource assessment is not bound to evidence")
+        exceeded = False
+        for phase in ("construction", "updates"):
+            facts = assessment.get(phase)
+            if not isinstance(facts, dict) or set(facts) != {"growthBytes", "targetBytes", "withinTarget"}:
+                raise DriverError("native resource assessment phase facts are incomplete")
+            growth = facts.get("growthBytes")
+            target = facts.get("targetBytes")
+            within = facts.get("withinTarget")
+            if (
+                isinstance(growth, bool)
+                or not isinstance(growth, int)
+                or growth < 0
+                or isinstance(target, bool)
+                or not isinstance(target, int)
+                or target <= 0
+                or not isinstance(within, bool)
+                or within != (growth <= target)
+            ):
+                raise DriverError("native resource assessment phase facts are invalid")
+            exceeded = exceeded or not within
+        if assessment["classification"] != ("target_exceeded" if exceeded else "within_targets"):
+            raise DriverError("native resource assessment classification is not derived")
+        return copy.deepcopy(assessment)
+
+    @staticmethod
+    def _not_measured_resource_assessment() -> dict[str, Any]:
+        return {
+            "classification": "not_measured",
+            "method": None,
+            "evidenceHash": None,
+            "current": False,
+            "construction": None,
+            "updates": None,
+        }
+
+    def native_resource_assessment(self) -> dict[str, Any]:
+        """Return only the current, validated resource assessment state."""
+
+        with self._mutex:
+            record = self._calibration_evidence.get("native")
+            if not isinstance(record, dict):
+                return self._not_measured_resource_assessment()
+            assessment = record.get("resourceAssessment")
+            if not isinstance(assessment, dict):
+                return self._not_measured_resource_assessment()
+            expected = {"classification", "method", "evidenceHash", "construction", "updates"}
+            if set(assessment) != expected:
+                return self._not_measured_resource_assessment()
+            if assessment.get("classification") not in {"within_targets", "target_exceeded"}:
+                return self._not_measured_resource_assessment()
+            raw_measurements = record.get("memory_measurements")
+            if not isinstance(raw_measurements, list) or len(raw_measurements) != 2:
+                return self._not_measured_resource_assessment()
+            measurements: dict[str, NativeMemoryMeasurement] = {}
+            for phase, raw in zip(("construction", "updates"), raw_measurements, strict=True):
+                if not isinstance(raw, dict):
+                    return self._not_measured_resource_assessment()
+                try:
+                    measurement = NativeMemoryMeasurement(**raw)
+                    measurement.verify()
+                except (CalibrationError, TypeError, ValueError):
+                    return self._not_measured_resource_assessment()
+                if measurement.to_dict() != raw or measurement.phase != phase:
+                    return self._not_measured_resource_assessment()
+                measurements[phase] = measurement
+            if measurements["construction"].method != measurements["updates"].method:
+                return self._not_measured_resource_assessment()
+            stored_evidence = self._stored_native_evidence(record, measurements)
+            if stored_evidence is None:
+                return self._not_measured_resource_assessment()
+            derived = stored_evidence.resource_assessment()
+            if assessment != derived:
+                return self._not_measured_resource_assessment()
+            phase_values = {phase: derived[phase] for phase in ("construction", "updates")}
+            result = {
+                "classification": derived["classification"],
+                "method": derived["method"],
+                "evidenceHash": derived["evidenceHash"],
+                "current": bool(
+                    self._native_calibrated
+                    and not self._calibration_invalidated_reason
+                    and not (
+                        self._state is ControllerState.NATIVE_CALIBRATION
+                        or (
+                            self._state is ControllerState.BLOCKED
+                            and self._resume_state is ControllerState.NATIVE_CALIBRATION
+                        )
+                    )
+                ),
+                "construction": phase_values["construction"],
+                "updates": phase_values["updates"],
+            }
+            return result
+
+    @staticmethod
+    def _stored_native_evidence(
+        record: dict[str, Any], measurements: dict[str, NativeMemoryMeasurement]
+    ) -> NativeCalibrationEvidence | None:
+        """Reconstruct and rehash the full canonical native evidence record."""
+
+        canonical_fields = (
+            "fingerprint",
+            "process_pid",
+            "process_executable",
+            "process_start",
+            "window_xid",
+            "child_xid",
+            "geometry",
+            "xinput_hierarchy",
+            "crop",
+            "boot",
+            "sequence",
+            "crc32",
+            "render",
+            "construction_update_count",
+            "held_update_count",
+            "resume_update_count",
+            "native_identity_fingerprint",
+            "resume_sequence",
+            "resume_crc32",
+            "resume_render",
+            "resume_capture_monotonic",
+            "capture_path",
+            "capture_sha256",
+            "capture_monotonic",
+            "xauthority",
+            "wine_prefix",
+            "preconstruction_fingerprint",
+            "provenance",
+            "is_live",
+            "evidence_hash",
+        )
+        if any(field not in record for field in canonical_fields):
+            return None
+        try:
+            evidence = NativeCalibrationEvidence(
+                fingerprint=record["fingerprint"],
+                process_pid=record["process_pid"],
+                process_executable=record["process_executable"],
+                process_start=record["process_start"],
+                window_xid=record["window_xid"],
+                child_xid=record["child_xid"],
+                geometry=record["geometry"],
+                xinput_hierarchy=record["xinput_hierarchy"],
+                crop=record["crop"],
+                boot=record["boot"],
+                sequence=record["sequence"],
+                crc32=record["crc32"],
+                render=record["render"],
+                construction_update_count=record["construction_update_count"],
+                held_update_count=record["held_update_count"],
+                resume_update_count=record["resume_update_count"],
+                memory_measurements=(measurements["construction"], measurements["updates"]),
+                native_identity_fingerprint=record["native_identity_fingerprint"],
+                resume_sequence=record["resume_sequence"],
+                resume_crc32=record["resume_crc32"],
+                resume_render=record["resume_render"],
+                resume_capture_monotonic=record["resume_capture_monotonic"],
+                capture_path=record["capture_path"],
+                capture_sha256=record["capture_sha256"],
+                capture_monotonic=record["capture_monotonic"],
+                xauthority=record["xauthority"],
+                wine_prefix=record["wine_prefix"],
+                preconstruction_fingerprint=record["preconstruction_fingerprint"],
+                provenance=record["provenance"],
+                is_live=record["is_live"],
+                evidence_hash=record["evidence_hash"],
+            )
+        except (KeyError, TypeError, ValueError):
+            return None
+        if evidence.fingerprint != evidence.content_fingerprint():
+            return None
+        if evidence.evidence_hash != evidence.with_hash().evidence_hash:
+            return None
+        return evidence
 
     def input_calibrated(
         self,
@@ -1913,6 +2116,9 @@ class Controller:
             "sequence",
             "crc32",
             "render",
+            "construction_update_count",
+            "held_update_count",
+            "resume_update_count",
             "memory_measurements",
             "native_identity_fingerprint",
             "resume_sequence",
@@ -1921,6 +2127,7 @@ class Controller:
             "resume_capture_monotonic",
             "capture_path",
             "capture_sha256",
+            "capture_monotonic",
             "process_start",
             "preconstruction_fingerprint",
             "evidence_hash",

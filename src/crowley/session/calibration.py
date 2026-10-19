@@ -1248,6 +1248,79 @@ def _native_memory_failure_outcome_id(measurement: NativeMemoryMeasurement, fail
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _native_memory_assessment_payload(measurement: NativeMemoryMeasurement) -> dict[str, Any]:
+    """Return the canonical, failure-independent over-target assessment domain."""
+
+    return {
+        "kind": "native_memory_assessments",
+        "schema": 1,
+        "classification": "target_exceeded",
+        "measurement": measurement.to_dict(),
+    }
+
+
+def _native_memory_assessment_outcome_id(measurement: NativeMemoryMeasurement) -> str:
+    return hashlib.sha256(
+        json.dumps(
+            _native_memory_assessment_payload(measurement),
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+@dataclass(frozen=True)
+class NativeMemoryAssessmentArchiveReceipt:
+    """Durability acknowledgement for an over-target resource assessment."""
+
+    outcome_id: str
+    measurement_sha256: str
+    archive_ordinal: int
+    durable: bool
+
+    @classmethod
+    def from_archive(
+        cls, measurement: NativeMemoryMeasurement, archived: dict[str, Any]
+    ) -> NativeMemoryAssessmentArchiveReceipt:
+        if not isinstance(archived, dict):
+            raise CalibrationError("native resource assessment archive returned no record")
+        expected_payload = _native_memory_assessment_payload(measurement)
+        if any(archived.get(key) != value for key, value in expected_payload.items()):
+            raise CalibrationError("native resource assessment archive domain is invalid")
+        ordinal = archived.get("archiveOrdinal")
+        if isinstance(ordinal, bool) or not isinstance(ordinal, int) or ordinal <= 0:
+            raise CalibrationError("native resource assessment archive returned no ordinal")
+        outcome_id = archived.get("outcomeId")
+        if not isinstance(outcome_id, str):
+            raise CalibrationError("native resource assessment archive returned no outcome identity")
+        if outcome_id != _native_memory_assessment_outcome_id(measurement):
+            raise CalibrationError("native resource assessment archive identity is invalid")
+        return cls(
+            outcome_id=outcome_id,
+            measurement_sha256=_native_memory_measurement_digest(measurement),
+            archive_ordinal=ordinal,
+            durable=True,
+        )
+
+    def verify(self, measurement: NativeMemoryMeasurement) -> None:
+        measurement.verify()
+        if measurement.growth_bytes <= measurement.limit_bytes:
+            raise CalibrationError("native resource assessment is not target-exceeded")
+        if (
+            not isinstance(self.outcome_id, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", self.outcome_id)
+            or self.outcome_id != _native_memory_assessment_outcome_id(measurement)
+            or not isinstance(self.measurement_sha256, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", self.measurement_sha256)
+            or self.measurement_sha256 != _native_memory_measurement_digest(measurement)
+            or isinstance(self.archive_ordinal, bool)
+            or not isinstance(self.archive_ordinal, int)
+            or self.archive_ordinal <= 0
+            or self.durable is not True
+        ):
+            raise CalibrationError("native resource assessment receipt is invalid")
+
+
 @dataclass(frozen=True)
 class NativeMemoryMeasurementArchiveReceipt:
     """Durability acknowledgement for one rejected complete memory window."""
@@ -1413,7 +1486,7 @@ class LinuxProcStatusVmHwmReset5:
         expected_uid: int | None = None,
         proc_root: str | os.PathLike[str] = "/proc",
         monotonic: Callable[[], float] = time.monotonic,
-        over_limit_archive: Callable[[NativeMemoryMeasurement, str], NativeMemoryMeasurementArchiveReceipt]
+        over_limit_archive: Callable[[NativeMemoryMeasurement], NativeMemoryAssessmentArchiveReceipt]
         | None = None,
     ) -> None:
         if isinstance(pid, bool) or not isinstance(pid, int) or pid <= 1:
@@ -1680,24 +1753,24 @@ class LinuxProcStatusVmHwmReset5:
         )
         result.verify()
         if result.growth_bytes > result.limit_bytes:
-            failure = f"native {result.phase} memory growth exceeds its limit"
             if self._over_limit_archive is not None:
                 # The callback is only admitted while this exact, fully read
                 # window is completing.  The daemon uses this boundary to
                 # bind the archive to the meter's current ownership token.
                 self._completing_window = pending
                 try:
-                    receipt = self._over_limit_archive(result, failure)
-                    if not isinstance(receipt, NativeMemoryMeasurementArchiveReceipt):
-                        raise CalibrationError("native failed-memory archive returned no receipt")
+                    receipt = self._over_limit_archive(result)
+                    if not isinstance(receipt, NativeMemoryAssessmentArchiveReceipt):
+                        raise CalibrationError("native resource assessment archive returned no receipt")
                     receipt.verify(result)
-                except Exception:
-                    # This audit path must not replace or chain into the
-                    # original causal limit failure.
-                    pass
+                except Exception as exc:
+                    raise CalibrationError(
+                        "native resource assessment archive failed before over-target completion"
+                    ) from exc
                 finally:
                     self._completing_window = None
-            raise CalibrationError(failure)
+            else:
+                raise CalibrationError("native resource assessment archive callback is not configured")
         return result
 
     def completion_matches(self, measurement: NativeMemoryMeasurement) -> bool:
@@ -1832,6 +1905,39 @@ class NativeCalibrationEvidence:
             json.dumps(payload, sort_keys=True, separators=(",", ":"), default=list).encode("utf-8")
         ).hexdigest()
 
+    def resource_assessment(self) -> dict[str, Any]:
+        """Derive the bounded whole-process resource result from sealed windows."""
+
+        if not isinstance(self.memory_measurements, tuple) or len(self.memory_measurements) != 2:
+            raise CalibrationError("native resource assessment has incomplete measurements")
+        construction, updates = self.memory_measurements
+        for measurement in (construction, updates):
+            if not isinstance(measurement, NativeMemoryMeasurement):
+                raise CalibrationError("native resource assessment has an invalid measurement")
+            measurement.verify()
+        if construction.method != updates.method:
+            raise CalibrationError("native resource assessment methods differ")
+        return {
+            "classification": (
+                "target_exceeded"
+                if construction.growth_bytes > construction.limit_bytes
+                or updates.growth_bytes > updates.limit_bytes
+                else "within_targets"
+            ),
+            "method": construction.method,
+            "evidenceHash": self.evidence_hash,
+            "construction": {
+                "growthBytes": construction.growth_bytes,
+                "targetBytes": construction.limit_bytes,
+                "withinTarget": construction.growth_bytes <= construction.limit_bytes,
+            },
+            "updates": {
+                "growthBytes": updates.growth_bytes,
+                "targetBytes": updates.limit_bytes,
+                "withinTarget": updates.growth_bytes <= updates.limit_bytes,
+            },
+        }
+
     def verify_seal(self) -> None:
         if self._seal is not _SEAL or self.provenance != "owned-live" or not self.is_live:
             raise CalibrationError("native evidence was not issued by the owned live workflow")
@@ -1927,10 +2033,6 @@ class NativeCalibrationEvidence:
             raise CalibrationError("native evidence construction memory limit is invalid")
         if updates.limit_bytes != NATIVE_UPDATES_LIMIT_BYTES:
             raise CalibrationError("native evidence update memory limit is invalid")
-        if construction.growth_bytes > NATIVE_CONSTRUCTION_LIMIT_BYTES:
-            raise CalibrationError("native evidence construction memory budget exceeded")
-        if updates.growth_bytes > NATIVE_UPDATES_LIMIT_BYTES:
-            raise CalibrationError("native evidence update memory budget exceeded")
         NativeCalibrationRunner._validate_metrics(self.render, minimum_updates=100)
         if (
             isinstance(self.resume_sequence, bool)
@@ -5096,6 +5198,7 @@ __all__ = [
     "KeyboardProfileRow",
     "LinuxProcStatusVmHwmReset5",
     "NativeMemoryArchiveReceipt",
+    "NativeMemoryAssessmentArchiveReceipt",
     "NativeCalibrationEvidence",
     "NativeMemoryMeasurement",
     "NativeMemoryResetRecord",

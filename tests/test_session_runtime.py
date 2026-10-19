@@ -1545,11 +1545,12 @@ def _runtime_daemon(
     virtual_clock = _VirtualMonotonic()
     backend = backend or LifecycleBackend(root)
     backend.virtual_clock = virtual_clock
+    effective_lease_path = lease_path or root / "desktop.lock"
     driver = DesktopDriver(
         profile=DriverProfile(xauthority="/tmp/test-Xauthority", wine_prefix="/tmp/test-wine-prefix"),
         backend=backend,
         monotonic=virtual_clock.monotonic,
-        lease_path=lease_path,
+        lease_path=effective_lease_path,
     )
     plan = load_catalog().scan_plan()
     config = SessionConfig(
@@ -1578,11 +1579,8 @@ def _runtime_daemon(
         wall_clock=lambda: backend.current["wallTime"],
         recover_on_restart=False,
     )
-    if lease_path is None:
+    with patch("crowley.session.daemon.LunaAdapter", _RuntimeFixtureModel):
         daemon = SessionDaemon(config, controller=controller, driver=driver)
-    else:
-        with patch("crowley.session.daemon.LunaAdapter", _RuntimeFixtureModel):
-            daemon = SessionDaemon(config, controller=controller, driver=driver)
     return daemon, backend, driver, controller, config, virtual_clock
 
 
@@ -1837,6 +1835,7 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
         profile=DriverProfile(xauthority="/tmp/test-Xauthority", wine_prefix="/tmp/test-wine-prefix"),
         backend=backend,
         monotonic=virtual_clock.monotonic,
+        lease_path=tmp_path / "desktop.lock",
     )
     journal = tmp_path / "session.json"
     plan = load_catalog().scan_plan()
@@ -1854,7 +1853,8 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
     controller = Controller(
         journal, driver=driver, clock=lambda: 0, wall_clock=lambda: backend.current["wallTime"]
     )
-    daemon = SessionDaemon(config, controller=controller, driver=driver)
+    with patch("crowley.session.daemon.LunaAdapter", _RuntimeFixtureModel):
+        daemon = SessionDaemon(config, controller=controller, driver=driver)
     driver.native_memory_meter = _FixtureNativeMemoryMeter(backend.identity)
     try:
         daemon.model = _FixtureLunaAdapter(backend)
@@ -2177,7 +2177,8 @@ def test_live_daemon_binds_owned_visual_and_render_providers(tmp_path: Path) -> 
         plan_hash=plan["planHash"],
         plan_json=plan["planJSON"],
     )
-    daemon = SessionDaemon(config, driver=driver)
+    with patch("crowley.session.daemon.LunaAdapter", _RuntimeFixtureModel):
+        daemon = SessionDaemon(config, driver=driver)
     try:
         assert getattr(driver._named_state_observer, "__self__", None) is daemon
         assert getattr(driver.native_measurement_provider, "__self__", None) is daemon
@@ -2436,7 +2437,7 @@ def test_runtime_ack_reload_missing_full_evidence_does_not_complete(tmp_path: Pa
         # Deliberately remove the stable SavedVariables path.  The loaded/pending
         # telemetry is positive, but no complete SweepEvidence is available to
         # qualify this UID.
-        object.__setattr__(config, "saved_variables", None)
+        object.__setattr__(daemon.config, "saved_variables", None)
         snapshot = _snapshot(104, boot="ack-boot", sequence=2)
         snapshot["loaded"] = {"ackedIds": [uid], "generatedAt": 104}
         snapshot["pending"] = {"ids": [], "count": 0, "cap": 6, "blocked": False, "reason": ""}

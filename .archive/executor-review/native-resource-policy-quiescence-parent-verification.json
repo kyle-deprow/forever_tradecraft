@@ -1,0 +1,18 @@
+{
+  "status": "PASS",
+  "parentIndependentProductionDecode": true,
+  "receiptSha256": "164fb0eaf93423ba125b9efa9e95b58aee6746de956bea18106833171d68a290",
+  "imageSha256": "964aba618c51f8e01c335db0e45a27e7d494c657b1cdc7dda7bfe70f33fbc9b8",
+  "boot": "1792444945-621706",
+  "sequence": 292,
+  "ageAtVerificationSeconds": 31.171,
+  "ahOpen": false,
+  "pending": 0,
+  "nativePhase": "normal",
+  "nativeOrdinal": 0,
+  "fence": "inactive",
+  "activeSweep": false,
+  "speed": 0,
+  "inputReleased": true,
+  "soleOperatorHolding": true
+}
