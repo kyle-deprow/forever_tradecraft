@@ -114,7 +114,6 @@ keep bounded OCR, fresh-frame and identity/input guards. Host load27.20 on16CPUs
 was a contention lead; no unrelated process was killed and no global env changed.
 [Recovery proof](../.archive/executor-review/build-70450-onehundredsixtyfirst-scan-parent-verification.json).
 
-Native throughput correction is scoped in the
 Scan177's initial helper stopped before its ACK reload on buffer MAE14.449>12;
 its cause remains unproven. A later owned reload was rejected by a stale decoder;
 rebind at that verified reload boundary observed exact loadedACK/pending0. Fresh
@@ -125,6 +124,7 @@ receipts and both failures unchanged. CompositeSHA
 [verified outcome](../.archive/executor-review/build-70450-onehundredseventyseventh-ah-reopen-parent-verification.json).
 This remains assisted; no guard threshold changed or historical cause inferred.
 
+Native throughput correction is scoped in the
 [approved Rust observer plan](../.archive/PLAN-native-identity-observer.md).
 Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
