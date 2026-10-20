@@ -149,6 +149,13 @@ this fix batch via the appended plan adjudication. Parentcompleted5race/7runtime
 checks close Opus's staleinitialRUNNINGsnapshot concern. All9changedcomposition
 cases, realmutation/actor/defaultwiring/boundaryproofs and finalsourcechecks are
 required before fresh parentverification and Sol/actualCLI OpusR2.
+The first full nine-case run of this fix batch finished7passed/2failed585.50s.
+Parent independently inspected retained actual IPC replies: success failed after
+a Rust X_GetProperty BadWindow response; measurement-failure recovery_complete
+was refused because its reservation expired. These current failures are localized,
+not fixed or explained by later passes; the earlier R4 failure lacks equivalent
+raw evidence and remains unclosed. Luna owns diagnosis and in-scope corrections.
+Private logSHA256 `8b192dd5a9b712fbf49c469256129242715085a64cd099cf4241874afe11d5d2`.
 Reference-only prefilter optimization is deferred.
 No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
