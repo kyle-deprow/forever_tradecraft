@@ -48,6 +48,21 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
+**Current live correction after remote connection:** input calibration52 failed
+before human readiness on `xdotool windowactivate --sync 0x3400003` timeout.
+A subsequent instrumented startup found the original game PID644491 gone and
+refused identity admission. No human sample was accepted. Its window-focus
+failure cause and the game exit cause remain unproven; nearby Docker `/tmp`
+ENOSPC records are correlation only. [Preserved failure](../.archive/executor-review/input-calibration52-startup-and-game-exit.json).
+Luna recovered the cached launcher once: new PID2800399/start32181443,
+outer0x03200001/child0x02c00011, client1920x1080; Arthur selected, entering world.
+Native50 below is historical for the old process; original held100/archive copies
+are preserved privately. Root authorized one fresh native100/recovery on the new
+binding, then an instrumented owned-GTK startup and prompt notification for real
+RDP user input. No stale evidence carry, daemon restart or source edit. User is
+connected through RDP and awaiting the ready prompt; no autonomous cycle counts.
+
+
 Remote input calibration can be attempted through Windows RDP. GNOME existing
 Desktop Sharing is active in mirror-primary mode, reachable over Tailscale at
 `100.93.67.120:3389`; UFW allows3389 only on tailscale0 forIPv4/IPv6.

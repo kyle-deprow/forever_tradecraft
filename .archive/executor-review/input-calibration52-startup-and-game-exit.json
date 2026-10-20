@@ -1,0 +1,19 @@
+{
+  "status": "INPUT_NOT_QUALIFIED",
+  "generation": 52,
+  "firstError": "desktop command timed out: xdotool windowactivate --sync 0x3400003",
+  "humanReadinessPublished": false,
+  "humanSampleAccepted": false,
+  "failureDiagnosticSha256": "8d0fff9f238e1f1be87939cc8bfe27de3a283f79b5ccac33824a116b11067032",
+  "nextInstrumentedAttempt": "Stopped at input calibration game identity could not be observed after original game process disappeared; no window-focus cause established.",
+  "originalGame": {
+    "pid": 644491,
+    "processStart": "15495385",
+    "xid": "0x02e00001"
+  },
+  "exitDiagnosisSha256": "3b476c2f48027b7e209ef385eba3d9255af42e0f3ea92b5d5fdfb92899c54ff1",
+  "exitCause": "Unknown; no recorded kernel OOM/segfault/explicit kill. Nearby Docker /tmp ENOSPC is correlated only; RDP causality is unproven.",
+  "native50": "Historical PASS for original process; cannot qualify a replacement process. Original held100/archive copies preserved privately.",
+  "recovery": "Sole GUI owner used cached launcher once; fresh game PID2800399/start32181443, client1920x1080, Arthur selected; entering world and fresh calibration pending.",
+  "autonomousCycles": 0
+}
