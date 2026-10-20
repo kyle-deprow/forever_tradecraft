@@ -23,7 +23,7 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Authority and ownership
 
-- Origin: https://github.com/kyle-deprow/forever_tradecraft . Routine recovery,
+- Origin: https://github.com/p-kjdeprow/forever_tradecraft . Routine recovery,
   installation, fixes, commits and pushes remain authorized. The user revoked
   AGENTS.md rules. Keep progressing until requirements are met.
 - User now requires OpenAI Luna implementation/game control and Sol review;

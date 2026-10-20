@@ -1,6 +1,6 @@
 # Forever Tradecraft
 
-Project repository: [kyle-deprow/forever_tradecraft](https://github.com/kyle-deprow/forever_tradecraft).
+Project repository: [p-kjdeprow/forever_tradecraft](https://github.com/p-kjdeprow/forever_tradecraft).
 The addon, Python package, configuration paths and `/crowley` commands currently retain
 the Crowley name.
 
