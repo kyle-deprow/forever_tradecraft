@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 20:51 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 22:42 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -46,6 +46,24 @@ requires native calibration/recovery, genuine human input calibration and three
   private. Stage only explicit reviewed files. No messages to outside parties.
 
 ## Live state and collection
+
+**Input68 passed the cursor/argv boundary, then timed out before readiness:**
+[Current parent verification](../.archive/executor-review/input68-timeout-parent-verification.json).
+User connected RDP/centered pointer and said ready. Arthur was at character
+selection; authorized pinned Return entered world. Parent decoded five fresh
+normal0 frames57/61/66/70/74: speed/current0, controls up, AHclosed/pending0/
+fenceinactive. Actual cursor stayed near center933,498; exact coordinate equality
+with the user's earlier center was unnecessary. One monitored input68 attempt
+failed `XI2 calibration event deadline expired` before READY/human sample.
+The monitor's startup/window/command logs are retained, but do not establish
+retention of the real XI2 stream. Do not infer a missing device/event/root cause
+from that timeout alone. Workflow/driver cleanup appears to discard observer
+text. Luna is designing bounded private pre-human failure diagnostics with exact
+validator reasons before a new instrumented attempt; no gate relaxation.
+Public PAUSED69/native=true/input=false, checkpoint clear, daemon2274001/game1033131
+unchanged. User controls were released and then user requested continue; offline
+work proceeds first. Notify user for the next actual live calibration handoff.
+Zero autonomous cycles counted.
 
 **Native64 protocol passed; input66 refused before human readiness:**
 [Current parent verification](../.archive/executor-review/native64-ordinary65-input66-parent-verification.json).

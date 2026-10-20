@@ -1,0 +1,42 @@
+{
+  "kind": "input68-startup-timeout",
+  "verifiedAt": "2026-10-20T22:42:39.266935+00:00",
+  "generation": 68,
+  "humanReadiness": false,
+  "humanSample": false,
+  "error": "XI2 calibration event deadline expired",
+  "cause": "unknown; real XI2 observer text not established as retained",
+  "monitorLogsAreNotNativeInputTrace": true,
+  "priorOrdinaryParentVerification": {
+    "receiptSha256": "6fe360031a7ced24e00c0405702215cc7801ec436602ad1ca6cc5dca2d2de045",
+    "parentDecodedSequences": [
+      57,
+      61,
+      66,
+      70,
+      74
+    ],
+    "speedCurrent": [
+      0,
+      0
+    ],
+    "normal0": true,
+    "ahClosedPending0FenceInactiveInputsUp": true
+  },
+  "artifacts": {
+    "summary.json": "d536673e8ae447c31b07ab68b7715abea23f903c86090fb6013b8fe89a332845",
+    "startup-trace.jsonl": "0e3db6e11d581f7b218e2999536583448dcbe5152baff9e6dabda44a0d3f24b0",
+    "raw-commands.jsonl": "86685fe19c0e904c5a8f53fc48406ce932786f2ac6ef6d4c860d47f60ab372ca",
+    "input-calibrate.stdout": "345028b053d310b82a55109ce99199df142fd8902d97c0d1d6fb3eb669682019"
+  },
+  "publicCleanup": {
+    "state": "PAUSED",
+    "generation": 69,
+    "nativeCalibration": true,
+    "inputCalibration": false,
+    "nativeConstruction": null,
+    "reconciliationRequired": false
+  },
+  "autonomousQualificationCycles": 0,
+  "next": "Bounded real observer failure diagnostics, offline validator replay, review and fresh live calibration"
+}
