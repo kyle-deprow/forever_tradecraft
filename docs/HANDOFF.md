@@ -47,6 +47,18 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
+**Live calibration resumed at user request:** Luna owns GUI input again; the
+previous desktop hold is superseded. Canonical recover56 refused before input
+because the full scene was a disconnected login screen (WOW51900319), despite
+the unchanged foreground Wine identity. [Preserved refusal](../.archive/executor-review/recover56-disconnected-scene-parent-verification.json).
+This does not demonstrate a chat-classifier or pointer-hover defect. Normal
+cached reconnect required a launcher relaunch; new gamePID1033131/start33665951,
+fingerprint899bf01093de178de122655c436fa6163f7584b74e0294035bf8c6282b9c6439.
+Arthur was selected and Enter World dispatched; verify fresh scene/telemetry
+before recovery/calibration. No native or genuine human calibration has passed
+on this binding. Human prompt has not appeared. Continue the bounded live chain;
+do not loosen classifiers or reuse historical native seals.
+
 **Installed correction:** pointer parking clears button hover before unchanged
 control recognition. Exact matcher replay identified the original Restore hover
 failure; no template/threshold/protocol/Guardian relaxation was needed.

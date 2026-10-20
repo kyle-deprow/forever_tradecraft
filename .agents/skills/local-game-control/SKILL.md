@@ -71,6 +71,9 @@ within existing authorization; respect any current movement limits.
 
 - Verify the foreground screen before a click or command; inspect the result before
   the next dependent action. Tool exit code zero proves input dispatch, not success.
+  Before starting an in-game calibration/recovery helper, inspect a fresh full
+  scene as well as process/focus identity. A disconnected login screen can retain
+  the same Wine identity; its background is not evidence of a chat classifier bug.
   A paused or restarted daemon does not prove the game has foreground focus.
   Verify configured pinned identity before calibration preflight; if focus differs,
   restore it through the guarded owned tool and verify before requesting admission.

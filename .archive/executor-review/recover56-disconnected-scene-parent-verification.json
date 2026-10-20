@@ -1,0 +1,15 @@
+{
+  "kind": "recover56-disconnected-scene-parent-verification",
+  "mode": "recover",
+  "outcome": "failure",
+  "failure_code": "chat_readback_refused",
+  "receipt_sha256": "2a8a8a9b945c04c6dc6f1b64ff34556ef635c080211abf8f46a538585edc6ac1",
+  "retained_fullframe_sha256": "013a190e0a9b9af1a2e67b47eed4d89c0929e0f324cc9d6396017f827260448e",
+  "helper_sha256": "8ca9413b35c55a4d83e0937110125b2bf0e04dfcc5c1565bbb7467f6b405bf5d",
+  "parent_fullframe_inspection": "WoW login DarkPortal scene with disconnected dialog WOW51900319, Okay/Reconnect/LogOut controls. No character/AH/chat editor. Same foreground process identity does not imply in-world readiness.",
+  "input_dispatched_before_refusal": false,
+  "human_calibration_started": false,
+  "pointer_hover_fix_exercised": false,
+  "classification": "Correct refusal on disconnected scene; not a demonstrated chat-classifier or pointer-hover defect.",
+  "next": "Sole Luna owner performs normal cached reconnect and fresh scene verification before canonical recovery. No classifier thresholds or admission guards changed."
+}
