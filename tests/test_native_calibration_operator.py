@@ -597,6 +597,15 @@ class FakeInput:
         self.calls.append(("type", command))
         self.pending_command = command
 
+    def move_pointer(self, point, *, identity, before_press=None, deadline_monotonic=None):
+        left, top, width, height = identity.child_geometry
+        assert left <= point[0] < left + width
+        assert top <= point[1] < top + height
+        if before_press is not None:
+            before_press()
+        self.calls.append(("move", point))
+        self.screen.last_point = (*point, 1)
+
     def click(self, match, *, identity, before_press=None, deadline_monotonic=None):
         self.calls.append(("click", match.role))
         self.screen.last_point = (*match.click, 1)
@@ -913,6 +922,12 @@ def _production_main_owner_fixture(
             return identity
 
         def pointer_position(self, *, deadline_monotonic=None):
+            # This lifetime fixture exercises the guarded mousedown path.  It
+            # starts with a parked pointer so the control-capture tests do not
+            # require a second emitter before their ownership assertions.
+            self._pointer_calls += 1
+            if self._pointer_calls == 1:
+                return (640, 360, 1)
             return (1144, 24, 1)
 
         def close(self):
@@ -1481,6 +1496,7 @@ def test_template_matcher_forwards_one_absolute_deadline_to_search_and_score(tmp
             self.delegate.close()
 
     screen = FakeScreen(tmp_path, construct_scene, restore_scene)
+    screen.last_point = (640, 360, 1)
     screen_deadlines: list[tuple[str, float | None]] = []
     original_capture = screen.capture
     original_resolve = screen.resolve_identity
@@ -1568,6 +1584,10 @@ def test_click_matcher_failure_refuses_before_fixed_input_or_action_log(
     attempt.mkdir(mode=0o700)
     receipt = SimpleNamespace(attempt=attempt, event=lambda *_args, **_kwargs: None)
     screen = FakeScreen(tmp_path, construct_scene, construct_scene)
+    # This matcher failure regression is about dispatch after a rejection.  A
+    # separately focused parking test covers the owned move path; keep this
+    # screen already parked so no emitter is needed before matching.
+    screen.last_point = (640, 360, 1)
     action_log = tmp_path / "actions.log"
     action_log.touch(mode=0o600)
     emitter_calls: list[str] = []
@@ -1607,6 +1627,517 @@ def test_click_matcher_failure_refuses_before_fixed_input_or_action_log(
         assert action_log.read_text(encoding="utf-8") == ""
     finally:
         matcher.close()
+
+
+def test_control_capture_parks_hovered_pointer_before_real_matcher(tmp_path: Path):
+    manifest, construct_scene, restore_scene = make_scenes(tmp_path)
+    region = operator.NativeCalibrationOperator._control_region(Identity())
+    assert region is not None
+    hovered_scene = tmp_path / "restore-hovered.png"
+    with Image.open(restore_scene) as image:
+        image = image.convert("RGB")
+        image.paste(Image.new("RGB", (4, 4), (255, 255, 255)), (1211, 22))
+        image.save(hovered_scene, format="PNG")
+    dual_scene = tmp_path / "dual-controls.png"
+    dual_hovered_scene = tmp_path / "dual-controls-hovered.png"
+    with Image.open(construct_scene) as construct, Image.open(restore_scene) as restore:
+        dual = construct.convert("RGB")
+        dual.paste(restore.crop((1211, 22, 1215, 26)), (1211, 22))
+        dual.save(dual_scene, format="PNG")
+        dual_hovered = dual.copy()
+        dual_hovered.paste(Image.new("RGB", (4, 4), (255, 255, 255)), (1211, 22))
+        dual_hovered.save(dual_hovered_scene, format="PNG")
+    old_path = tmp_path / "old-hovered.png"
+    shutil.copyfile(hovered_scene, old_path)
+    matcher = operator.TemplateMatcher(
+        manifest,
+        runtime=matcher_runtime.TemplateMatcherRuntime(matcher_runtime.DEFAULT_ARTIFACT_ROOT),
+    )
+
+    class HoverScreen(FakeScreen):
+        def capture(self, path: Path, *, identity: Identity, deadline_monotonic=None):
+            source = self.restore
+            if "post-reload-controls" in path.name:
+                source = dual_hovered_scene if self._contains_control(self.last_point, region) else dual_scene
+            elif self._contains_control(self.last_point, region):
+                source = hovered_scene
+            path.write_bytes(source.read_bytes())
+            os.chmod(path, 0o600)
+            return self.identity
+
+        @staticmethod
+        def _contains_control(point, control_region):
+            left, top, width, height = control_region
+            return left <= point[0] < left + width and top <= point[1] < top + height
+
+    screen = HoverScreen(tmp_path, construct_scene, restore_scene)
+    screen.last_point = (1212, 23, 1)
+    input_device = FakeInput(screen)
+    attempt = tmp_path / "attempt"
+    attempt.mkdir(mode=0o700)
+    events: list[tuple[str, object]] = []
+    candidate = object.__new__(operator.NativeCalibrationOperator)
+    candidate.clock = time.monotonic
+    candidate.receipt = SimpleNamespace(
+        attempt=attempt, event=lambda name, **fields: events.append((name, fields))
+    )
+    candidate.screen = screen
+    candidate.input = input_device
+    candidate.matcher = matcher
+    candidate._identity_guard = lambda *_args, **_kwargs: screen.identity
+    candidate._deadline = lambda *_args, **_kwargs: time.monotonic() + 20.0
+    try:
+        with pytest.raises(
+            operator.OperatorError, match="(?:native .*template matching failed|not role-exclusive)"
+        ):
+            matcher.require_exclusive(
+                old_path,
+                "restore",
+                region=region,
+                deadline_monotonic=time.monotonic() + 20.0,
+            )
+        dual_path, identity, dual_match = candidate._capture("post-reload-controls", require_dual=True)
+        assert dual_match is not None and dual_match.accepted
+        assert screen.last_point[:2] == (640, 360)
+        screen.last_point = (1212, 23, 1)
+        path, identity, match = candidate._capture("restore-control", require_exclusive="restore")
+        assert identity is screen.identity
+        assert match is not None and match.accepted
+        assert screen.last_point[:2] == (640, 360)
+        assert input_device.calls == [("move", (640, 360)), ("move", (640, 360))]
+        assert [name for name, _fields in events] == [
+            "pointer_parked",
+            "capture",
+            "pointer_parked",
+            "capture",
+        ]
+        assert path.read_bytes() == restore_scene.read_bytes()
+    finally:
+        matcher.close()
+
+
+def test_pointer_parking_is_noop_when_safe_and_refuses_unknown_canvas(tmp_path: Path):
+    manifest, construct_scene, restore_scene = make_scenes(tmp_path)
+    screen = FakeScreen(tmp_path, construct_scene, restore_scene)
+    screen.last_point = (640, 360, 1)
+    input_device = FakeInput(screen)
+    candidate = object.__new__(operator.NativeCalibrationOperator)
+    candidate.screen = screen
+    candidate.input = input_device
+    candidate.clock = time.monotonic
+    candidate._binding = None
+    candidate._identity_guard = lambda *_args, **_kwargs: screen.identity
+    candidate._deadline = lambda *_args, **_kwargs: time.monotonic() + 20.0
+    assert (
+        candidate._park_pointer(screen.identity, deadline_monotonic=time.monotonic() + 20.0)
+        is screen.identity
+    )
+    assert input_device.calls == []
+    screen.agent_crop = (0, 0, 0, 64)
+    with pytest.raises(operator.OperatorError, match="canvas"):
+        candidate._park_pointer(screen.identity, deadline_monotonic=time.monotonic() + 20.0)
+
+
+@pytest.mark.parametrize(
+    ("reason", "configure"),
+    [
+        (
+            "generation",
+            lambda candidate: setattr(
+                candidate,
+                "_recheck",
+                lambda: (_ for _ in ()).throw(operator.OperatorError("generation changed")),
+            ),
+        ),
+        ("deadline", lambda candidate: None),
+    ],
+)
+def test_pointer_parking_refuses_stale_generation_or_expired_deadline_before_input(
+    tmp_path: Path, reason: str, configure
+):
+    manifest, construct_scene, restore_scene = make_scenes(tmp_path)
+    screen = FakeScreen(tmp_path, construct_scene, restore_scene)
+    screen.last_point = (1212, 23, 1)
+    input_device = FakeInput(screen)
+    candidate = object.__new__(operator.NativeCalibrationOperator)
+    candidate.screen = screen
+    candidate.input = input_device
+    candidate.clock = time.monotonic
+    candidate._binding = object()
+    candidate._identity_guard = lambda *_args, **_kwargs: screen.identity
+    candidate._deadline = lambda *_args, **_kwargs: time.monotonic() + 20.0
+    configure(candidate)
+    deadline = time.monotonic() + 20.0 if reason == "generation" else time.monotonic() - 1.0
+    with pytest.raises(operator.OperatorError, match="generation|expired"):
+        candidate._park_pointer(screen.identity, deadline_monotonic=deadline)
+    assert input_device.calls == []
+
+
+def test_pointer_parking_rejects_endpoint_target_drift_after_owned_move(tmp_path: Path):
+    manifest, construct_scene, restore_scene = make_scenes(tmp_path)
+    screen = FakeScreen(tmp_path, construct_scene, restore_scene)
+    screen.last_point = (1212, 23, 1)
+
+    class WrongTargetInput(FakeInput):
+        def move_pointer(self, point, *, identity, before_press=None, deadline_monotonic=None):
+            if before_press is not None:
+                before_press()
+            self.calls.append(("move", point))
+            self.screen.last_point = (*point, 999)
+
+    input_device = WrongTargetInput(screen)
+    candidate = object.__new__(operator.NativeCalibrationOperator)
+    candidate.screen = screen
+    candidate.input = input_device
+    candidate.clock = time.monotonic
+    candidate._binding = None
+    candidate._identity_guard = lambda *_args, **_kwargs: screen.identity
+    with pytest.raises(operator.OperatorError, match="target"):
+        candidate._park_pointer(screen.identity, deadline_monotonic=time.monotonic() + 20.0)
+    assert input_device.calls == [("move", (640, 360))]
+
+
+def test_fixed_input_move_pointer_uses_owned_watchdog_without_button(tmp_path: Path):
+    class Tool:
+        proc_path = "/proc/self/fd/5"
+
+        class Image:
+            fd = 5
+
+        image = Image()
+
+    watchdog = FakeWatchdog()
+    events: list[str] = []
+
+    class Emitter:
+        pgid = 94
+
+        def start(self):
+            events.append("start")
+
+        def press(self):
+            events.append("press")
+
+        def release(self):
+            events.append("release")
+
+        def abort(self):
+            events.append("abort")
+
+    input_device = operator.FixedInput(Tool(), watchdog=watchdog, emitter_factory=lambda: Emitter())
+    input_device.move_pointer((640, 360), identity=Identity())
+    assert events == ["start", "press", "release"]
+    assert watchdog.states == [
+        {"groups": {94}, "buttons": set(), "keys": set()},
+        {"groups": set(), "buttons": set(), "keys": set()},
+    ]
+
+
+def test_fixed_input_move_pointer_failure_cleans_owned_child_and_watchdog():
+    class Tool:
+        proc_path = "/proc/self/fd/5"
+
+        class Image:
+            fd = 5
+
+        image = Image()
+
+    watchdog = FakeWatchdog()
+    events: list[str] = []
+
+    class Emitter:
+        pgid = 95
+
+        def start(self):
+            events.append("start")
+
+        def press(self):
+            events.append("press")
+            raise operator.OperatorError("move dispatch failed")
+
+        def release(self):
+            events.append("release")
+
+        def abort(self):
+            events.append("abort")
+
+    input_device = operator.FixedInput(Tool(), watchdog=watchdog, emitter_factory=lambda: Emitter())
+    with pytest.raises(operator.OperatorError, match="move dispatch failed"):
+        input_device.move_pointer((640, 360), identity=Identity())
+    assert events == ["start", "press", "abort"]
+    assert watchdog.states[-1] == {"groups": set(), "buttons": set(), "keys": set()}
+
+
+def test_fixed_input_move_pointer_real_owned_process_has_watchdog_before_go(tmp_path: Path):
+    artifact = make_gated_recording_artifact(tmp_path)
+    action_log = tmp_path / "owned-actions.log"
+    action_ack = tmp_path / "owned-action-acks"
+    action_ack.mkdir(mode=0o700)
+    environment = {
+        "CROWLEY_ACTION_LOG": str(action_log),
+        "CROWLEY_ACTION_ACK_DIR": str(action_ack),
+    }
+    tool = operator.PinnedInputTool.from_root(artifact)
+    watchdog = operator.Watchdog(tool, interval=0.02, environment=environment)
+    input_device = operator.FixedInput(tool, watchdog=watchdog, environment=environment)
+    created: list[operator.OwnedEmitter] = []
+    ownership_before_go: list[dict[str, int | bool]] = []
+    original_new_emitter = input_device._new_emitter
+    original_publish = watchdog.publish
+    stop = threading.Event()
+    ack_errors: list[BaseException] = []
+
+    def record_emitter(action, *, release_action=(), deadline_monotonic=None):
+        emitter = original_new_emitter(
+            action,
+            release_action=release_action,
+            deadline_monotonic=deadline_monotonic,
+        )
+        created.append(emitter)
+        return emitter
+
+    def prove_watchdog_ownership(*, groups, buttons, keys=frozenset(), deadline_monotonic=None):
+        assert created
+        process = created[-1]._process
+        assert process is not None and process.pid is not None and process.is_alive()
+        ownership_before_go.append(
+            {"emitter_pid": process.pid, "emitter_alive": process.is_alive(), "pgid": next(iter(groups))}
+        )
+        return original_publish(
+            groups=groups,
+            buttons=buttons,
+            keys=keys,
+            deadline_monotonic=deadline_monotonic,
+        )
+
+    input_device._new_emitter = record_emitter  # type: ignore[method-assign]
+    watchdog.publish = prove_watchdog_ownership  # type: ignore[method-assign]
+
+    def acknowledge_actions() -> None:
+        pending = b""
+        offset = 0
+        try:
+            while not stop.is_set():
+                if action_log.exists():
+                    with action_log.open("rb") as stream:
+                        stream.seek(offset)
+                        chunk = stream.read(4096)
+                        offset = stream.tell()
+                    if chunk:
+                        pending = _consume_action_records(
+                            pending,
+                            chunk,
+                            on_record=lambda pid, _arguments: (action_ack / str(pid)).touch(
+                                mode=0o600, exist_ok=True
+                            ),
+                        )
+                time.sleep(0.002)
+        except BaseException as exc:
+            ack_errors.append(exc)
+
+    acknowledger = threading.Thread(target=acknowledge_actions, daemon=True)
+    acknowledger.start()
+    try:
+        input_device.move_pointer((640, 360), identity=Identity())
+        assert ack_errors == []
+        assert len(ownership_before_go) == 1
+        assert ownership_before_go[0]["emitter_alive"] is True
+        assert created[0]._process is not None and not created[0]._process.is_alive()
+        assert action_log.read_text(encoding="utf-8").splitlines()
+        action_rows = [line.split("\t")[2:] for line in action_log.read_text().splitlines()]
+        assert action_rows == [["mousemove", "--sync", "640", "360"]]
+        assert all(row[0] not in {"mousedown", "mouseup", "keydown", "keyup"} for row in action_rows)
+    finally:
+        stop.set()
+        acknowledger.join(timeout=2.0)
+        input_device.close()
+        assert not created or created[0]._process is None or not created[0]._process.is_alive()
+        tool.close()
+
+
+def test_fixed_input_move_pointer_real_owned_failure_reaps_after_dispatch(tmp_path: Path, monkeypatch):
+    artifact = make_recording_artifact(tmp_path)
+    action_log = tmp_path / "owned-actions.log"
+    environment = {"CROWLEY_RECORDER": str(action_log)}
+    tool = operator.PinnedInputTool.from_root(artifact)
+    watchdog = operator.Watchdog(tool, interval=0.02, environment=environment)
+    input_device = operator.FixedInput(tool, watchdog=watchdog, environment=environment)
+    created: list[operator.OwnedEmitter] = []
+    original_new_emitter = input_device._new_emitter
+
+    def record_emitter(action, *, release_action=(), deadline_monotonic=None):
+        emitter = original_new_emitter(
+            action,
+            release_action=release_action,
+            deadline_monotonic=deadline_monotonic,
+        )
+        created.append(emitter)
+        return emitter
+
+    input_device._new_emitter = record_emitter  # type: ignore[method-assign]
+    original_press = operator.OwnedEmitter.press
+
+    def fail_after_real_dispatch(emitter):
+        original_press(emitter)
+        raise operator.OperatorError("test failure after owned pointer dispatch")
+
+    monkeypatch.setattr(operator.OwnedEmitter, "press", fail_after_real_dispatch)
+    try:
+        with pytest.raises(operator.OperatorError, match="after owned pointer dispatch"):
+            input_device.move_pointer((640, 360), identity=Identity())
+        assert created and created[0]._process is not None and not created[0]._process.is_alive()
+        assert action_log.read_text(encoding="utf-8").splitlines() == ["mousemove --sync"]
+        assert all(
+            token not in {"mousedown", "mouseup", "keydown", "keyup"}
+            for token in action_log.read_text(encoding="utf-8").split()
+        )
+        assert input_device.cleanup_failures == []
+    finally:
+        input_device.close()
+        tool.close()
+
+
+@pytest.mark.parametrize("final_failure", ["reservation", "geometry", "deadline"])
+def test_pointer_parking_rechecks_admission_after_watchdog_before_owned_go(
+    tmp_path: Path, final_failure: str
+):
+    """A revoked final admission must stop the real emitter before its GO."""
+
+    artifact = make_gated_recording_artifact(tmp_path)
+    action_log = tmp_path / "owned-actions.log"
+    action_ack = tmp_path / "owned-action-acks"
+    action_ack.mkdir(mode=0o700)
+    environment = {
+        "CROWLEY_ACTION_LOG": str(action_log),
+        "CROWLEY_ACTION_ACK_DIR": str(action_ack),
+    }
+    tool = operator.PinnedInputTool.from_root(artifact)
+    watchdog = operator.Watchdog(tool, interval=0.02, environment=environment)
+    input_device = operator.FixedInput(tool, watchdog=watchdog, environment=environment)
+    created: list[operator.OwnedEmitter] = []
+    original_new_emitter = input_device._new_emitter
+    original_publish = watchdog.publish
+    original_clear = watchdog.clear
+    published = threading.Event()
+    clear_calls: list[bool] = []
+
+    def record_emitter(action, *, release_action=(), deadline_monotonic=None):
+        emitter = original_new_emitter(
+            action,
+            release_action=release_action,
+            deadline_monotonic=deadline_monotonic,
+        )
+        created.append(emitter)
+        return emitter
+
+    def publish_after_ownership(*, groups, buttons, keys=frozenset(), deadline_monotonic=None):
+        result = original_publish(
+            groups=groups,
+            buttons=buttons,
+            keys=keys,
+            deadline_monotonic=deadline_monotonic,
+        )
+        published.set()
+        if final_failure == "deadline":
+            assert release_publish.wait(5.0)
+        return result
+
+    def record_clear():
+        clear_calls.append(True)
+        return original_clear()
+
+    input_device._new_emitter = record_emitter  # type: ignore[method-assign]
+    watchdog.publish = publish_after_ownership  # type: ignore[method-assign]
+    watchdog.clear = record_clear  # type: ignore[method-assign]
+
+    screen = FakeScreen(tmp_path, tmp_path / "unused-construct.png", tmp_path / "unused-restore.png")
+    screen.last_point = (1212, 23, 1)
+    capture_calls: list[bool] = []
+
+    def unexpected_capture(*_args, **_kwargs):
+        capture_calls.append(True)
+        raise AssertionError("capture must not run after final pointer admission refusal")
+
+    screen.capture = unexpected_capture  # type: ignore[method-assign]
+    matcher_calls: list[bool] = []
+
+    class UnexpectedMatcher:
+        def require_exclusive(self, *_args, **_kwargs):
+            matcher_calls.append(True)
+            raise AssertionError("matcher must not run after final pointer admission refusal")
+
+    candidate = object.__new__(operator.NativeCalibrationOperator)
+    candidate.screen = screen
+    candidate.input = input_device
+    candidate.matcher = UnexpectedMatcher()
+    candidate.clock = time.monotonic
+    candidate._binding = object()
+    candidate._event = lambda *_args, **_kwargs: None
+    attempt = tmp_path / "attempt"
+    attempt.mkdir(mode=0o700)
+    candidate.receipt = SimpleNamespace(attempt=attempt, event=lambda *_args, **_kwargs: None)
+    candidate._last_chat_capture_record = None
+    candidate._chat_capture_sequence = 0
+    deadline = time.monotonic() + 20.0
+    release_after_deadline: threading.Thread | None = None
+    release_publish = threading.Event()
+    if final_failure == "deadline":
+        deadline = time.monotonic() + 3.0
+
+        def expire_publish_barrier() -> None:
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(remaining)
+            release_publish.set()
+
+        release_after_deadline = threading.Thread(target=expire_publish_barrier, daemon=True)
+        release_after_deadline.start()
+    recheck_calls = 0
+    guard_calls = 0
+
+    def recheck(expected_state=None, *, deadline_monotonic=None):
+        nonlocal recheck_calls
+        recheck_calls += 1
+        if recheck_calls == 2:
+            assert published.is_set()
+            if final_failure == "reservation":
+                raise operator.OperatorError("native reservation was revoked before pointer dispatch")
+        return {}
+
+    def identity_guard(deadline_monotonic=None):
+        nonlocal guard_calls
+        guard_calls += 1
+        assert deadline_monotonic == deadline
+        if guard_calls == 3:
+            assert published.is_set()
+            if final_failure == "geometry":
+                return replace(screen.identity, child_geometry=(1, 1, 1280, 720))
+        return screen.identity
+
+    candidate._recheck = recheck
+    candidate._identity_guard = identity_guard
+
+    try:
+        with pytest.raises(operator.OperatorError, match="(?:revoked|geometry|deadline)"):
+            candidate._capture(
+                "restore-control",
+                require_exclusive="restore",
+                deadline_monotonic=deadline,
+            )
+        assert published.is_set()
+        assert recheck_calls == 2
+        assert guard_calls == (3 if final_failure != "reservation" else 2)
+        assert clear_calls == [True]
+        assert capture_calls == []
+        assert matcher_calls == []
+        assert not action_log.exists() or action_log.read_text(encoding="utf-8") == ""
+        assert created and created[0]._process is not None and not created[0]._process.is_alive()
+        assert input_device.cleanup_failures == []
+    finally:
+        if release_after_deadline is not None:
+            release_after_deadline.join(timeout=1.0)
+        input_device.close()
+        tool.close()
 
 
 def test_reservation_binding_rejects_boot_substitution():
@@ -5641,6 +6172,70 @@ int main(void) {
         observer = backend._identity_observer
         assert observer is not None
         observer_invocations: list[dict[str, Any]] = []
+        capture_invocations: list[dict[str, Any]] = []
+        producer_invocations: list[dict[str, Any]] = []
+        original_backend_capture = backend.capture_native_region
+
+        def record_backend_capture(*args: Any, **kwargs: Any) -> Any:
+            started = time.monotonic_ns()
+            record = {
+                "start_monotonic_ns": started,
+                "thread_id": threading.get_ident(),
+                "outcome": "running",
+            }
+            capture_invocations.append(record)
+            try:
+                result = original_backend_capture(*args, **kwargs)
+            except BaseException as exc:
+                record["outcome"] = "error"
+                record["error"] = type(exc).__name__
+                raise
+            else:
+                record["outcome"] = "ok"
+                return result
+            finally:
+                record["end_monotonic_ns"] = time.monotonic_ns()
+
+        backend.capture_native_region = record_backend_capture  # type: ignore[method-assign]
+        original_popen = subprocess.Popen
+
+        def record_native_producer_popen(*args: Any, **kwargs: Any) -> Any:
+            command = args[0] if args else kwargs.get("args")
+            is_native_producer = (
+                isinstance(command, (list, tuple))
+                and len(command) >= 5
+                and command[0] == sys.executable
+                and tuple(command[1:4]) == ("-I", "-S", "-c")
+                and command[4] == session_driver._EXEC_ADMISSION_WRAPPER
+            )
+            if not is_native_producer:
+                return original_popen(*args, **kwargs)
+            record = {"start_monotonic_ns": time.monotonic_ns(), "outcome": "running"}
+            producer_invocations.append(record)
+            try:
+                process = original_popen(*args, **kwargs)
+            except BaseException as exc:
+                record["outcome"] = "error"
+                record["error"] = type(exc).__name__
+                raise
+            else:
+                record["outcome"] = "spawned"
+                record["pid"] = process.pid
+                return process
+            finally:
+                record["end_monotonic_ns"] = time.monotonic_ns()
+
+        class _PopenProxyMeta(type):
+            def __instancecheck__(self, instance: Any) -> bool:
+                return isinstance(instance, original_popen)
+
+        class _PopenProxy(metaclass=_PopenProxyMeta):
+            def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+                return record_native_producer_popen(*args, **kwargs)
+
+        # Keep ``isinstance(process, subprocess.Popen)`` true in the real
+        # driver while recording only the exact sealed producer command.
+        monkeypatch.setattr(subprocess, "Popen", _PopenProxy)
         observer_fault_boundary = {
             "observer-backend-pre": "identity_backend_pre",
             "observer-backend-post": "identity_backend_post",
@@ -5649,7 +6244,6 @@ int main(void) {
         observer_fault_applied = False
         observer_fault_restored = False
         observer_fault_failures: list[dict[str, Any]] = []
-        observer_fault_rows_before: int | None = None
 
         def set_actual_window_title(title: str) -> None:
             result = subprocess.run(
@@ -5678,7 +6272,7 @@ int main(void) {
         original_observer_invoke = observer.invoke
 
         def record_observer_invoke(*args: Any, **kwargs: Any) -> dict[str, Any]:
-            nonlocal observer_fault_applied, observer_fault_restored, observer_fault_rows_before
+            nonlocal observer_fault_applied, observer_fault_restored
             sink = session_driver._IDENTITY_LATENCY_SINK.get()
             boundary = getattr(sink, "_active_boundary", None)
             mutated = observer_fault_boundary is not None and boundary == observer_fault_boundary
@@ -5686,12 +6280,6 @@ int main(void) {
                 # Change the actual X11 property before the sealed observer
                 # reads it.  The Rust process therefore publishes the fault;
                 # this is not a post-hoc mutation of returned facts.
-                if area_log_path.exists():
-                    existing_rows = json.loads(area_log_path.read_text(encoding="utf-8"))
-                    assert isinstance(existing_rows, list)
-                    observer_fault_rows_before = len(existing_rows)
-                else:
-                    observer_fault_rows_before = 0
                 set_actual_window_title("Crowley observer fault")
                 observer_fault_applied = True
             started = time.monotonic_ns()
@@ -6737,14 +7325,14 @@ int main(void) {
                     str(item.get("error", "")) for item in observer_fault_failures
                 ).lower()
                 assert "identity observer failed" in observer_failure_text
-                # A pre-admission observer refusal leaves an in-progress
-                # measurement in NATIVE_CALIBRATION; recovery/control
-                # workflows must instead return to their paused boundary.
-                if (
-                    operation_mode == operator.MODE_MEASURE_DEFERRED
-                    and observer_fault_boundary == "identity_backend_pre"
-                ):
-                    expected_fault_states = {ControllerState.NATIVE_CALIBRATION}
+                # A pre-admission observer refusal may be observed before the
+                # bounded recovery pause wins the status race.  Both states
+                # retain the same native/input and cleanup proof below.
+                if operation_mode == operator.MODE_MEASURE_DEFERRED and observer_fault_boundary in {
+                    "identity_backend_pre",
+                    "identity_backend_post",
+                }:
+                    expected_fault_states = {ControllerState.NATIVE_CALIBRATION, ControllerState.PAUSED}
                 elif (
                     operation_mode == operator.MODE_MEASURE_DEFERRED
                     and observer_fault_boundary == "identity_post_capture"
@@ -6759,18 +7347,11 @@ int main(void) {
                     expected_fault_states = {ControllerState.PAUSED}
                 status = daemon.controller.status()
                 assert status.state in expected_fault_states
-                if (
-                    observer_fault_boundary == "identity_post_capture"
-                    and status.state is ControllerState.PAUSED
-                ):
+                if status.state is ControllerState.PAUSED:
                     assert status.blocker == "native construction recovery"
                 assert not driver.guardian.armed
                 assert daemon._native_owned_capture_paths == set()
                 assert not daemon._native_observation_diagnostic._current
-                rows_after = (
-                    json.loads(area_log_path.read_text(encoding="utf-8")) if area_log_path.exists() else []
-                )
-                assert isinstance(rows_after, list)
                 fault_attempts = [
                     attempt
                     for attempt in observed_attempts
@@ -6779,23 +7360,40 @@ int main(void) {
                 assert fault_attempts
                 fault_attempt = fault_attempts[-1]
                 capture_span = fault_attempt["spans"]["capture"]
+                capture_start = capture_span["start_monotonic_ns"]
+                capture_end = capture_span["end_monotonic_ns"]
+                failed_attempt_captures = [
+                    call
+                    for call in capture_invocations
+                    if capture_start <= call["start_monotonic_ns"] <= capture_end
+                ]
+                failed_attempt_producers = [
+                    call
+                    for call in producer_invocations
+                    if capture_start <= call["start_monotonic_ns"] <= capture_end
+                ]
                 if observer_fault_boundary == "identity_backend_pre":
                     # The sealed observer rejected the actual window before
-                    # producer admission.  The attempt never acquired a
-                    # receipt and no compositor row was added.
+                    # producer admission.  The exact backend seam was never
+                    # entered, so the producer could not dispatch; recovery
+                    # captures outside this span are irrelevant.
                     assert capture_span["outcome"] == "failed"
                     assert fault_attempt["backend_receipt"] is None
                     assert fault_attempt["release_outcome"] == "not_reached"
-                    assert observer_fault_rows_before is not None
-                    assert len(rows_after) == observer_fault_rows_before
+                    assert len(failed_attempt_captures) == 1
+                    assert failed_attempt_captures[0]["outcome"] == "error"
+                    assert failed_attempt_producers == []
                 elif observer_fault_boundary == "identity_backend_post":
                     # Backend-post rejects before the producer's receipt is
-                    # accepted.  Later setup/cleanup captures can change the
-                    # compositor row count, so correlate the exact attempt
-                    # and its no-receipt outcome instead.
+                    # accepted.  The backend call is correlated to this
+                    # failed attempt rather than inferred from global rows.
                     assert capture_span["outcome"] == "failed"
                     assert fault_attempt["backend_receipt"] is None
                     assert fault_attempt["release_outcome"] == "not_reached"
+                    assert len(failed_attempt_captures) == 1
+                    assert failed_attempt_captures[0]["outcome"] == "error"
+                    assert len(failed_attempt_producers) == 1
+                    assert failed_attempt_producers[0]["outcome"] == "spawned"
                 else:
                     # Runner-post follows an actual producer completion.  The
                     # precise attempt carries a finalized, released receipt
@@ -6807,6 +7405,10 @@ int main(void) {
                     assert fault_attempt["release_outcome"] == "released"
                     assert receipt["attempt_retired"] is True
                     assert receipt["output_sha256"] == fault_attempt["actual"]["capture_sha256"]
+                    assert len(failed_attempt_captures) == 1
+                    assert failed_attempt_captures[0]["outcome"] == "ok"
+                    assert len(failed_attempt_producers) == 1
+                    assert failed_attempt_producers[0]["outcome"] == "spawned"
                 restored = screen.resolve_identity()
                 assert restored.pid == identity.pid
                 assert restored.process_start == identity.process_start

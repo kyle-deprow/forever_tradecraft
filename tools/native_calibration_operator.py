@@ -241,6 +241,15 @@ class InputAdapter(Protocol):
 
     def type_command(self, command: str, *, deadline_monotonic: float | None = None) -> None: ...
 
+    def move_pointer(
+        self,
+        point: tuple[int, int],
+        *,
+        identity: Any,
+        before_press: Callable[[], None] | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> None: ...
+
     def click(
         self,
         match: TemplateMatch,
@@ -1607,6 +1616,75 @@ class FixedInput:
                 emitter.abort()
             except BaseException:
                 self.cleanup_failures.append("text.abort")
+            raise primary.with_traceback(primary.__traceback__) from None
+
+    def move_pointer(
+        self,
+        point: tuple[int, int],
+        *,
+        identity: Any,
+        before_press: Callable[[], None] | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> None:
+        if (
+            not isinstance(point, tuple)
+            or len(point) != 2
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in point)
+        ):
+            raise OperatorError("pointer parking point is malformed")
+        left, top, width, height = getattr(identity, "child_geometry", (None,) * 4)
+        if not (
+            all(
+                isinstance(value, int) and not isinstance(value, bool) for value in (left, top, width, height)
+            )
+            and width > 0
+            and height > 0
+            and left <= point[0] < left + width
+            and top <= point[1] < top + height
+        ):
+            raise OperatorError("pointer parking point is outside the verified client")
+        action = ("mousemove", "--sync", str(point[0]), str(point[1]))
+        emitter = self._new_emitter(action, deadline_monotonic=deadline_monotonic)
+        go_attempted = False
+        try:
+            emitter.start()
+            if emitter.pgid is None:
+                raise OperatorError("native pointer emitter has no process group")
+            _publish_watchdog(
+                self.watchdog,
+                groups={emitter.pgid},
+                buttons=set(),
+                keys=set(),
+                deadline_monotonic=deadline_monotonic,
+            )
+            if before_press is not None:
+                before_press()
+            _action_timeout(action, deadline=deadline_monotonic)
+            go_attempted = True
+            emitter.press()
+            emitter.release()
+            self.watchdog.clear()
+        except BaseException as primary:
+            release = getattr(self.watchdog, "release_now", None)
+            if go_attempted and callable(release):
+                try:
+                    release()
+                except BaseException:
+                    self.cleanup_failures.append("pointer_park.release_now")
+            elif go_attempted:
+                try:
+                    self.watchdog.clear()
+                except BaseException:
+                    self.cleanup_failures.append("pointer_park.clear_after_go")
+            else:
+                try:
+                    self.watchdog.clear()
+                except BaseException:
+                    self.cleanup_failures.append("pointer_park.clear_before_go")
+            try:
+                emitter.abort()
+            except BaseException:
+                self.cleanup_failures.append("pointer_park.abort")
             raise primary.with_traceback(primary.__traceback__) from None
 
     def click(
@@ -3450,6 +3528,10 @@ class NativeCalibrationOperator:
         target_root = self.receipt.attempt
         if target_root is None:
             raise ReceiptError("receipt was not initialized")
+        if require_dual and require_exclusive is not None:
+            raise OperatorError("capture cannot request exclusive and dual template proofs")
+        if require_dual or require_exclusive is not None:
+            identity = self._park_pointer(identity, deadline_monotonic=deadline)
         capture_sequence: int | None = None
         if retain_chat_frame is not None:
             self._chat_capture_sequence += 1
@@ -3532,8 +3614,6 @@ class NativeCalibrationOperator:
             captureCompletedMonotonic=self.clock(),
         )
         self._last_capture_completed = self.clock()
-        if require_dual and require_exclusive is not None:
-            raise OperatorError("capture cannot request exclusive and dual template proofs")
         region = self._control_region(after)
         if (require_dual or require_exclusive is not None) and region is None:
             raise OperatorError("measured control transform is unavailable")
@@ -3578,6 +3658,130 @@ class NativeCalibrationOperator:
         panel_height = round(84 * scale_y)
         inset = round(24 * scale_x)
         return (width - inset - panel_width, inset, panel_width, panel_height)
+
+    @staticmethod
+    def _contains_point(rect: tuple[int, int, int, int], point: tuple[int, int]) -> bool:
+        left, top, width, height = rect
+        return left <= point[0] < left + width and top <= point[1] < top + height
+
+    def _park_pointer(self, identity: Any, *, deadline_monotonic: float | None) -> Any:
+        """Move an unsafe pointer away from controls before a fresh visual proof."""
+
+        deadline = deadline_monotonic if deadline_monotonic is not None else self._deadline()
+        if deadline is None or not math.isfinite(float(deadline)) or float(deadline) <= self.clock():
+            raise OperatorError("pointer parking deadline is unavailable or expired")
+        region = self._control_region(identity)
+        if region is None:
+            raise OperatorError("measured control transform is unavailable")
+        geometry = getattr(identity, "child_geometry", None)
+        if not (
+            isinstance(geometry, tuple)
+            and len(geometry) == 4
+            and all(isinstance(value, int) and not isinstance(value, bool) for value in geometry)
+        ):
+            raise OperatorError("verified client geometry is malformed")
+        client_left, client_top, client_width, client_height = geometry
+        if client_width <= 0 or client_height <= 0:
+            raise OperatorError("verified client geometry is malformed")
+        canvas = getattr(self.screen, "agent_crop", None)
+        if not (
+            isinstance(canvas, tuple)
+            and len(canvas) == 4
+            and all(isinstance(value, int) and not isinstance(value, bool) for value in canvas)
+        ):
+            raise OperatorError("telemetry canvas geometry is unavailable")
+        canvas_left, canvas_top, canvas_width, canvas_height = canvas
+        if canvas_width <= 0 or canvas_height <= 0:
+            raise OperatorError("telemetry canvas geometry is malformed")
+        canvas_rect = (canvas_left, canvas_top, canvas_width, canvas_height)
+        if (
+            canvas_left < client_left
+            or canvas_top < client_top
+            or canvas_left + canvas_width > client_left + client_width
+            or canvas_top + canvas_height > client_top + client_height
+        ):
+            raise OperatorError("telemetry canvas is outside the verified client")
+
+        if getattr(self, "_binding", None) is not None:
+            self._recheck()
+            identity = self._identity_guard(deadline)
+            if getattr(identity, "child_geometry", None) != geometry:
+                raise OperatorError("client geometry changed before pointer parking")
+
+        pointer = self.screen.pointer_position(deadline_monotonic=deadline)
+        if (
+            not isinstance(pointer, tuple)
+            or len(pointer) != 3
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in pointer)
+        ):
+            raise OperatorError("pointer position is malformed")
+        current_point = (pointer[0], pointer[1])
+        if not self._contains_point(region, current_point) and not self._contains_point(
+            canvas_rect, current_point
+        ):
+            return identity
+
+        margin = max(1, min(client_width, client_height) // 64)
+        x_values = (
+            client_left + client_width // 2,
+            client_left + client_width // 4,
+            client_left + (client_width * 3) // 4,
+            client_left + margin,
+            client_left + client_width - margin - 1,
+        )
+        y_values = (
+            client_top + client_height // 2,
+            client_top + client_height // 4,
+            client_top + (client_height * 3) // 4,
+            client_top + margin,
+            client_top + client_height - margin - 1,
+        )
+        parking_point: tuple[int, int] | None = None
+        for y in y_values:
+            for x in x_values:
+                candidate = (x, y)
+                if not self._contains_point(region, candidate) and not self._contains_point(
+                    canvas_rect, candidate
+                ):
+                    parking_point = candidate
+                    break
+            if parking_point is not None:
+                break
+        if parking_point is None:
+            raise OperatorError("no safe pointer parking point is available")
+        move_pointer = getattr(self.input, "move_pointer", None)
+        if not callable(move_pointer):
+            raise OperatorError("owned pointer parking is unavailable")
+
+        def before_press() -> None:
+            # This is the final admission boundary: the emitter is already
+            # watchdog-owned, but no native input may be sent until the same
+            # reservation and the exact foreground geometry remain current.
+            if getattr(self, "_binding", None) is not None:
+                self._recheck(deadline_monotonic=deadline)
+            fresh = self._identity_guard(deadline)
+            if getattr(fresh, "fingerprint", None) != getattr(identity, "fingerprint", None):
+                raise OperatorError("game identity changed before pointer parking dispatch")
+            if getattr(fresh, "child_geometry", None) != geometry:
+                raise OperatorError("client geometry changed before pointer parking dispatch")
+
+        move_pointer(
+            parking_point,
+            identity=identity,
+            before_press=before_press,
+            deadline_monotonic=deadline,
+        )
+        parked_identity = self._identity_guard(deadline)
+        if getattr(parked_identity, "fingerprint", None) != getattr(identity, "fingerprint", None):
+            raise OperatorError("game identity changed after pointer parking")
+        endpoint = self.screen.pointer_position(deadline_monotonic=deadline)
+        if endpoint[:2] != parking_point:
+            raise OperatorError("pointer parking endpoint changed")
+        target_xids = getattr(parked_identity, "target_event_xids", frozenset())
+        if target_xids and endpoint[2] not in target_xids:
+            raise OperatorError("pointer parking target changed")
+        self._event("pointer_parked", x=parking_point[0], y=parking_point[1])
+        return parked_identity
 
     def _post_reload_controls(self) -> None:
         deadline = self._deadline()

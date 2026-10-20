@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 08:00 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 18:41 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -26,19 +26,18 @@ requires native calibration/recovery, genuine human input calibration and three
 - Origin: https://github.com/kyle-deprow/forever_tradecraft . Routine recovery,
   installation, fixes, commits and pushes remain authorized. The user revoked
   AGENTS.md rules. Keep progressing until requirements are met.
-- User prefers Luna implementation/game control, Sol review and actual CLI
-  Opus review. Do not substitute another model or claim a review not performed.
+- User now requires OpenAI Luna implementation/game control and Sol review;
+  Anthropic quota is offline. Opus is no longer a gate for new work. Preserve
+  historical actual Opus evidence without claiming any new review occurred.
 - Sole live GUI owner: `/root/luna_live_recovery`. Root may inspect retained
   artifacts but must not operate/capture/input the GUI concurrently.
 - Arthur remains stationary at Ironforge AH. No navigation/trading. Standard
   Wine desktop; Sunshine disabled. Character revival/login already completed.
-- Implementation owner: `/root/luna_rust_matcher` now works ONLY in
-  `/home/dev/.cache/crowley/worktrees/native-identity-observer-fix-r1-20261020`.
-  Original `/home/dev/.cache/crowley/worktrees/native-identity-observer-20261019`
-  stays frozen as the reviewed R1 source. Sol and actualCLI Opus R1 requested
-  changes; final R4 corrections passed independent checks, Sol and actual CLI Opus review.
-  Accepted closure is now split: existing Luna owns eight runtime/helper/test files;
-  `/root/luna_observer_facts_closure` owns five Rust/builder/X11-test files.
+- Implementation worker: `/root/luna_rust_matcher`; latest hover candidate in
+  `/home/dev/.cache/crowley/worktrees/native-control-hover-20261020` is frozen and
+  installed at its final two-file hashes. Earlier Rust observer worktrees remain
+  frozen historical evidence; R4 passed parent/Sol/actual Opus review before
+  installation. Do not confuse those approvals with the new Luna/Sol hover fix.
   Root owns docs, skills, final verification, installation and Git. Review worker:
   `/root/sol_final_composition_plan`.
 - Communication: explain the overall autonomy objective, current milestone and
@@ -48,16 +47,27 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
-**Current offline correction:** exact production matcher replay proves Restore
-hover state caused measure55/recover56 visual refusal: normalpreflight score1.442,
-failedhover19.208 against unchanged5.0 threshold. Construct still matches; geometry,
-templates and cache match. [Diagnosis](../.archive/executor-review/native-control-hover-diagnosis.json).
-Luna implements the [closed pointer-parking plan](../.archive/PLAN-native-control-unhover.md)
-ONLY in `/home/dev/.cache/crowley/worktrees/native-control-hover-20261020`, owning
-helper + scoped tests. MAIN runtime stays unchanged until parent checks and Sol
-and actual CLI Opus approve. No templates/threshold/protocol/Guardian relaxation.
-User can use RDP normally during offline work; all agent game controls/captures
-are held. Coordinate a new hands-off window before live recovery/calibration.
+**Installed correction:** pointer parking clears button hover before unchanged
+control recognition. Exact matcher replay identified the original Restore hover
+failure; no template/threshold/protocol/Guardian relaxation was needed.
+[Release verification](../.archive/executor-review/native-control-hover-release-parent-verification.json).
+Luna implemented the [bounded plan](../.archive/PLAN-native-control-unhover.md);
+Sol R1 found a final-admission race, which was fixed and covered by actual owned
+process tests. Sol R2 is READY with no findings. Parent independently passed the
+full119-test operator module at final source pins (688.81s, four existing fork
+warnings),22 focused checks and scoped static checks. The full module includes
+actual composed success/refusals, unchanged matcher discrimination, watchdog
+ownership/cleanup and late revocation/geometry/deadline no-dispatch regressions.
+The exact reviewed helper/test files are installed in MAIN. Runtime/config and
+daemon process remain unchanged; installed imports and helper CLI verified.
+Actual CLI Opus was rejected429 before any review; user explicitly switched to
+OpenAI Luna/Sol only. No new Opus approval is claimed or required.
+No live input/capture occurred during installation. Last verified daemon status
+remains PAUSED56/nativefalse/inputfalse/operationidle with deferred recovery still
+required. User retains RDP control until the coordinated desktop handoff. Then
+Luna owns canonical recovery, fresh native100/recovery and monitored genuine
+human calibration. Zero autonomous cycles are counted. Continue already
+authorized work; a status request does not pause it.
 
 
 **Newest blocker:** new-process preflight54 passed; measure-deferred55 refused
@@ -114,7 +124,7 @@ non-XTEST user-input attribution still need the user's connection. Leave the gam
 paused and do not launch input calibration until the user can see the desktop.
 
 
-Stable game identity: PID644491/start15495385, xid0x02e00001,
+Historical pre-exit game identity (superseded above): PID644491/start15495385, xid0x02e00001,
 child0x2000011, fingerprint
 `e84a459bda54c891092f049af9c523eb171588ce566a44123723d733baf6918a`.
 1920x1080 client, telemetry crop80,48,256,256. DISPLAY:0; obtain fresh authority
@@ -675,19 +685,15 @@ addon900s timer remains the scan clock. Never synthesize human input.
 
 ## Next live gates, in order
 
-1. COMPLETE: Parent offline gates, Sol/actual Opus approval, full122 chain,
-   fresh quiescence, exact accepted six-file promotion and service restart.
-2. COMPLETE: resource-policy separation parent verification, Sol/actual Opus
-   approval, quiescent installation and pushed commit23d7f75. Fresh live46 failed
-   updates/4 versus5; recovered47. Diagnose and fix measured host processing
-   latency with a bounded plan, meaningful regressions and both source reviews.
-   Preserve all current identity/cadence/ordinal/ownership/cleanup/recovery guards.
-   Then one fresh native100; retain correctness and resource assessments
-   separately. Never reclassify old40/43/46. Continue independent host timer
-   review/release and assisted beta collection while awaiting calibration.
-3. Public pause then canonical ordinary recovery: PAUSED/native true/inputfalse,
-   checkpoint clear, no stale operation/action. **Only then ask user availability**
-   for physical input calibration.
+1. COMPLETE: pointer-parking correction independently verified (full119 tests),
+   Sol R2 approved and exact reviewed helper installed. Runtime/config unchanged;
+   no daemon restart or game control during installation.
+2. Coordinate desktop handoff with the user, then let the sole Luna GUI owner
+   perform canonical recovery from the actual checkpoint/current generation.
+   Require ordinary HUD restored and checkpoint clear before fresh calibration.
+3. Fresh native preflight/100-update measurement and canonical ordinary recovery
+   on the current game process: PAUSED/native true/inputfalse, checkpoint clear,
+   no stale operation/action. Prior native50 belongs to the exited game.
 4. Resume INPUT_CALIBRATION and start input-calibrate with actual fresh generation.
    Wait kindinput/staterunning/readiness.ready and the separate owned GTK prompt.
    Require real human pointer motion, ordinary key press/release and button

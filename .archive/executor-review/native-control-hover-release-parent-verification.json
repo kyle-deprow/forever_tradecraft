@@ -1,0 +1,68 @@
+{
+  "kind": "native-control-hover-release-parent-verification",
+  "verified_at_utc": "2026-10-20T18:41:12.859908+00:00",
+  "status": "INSTALLED_VERIFIED",
+  "objective": "Clear control-button hover before unchanged visual recognition using admitted pointer-only movement.",
+  "files": {
+    "tools/native_calibration_operator.py": "8ca9413b35c55a4d83e0937110125b2bf0e04dfcc5c1565bbb7467f6b405bf5d",
+    "tests/test_native_calibration_operator.py": "e4b6967340224f4bcab3cc1a9e4f2e9797af003d533cf9a984a32b3bfbad4cdd"
+  },
+  "plan_sha256_at_review": "b7ab6f3d4975afe7b2aadde1e21e5046d8a87d8247b19131396a09d6809bd4d1",
+  "plan_sha256_current": "904ccdc2f28e0c8b08d54176cf94b705982a968fe852f94b3847b82535e1a7c4",
+  "plan_change_after_review": "User removed Anthropic/Opus requirement; implementation and acceptance behavior unchanged.",
+  "verification": {
+    "parent_full_operator_tests": 119,
+    "existing_warnings": 4,
+    "full_elapsed_seconds": 689.1655263900757,
+    "parent_focused_tests": 22,
+    "scoped_static": "PASS",
+    "final_source_pins_stable": true,
+    "full_log_sha256": "dc0362101966aac39b954aec6116e933f548781626d2d19673e4326b553e8874"
+  },
+  "review": {
+    "pairing": "luna/sol",
+    "sol_rounds": 2,
+    "r1": "NEEDS WORK: final movement admission race; accepted and fixed",
+    "r2": "READY: no findings",
+    "r2_report_sha256": "c8a53e7db6bfc4c1ae6cb5aa58ea273f88766823e69343b9ed9d734f9653b865",
+    "discarded_findings": [],
+    "opus": "Attempt rejected429 before review; user then explicitly instructed OpenAI Luna/Sol only. No new Opus review claimed."
+  },
+  "installation": {
+    "performed": true,
+    "receipt_sha256": "ac8f56342dec397e0fca78d411d1334285ae5d03dcb14d7906e9e109df1d724e",
+    "daemon_restart": false,
+    "protected_runtime_sources_unchanged": {
+      "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+      "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+      "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+      "src/crowley/session/controller.py": "79768781005d062cf0662c4ef99dd5a0b2263e8ac59f84b832fd09e9351ac81f",
+      "src/crowley/session/guardian.py": "e73128de1e6fdf38beda8256b11f77d66b2b666eb8b1499018c70781217a2efa",
+      "src/crowley/session/input_tool.py": "7d4edcc9094a813a2d8d87d0e94257493c11f5740f297eb0aefa7798b22a9ed6",
+      "src/crowley/session/calibration.py": "0e96f7f4d9fd6b25c04fc767e57e4c617b69f99cb165811d4bd2a07c8c1932fc",
+      "src/crowley/session/decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739"
+    },
+    "config_unchanged": true,
+    "config_sha256": "89580ebd703d4457537b7e2dc49ab5a6f3395805033ef28a34814a54c7ae568f",
+    "installed_command_imports_main": true,
+    "helper_help_exit": 0,
+    "game_input_or_capture": false
+  },
+  "live": {
+    "last_verified_daemon_state": "PAUSED",
+    "generation": 56,
+    "native_calibration": false,
+    "input_calibration": false,
+    "deferred_renderer_requires_canonical_recovery": true,
+    "desktop_handoff": "Pending user availability after prior release of controls",
+    "autonomous_qualification_cycles": 0,
+    "scan_cadence_qualification": false
+  },
+  "next": [
+    "Coordinate desktop handoff",
+    "Canonical recovery restores ordinary HUD and clears checkpoint",
+    "Fresh native100 and ordinary recovery for current game process",
+    "Genuine owned-GTK human input calibration",
+    "Three new autonomous900-second complete scan/save/upload/loaded-ACK/AH-reopen cycles"
+  ]
+}

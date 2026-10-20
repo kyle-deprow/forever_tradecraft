@@ -38,6 +38,11 @@ Parent owns plan, final verification, source installation, Git and live handoff.
 4. Keep all new move ownership registered before dispatch and retired/reaped on
    success/error/cancellation/owner death. Preserve existing input holds and
    watchdog cleanup. Native/input gates and no-input-on-refusal remain strict.
+5. Sol R1 closure: recheck exact admitted reservation/generation and foreground
+   identity/fingerprint/geometry after watchdog publication immediately before
+   pointer GO, using the original absolute deadline. Add a deterministic
+   revocation barrier at that boundary: no recorder input, capture, match or
+   click; owned child reaped and watchdog ownership cleared on refusal.
 
 ## Meaningful verification
 Use an isolated environment or the existing interpreter with explicit worktree
@@ -57,12 +62,13 @@ DISPLAY tests; offline owned fixtures only.
   not rerun unrelated Rust identity mutation suites whose source did not change.
 - Ruff/format/py_compile and git diff --check for only changed owned files.
 Retain all outputs privately0600/dirs0700. Freeze final source hashes after the
-last edit. Parent independently checks these before Sol and actual CLI Opus review.
+last edit. Parent independently checks these before Sol review. User updated the
+model requirement on2026-10-20: use Luna/Sol only while Anthropic quota is offline.
 
 ## Acceptance and live gate
 Approved source must restore deterministic recognition at unchanged thresholds
 without adding a button/key dispatch or weakening native admission. No code/Git
-promotion or live test until parent checks and both reviewer approvals pass.
+promotion or live test until parent checks and Sol approval pass.
 After installation, coordinate user hands-off; canonical recovery must first
 restore ordinary HUD/checkpoint, then one fresh native100 and ordinary recovery,
 then real owned-GTK human input. Notify root immediately only at true human
