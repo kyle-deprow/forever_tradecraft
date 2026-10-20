@@ -1,0 +1,136 @@
+{
+  "status": "PASS",
+  "scope": "Final R4c same-source independent verification across explicitly linked phases",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "e19671a4620ef86047232b8325a7d0ef152ab7558cf45137424dc76f6535ef35",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+    "tests/test_native_calibration_operator.py": "872c056497b0c1dd90ebccc87a856550ffacdc7929fe1610324f8f74c9761124",
+    "tests/test_session_driver_actions.py": "2e5d9a764c57e349aab8613b076de142650f0c5ceac38747fa5d0a4570c20c0a",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "d19966745745ae9dfce1b107631fe31e261efe04968dbfdc8fed437851f553f1",
+    "tools/build_x11_identity_observer.py": "006b97b08386e83fe75347461b75059aaff4375bf1bc3804857a783e7db5ace0",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "aggregateCoveredCases": 284,
+  "earlierSameSourcePassedComposition": 13,
+  "earlierSameSourcePassedComponents": 251,
+  "freshClosurePassedCases": 20,
+  "notUninterruptedFullGroupRerun": true,
+  "sourceByteIdenticalAcrossPhases": true,
+  "priorResultsSha256": "4f833fd252020d0fbf8d48baed69d2aa1a73405bf14c9334fb3a2edcaa698d6a",
+  "finalResultsSha256": "da11975777eefd00c55a6652a7ee905d8039cf1b0206a124b028e8c46e7f0875",
+  "checks": [
+    {
+      "name": "path-diagnostic",
+      "returncode": 0,
+      "passedTests": 1,
+      "durationSeconds": 58.78396463394165,
+      "logSha256": "9244e8d66af2196d01effa229bb3b7583366e5f7d971ab168ea4ec4c6e8b8a79"
+    },
+    {
+      "name": "fragment-and-provenance",
+      "returncode": 0,
+      "passedTests": 4,
+      "durationSeconds": 0.47327375411987305,
+      "logSha256": "28ff01d27cb872823c62bf40162f4ea2a3589ad790be4f4e522fe2a1ab2f4dfd"
+    },
+    {
+      "name": "finalize-race",
+      "returncode": 0,
+      "passedTests": 5,
+      "durationSeconds": 111.51720690727234,
+      "logSha256": "283df0daaed3e5a4d7b6100cb9f6db93f932e9a2655422e57e2c549b7e4c57f0"
+    },
+    {
+      "name": "receipt-runtime",
+      "returncode": 0,
+      "passedTests": 7,
+      "durationSeconds": 67.39176273345947,
+      "logSha256": "e61d7adf75efdbbaac48832d96f1615d4b37ff6b2d70abf3fa39d4b7c335a041"
+    },
+    {
+      "name": "display-constructor",
+      "returncode": 0,
+      "passedTests": 3,
+      "durationSeconds": 0.42984819412231445,
+      "logSha256": "ad8688b4921d0a8c0adb3e17cbae996acecbea8b5c62ec79920e876be42bd768"
+    },
+    {
+      "name": "rustfmt",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.026422977447509766,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "ruff",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.03270888328552246,
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "name": "format",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.033254384994506836,
+      "logSha256": "5b9f70ad96522f492ef846065642c069b5627379aff2ab3f74acd2e3b9ecfe34"
+    },
+    {
+      "name": "compile",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.05786895751953125,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "diff",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.029949426651000977,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "parentOnlyPathFailure": {
+    "diagnosisSha256": "fd16abb30d3c5a038f3979f93c748f051e2c4325985960d6f708dab9933e040e",
+    "actualSocketPathBytes": 110,
+    "actualHostRefusal": "AF_UNIX path too long",
+    "sourceTestDeadlineChanged": false,
+    "affectedDiagnosticPassedFresh": true
+  },
+  "performance": {
+    "accepted_update_count": 99,
+    "max_active_ns": 438741355,
+    "sha256": "708fc3d71800b0d2c6b97af5ebab9410fb8dd9cf78120b29fa1321fc3ccebbe2",
+    "validation_origin": "carried from unchanged successful case"
+  },
+  "performanceOrigin": "Earlier fresh full13 source-identical phase; no R3source reuse",
+  "queryUncertaintyActualReceipts": [
+    {
+      "sha256": "b0984ea382946490a54e5e48370fa7062519485524167a632cca000f589466b4",
+      "returncode": 1,
+      "observerSha256": "5f4cb94ba23d079885ac9aaf7034619f60cf59f33dd91ae2f91174631c675b58",
+      "responseError": "transient X11 window error",
+      "requestBeforeDestroy": true
+    },
+    {
+      "sha256": "a3ef7df563cdca8f2ec173fac04f23160360d51d387c896960040ac1d8d1deac",
+      "returncode": 0,
+      "observerSha256": "ce51b5a0a0ba82f4ac67589610520294d6ccbee860442891575e2e9383c075d7",
+      "responseError": null,
+      "requestBeforeDestroy": true
+    }
+  ],
+  "sourceStableBeforeAfterEveryCheck": true,
+  "protectedCalibrationDecoderGuardianInputToolUnchanged": true,
+  "candidateManifestSha256": "e2cd9b22d2e9651d7af69b5c88f7f937df571d443c0184a37bb2fa99052ef0ba",
+  "binarySha256": "5f4cb94ba23d079885ac9aaf7034619f60cf59f33dd91ae2f91174631c675b58",
+  "sourceReviews": "Sol R4 and actual CLI Opus R4 in progress",
+  "installed": false,
+  "autonomousQualificationCycles": 0
+}

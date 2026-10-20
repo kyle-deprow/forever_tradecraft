@@ -130,9 +130,21 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
 installed yet. The final candidate is frozen in the isolated fix worktree.
 
-**Current milestone: R4c source remains frozen. Fresh13 composition and251
-components passed; one parent-created Unix-path failure is being closed with
-shorter test paths. Source reviews/installation remain pending final checks.**
+**Current milestone: R4c independent verification PASS; formal Sol R4 and actual
+CLI Opus R4 are reviewing the same frozen13pins. Installation awaits approval.**
+[Final R4 parent verification](../.archive/executor-review/native-observer-r4-final-parent-verification.json):
+284 aggregate covered cases at byte-identical source across both phases: full13
+composition and251 components before the parent-only path failure, then affected
+diagnostic1/fragment4/finalize5/runtime7/constructor3 fresh with short paths.
+Independent rustfmt, Ruff, format, compile and diff checks pass. No source/test/
+deadline changed for the path fix; no uninterrupted full-group rerun is claimed.
+The fresh full13 phase accepted99updates/max438.741355ms with exact1Hz/held100/
+resume0 guards; its numeric evidence carries at identical source. Actual query
+receipts prove preserved R3 acceptance versus current typed X11 refusal under the
+same forced uncertainty, before normal restoration. Source remains frozen; no
+observer installed, new native attempt, physical input or autonomous cycle yet.
+
+The following describes the already-closed parent test-environment failure:
 [Parent environment diagnosis](../.archive/executor-review/native-observer-r4-parent-path-failure.json):
 actual supervised socket path110bytes; direct host bind refuses AF_UNIX path too
 long before owner startup. Root caused the long per-command basetemp. New run
