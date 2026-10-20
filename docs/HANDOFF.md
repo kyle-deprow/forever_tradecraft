@@ -156,6 +156,15 @@ was refused because its reservation expired. These current failures are localize
 not fixed or explained by later passes; the earlier R4 failure lacks equivalent
 raw evidence and remains unclosed. Luna owns diagnosis and in-scope corrections.
 Private logSHA256 `8b192dd5a9b712fbf49c469256129242715085a64cd099cf4241874afe11d5d2`.
+Latest intermediate nine-case run passed9 in571.71s; isolated success passed149.02s
+and measurement-failure44.81s. This is not final acceptance: parent source inspection
+found the new actor test asks a separate fresh finalized recheck instead of routing
+the original raced reply through the actor with prior canonical binding. The nonce
+proof still selects first calls by overlapping timestamps instead of proving exactly
+one causally bound call per boundary/thread. Both corrections remain in accepted R1
+scope; Luna owns them and Sol is providing bounded read-only design assistance.
+Fresh broad run was239passed/1failed462.50s, the failure being misplaced test cleanup
+in the ambient-Cargo-config fixture. No full broad pass at final pins is claimed yet.
 Reference-only prefilter optimization is deferred.
 No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
