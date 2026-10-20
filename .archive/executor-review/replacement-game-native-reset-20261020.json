@@ -1,0 +1,34 @@
+{
+  "status": "NEW_CONTROLLER_PAUSED_GATES_INVALIDATED",
+  "reason": "Original game process exited; replacement process cannot reuse native50 private live seals. Fresh Controller intentionally invalidates persisted gate booleans.",
+  "daemonPID": 3174693,
+  "generation": 54,
+  "native": false,
+  "input": false,
+  "sourceAndProtectedPinsUnchanged": true,
+  "configUnchanged": true,
+  "otherServicePIDsUnchanged": {
+    "gnome-remote-desktop.service": "1822704",
+    "crowley-companion.service": "21909"
+  },
+  "game": {
+    "pid": 2800399,
+    "start": "32181443",
+    "fingerprint": "ff2dc4f4756d550ca231897fe53e017a046730b685c8051f0e7533c96b30639e"
+  },
+  "quiescence": {
+    "parentProductionDecoded": true,
+    "receiptSha256": "769d9b306d5401172cf973e697874df5b5be082b374cb96b0909130fc4cba4c9",
+    "imageSha256": "2c9171c4f577f950851fb3431920132f47281533118357bad96def8bed222fb8",
+    "boot": "1792512146-143516",
+    "sequence": 492,
+    "normal0": true,
+    "fence": "inactive",
+    "ahClosed": true,
+    "pending": 0,
+    "speed": 0
+  },
+  "checkpointAbsent": true,
+  "statusBeforeSha256": "acf0e774ea183c2c3743625657d8d492f1e22da285c95e76691d942232f4bb5c",
+  "statusAfterSha256": "5ab3a55f8f630de531fd3366ea8a9fddb3cc85ed9631ebaa3298b21154a2ad4b"
+}

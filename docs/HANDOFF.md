@@ -48,6 +48,22 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
+**Latest boundary:** user manually repositioned Arthur after saved/new frames
+reported real speed7 at constant coordinates with all controls released. Root
+refused quiescence before daemon mutation; no S stop key was dispatched. After
+user correction, root independently decoded five advancing frames476..492 at
+speed/current0, stableposition/AHclosed/pending0/normal0/inactive/chatinactive and
+all controls up (receiptSHA `769d9b306d5401172cf973e697874df5b5be082b374cb96b0909130fc4cba4c9`).
+Only sessiondaemon was restarted to discard private live seals from the exited
+game: new PID3174693, PAUSED54/nativefalse/inputfalse, no checkpoint/action/reconcile.
+GamePID2800399, RDP1822704, companion21909, profile and all approved runtime source
+pins are unchanged. [Reset proof](../.archive/executor-review/replacement-game-native-reset-20261020.json).
+Luna now owns one fresh preflight/native100/ordinary recovery, then one monitored
+GTK input startup. User remains connected, Arthur still; notify immediately when
+the actual human prompt is ready. No physical-input evidence or autonomous cycle
+has passed. Native50 is historical for the exited game, not the current binding.
+
+
 **Current live correction after remote connection:** input calibration52 failed
 before human readiness on `xdotool windowactivate --sync 0x3400003` timeout.
 A subsequent instrumented startup found the original game PID644491 gone and

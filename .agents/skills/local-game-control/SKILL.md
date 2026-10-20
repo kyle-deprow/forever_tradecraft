@@ -195,6 +195,9 @@ within existing authorization; respect any current movement limits.
   manually closing the input afterward cannot prove its finally block ran.
   Bounded diagnostic retention must also remain bounded when eviction fails;
   skip the new optional artifact rather than losing track of the old one.
+  Before reporting quiescence, decode actual speed/current on advancing frames.
+  Released controls and constant coordinates do not prove speed zero; a character
+  can run against an obstacle. Refuse the boundary rather than infer a stopped pose.
   Accept movement measurements only from settled post-release telemetry.
   Check the reconstructed runtime direction against the independently measured
   vector at a nonzero facing; stored calibration values alone do not prove it.
@@ -349,7 +352,8 @@ cleanup. A user's explicit takeover or stop ends input immediately, including cl
 Execute the next justified action instead of repeatedly announcing plans. Send a
 concrete result or exact blocker at least once a minute during active operation.
 Give the parent the current screen, attempted action, observed effect, and next
-diagnostic fact needed. Do not end with an offer to continue work already requested.
+diagnostic fact needed. Distinguish human availability from actual prompt readiness;
+if startup fails, state that the human step never began and who owns desktop input. Do not end with an offer to continue work already requested.
 
 For addon validation, distinguish command submission, an in-game success message,
 saved output, server ingestion, and loaded acknowledgement. Report the stages
