@@ -120,8 +120,8 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
 installed yet. The final candidate is frozen in the isolated fix worktree.
 
-**Current milestone: final independent offline checks PASS; formal Sol R2 and
-actual CLI Opus R2 source reviews are running at the same thirteen pins.**
+**Current milestone: final R2 offline checks PASS and Sol R2 READY; actual CLI
+Opus R2 NEEDS WORK. Installation remains held for the bounded R3 corrections.**
 [Final parent verification](../.archive/executor-review/native-observer-closure-final-parent-verification.json):
 280 tests passed:13 actual compiled operator/daemon/Agent composition cases,
 248 observer/driver/native,4 fragment/provenance,5 same-actor finalize/recheck
@@ -131,10 +131,20 @@ zero900ms budget violations, and existing exact1Hz/held100/resume0 guards.
 Per-case timings, IPC replies, journal and cleanup artifacts are retained
 privately outside rotating pytest directories. This is offline fixture evidence.
 
+[Sol R2 READY](../.archive/executor-review/native-observer-sol-r2-review-verification.json)
+and [actual CLI Opus R2 NEEDS WORK](../.archive/executor-review/native-observer-opus-r2-review-verification.json)
+(exit0, claude-opus-5-5) reviewed identical unchanged13 pins. Opus found actual
+Cargo build-cwd ancestor config not checked and window counting before full
+verification. Parent/Sol also accepted typed close-race, vendored WM_STATE focus
+parity and independent outerParent checks; remaining two nits are deferred with
+reasons in the proof. One Luna worker owns seven exact paths under the
+[R3 contract-closure plan](../.archive/PLAN-native-observer-r3-contract-closure.md).
+No live install or native retry; root independently reruns final relevant matrix
+only after the corrected source freezes, followed by both R3 reviews.
+
 The [accepted closure plan](../.archive/PLAN-native-observer-accepted-closure.md)
-keeps the same13 files and disjoint8+5 owners. Both source owners must keep
-candidate files frozen during review; Luna A monitors the root-prepared actual
-CLI Opus process without editing source or authoring its verdict. Final manifest:
+keeps the same13 files and disjoint8+5 owners. R3 temporarily supersedes the prior8+5 ownership for its seven exact paths.
+Other six candidate files stay frozen. The PRE-R3 final manifest remains:
 `native-identity-observer-fix-r1-20261020/resource-retention-r4/final-static/final-manifest-r3.json`,
 SHA `f9889c24347bec4e847d0d93176df9c9c3dc03a90edc85fe3b45eed377961956`.
 Published binarySHA `be2f76f352c311e992611ee111028e9e56515b395e3d9ba57cd1b2b01ea149ea`.

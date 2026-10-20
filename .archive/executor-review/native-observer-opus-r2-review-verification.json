@@ -1,0 +1,49 @@
+{
+  "reviewer": "Actual Claude CLI Opus",
+  "round": 2,
+  "status": "NEEDS WORK",
+  "resolvedModels": [
+    "claude-opus-5-5"
+  ],
+  "returncode": 0,
+  "reportSha256": "835c46a90678dff865cf4fa97e5c9be0081bea585e989ce0de5841740ed8a290",
+  "rawSha256": "37707e22959ffb776e78752c71d9b612cb94924e022292d192187c33d0236266",
+  "processMetadataSha256": "674094ac1cfa928151ebd01dae53c6295ce772e7664a98ce9dd865994d9b96e9",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "39c1b9c3c246a3d3aa8ecd106d2f5b1b83e0ae4fa70a4444202a5c4d5e82cbc5",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "4791fc38ba6648ad97a3ce2039ff8b14751b43a9bb6cf708d6f421f307a7db37",
+    "tests/test_native_calibration_operator.py": "e4a5cf10ef177cf43f70c32f12f499bfd38c80c8e3b568bef18a81d057c0e536",
+    "tests/test_session_driver_actions.py": "724b470b89a449e4f055b29df092cac37e23d845d57cbe998645d4f144b9ed7b",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "16f8ae680568b34ee88ef56a0106b95294c274ae40f12ef58b803a8df8c09600",
+    "tools/build_x11_identity_observer.py": "943b764bb69b70549eeb427ca7ed61662be4ea4c115a2a0b627226930bb8c864",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "sourceUnchanged": true,
+  "mustFixCount": 0,
+  "shouldFixCount": 2,
+  "nitCount": 5,
+  "acceptedShouldFix": [
+    "Refuse ambient Cargo configuration from actual build working-directory ancestors",
+    "Count only fully verified windows before uniqueness check"
+  ],
+  "nitArbitration": {
+    "accepted": [
+      1,
+      3,
+      4
+    ],
+    "deferred": [
+      2,
+      5
+    ],
+    "basis": "Parent and bounded Sol source arbitration: typed close race, actual vendored focus parity, independent outer-parent check are reachable existing-contract gaps. Unsupported-platform sealing architecture and unreachable missing-pin/CLI process-lifetime nits are not current blockers.",
+    "plan": ".archive/PLAN-native-observer-r3-contract-closure.md"
+  },
+  "liveInstallation": false
+}
