@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=World of Warcraft
+Comment=Restored Battle.net launch using the verified Wine 11.16 staging runtime
+Icon=lutris_world-of-warcraft
+Exec=/home/dev/.local/bin/crowley-world-of-warcraft
+TryExec=/home/dev/.local/bin/crowley-world-of-warcraft
+Categories=Game;

@@ -1,0 +1,70 @@
+{
+  "verifiedAt": "2026-10-20T22:54:21.967137+00:00",
+  "worktree": "/home/dev/.cache/crowley/worktrees/input-calibration-diagnostics-20261020",
+  "files": {
+    "src/crowley/session/driver.py": "f592a87cc4fe26907c50c42443e264298990817480854de742d1caecbb8813ba",
+    "src/crowley/session/calibration.py": "a561039e0fd6d3da8790566604707b2b49498a5c9b9fed738abe2200bbae5014",
+    "src/crowley/session/daemon.py": "a9ad8c90f0a7d6601ae038edcad38053ad7e0a10316c705a50e9890a6276d4e6",
+    "tests/test_session_input_diagnostics.py": "821f4b63e32568a93dcb152bfd55fd1ac93a42dcc968e01b1fbd1647141e88e3"
+  },
+  "checks": {
+    "testsCommand": "PYTHONPATH=<WT>/src <MAIN>/.venv/bin/python -m pytest -q tests/test_session_input_diagnostics.py tests/test_session_input_tool.py tests/test_session_driver_actions.py tests/test_session_native_regressions.py -k \"not native_regressions or input_monitor or workflow or synthetic or keyboard\"",
+    "passed": 89,
+    "deselected": 155,
+    "seconds": 15.49,
+    "ruff": "PASS",
+    "format": "PASS",
+    "pyCompile": "PASS",
+    "diffCheck": "PASS"
+  },
+  "review": {
+    "r1": "NEEDS WORK; ownedtemp cleanup and actualmonitorcomposition accepted",
+    "r1Sha256": "e9529937b061ec7f97dd1be357bc22c13ea7830abc8002c27422c7bd1e7919ce",
+    "r2": "READY: no findings",
+    "r2Sha256": "f14188ce555f0aff836f51e79e21f070275eaafe19f2b3910a1f038325011c68"
+  },
+  "installed": true,
+  "r1Checks": {
+    "testsCommand": "PYTHONPATH=<WT>/src <MAIN>/.venv/bin/python -m pytest -q tests/test_session_input_diagnostics.py tests/test_session_input_tool.py tests/test_session_driver_actions.py tests/test_session_native_regressions.py -k \"not native_regressions or input_monitor or workflow or synthetic or keyboard\"",
+    "passed": 87,
+    "deselected": 155,
+    "seconds": 13.24,
+    "ruff": "PASS",
+    "format": "PASS",
+    "pyCompile": "PASS",
+    "diffCheck": "PASS"
+  },
+  "deploymentBlocker": null,
+  "candidateBranch": "fix/input-calibration-diagnostics-20261020",
+  "liveQualification": "No human calibration or new autonomous cycles claimed",
+  "installation": {
+    "sourceCommit": "6f53cc5aad4e3f4949b5e5bf69f7d607b21e7afc",
+    "installedPins": {
+      "src/crowley/session/driver.py": "f592a87cc4fe26907c50c42443e264298990817480854de742d1caecbb8813ba",
+      "src/crowley/session/calibration.py": "a561039e0fd6d3da8790566604707b2b49498a5c9b9fed738abe2200bbae5014",
+      "src/crowley/session/daemon.py": "a9ad8c90f0a7d6601ae038edcad38053ad7e0a10316c705a50e9890a6276d4e6",
+      "tests/test_session_input_diagnostics.py": "821f4b63e32568a93dcb152bfd55fd1ac93a42dcc968e01b1fbd1647141e88e3"
+    },
+    "oldDaemonPid": 2274001,
+    "newDaemonPid": 3087152,
+    "generation": 70,
+    "state": "PAUSED",
+    "nativeCalibration": false,
+    "inputCalibration": false,
+    "protectedUnchanged": {
+      "config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+      "controller.py": "79768781005d062cf0662c4ef99dd5a0b2263e8ac59f84b832fd09e9351ac81f",
+      "guardian.py": "e73128de1e6fdf38beda8256b11f77d66b2b666eb8b1499018c70781217a2efa",
+      "input_tool.py": "7d4edcc9094a813a2d8d87d0e94257493c11f5740f297eb0aefa7798b22a9ed6",
+      "decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739"
+    },
+    "configSha256": "89580ebd703d4457537b7e2dc49ab5a6f3395805033ef28a34814a54c7ae568f",
+    "gamePid": 2792826,
+    "gameWasNotRestartedByPromotion": true,
+    "parentInputOrCapture": false
+  },
+  "reviewedCandidate": "c26a844",
+  "gameRecovery": "wow-runtime-restoration-parent-verification.json",
+  "currentTask": "Fresh native calibration for restored game and daemon, ordinary proof, then instrumented human-input startup",
+  "autonomousQualificationCycles": 0
+}

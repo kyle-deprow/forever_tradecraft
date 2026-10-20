@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 23:04 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 23:51 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -47,40 +47,52 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
-**Live environment blocked; diagnostic fix reviewed and pushed separately:**
-Fresh predeployment scene2256UTC is in-world by Buckler but a Lutris modal says
-unable to open database file. Parent independently verified `/home/dev/.local/share/lutris`
-and `/home/dev/.config/lutris` are absent; gamePID1033131 `/proc/exe` references
-Wine preloader `(deleted)`. Identity observer correctly refuses it; do not relax
-the guard. Disk/inodes are healthy (310GiB available); game prefix/Battle.net/WoW
-files still exist. System Wine exists; a runtime switch is held pending clarification of the recent
-removal and its effect on the existing prefix. User was asked
-whether they or another agent intentionally removed/moved Lutris; await answer
-before rebuilding directories/relaunching/switching runtime. Current process and
-desktop remain untouched. Retained full-scene SHA256
-`d8cd03abffa1168f443468bec1a0ea7cc0930af517f860f4f7541565758e5bc9`.
-PAUSED69/native=true/input=false/checkpoint clear, daemon2274001. Native gate is
-serialized current-process state; missing executable identity prevents new proof.
+**WoW restored; reviewed input diagnostics installed; fresh calibration underway:**
+[Recovery proof](../.archive/executor-review/wow-runtime-restoration-parent-verification.json),
+[installed diagnostic proof](../.archive/executor-review/input-calibration-diagnostics-release-parent-verification.json),
+[local game setup](GAME_SETUP.md).
+User confirmed another agent deleted Lutris/Wine files and authorized restoration.
+Luna restored matching Wine11.16 staging plus DXVK2.6.2/vkd3d2.14/NVAPI0.9.0;
+parent verified Wine archive against upstream SHA, current mapped preloader bytes,
+and zero dangling DLL links in both system32/syswow64. Registry, addon and saved
+variable backups are private. Existing game/prefix/account data were preserved;
+cached Battle.net login worked. Arthur is back beside Auctioneer Buckler.
 
-Diagnostic candidate is complete, frozen and pushed as commit `c26a844` on branch
-`fix/input-calibration-diagnostics-20261020`:
-[Reviewed candidate](https://github.com/p-kjdeprow/forever_tradecraft/commit/c26a844).
-Parent independently passed89 tests/155 deselected in15.49s plus scoped static
-checks. Sol R1's two Must-Fix findings (owned-temp cleanup/recovery and actual
-reader/parser→workflow→daemon composition) were fixed; Sol R2 READY, no findings.
-ReportSHA `f14188ce555f0aff836f51e79e21f070275eaafe19f2b3910a1f038325011c68`.
-Candidate proof is committed on that branch at
-`.archive/executor-review/input-calibration-diagnostics-candidate-parent-verification.json`.
-It retains bounded1MiB/1024-block actual pre-human XI2 raw data and predicate
-rejections, immutable bindings, and a private atomic latest-only artifact≤2MiB.
-Actual composition, observer reap/target cleanup, unchanged original errors,
-transient replacement recovery and bounded cleanup failure are verified. No
-qualification/admission/readiness validators are relaxed. It is NOT installed
-in MAIN or running daemon. Keep source pins from the proof; do not carry native64
-seal across promotion. After the environment is clarified/recovered: fresh
-quiescence, controlled daemon stop/promotion/restart with gates invalidated,
-fresh native100/ordinary proof, then one instrumented input attempt. Request
-actual user-centered pointer after setup if needed, notify only real GTK readiness.
+GamePID2792826/start34949911, fingerprint
+`bf242eeac260a077173e9a0107c2646be9d07b1d78c54d2198a8bb196f9d2808`,
+outerXID67108865/child60817450, measured1928x1092/1920x1080. Parent decoded five
+ordinary frames96/101/105/109/114 and fresh pre-promotion419/423/428/432/436:
+speed/current0, AHclosed, pending0, inactive fence and released controls. Prior
+chat startup movement error is historical; fresh telemetry passed.
+
+Desktop World of Warcraft entry now invokes `~/.local/bin/crowley-world-of-warcraft`
+directly, using the recovered Wine runtime and existing cached Battle.net. It
+checks exact process comm/Windowsargv0/UID/prefix before refusing duplicate clients.
+Parent inspected exact real PID guard and launcher bytes; sh-n and desktop-file
+validation passed, gtk-launch guard preserved process count1. Sol launcher review
+READY, no findings, reportSHA
+`3c26b5afd984ab148489b2fd4b9d5ae570759a1f2d50d460f83a797ffcf7b731`.
+The deleted Lutris game database is bypassed by this persistent shortcut; do not
+claim that database was recovered. Runtime files under Lutris directories remain
+required dependencies even when using Wine directly; preserve them.
+
+Input diagnostics candidatec26a844 was reviewed Luna/Sol R2 READY and parent89
+checks passed; exact four reviewed files are now promoted to MAIN6f53cc5.
+[Plan](../.archive/PLAN-input-calibration-failure-diagnostics.md). Sol R1's owned-temp
+cleanup and actual reader/parser→workflow→daemon proof were fixed. Input/admission/
+qualification/readiness validators are unchanged. Bounded private pre-human raw
+XI2 and first/last rejection reasons will survive cleanup, latest-only1MiBraw/
+2MiBartifact; no human-stage or public IPC trace. Live artifact path is
+`~/.local/state/crowley/input-calibration-diagnostics/latest-pre-human-failure.json`.
+Parent stopped only sessiondaemon2274001, promoted exact reviewed code, and
+restarted NEWdaemon3087152: PAUSED70/nativefalse/inputfalse. Config and five
+protected sources unchanged; the restored game was not restarted by promotion.
+Historical native64 private seal belongs to exited game1033131 and was invalidated.
+Luna owns fresh preflight→native100→public pause/recovery if checkpoint→ordinary5→
+instrumented input attempt. If actual pointer is at a top edge after setup, ask
+user to center it BEFORE GTK creation; no synthetic origin warp or blind retry.
+Notify user only real human readiness; preserve fresh actual nativeXI2 artifact
+on refusal and replay existing validators offline. No autonomous cycles counted.
 
 **Input68 passed the cursor/argv boundary, then timed out before readiness:**
 [Current parent verification](../.archive/executor-review/input68-timeout-parent-verification.json).

@@ -1,0 +1,112 @@
+{
+  "kind": "wow-runtime-restoration-parent-verification",
+  "verifiedAt": "2026-10-20T23:50:04.685964+00:00",
+  "outcome": "WORKING_GAME_AND_PERSISTENT_LAUNCH",
+  "userConfirmedExternalAgentDeletion": true,
+  "gamePid": 2792826,
+  "gameStart": "34949911",
+  "gameFingerprint": "bf242eeac260a077173e9a0107c2646be9d07b1d78c54d2198a8bb196f9d2808",
+  "gameExecutableNoLongerDeleted": true,
+  "preloaderSha256": "ab71797f3c0c5161400ae750645bd2a497a04dd86b1177c4058ee4ccfe888d0a",
+  "wineArchiveSha256": "4b6bae7ba94652c49bb9527abb6428828fa05d6c16bc3aad5c46f10311276366",
+  "wineRelease": "https://github.com/Kron4ek/Wine-Builds/releases/tag/11.16",
+  "prefixDllDanglingLinks": {
+    "system32": 0,
+    "syswow64": 0
+  },
+  "launcher": {
+    "current_wow_identity": {
+      "fingerprint": "bf242eeac260a077173e9a0107c2646be9d07b1d78c54d2198a8bb196f9d2808",
+      "pid": 2792826,
+      "start": "34949911"
+    },
+    "desktop_entry": "/home/dev/.local/share/applications/net.lutris.world-of-warcraft-1.desktop",
+    "desktop_sha256": "f02f2bf34b3a297ad32b461ed38a67c66c1d07e7ad3f1a07e8bd877e78826601",
+    "duplicate_guard": "existing WoW PID detected; wrapper exited without starting a second client",
+    "dynamic_xauthority_fallback": true,
+    "gtk_launch_returncode": 0,
+    "gtk_launch_second_check": {
+      "guard_log": "existing WoW detected; no duplicate client",
+      "returncode": 0,
+      "wow_process_count_after": 1,
+      "wow_process_count_before": 1
+    },
+    "guard_identity": {
+      "argv0": "C:\\Program Files (x86)\\World of Warcraft\\_classic_beta_\\WowB.exe",
+      "comm": "WowB.exe",
+      "owner_uid": 1000,
+      "pid": 2792826,
+      "wineprefix": "/home/dev/Games/world-of-warcraft"
+    },
+    "launcher": "/home/dev/.local/bin/crowley-world-of-warcraft",
+    "launcher_checks": {
+      "desktop_file_validate": "passed",
+      "duplicate_guard": "exact comm=WowB.exe, exact argv0, owner uid, exact WINEPREFIX; no arbitrary command-text scan",
+      "exact_owned_wow_after": [
+        2792826
+      ],
+      "exact_owned_wow_before": [
+        2792826
+      ],
+      "gtk_launch_returncode": 0,
+      "launcher_mode": "0700",
+      "logdir_mode": "0700",
+      "sh_n": "passed",
+      "umask": "077"
+    },
+    "launcher_sha256": "65708e1be340bd82b7e8516ace579b077038777c6e5563ecf5c9f61e13c53cb1",
+    "old_entry_backup": "/home/dev/.local/state/crowley/executor-evidence/wow-runtime-restore-20261020T233311Z/desktop-before-direct-launch.desktop",
+    "old_entry_backup_sha256": "7224638d4b53b0dfcceabc2a542f339329a7d7745da0dbdff29917f3a898e8d0",
+    "runtime_sha256": "4b6bae7ba94652c49bb9527abb6428828fa05d6c16bc3aad5c46f10311276366",
+    "utc": "2026-10-20T23:47:48.814431+00:00",
+    "validation": "desktop-file-validate passed; gtk-launch resolved entry",
+    "wow_process_count_after": 1,
+    "wow_process_count_before": 1
+  },
+  "parentOrdinaryProof": {
+    "receiptSha256": "b6bf2f39030403950bb999be6ae48254b5d154f378f9bb13f55a5e1fde6f22df",
+    "parentDecodedSequences": [
+      96,
+      101,
+      105,
+      109,
+      114
+    ],
+    "speedCurrent": [
+      0,
+      0
+    ],
+    "normal0": true,
+    "ahClosedPending0FenceInactiveInputsUp": true,
+    "identity": {
+      "child_geometry": [
+        0,
+        0,
+        1920,
+        1080
+      ],
+      "child_xid": 60817450,
+      "fingerprint": "bf242eeac260a077173e9a0107c2646be9d07b1d78c54d2198a8bb196f9d2808",
+      "foreground_xid": 67108865,
+      "outer_geometry": [
+        0,
+        0,
+        1928,
+        1092
+      ],
+      "pid": 2792826,
+      "start": "34949911",
+      "xid": 67108865
+    }
+  },
+  "review": {
+    "pairing": "luna/sol",
+    "launcherStatus": "READY",
+    "reportSha256": "3c26b5afd984ab148489b2fd4b9d5ae570759a1f2d50d460f83a797ffcf7b731"
+  },
+  "accountLogin": "cached; no new authentication needed",
+  "gameReinstall": false,
+  "backups": "Private registry, addon and SavedVariables backups retained in executor evidence; no credentials committed",
+  "calibration": "old native64 belongs exited process; fresh gates required",
+  "autonomousQualificationCycles": 0
+}
