@@ -1,0 +1,100 @@
+{
+  "status": "CHECKS_PASS_SOURCE_FINDING_OPEN",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "53c753ccb7557a7277725cf83caedef5a15e16edaced769e4ea23d7ede69d825",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "35563c91ef75408dd48ca4843cc45aa779c22e60686a78f18fe74240dc017d0f",
+    "src/crowley/session/driver.py": "29b7e9885a5fa400994eec98edce2ef0c87d7e9f628b7085eca404e587e88b08",
+    "tests/test_native_calibration_operator.py": "b44f071fa5bd8f1d90be2424284ccd0599d2a99ff20949fccb99e8a721059140",
+    "tests/test_session_driver_actions.py": "7e1242290958540d59dcea64a74784da47cb887fae20bcec385773f6201d884c",
+    "tests/test_session_native.py": "8a2eb509900435d5966f7aa2b2b9b12238dea12b645d38bae986c7359576d6f7",
+    "tests/test_session_native_regressions.py": "480b9ebb9eaae22ae13676057329d908102c07ce7be100ea6abc9b355c21d430",
+    "tests/test_x11_identity_observer.py": "2079fd0a524637aea0277b70a11d076949d7d694980ceea54c35b42f65141326",
+    "tools/build_x11_identity_observer.py": "974c695fa14145110bc22f8e0b74c27282462462802669f724bb115d87b3b9e2",
+    "tools/native_calibration_operator.py": "9e688fd3ce5f0dc8026784273f0c9fe9171539c1768167c56d55566fd0c4001f"
+  },
+  "checks": [
+    {
+      "name": "real-composition",
+      "returncode": 0,
+      "durationSeconds": 145.74974083900452,
+      "logSha256": "a8426e51602b6bb2586b1899586b268db89ae55ebd019771456ec9ca0fd590af"
+    },
+    {
+      "name": "driver",
+      "returncode": 0,
+      "durationSeconds": 6.761992931365967,
+      "logSha256": "1555174ef9a011841ad8a1ed31257fe455cb547c003e627ad0d9662673c255fa"
+    },
+    {
+      "name": "fragment-display-constructor",
+      "returncode": 0,
+      "durationSeconds": 0.5387256145477295,
+      "logSha256": "cf362febaa38008af6c10104bb2aecfe0a71beb8c63a643004b209b239250b50"
+    },
+    {
+      "name": "config",
+      "returncode": 0,
+      "durationSeconds": 0.5230071544647217,
+      "logSha256": "74e4e010e6a71ec6c24ff3a7ea47c63400d514e5353702ee2baef8a807ee849e"
+    },
+    {
+      "name": "finalize-race",
+      "returncode": 0,
+      "durationSeconds": 114.90919995307922,
+      "logSha256": "3620b55b4b5ccdfa8c2658b08a250b96448c0d58c631e94049c6187fd95c37ef"
+    },
+    {
+      "name": "receipt-runtime",
+      "returncode": 0,
+      "durationSeconds": 72.40475368499756,
+      "logSha256": "7a9a16a435bccfad8393cd1fc75bee7117624d632284c7f54f4cea810d33ed06"
+    },
+    {
+      "name": "display-constructor",
+      "returncode": 0,
+      "durationSeconds": 0.4179699420928955,
+      "logSha256": "31479cce8c533f0dbfb24a5f35e9ea4242bd95cf7bb80e7ef64ac0e006efcda2"
+    },
+    {
+      "name": "ruff",
+      "returncode": 0,
+      "durationSeconds": 0.027184486389160156,
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "name": "format",
+      "returncode": 0,
+      "durationSeconds": 0.02713632583618164,
+      "logSha256": "5b9f70ad96522f492ef846065642c069b5627379aff2ab3f74acd2e3b9ecfe34"
+    },
+    {
+      "name": "compile",
+      "returncode": 0,
+      "durationSeconds": 0.10153985023498535,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "diff",
+      "returncode": 0,
+      "durationSeconds": 0.02529311180114746,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "composition": "1 passed145.38s,99acceptedupdates/strictheld100resume0/threefreshboundaries",
+  "performance": {
+    "accepted_update_count": 99,
+    "max_active_ns": 405267311,
+    "sha256": "490e0f5a2088412b703fd38fe755fce3606a2596aa6ad020af53ee8df229dc40"
+  },
+  "broaderSuite": "232passed389.04s atR3; exactone-lineproductiondisplayorderingdelta validated and scopedchecksretaken; unrelated operatorTESTframing/logger delta separatelycomposed.",
+  "privateResultsSha256": "3149bac99992b9011edbcd1c6fbf7c3f5bb81d3a1134755dec3f0eac7df0f3c5",
+  "openParentFinding": "Actualfixtureouterlogreopen retains pending bytes AND rewinds offset, duplicating fragment and losingvalidrecord. ASThelper+actualreopenoffset repro confirmed; focusedpersistentstreamtestmissesit. Correctinreviewfixround.",
+  "findingProbeSha256": "56b87fda3a85f8afec09026f090a9d3c81159026d43996956dbbbdd325ca9d57",
+  "validationLimit": "Earlieroneoffactor_admission_invalidremainsunknown; backendclosed183mslaterduringcleanup. Instrumentedpasses+cleanpreloggerpass+finalparentpasspreserved, nohistoricalcauseassertion.",
+  "reviews": "FormalSolR1andactualCLI OpusR1running; resolvedCLI modelclaude-opus-5-5; noverdictclaimed.",
+  "liveInstallation": false,
+  "autonomousQualificationCycles": 0
+}

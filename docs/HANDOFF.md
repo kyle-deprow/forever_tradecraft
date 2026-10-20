@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-19 23:48 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 00:03 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -65,18 +65,18 @@ dominate while ScreenshotArea itself takes about44ms. Luna investigates the
 smallest deterministic correction without relaxing exact ordinals. Assisted140 resumed with an actual1512s gap after139;141 returned to exact900s.
 No claim of900s through the calibration pause.
 
-Latest fully parent-verified cycle **#148**:
+Latest fully parent-verified cycle **#149**:
 
-- UID `beta-normal-alliance-1792453128-Arthur-5360`;
-- start1792453128, finish1792453601:473s;428 observations/2,225 rows;
-- 406 full/22 bounded, all428 `ok`, zero query failures;
-- exact900s after147;36.903666s finish-to-server receipt;
+- UID `beta-normal-alliance-1792454028-Arthur-8331`;
+- start1792454028, finish1792454500:472s;428 observations/2,174 rows;
+- 407 full/21 bounded, all428 `ok`, zero query failures;
+- exact900s after148;29.993564s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredfortyeighth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredfortyeighth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredfortyninth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredfortyninth-ah-reopen-parent-verification.json).
 
-Next assisted149 due1792454028 (23:53:48UTC). The legacy watcher had a hardcoded
+Next assisted150 due1792454928 (00:08:48UTC). The legacy watcher had a hardcoded
 nominal start; its original receipt remains intact alongside an explicit correction.
 Parent instead verified the original SavedVariables/server start and actual gap.
 
@@ -119,18 +119,23 @@ private replay confirmed the fixture's multi-write log records can be consumed a
 EOF fragments, losing the exact ACK; retained history does not prove the precise
 past fragment interleaving. Luna corrected only the operator TEST writer/reader
 and its barrier regression. Parent reproduced that regression successfully.
-Existing nonzero-screen-before-pin regression exposed one tiny constructor-order
-regression (1failed3passed in the scoped run); Luna now fixes the existing screen
-validation order in driver.py and will rerun scoped checks/final composition.
-No full232-suite rerun is needed for that small ordering branch and the separate
-test-only framing correction; preserve the R3 result and exact source delta.
-[Parent R1 proof](../.archive/executor-review/native-observer-r1-parent-verification.json),
-[R2 cleanup proof](../.archive/executor-review/native-observer-r2-parent-cleanup-verification.json),
-[R3 verification](../.archive/executor-review/native-observer-r3-parent-verification.json).
-Sol and actual CLI Opus formal source review have not started. The narrow
-finalize/recheck terminal-reread patch remains within the approved plan extension;
-its forced real-finalize regression passed independently1 case23.11s earlier.
-No unchanged live native retry is authorized.
+The nonzero-screen-before-pin correction now passes independently3 cases.
+Final R4 observer/default-factory composition passed independently145.38s:
+99acceptedupdates, worstactive405.267311ms, strict1Hz/held100/resume0/threefresh
+identity boundaries. Parentdriver33, fragment/display4, config5, finalize-race5,
+runtime7 and static checks all pass. Broader232 result is carried with a verified
+one-lineproductionordering delta and separatetest-onlyfixture changes.
+[Final parent checks](../.archive/executor-review/native-observer-r4-parent-verification.json).
+One earlier R4 actor_admission_invalid remains unexplained; backendclosed was
+proven183mslaterduringcleanup. Two instrumented passes, a cleanprelogger pass,
+and finalparent pass are retained; no causal closure is claimed. The test now
+retains private native-construction request/reply receipts on its actual IPC path.
+Formal SolR1 and actualCLI OpusR1 (resolvedclaude-opus-5-5) source reviews are
+running at frozen13pins. Parent also reproduced a remaining fixtureouter-loop
+bug: it retains pending bytes and rewinds the fileoffset, duplicating the fragment
+onreopen; its currentpersistent-stream regression misses that seam. No source
+edits until reviews finish; combine this with accepted review findings in Luna's
+fix round. No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
 and mocked-identity composition evidence.
 
@@ -138,8 +143,8 @@ Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..148 completed at exact900s intervals;140 has the explicit
-1512s calibration gap. Nextdue1792454028 (23:53:48UTC). Full chains125..148 are
+Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..149 completed at exact900s intervals;140 has the explicit
+1512s calibration gap. Nextdue1792454928 (00:08:48UTC). Full chains125..149 are
 parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
