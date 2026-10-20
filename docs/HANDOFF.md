@@ -142,7 +142,7 @@ reasons in the proof. One Luna worker owns seven exact paths under the
 No live install or native retry; root independently reruns final relevant matrix
 only after the corrected source freezes, followed by both R3 reviews.
 R3b is now frozen with all five corrections and decisive regressions complete;
-root's independent final matrix is RUNNING, not yet passed. Private manifest
+root's independent final matrix FAILED:12passed/1failed at these pins. Private manifest
 `native-identity-observer-r3-20261020/final-manifest-r3b.json`, SHA
 `4bff2a2a6e5f733986d2b8735c145d031944014f8ff27fbd96f4a8be577ccc33`.
 Current binarySHA `ce51b5a0a0ba82f4ac67589610520294d6ccbee860442891575e2e9383c075d7`.
@@ -154,6 +154,15 @@ valid game-window candidates are also covered. Earlier R3 manifest was supersede
 by test-only additions before the parent run; retain it without claiming freeze
 stability. Parent run `native-identity-observer-parent-r3-final-20261020` checks
 all13pins before/after each group. No live native/input/autonomy claim.
+[R3 parent failure](../.archive/executor-review/native-observer-r3-parent-composition-failure.json):
+post-handoff-cancel receipt lacked `reservation_cancelled`; the full measurement
+accepted99 updates/max496.03336ms/zero budget violations. Broad/runtime/static
+groups were not reached. Exact failed-case receipt records interrupted terminal,
+reservation_cancel_failed/OperatorError and cancellation_actor_retained; actual
+IPC later reports successful cancellation ~123ms after that receipt event.
+This is not yet a causal diagnosis or product-fix claim. Source remains frozen;
+Luna is tracing the exact actor/cleanup/fixture boundary read-only before a
+minimal correction proposal. No unchanged retry or R3 source review launched.
 
 The [accepted closure plan](../.archive/PLAN-native-observer-accepted-closure.md)
 keeps the same13 files and disjoint8+5 owners. R3 temporarily supersedes the prior8+5 ownership for its seven exact paths.

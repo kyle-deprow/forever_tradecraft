@@ -1,0 +1,63 @@
+{
+  "status": "FAILED",
+  "scope": "Independent final R3 compiled13 fixture matrix; source-only evidence",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "4eb13a706175b3b2b8758c3eaaa93f551599298dd48acbb3883ab7af6865ad5f",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+    "tests/test_native_calibration_operator.py": "e4a5cf10ef177cf43f70c32f12f499bfd38c80c8e3b568bef18a81d057c0e536",
+    "tests/test_session_driver_actions.py": "2e5d9a764c57e349aab8613b076de142650f0c5ceac38747fa5d0a4570c20c0a",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "8d010c1ce133f37529ba55cbc220ae764054279b698371f6cdfed47f1d465ed1",
+    "tools/build_x11_identity_observer.py": "006b97b08386e83fe75347461b75059aaff4375bf1bc3804857a783e7db5ace0",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "resultsSha256": "11756bd1d7f19230816881c343bcf58050dd2170fa17f0fa11d676d11066ace0",
+  "logSha256": "d52ea78d0584603028a43c94c85752836730cafbdc11f5daa22a73e95a54f5ac",
+  "summary": "12 passed,1 failed; post-handoff-cancel receipt lacked reservation_cancelled",
+  "freshBroadRuntimeStaticReached": false,
+  "successfulMeasurement": {
+    "acceptedUpdates": 99,
+    "maxActiveMilliseconds": 496.03336,
+    "budgetViolations": 0,
+    "artifactSha256": "f660501e0d5e0d7057caeb90149eec8f02dd5870a67410589749f8c1af7d0728"
+  },
+  "failedCase": {
+    "receiptSha256": "05c06073f107a582b896c683c5908092b6be9aad4a0f25707f5f08d520ce76d6",
+    "ipcSha256": "f152a137af9539ea8e30909e206beb79c8517ce3e8c9d06c1f8569b12903034f",
+    "receiptOutcome": "failure",
+    "receiptFailureCode": "interrupted",
+    "tailEvents": [
+      {
+        "failureCode": "interrupted",
+        "name": "terminal",
+        "publishedMonotonic": 285272.59271519,
+        "state": "interrupted"
+      },
+      {
+        "name": "reservation_cancel_failed",
+        "publishedMonotonic": 285272.593295886,
+        "reason": "OperatorError"
+      },
+      {
+        "generation": 7,
+        "name": "cancellation_actor_retained",
+        "publishedMonotonic": 285272.593943451
+      }
+    ],
+    "laterActualCancelReply": {
+      "monotonicNs": 285272716976243,
+      "ok": true,
+      "handshake": "cancelled",
+      "reservationState": "cancelled"
+    }
+  },
+  "causalStatus": "Source/fixture diagnosis requested; later successful cancellation does not by itself explain earlier helper OperatorError",
+  "sourceReviewsR3Launched": false,
+  "installed": false,
+  "autonomousQualificationCycles": 0
+}
