@@ -1,0 +1,19 @@
+{
+  "status": "RDP_SERVER_READY",
+  "mode": "GNOME existing desktop sharing, mirror-primary",
+  "tailscaleAddress": "100.93.67.120",
+  "port": 3389,
+  "userServiceActive": true,
+  "firewall": "UFW active, default incoming deny; only tailscale0 IPv4/IPv6 permits for3389",
+  "parentVerifiedServiceListenerMirrorCertificateAndPausedNativeState": true,
+  "certificateSha256": "97:24:84:E0:BC:90:64:6F:7A:5B:DC:B4:4C:80:CF:A4:E4:53:57:03:AC:53:19:E2:4A:A2:A3:A7:26:3C:73:58",
+  "credentialLifetime": "Temporary session keyring; reconfigure after logout/reboot; login collection remains locked and unchanged.",
+  "negotiation": "Bounded RDP protocol negotiation succeeded locally against Tailscale IPv4 andIPv6; remote Windows authentication awaits user.",
+  "gameState": "PAUSED51/native true/inputfalse; game geometry unchanged, no input calibration started.",
+  "privateEvidenceSha256": {
+    "post-change-state.json": "38dd626d06bcab36eb99b63a5b789de9f1218ba5e0c5ae5ae0b1b92518eed228",
+    "rdp-negotiation-corrected-result.json": "198e8b5793ef835258944552fa26397924619c82efb38cba9caac02c9176f346",
+    "connection-instructions.json": "ddb72e3ddc0c395e892b3216e50b368a4470d8c50c2fc65ab58fda3add05aead"
+  },
+  "secrets": "Credentials omitted from repository proof."
+}

@@ -48,6 +48,17 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
+Remote input calibration can be attempted through Windows RDP. GNOME existing
+Desktop Sharing is active in mirror-primary mode, reachable over Tailscale at
+`100.93.67.120:3389`; UFW allows3389 only on tailscale0 forIPv4/IPv6.
+[Setup proof](../.archive/executor-review/rdp-desktop-sharing-setup-20261020.json).
+Temporary credentials are in the private session keyring and private RDP evidence
+handoff; never put the password in source control. They need reconfiguration after
+logout/reboot. Protocol negotiation passed; remote Windows authentication and
+non-XTEST user-input attribution still need the user's connection. Leave the game
+paused and do not launch input calibration until the user can see the desktop.
+
+
 Stable game identity: PID644491/start15495385, xid0x02e00001,
 child0x2000011, fingerprint
 `e84a459bda54c891092f049af9c523eb171588ce566a44123723d733baf6918a`.
