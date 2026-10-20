@@ -71,6 +71,9 @@ within existing authorization; respect any current movement limits.
 
 - Verify the foreground screen before a click or command; inspect the result before
   the next dependent action. Tool exit code zero proves input dispatch, not success.
+  A paused or restarted daemon does not prove the game has foreground focus.
+  Verify configured pinned identity before calibration preflight; if focus differs,
+  restore it through the guarded owned tool and verify before requesting admission.
   Resolve actual controls rather than guessing a keybinding from an action name.
   Stage and verify commands before acquiring short-lived recovery tickets;
   ticket expiry permits the existing public recovery retry, not a new approval

@@ -38,5 +38,18 @@
   "standaloneRecoveryIssued": false,
   "reasonNoRecovery": "No construction checkpoint or GUI action existed.",
   "guiOwnerHeld": true,
-  "autonomousQualificationCycles": 0
+  "autonomousQualificationCycles": 0,
+  "instrumentedGeneration49": {
+    "rawResponse": {
+      "error": "game client is not foreground",
+      "ok": false
+    },
+    "rawLogSha256": "eeb8a2eadd994c973e10df4636391d5a955bb1dbc95fa58600937c5676717ce7",
+    "wrapperSha256": "44fe149923ec2367dd75e2127c63e38580eb5d7b5f6634a30a15ed7bb0cbe9fa",
+    "parentInspectedWrapper": true,
+    "parentOfflineSpawnSelfCheck": "PASS: exact success/refusal passthrough, same exception object rethrow, no daemon/game calls",
+    "originalHelperReceiptSha256": "1b64f07850c60db4a6874107066de564415a64d29d1174afd0e348d03c78beff",
+    "operatingCorrection": "Restore foreground through fresh pinned identity and guarded owned focus, verify foreground before next preflight.",
+    "earlierGeneration48Cause": "Unrecoverable from retained generic errors; no retrospective cause claim."
+  }
 }

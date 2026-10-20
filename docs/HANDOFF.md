@@ -139,8 +139,14 @@ validation code; the underlying rejected server condition is not yet established
 No native measurement started. One public pause advanced to PAUSED49 with
 native/input false, empty action intent, idle handshake and no reconciliation.
 No standalone recovery was issued without a checkpoint; GUI owner holds input.
-Luna is investigating retained evidence and read-only state, with no retries,
-source/config changes, restarts or guard relaxation authorized by that diagnosis.
+A later gen49 diagnostic retained the exact daemon response: `game client is
+not foreground` (raw-logSHA `eeb8a2eadd994c973e10df4636391d5a955bb1dbc95fa58600937c5676717ce7`).
+Root inspected the private child-only logger and independently passed its offline
+spawn/response/exception/permissions check; source/validation/deadlines are intact.
+Earlier gen48 cause remains unknown. Sole GUI owner may perform a guarded focus
+restoration with fresh pinned identity, verify actual foreground, then run the
+original preflight/native100/recovery chain once at the changed operating state.
+No source/config/restart or guard relaxation is involved.
 Native100/recovery, genuine human input and three unattended cycles remain pending.
 
 [Release proof](../.archive/executor-review/native-observer-r4-release-parent-verification.json):

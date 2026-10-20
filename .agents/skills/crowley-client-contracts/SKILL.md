@@ -29,6 +29,10 @@ Exercise an input that distinguishes the fix from the old behavior: ordinary
 focus does not test an ancestor walk. Freeze only after the final edit and checks;
 any later source edit invalidates that manifest and needs a new explicit freeze.
 Persist full attempt diagnostics before budget assertions can abort the test.
+When an actor collapses admission errors, retain the bounded private raw server
+response before another probe. Multiprocessing spawn requires child-side logging;
+parent monkeypatches alone do not reach the actor. Preserve transport identity,
+absolute deadlines, validation and cleanup while adding diagnostics.
 Bind retained receipts to the exact case/run timestamps; a later isolated pass
 cannot diagnose an earlier suite failure.
 For concurrent identity checks, bind one invocation to its actual caller, span
