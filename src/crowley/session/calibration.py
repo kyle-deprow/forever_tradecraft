@@ -3135,6 +3135,151 @@ class InputCalibrationWorkflow:
         self.on_ready = on_ready
         self.ready_for_human = threading.Event()
         self.readiness: CalibrationReadiness | None = None
+        # Failure diagnostics are assembled only for a pre-human exception,
+        # after the observer/GTK cleanup in ``run``.  They are deliberately
+        # private workflow state and never participate in qualification.
+        self.failure_context: dict[str, Any] | None = None
+        self._failure_error: BaseException | None = None
+        self._stage = "setup"
+        self._readiness_published = False
+        self._target: Any | None = None
+        self._target_certificate: dict[str, Any] | None = None
+        self._observer: Any | None = None
+        self._hierarchy: tuple[tuple[int, int, str, str], ...] = ()
+        self._xtest_profile: Any | None = None
+        self._keyboard_operations: tuple[KeyboardProbeOperation, ...] = ()
+        self._keyboard_keymap: tuple[tuple[str, int], ...] = ()
+        self._game_identity: Any | None = None
+        self._predicate_reasons: dict[str, Any] = {"count": 0, "first": None, "last": None}
+
+    @staticmethod
+    def _bounded_error(value: Any, *, limit: int = 1024) -> str:
+        text = " ".join(str(value).split())
+        return text[:limit]
+
+    @staticmethod
+    def _safe_target_facts(target: Any) -> dict[str, Any] | None:
+        window = getattr(target, "window", target)
+        names = ("pid", "process_start", "xid", "frame_xid", "child_xid", "geometry", "executable")
+        result: dict[str, Any] = {}
+        for name in names:
+            value = getattr(window, name, None)
+            if isinstance(value, tuple):
+                value = list(value)
+            if value is None or isinstance(value, (str, int, float, bool, list)):
+                result[name] = value
+        for name in (
+            "title",
+            "managed_frame_xid",
+            "managed_frame_geometry",
+            "descendant_xids",
+            "certified_event_target_xids",
+            "allowed_event_target_xids",
+            "event_target_xids",
+        ):
+            value = getattr(window, name, None)
+            if isinstance(value, (set, frozenset, tuple)):
+                value = sorted(value) if name.endswith("xids") else list(value)
+            if value is None or isinstance(value, (str, int, float, bool, list)):
+                result[name] = value
+        return result or None
+
+    @staticmethod
+    def _safe_identity_facts(identity: Any) -> dict[str, Any] | None:
+        if identity is None:
+            return None
+        result: dict[str, Any] = {}
+        for name in ("fingerprint", "executable", "process_start", "child_geometry", "pid"):
+            value = getattr(identity, name, None)
+            if isinstance(value, tuple):
+                value = list(value)
+            if value is None or isinstance(value, (str, int, float, bool, list)):
+                result[name] = value
+        return result or None
+
+    def _build_failure_context(self, error: BaseException) -> dict[str, Any]:
+        """Build bounded, private-only context without raising over ``error``."""
+
+        observer_snapshot: dict[str, Any] | None = None
+        observer = self._observer
+        try:
+            snapshot = getattr(observer, "diagnostic_snapshot", None)
+            if callable(snapshot):
+                value = snapshot()
+                if isinstance(value, dict):
+                    observer_snapshot = value
+        except Exception:
+            observer_snapshot = {"snapshotError": "observer diagnostic snapshot failed"}
+        xtest = self._xtest_profile
+        try:
+            xtest_value = xtest.canonical_payload() if xtest is not None else None
+            if isinstance(xtest_value, tuple):
+                xtest_value = list(xtest_value)
+        except Exception:
+            xtest_value = None
+        tool_digest = None
+        try:
+            backend = getattr(self.driver, "backend", None)
+            digest = getattr(backend, "input_tool_digest", None)
+            if callable(digest):
+                digest = digest()
+            if isinstance(digest, str) and digest:
+                tool_digest = digest
+        except Exception:
+            tool_digest = None
+        observer_complete = bool(
+            observer_snapshot
+            and observer_snapshot.get("rawBlocks")
+            and not observer_snapshot.get("partialRaw")
+            and not observer_snapshot.get("rawTruncated")
+            and observer_snapshot.get("parserFailure") is None
+            and observer_snapshot.get("failureDiagnostic") is None
+            and observer_snapshot.get("observerAlive") is False
+        )
+        observer_truncated = bool(observer_snapshot and observer_snapshot.get("rawTruncated"))
+        complete_binding = bool(
+            self._target_certificate
+            and self._game_identity
+            and self._hierarchy
+            and self._keyboard_operations
+            and self._keyboard_keymap
+            and tool_digest
+        )
+        return {
+            "schema": "input-calibration-failure-v1",
+            "phase": "pre_human",
+            "stage": self._stage,
+            "errorType": type(error).__name__,
+            "error": self._bounded_error(error),
+            "readinessPublished": bool(self._readiness_published),
+            "target": self._target_certificate,
+            "gameIdentity": self._safe_identity_facts(self._game_identity),
+            "input": {
+                "hierarchy": [list(row) for row in self._hierarchy],
+                "xtestProfile": xtest_value,
+                "keyboardOperations": [
+                    {
+                        "operation": operation.operation,
+                        "payload": operation.payload,
+                        "steps": [[step.phase, step.keysym] for step in operation.steps],
+                    }
+                    for operation in self._keyboard_operations
+                ],
+                "keyboardKeymap": [list(item) for item in self._keyboard_keymap],
+                "inputToolDigest": tool_digest,
+            },
+            "syntheticPredicate": dict(self._predicate_reasons),
+            "observer": observer_snapshot,
+            "replayable": bool(observer_complete and complete_binding and not observer_truncated),
+        }
+
+    def failure_context_for(self, error: BaseException) -> dict[str, Any]:
+        """Return a setup-failure context when ``run`` failed before its body."""
+
+        if self.failure_context is None:
+            self._failure_error = error
+            self.failure_context = self._build_failure_context(error)
+        return self.failure_context
 
     def _keyboard_probe_spec(self) -> tuple[tuple[KeyboardProbeOperation, ...], tuple[tuple[str, int], ...]]:
         """Read the driver's finite keyboard action list and live keymap.
@@ -3207,6 +3352,7 @@ class InputCalibrationWorkflow:
         from .driver import X11Backend
 
         target = self.window_factory()
+        self._target = target
         # Open the calibration epoch before any owned helper is created.  The
         # same guardian fence then covers target ownership, observer startup,
         # and every subsequent XTEST mutation.
@@ -3221,18 +3367,25 @@ class InputCalibrationWorkflow:
             window = target.create(startup_admission=startup_admission)
         else:
             window = target.create()
+        self._target_certificate = self._safe_target_facts(window)
         observer = None
+        self._observer = None
         calibration_ticket: Any | None = None
         try:
+            self._stage = "measure_input_profile"
             hierarchy = self.driver.input_hierarchy()
             if not hierarchy:
                 raise CalibrationError("owned input calibration has no XInput hierarchy")
             xtest_profile = self.driver.xtest_input_profile(hierarchy)
+            self._hierarchy = tuple(hierarchy)
+            self._xtest_profile = xtest_profile
             if isinstance(getattr(self.driver, "backend", None), X11Backend) and xtest_profile is None:
                 raise CalibrationError("owned XTEST input profile could not be measured")
             if xtest_profile is not None:
                 xtest_profile.verify()
             keyboard_operations, keyboard_keymap = self._keyboard_probe_spec()
+            self._keyboard_operations = keyboard_operations
+            self._keyboard_keymap = keyboard_keymap
             resolve_identity = getattr(self.driver, "resolve_identity", None)
             if not callable(resolve_identity):
                 raise CalibrationError("input calibration has no identity provider")
@@ -3247,6 +3400,7 @@ class InputCalibrationWorkflow:
                 or not getattr(game_identity, "process_start", "")
             ):
                 raise CalibrationError("input calibration game identity is incomplete")
+            self._game_identity = game_identity
             synthetic_key_source, synthetic_pointer_source = xtest_sources(hierarchy)
             first_human = threading.Event()
             callback_error: list[str] = []
@@ -3284,6 +3438,8 @@ class InputCalibrationWorkflow:
                         callback_error.append("input event targeted outside owned GTK ancestry")
 
             observer = self.driver.start_input_observer(calibration=True, callback=observe)
+            self._observer = observer
+            self._stage = "synthetic"
             issue_ticket = getattr(self.driver, "issue_calibration_ticket", None)
             queue_ticket = getattr(self.driver, "queue_delayed_calibration_action", None)
             if not callable(issue_ticket) or not callable(queue_ticket):
@@ -3323,6 +3479,7 @@ class InputCalibrationWorkflow:
                     require_motion=isinstance(getattr(self.driver, "backend", None), X11Backend),
                     keyboard_operations=keyboard_operations,
                     keyboard_keymap=keyboard_keymap,
+                    failure_reasons=self._predicate_reasons,
                 ),
                 timeout=10.0,
             )
@@ -3398,6 +3555,7 @@ class InputCalibrationWorkflow:
                 keyboard_profile=keyboard_profile,
             )
             prompt = getattr(target, "show_human_prompt", None)
+            self._stage = "publish_human"
             if not callable(prompt):
                 raise CalibrationError("owned GTK target prompt is not configured")
             prompt()
@@ -3413,10 +3571,12 @@ class InputCalibrationWorkflow:
                 calibration_ticket=calibration_ticket,
             )
             notify_ready(self.readiness)
+            self._readiness_published = True
             self.ready_for_human.set()
             if self.on_ready is not None:
                 self.on_ready(self.readiness)
             deadline = self.monotonic() + human_timeout
+            self._stage = "human"
 
             def current_events() -> list[XI2Event]:
                 return observer.events()
@@ -3511,6 +3671,12 @@ class InputCalibrationWorkflow:
             if hasattr(self.driver, "retain_input_evidence"):
                 self.driver.retain_input_evidence(evidence)
             return evidence
+        except Exception as exc:
+            # Keep the original exception authoritative.  The context is
+            # assembled after the finally block has stopped the observer and
+            # released the owned GTK target.
+            self._failure_error = exc
+            raise
         finally:
             self.ready_for_human.clear()
             clear_ready = getattr(self.driver, "clear_input_calibration_ready", None)
@@ -3527,6 +3693,13 @@ class InputCalibrationWorkflow:
             finally:
                 if callable(cancel_operation):
                     cancel_operation()
+            if self._failure_error is not None and not self._readiness_published:
+                try:
+                    self.failure_context = self._build_failure_context(self._failure_error)
+                except Exception:
+                    # The daemon reports the original workflow exception even
+                    # if local context assembly is unavailable.
+                    self.failure_context = None
 
     @staticmethod
     def _records(trace: str) -> list[XI2Event]:
@@ -3546,6 +3719,7 @@ class InputCalibrationWorkflow:
         require_motion: bool = False,
         keyboard_operations: tuple[KeyboardProbeOperation, ...] = (),
         keyboard_keymap: tuple[tuple[str, int], ...] = (),
+        failure_reasons: dict[str, Any] | None = None,
     ) -> bool:
         try:
             InputCalibrationWorkflow._validate_keyboard_probe(
@@ -3565,7 +3739,13 @@ class InputCalibrationWorkflow:
                 require_motion=require_motion,
                 expected_detail=1,
             )
-        except CalibrationError:
+        except CalibrationError as exc:
+            if failure_reasons is not None:
+                failure_reasons["count"] = int(failure_reasons.get("count", 0)) + 1
+                reason = " ".join(str(exc).split())[:512]
+                if failure_reasons.get("first") is None:
+                    failure_reasons["first"] = reason
+                failure_reasons["last"] = reason
             return False
         return True
 

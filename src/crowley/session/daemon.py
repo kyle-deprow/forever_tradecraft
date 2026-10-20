@@ -2750,6 +2750,92 @@ class SessionDaemon:
         with self._calibration_state_lock:
             self._calibration_operation["readiness"] = self._sanitize_readiness(readiness)
 
+    def _persist_input_calibration_failure(self, context: dict[str, Any] | None) -> None:
+        """Best-effort private persistence for a pre-human input failure.
+
+        This path is deliberately outside the controller journal/public status:
+        raw XI2 text is diagnostic evidence, never qualification evidence.  A
+        write, replace, or cleanup failure must leave the workflow's original
+        exception and normal resource cleanup authoritative.
+        """
+
+        if not isinstance(context, dict):
+            return
+        if context.get("phase") != "pre_human" or context.get("readinessPublished"):
+            return
+        try:
+            source_bindings = _runtime_source_hashes(include_calibration=True)
+        except Exception as exc:
+            source_bindings = {"error": _bounded_diagnostic_error(exc)}
+        artifact = copy.deepcopy(context)
+        artifact["sourceBindings"] = source_bindings
+        artifact["createdAt"] = int(time.time())
+        artifact["replayable"] = bool(artifact.get("replayable")) and not bool(source_bindings.get("error"))
+        artifact["artifact"] = "latest-pre-human-input-failure"
+        try:
+            encoded = json.dumps(artifact, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
+                "utf-8"
+            )
+            if len(encoded) > 2 * 1024 * 1024:
+                observer = artifact.get("observer")
+                if isinstance(observer, dict):
+                    observer["rawBlocks"] = []
+                    observer["partialRaw"] = ""
+                    observer["rawTruncated"] = True
+                artifact["replayable"] = False
+                artifact["artifactTruncated"] = True
+                encoded = json.dumps(artifact, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
+                    "utf-8"
+                )
+            if len(encoded) > 2 * 1024 * 1024:
+                raise OSError("input calibration diagnostic exceeds its size bound")
+            journal = Path(self.config.journal).expanduser()
+            directory = journal.parent / "input-calibration-diagnostics"
+            directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+            os.chmod(directory, 0o700)
+            destination = directory / "latest-pre-human-failure.json"
+            temporary = directory / ".latest-pre-human-failure.json.tmp"
+            temporary_owned = False
+            fd = os.open(
+                temporary,
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                0o600,
+            )
+            temporary_owned = True
+            try:
+                offset = 0
+                while offset < len(encoded):
+                    written = os.write(fd, encoded[offset:])
+                    if written <= 0:
+                        raise OSError("input calibration diagnostic write made no progress")
+                    offset += written
+                os.fsync(fd)
+                os.fchmod(fd, 0o600)
+            finally:
+                os.close(fd)
+            try:
+                os.replace(temporary, destination)
+            except Exception:
+                # The O_EXCL create makes this path ours.  Remove only that
+                # owned slot after an unsuccessful replacement; an existing
+                # valid latest artifact must remain untouched.  If removal
+                # itself fails, the fixed slot blocks future writers rather
+                # than allowing unbounded diagnostic files to accumulate.
+                raise
+            else:
+                temporary_owned = False
+            os.chmod(destination, 0o600)
+        except Exception as exc:
+            if "temporary_owned" in locals() and temporary_owned:
+                try:
+                    temporary.unlink(missing_ok=True)
+                except Exception:
+                    pass
+            _LOGGER.warning(
+                "input calibration diagnostic persistence failed: %s",
+                _bounded_diagnostic_error(exc),
+            )
+
     @staticmethod
     def _sanitize_readiness(readiness: Any) -> dict[str, Any]:
         names = (
@@ -9476,6 +9562,7 @@ class SessionDaemon:
         from .calibration import InputCalibrationWorkflow
 
         self._begin_calibration("input", expected_generation)
+        workflow: InputCalibrationWorkflow | None = None
         try:
             self._validate_runtime_paths()
             with self.controller.lock:
@@ -9489,11 +9576,12 @@ class SessionDaemon:
             # input gate proves only the XTEST/guardian boundary; it must not
             # claim future disconnect, character-select, or AH controls are
             # simultaneously visible in the current world scene.
-            evidence = InputCalibrationWorkflow(
+            workflow = InputCalibrationWorkflow(
                 self.driver,
                 display=self.config.profile.display,
                 on_ready=self._set_calibration_readiness,
-            ).run()
+            )
+            evidence = workflow.run()
             with self.controller.lock:
                 current = self.controller.status()
             if expected_generation is not None and current.generation != expected_generation:
@@ -9514,6 +9602,15 @@ class SessionDaemon:
             self._finish_calibration(state="complete")
             return result
         except Exception as exc:
+            if workflow is not None:
+                try:
+                    context = workflow.failure_context_for(exc)
+                    self._persist_input_calibration_failure(context)
+                except Exception as diagnostic_error:
+                    _LOGGER.warning(
+                        "input calibration diagnostic assembly failed: %s",
+                        _bounded_diagnostic_error(diagnostic_error),
+                    )
             self._finish_calibration(state="error", error=str(exc))
             raise
 

@@ -65,6 +65,8 @@ _F_SEAL_GROW = getattr(fcntl, "F_SEAL_GROW", 0x0004)
 _F_SEAL_WRITE = getattr(fcntl, "F_SEAL_WRITE", 0x0008)
 _DEFAULT_CAPTURE_TIMEOUT_SECONDS = 15.0
 _IDENTITY_OBSERVER_REAP_GRACE_SECONDS = 0.5
+_INPUT_DIAGNOSTIC_MAX_BLOCKS = 1024
+_INPUT_DIAGNOSTIC_MAX_RAW_BYTES = 1024 * 1024
 
 
 def _create_memfd(name: str, flags: int) -> int:
@@ -4390,6 +4392,110 @@ class InputMonitor:
 
         with self._condition:
             return dict(self._failure_diagnostic) if self._failure_diagnostic is not None else None
+
+    @staticmethod
+    def _diagnostic_text(value: str, *, limit: int = _INPUT_DIAGNOSTIC_MAX_RAW_BYTES) -> str:
+        """Bound diagnostic text without changing the validation stream."""
+
+        encoded = value.encode("utf-8", errors="replace")
+        if len(encoded) <= limit:
+            return value
+        return encoded[:limit].decode("utf-8", errors="ignore")
+
+    @staticmethod
+    def _diagnostic_blocks(raw: str) -> tuple[list[str], str, int, int, bool]:
+        """Split retained XI2 output into bounded complete blocks and a tail.
+
+        The parser remains the authority for runtime validation.  This helper
+        only snapshots the already-read stream after a failure, so a
+        truncated diagnostic can never make an event acceptable.
+        """
+
+        blocks: list[str] = []
+        current: list[str] = []
+        total_bytes = len(raw.encode("utf-8", errors="replace"))
+        blocks_seen = 0
+        retained_bytes = 0
+        truncated = False
+
+        def append_block(value: str) -> None:
+            nonlocal blocks_seen, retained_bytes, truncated
+            if not value:
+                return
+            blocks_seen += 1
+            encoded_size = len(value.encode("utf-8", errors="replace"))
+            if (
+                len(blocks) >= _INPUT_DIAGNOSTIC_MAX_BLOCKS
+                or retained_bytes + encoded_size > _INPUT_DIAGNOSTIC_MAX_RAW_BYTES
+            ):
+                truncated = True
+                return
+            blocks.append(value)
+            retained_bytes += encoded_size
+
+        for line in raw.splitlines(keepends=True):
+            # xinput emits blank-delimited records.  A new EVENT header also
+            # closes a malformed/partial preceding record for diagnostics.
+            if (
+                line.startswith("EVENT type ")
+                and current
+                and not any(item.strip() == "" for item in current[-1:])
+            ):
+                append_block("".join(current))
+                current = []
+            current.append(line)
+            if line.strip() == "":
+                append_block("".join(current))
+                current = []
+        partial = "".join(current)
+        if partial:
+            partial_bytes = len(partial.encode("utf-8", errors="replace"))
+            available = max(0, _INPUT_DIAGNOSTIC_MAX_RAW_BYTES - retained_bytes)
+            if partial_bytes > available:
+                partial = InputMonitor._diagnostic_text(partial, limit=available)
+                truncated = True
+        return blocks, partial, total_bytes, blocks_seen, truncated
+
+    def diagnostic_snapshot(self) -> dict[str, object]:
+        """Return a bounded failure-time snapshot of the actual observer stream.
+
+        This is intentionally called by the failure path after observer
+        shutdown.  It does not create a second reader, query X11, or alter the
+        event list used by calibration validation.
+        """
+
+        with self._condition:
+            raw = "".join(self._text)
+            blocks, partial, total_bytes, blocks_seen, truncated = self._diagnostic_blocks(raw)
+            failure = dict(self._failure_diagnostic) if self._failure_diagnostic is not None else None
+            parser = self._parser
+            parser_failure = getattr(parser, "failure_diagnostic", None) if parser is not None else None
+            if isinstance(parser_failure, dict):
+                parser_failure = {
+                    "reason": self._diagnostic_text(str(parser_failure.get("reason", "")), limit=4096)
+                }
+            if failure is not None:
+                failure["reason"] = self._diagnostic_text(str(failure.get("reason", "")), limit=4096)
+                # The actual text is represented once by rawBlocks/partialRaw;
+                # retaining it again here would defeat the aggregate bound.
+                failure.pop("text", None)
+            retained_bytes = len("".join(blocks).encode("utf-8", errors="replace")) + len(
+                partial.encode("utf-8", errors="replace")
+            )
+            return {
+                "rawBlocks": blocks,
+                "partialRaw": self._diagnostic_text(partial),
+                "rawBytes": retained_bytes,
+                "rawBytesSeen": total_bytes,
+                "rawBlocksSeen": blocks_seen + (1 if partial else 0),
+                "rawCompleteBlocksSeen": blocks_seen,
+                "rawBlocksRetained": len(blocks),
+                "rawTruncated": bool(truncated),
+                "parsedEventCount": len(self._events),
+                "parserFailure": parser_failure,
+                "failureDiagnostic": failure,
+                "observerAlive": self.alive,
+            }
 
     def _read(self) -> None:
         process = self.observer.process
