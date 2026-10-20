@@ -120,8 +120,23 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
 installed yet. The final candidate is frozen in the isolated fix worktree.
 
-**Current milestone: final R2 offline checks PASS and Sol R2 READY; actual CLI
-Opus R2 NEEDS WORK. Installation remains held for the bounded R3 corrections.**
+**Current milestone: final R3 independent checks PASS; formal Sol R3 and actual
+CLI Opus R3 are reviewing identical frozen13 pins. Installation remains held.**
+[Final R3 parent verification](../.archive/executor-review/native-observer-r3-final-parent-verification.json)
+records272 fresh tests plus12 carried unchanged composition cases (284 aggregate).
+The corrected cancellation branch passed independently39.49s; observer/driver/
+native252, fragment4, actual actor/finalize5, runtime7, constructor3 and scoped
+static checks passed fresh. All other12source files are byte-identical to R3b;
+whole-module AST outside the single corrected branch is identical. The prior12
+passing composition cases/full99updates/max496.03336ms carry explicitly; no fresh
+whole13run is claimed. Exact final manifest:
+`native-identity-observer-posthandoff-r3d-20261020/final-manifest-r3d.json`, SHA
+`dff988fe51c5180be9f570c6d5ede1a378f15612e0337a134d1f4fd7a6f6fdc9`.
+Source remains frozen through reviews. No observer installed or new live native,
+physical input calibration or autonomous cycle attempted.
+
+The following R2/R3b history remains at its original pins and is superseded by
+the current R3 result above:
 [Final parent verification](../.archive/executor-review/native-observer-closure-final-parent-verification.json):
 280 tests passed:13 actual compiled operator/daemon/Agent composition cases,
 248 observer/driver/native,4 fragment/provenance,5 same-actor finalize/recheck

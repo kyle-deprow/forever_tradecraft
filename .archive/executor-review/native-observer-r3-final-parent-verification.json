@@ -1,0 +1,150 @@
+{
+  "status": "PASS",
+  "scope": "Final frozen R3 source verification with explicit test-only case reuse",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "4eb13a706175b3b2b8758c3eaaa93f551599298dd48acbb3883ab7af6865ad5f",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+    "tests/test_native_calibration_operator.py": "872c056497b0c1dd90ebccc87a856550ffacdc7929fe1610324f8f74c9761124",
+    "tests/test_session_driver_actions.py": "2e5d9a764c57e349aab8613b076de142650f0c5ceac38747fa5d0a4570c20c0a",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "8d010c1ce133f37529ba55cbc220ae764054279b698371f6cdfed47f1d465ed1",
+    "tools/build_x11_identity_observer.py": "006b97b08386e83fe75347461b75059aaff4375bf1bc3804857a783e7db5ace0",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "privateResultsSha256": "60a66dc06522e6572d10edcbd23e03ac3f5bcb006000ad943b6fc3e361c638c1",
+  "privateEvidenceDirectory": "native-identity-observer-parent-r3-cancellation-closure-20261020",
+  "checks": [
+    {
+      "name": "real-composition",
+      "returncode": 0,
+      "freshPassedTests": 1,
+      "durationSeconds": 39.88221621513367,
+      "logSha256": "4b87be054583ce2f612186ef72d59bf1184f7d5073c630896b5dfaa5ca79f4fc"
+    },
+    {
+      "name": "component-driver-full-native",
+      "returncode": 0,
+      "freshPassedTests": 252,
+      "durationSeconds": 492.0782163143158,
+      "logSha256": "00660a6cf2c7452d6e27d1553b8cc0d24bfadc1f2d85e382fabe1c70b264681a"
+    },
+    {
+      "name": "fragment-and-provenance",
+      "returncode": 0,
+      "freshPassedTests": 4,
+      "durationSeconds": 0.6920585632324219,
+      "logSha256": "117a2d11c76f2e0aebed47f12f36e00cd407d81fe66d517f358c6fffa1f01e9f"
+    },
+    {
+      "name": "finalize-race",
+      "returncode": 0,
+      "freshPassedTests": 5,
+      "durationSeconds": 129.405109167099,
+      "logSha256": "239d656c31ee634390c49b541316d3bd5adc72cf3efeced537edbff891ec647d"
+    },
+    {
+      "name": "receipt-runtime",
+      "returncode": 0,
+      "freshPassedTests": 7,
+      "durationSeconds": 77.47547841072083,
+      "logSha256": "ee2a7a354446ed49403ae09d2e92d13dfbe8257a111d3781be0b2ecec028a258"
+    },
+    {
+      "name": "display-constructor",
+      "returncode": 0,
+      "freshPassedTests": 3,
+      "durationSeconds": 0.5202207565307617,
+      "logSha256": "5e0fc49149bd05cbf1e6d3e9f77438ba696f8a9ec947f56e820252ed082c5257"
+    },
+    {
+      "name": "ruff",
+      "returncode": 0,
+      "freshPassedTests": null,
+      "durationSeconds": 0.03955554962158203,
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "name": "format",
+      "returncode": 0,
+      "freshPassedTests": null,
+      "durationSeconds": 0.03522658348083496,
+      "logSha256": "5b9f70ad96522f492ef846065642c069b5627379aff2ab3f74acd2e3b9ecfe34"
+    },
+    {
+      "name": "compile",
+      "returncode": 0,
+      "freshPassedTests": null,
+      "durationSeconds": 0.053993940353393555,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "diff",
+      "returncode": 0,
+      "freshPassedTests": null,
+      "durationSeconds": 0.03482460975646973,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "freshPassedTestsTotal": 272,
+  "carriedCompositionPassedCases": 12,
+  "aggregateCoveredCases": 284,
+  "notFreshFull13CompositionRun": true,
+  "reuseVerification": {
+    "kind": "12 unaffected composition cases only; changed cancellation case reproduced fresh",
+    "prior_results_sha256": "11756bd1d7f19230816881c343bcf58050dd2170fa17f0fa11d676d11066ace0",
+    "prior_log_sha256": "d52ea78d0584603028a43c94c85752836730cafbdc11f5daa22a73e95a54f5ac",
+    "prior_source_sha256": {
+      "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+      "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+      "native/x11_identity_observer/src/main.rs": "4eb13a706175b3b2b8758c3eaaa93f551599298dd48acbb3883ab7af6865ad5f",
+      "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+      "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+      "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+      "tests/test_native_calibration_operator.py": "e4a5cf10ef177cf43f70c32f12f499bfd38c80c8e3b568bef18a81d057c0e536",
+      "tests/test_session_driver_actions.py": "2e5d9a764c57e349aab8613b076de142650f0c5ceac38747fa5d0a4570c20c0a",
+      "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+      "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+      "tests/test_x11_identity_observer.py": "8d010c1ce133f37529ba55cbc220ae764054279b698371f6cdfed47f1d465ed1",
+      "tools/build_x11_identity_observer.py": "006b97b08386e83fe75347461b75059aaff4375bf1bc3804857a783e7db5ace0",
+      "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+    },
+    "carried_passed_cases": 12,
+    "prior_failed_case": "post-handoff-cancel",
+    "only_changed_file": "tests/test_native_calibration_operator.py",
+    "outside_changed_branch_ast_sha256": "0159b6304f8c1dbc8a4e734bc4ba26cbc523eb91643ada3252912040df0a0bea",
+    "verified_delta_sha256": "d35b91a0efddaf9ddc72ddf8b7dea0be3f1af1b47cc456332980fc708e248921",
+    "performance_sha256": "f660501e0d5e0d7057caeb90149eec8f02dd5870a67410589749f8c1af7d0728",
+    "not_a_fresh_full13_run": true
+  },
+  "performance": {
+    "accepted_update_count": 99,
+    "max_active_ns": 496033360,
+    "sha256": "f660501e0d5e0d7057caeb90149eec8f02dd5870a67410589749f8c1af7d0728",
+    "validation_origin": "carried from unchanged successful case"
+  },
+  "changedCase": {
+    "receiptSha256": "e15ab46ffb88102170fc96acc528edfe4e70569effb807ca855143d0575015d6",
+    "ipcSha256": "4af35ad2adeed52c32633c0741f8ae4bb115ee4e963addb86702bf7b0120c82c",
+    "outcome": "failure",
+    "failureCode": "interrupted",
+    "sameIdGenerationCancelSucceeded": true,
+    "actualHandshake": "cancelled",
+    "actualReservationState": "cancelled",
+    "absenceCaptureDeleted": true,
+    "nativeCalibration": false,
+    "inputCalibration": false,
+    "beforeFixtureTeardownProof": "Fresh test asserts server alive, owned cleanup not begun and spontaneous capture set empty; no manual daemon cleanup."
+  },
+  "sourceStableBeforeAfterEveryFreshCheck": true,
+  "protectedCalibrationDecoderGuardianInputToolUnchanged": true,
+  "sourceReviews": "Sol R3 and actual CLI Opus R3 in progress",
+  "installed": false,
+  "autonomousQualificationCycles": 0,
+  "candidateManifestSha256": "dff988fe51c5180be9f570c6d5ede1a378f15612e0337a134d1f4fd7a6f6fdc9",
+  "binarySha256": "ce51b5a0a0ba82f4ac67589610520294d6ccbee860442891575e2e9383c075d7"
+}
