@@ -1,0 +1,40 @@
+{
+  "verifiedAt": "2026-10-20T22:54:21.967137+00:00",
+  "worktree": "/home/dev/.cache/crowley/worktrees/input-calibration-diagnostics-20261020",
+  "files": {
+    "src/crowley/session/driver.py": "f592a87cc4fe26907c50c42443e264298990817480854de742d1caecbb8813ba",
+    "src/crowley/session/calibration.py": "a561039e0fd6d3da8790566604707b2b49498a5c9b9fed738abe2200bbae5014",
+    "src/crowley/session/daemon.py": "a9ad8c90f0a7d6601ae038edcad38053ad7e0a10316c705a50e9890a6276d4e6",
+    "tests/test_session_input_diagnostics.py": "821f4b63e32568a93dcb152bfd55fd1ac93a42dcc968e01b1fbd1647141e88e3"
+  },
+  "checks": {
+    "testsCommand": "PYTHONPATH=<WT>/src <MAIN>/.venv/bin/python -m pytest -q tests/test_session_input_diagnostics.py tests/test_session_input_tool.py tests/test_session_driver_actions.py tests/test_session_native_regressions.py -k \"not native_regressions or input_monitor or workflow or synthetic or keyboard\"",
+    "passed": 89,
+    "deselected": 155,
+    "seconds": 15.49,
+    "ruff": "PASS",
+    "format": "PASS",
+    "pyCompile": "PASS",
+    "diffCheck": "PASS"
+  },
+  "review": {
+    "r1": "NEEDS WORK; ownedtemp cleanup and actualmonitorcomposition accepted",
+    "r1Sha256": "e9529937b061ec7f97dd1be357bc22c13ea7830abc8002c27422c7bd1e7919ce",
+    "r2": "READY: no findings",
+    "r2Sha256": "f14188ce555f0aff836f51e79e21f070275eaafe19f2b3910a1f038325011c68"
+  },
+  "installed": false,
+  "r1Checks": {
+    "testsCommand": "PYTHONPATH=<WT>/src <MAIN>/.venv/bin/python -m pytest -q tests/test_session_input_diagnostics.py tests/test_session_input_tool.py tests/test_session_driver_actions.py tests/test_session_native_regressions.py -k \"not native_regressions or input_monitor or workflow or synthetic or keyboard\"",
+    "passed": 87,
+    "deselected": 155,
+    "seconds": 13.24,
+    "ruff": "PASS",
+    "format": "PASS",
+    "pyCompile": "PASS",
+    "diffCheck": "PASS"
+  },
+  "deploymentBlocker": "Lutris directories and known Wine runner missing; current WoW executable is deleted. Awaiting user clarification before runtime repair.",
+  "candidateBranch": "fix/input-calibration-diagnostics-20261020",
+  "liveQualification": "No human calibration or new autonomous cycles claimed"
+}
