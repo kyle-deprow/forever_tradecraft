@@ -120,8 +120,26 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
 installed yet. The final candidate is frozen in the isolated fix worktree.
 
-**Current milestone: R3 independent checks PASS, but both R3 source reviews
-requested one correction each. Installation remains held for a two-file R4 task.**
+**Current milestone: R4c is frozen and fresh independent full verification is
+RUNNING. Source reviews and installation remain pending these checks.**
+Private final manifest `native-identity-observer-r4-20261020/final-manifest-r4c.json`,
+SHA `e2cd9b22d2e9651d7af69b5c88f7f937df571d443c0184a37bb2fa99052ef0ba`.
+BinarySHA `5f4cb94ba23d079885ac9aaf7034619f60cf59f33dd91ae2f91174631c675b58`.
+Rust/test are the only two changed paths versus R3d; other11 stay byte-identical.
+None focus refuses; matching-candidate query errors propagate. Actual X11 shim
+proof distinguishes preserved R3 acceptance from current exact error, records
+ordered request/destroy events and restores real identity. Historical binary is
+optional when absent; the required current regression always executes.
+Root preserved an owned untracked Cargo cache after the initial scope guard
+refused before tests, then confirmed all13pins unchanged. The clean run is
+`native-identity-observer-parent-r4-clean-final-20261020`: fresh all13 composition,
+fresh broad/runtime/static and independent rustfmt (11checks), no prior case/
+performance carry after changed Rust. Per-command private basetemps and retained
+X11 query/error receipts prevent pytest evidence rotation. Luna monitors then
+launches root-prepared actualCLI OpusR4 only on fullPASS; root triggers SolR4.
+No observer installed, new live native/input calibration or autonomous cycle.
+
+The following R3 review/result is historical at its unchanged original pins:
 [Sol R3](../.archive/executor-review/native-observer-sol-r3-review-verification.json)
 requires query uncertainty on an already matching candidate to propagate rather
 than be dropped; [actual CLI Opus R3](../.archive/executor-review/native-observer-opus-r3-review-verification.json)
