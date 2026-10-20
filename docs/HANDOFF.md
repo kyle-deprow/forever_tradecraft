@@ -195,6 +195,27 @@ files into disjoint8+5 Luna tasks under the [accepted closure plan](../.archive/
 Source freeze is lifted only for those owners' assigned files; no new scope or
 protected/public schema changes. Complete requirement maps, isolated failing
 cases, then final integrated checks must precede parent verification and reviews.
+Latest closure state: B completed full reference identity/fingerprint parity and
+a held-server real process-replacement test (exact process-binding refusal, then
+fresh success). Final Rust mainSHA `39c1b9c3c246a3d3aa8ecd106d2f5b1b83e0ae4fa70a4444202a5c4d5e82cbc5`,
+X11testSHA `16f8ae680568b34ee88ef56a0106b95294c274ae40f12ef58b803a8df8c09600`,
+binarySHA `be2f76f352c311e992611ee111028e9e56515b395e3d9ba57cd1b2b01ea149ea`.
+A added lifecycle, manifest stability/current-source, real default-daemon,
+three boundary-fault and detailed timing proofs. An earlier12-case run passed;
+the final current-source12-case run is NONQUALIFYING:10passed/2failed901.22s,
+success ordinal11 active925875446ns (>900ms), plus missing recovery_complete in
+measurement-failure. Current isolated success accepted99updates/max852483098ns;
+standalone passes do not close the full-run failures. No causal B39-versus-B0
+performance regression is established because host load also changed.
+Source is HELD, both implementation workers completed their turns. Sol is actively
+diagnosing retained timings/actual IPC and the confirmed pre-try fixture cleanup
+gap. Resume a completed worker with followup_task when assigning fixes.
+Private exact13 manifest: `native-identity-observer-fix-r1-20261020/final-r4-candidate-manifest.json`
+SHA `6f75133be3bb71c7e42226306aa73ea95666bb5f6a23908371e443cb76229f0c`;
+failure/performance/receipt data are in its sibling `diagnosis-r2/` directory.
+Root also retained current13-source snapshot in
+`native-observer-closure-current-diagnosis-20261020/`. No formal R2 approval,
+new parent full pass, observer installation or live calibration is claimed.
 Reference-only prefilter optimization is deferred.
 No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
