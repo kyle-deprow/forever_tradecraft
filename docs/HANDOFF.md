@@ -104,6 +104,16 @@ server digest, exact ACK and reopened AH; finish-to-server66.948579s. No retry o
 price/empty-market inference was made. This assisted cycle is not qualification.
 [Original outcome proof](../.archive/executor-review/build-70450-onehundredfiftyninth-scan-parent-verification.json).
 
+Scan161's first save helper stopped before actions on a5s OCR timeout. Original
+receiptSHA `e49b9b9a5519df590f0135220fee2a450d21801fd45dddde544253e99e2c7d59`
+is preserved. A fresh ordinary recovery receipt passed parent full-chain checks:
+428ok,399full/29bounded,65.749333s finish-to-server; assisted only. Sole-owner
+retained-image OCR comparison produced identical text in5.87s default versus2.06s
+with per-call OMP_THREAD_LIMIT=1. Apply that private assisted-helper environment;
+keep bounded OCR, fresh-frame and identity/input guards. Host load27.20 on16CPUs
+was a contention lead; no unrelated process was killed and no global env changed.
+[Recovery proof](../.archive/executor-review/build-70450-onehundredsixtyfirst-scan-parent-verification.json).
+
 Native throughput correction is scoped in the
 [approved Rust observer plan](../.archive/PLAN-native-identity-observer.md).
 Replace CLI fanout with one fresh pinned observer per existing identity boundary;
