@@ -1,0 +1,42 @@
+{
+  "status": "PREFLIGHT_REFUSED_BEFORE_NATIVE",
+  "receipts": [
+    {
+      "receiptSha256": "cb519b2b8a35325484290216b32f2c62b825d8815b3d248331aeaa8df24ec9cd",
+      "mode": "control-preflight",
+      "outcome": "failure",
+      "eventNames": [
+        "cancellation_actor_ready",
+        "terminal",
+        "cancellation_actor_retained_unknown",
+        "cancellation_actor_retained"
+      ],
+      "helperSourceSha256": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+    },
+    {
+      "receiptSha256": "29d5153cd051ff0d6b21b5ec91c652a7dbf04f522bf4f6424f799434f6744c9a",
+      "mode": "control-preflight",
+      "outcome": "failure",
+      "eventNames": [
+        "cancellation_actor_ready",
+        "terminal",
+        "cancellation_actor_retained_unknown",
+        "cancellation_actor_retained"
+      ],
+      "helperSourceSha256": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+    }
+  ],
+  "secondReceiptPurpose": "Preserve the underlying actor-side public error through a private diagnostic wrapper, not a native measurement retry.",
+  "reportedError": "actor_admission_invalid",
+  "rootCause": "Not yet established; the actor maps rejected or malformed server admission responses to this generic code.",
+  "sourceUnchangedSinceApprovedInstall": true,
+  "nativeMeasurementAttempts": 0,
+  "nativeUpdateSamples": 0,
+  "publicPauseGeneration": 49,
+  "pausedStatusSha256": "b06a93a0ce20d7b21a38b88097ca178783d19c95d11c69f4f61bbcd7a085afdf",
+  "checkpointCreated": false,
+  "standaloneRecoveryIssued": false,
+  "reasonNoRecovery": "No construction checkpoint or GUI action existed.",
+  "guiOwnerHeld": true,
+  "autonomousQualificationCycles": 0
+}

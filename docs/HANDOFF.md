@@ -131,7 +131,18 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. The approved R4c
 source is now installed; its isolated fix worktree remains frozen.
 
-**Current milestone: R4c installed; first fresh live native100/recovery is next.**
+**Current milestone: R4c installed; live control preflight refuses admission.**
+[Preflight evidence](../.archive/executor-review/native-observer-r4-live-preflight-refusal.json):
+initial gen48 preflight and one private diagnostic wrapper both stopped before
+checkpoint/capture/input on `actor_admission_invalid`. This is a generic actor
+validation code; the underlying rejected server condition is not yet established.
+No native measurement started. One public pause advanced to PAUSED49 with
+native/input false, empty action intent, idle handshake and no reconciliation.
+No standalone recovery was issued without a checkpoint; GUI owner holds input.
+Luna is investigating retained evidence and read-only state, with no retries,
+source/config changes, restarts or guard relaxation authorized by that diagnosis.
+Native100/recovery, genuine human input and three unattended cycles remain pending.
+
 [Release proof](../.archive/executor-review/native-observer-r4-release-parent-verification.json):
 exact13 approved files promoted while the daemon was stopped. The reviewed
 hermetic double-build produced the exact approved binary at the stable path;
