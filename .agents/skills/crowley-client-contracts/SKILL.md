@@ -25,6 +25,9 @@ Pinned development dependencies permit offline composition before live acceptanc
 finish assigned composition tests instead of deferring them as parent verification.
 Before claiming completion, map each assigned race/deadline requirement to its
 actual regression and result; a broad green total does not cover an omitted case.
+Persist full attempt diagnostics before budget assertions can abort the test.
+Bind retained receipts to the exact case/run timestamps; a later isolated pass
+cannot diagnose an earlier suite failure.
 For concurrent identity checks, bind one invocation to its actual caller, span
 token and thread; overlapping timestamps can select another poll. Preserve that
 assertion when fixing a failure. A race proof must route the barrier-paused request
