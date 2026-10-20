@@ -126,6 +126,9 @@ within existing authorization; respect any current movement limits.
   valuator pairs. An early partial parse cannot prove that a field was absent.
   Reject malformed complete blocks at their native delimiter and retain verbatim
   observer text plus the exact parser error, including on failed proof runs.
+  On a synthetic calibration timeout, retain the exact predicate rejection
+  alongside that text before cleanup discards it. Window/process polling
+  supplies lifecycle context; it cannot identify the rejected input event.
   Use XI2's CARD32 time domain consistently in runtime and calibration consumers;
   test queued raw/primary interleaving as well as direct pairing helpers.
   An advertised XTEST device does not prove source attribution. Require an

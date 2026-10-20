@@ -1,0 +1,26 @@
+{
+  "kind": "missing-lutris-runtime-predeployment-blocker",
+  "verifiedAt": "2026-10-20T23:04:04.484841+00:00",
+  "gamePid": 1033131,
+  "gameExecutableLink": "/home/dev/.local/share/lutris/runners/wine/wine-11.16-staging-amd64-x86_64/lib/wine/x86_64-unix/wine-preloader (deleted)",
+  "absentPaths": [
+    "/home/dev/.local/share/lutris",
+    "/home/dev/.config/lutris"
+  ],
+  "gamePrefixAndLauncherPresent": true,
+  "freeDiskGiBApprox": 310,
+  "fullSceneSha256": "d8cd03abffa1168f443468bec1a0ea7cc0930af517f860f4f7541565758e5bc9",
+  "modal": "Lutris: unable to open database file",
+  "identityGuardRefusal": "expected one verified game process, found 0",
+  "state": "PAUSED",
+  "generation": 69,
+  "daemonPid": 2274001,
+  "nativeCalibration": true,
+  "inputCalibration": false,
+  "checkpointClear": true,
+  "runtimeRepairOrRestartPerformed": false,
+  "pendingClarification": "Was Lutris/Wine intentionally removed or moved by the user/another agent?",
+  "reviewedCandidateCommit": "c26a844",
+  "candidateInstalled": false,
+  "autonomousQualificationCycles": 0
+}

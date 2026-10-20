@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 22:42 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 23:04 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -47,6 +47,41 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
+**Live environment blocked; diagnostic fix reviewed and pushed separately:**
+Fresh predeployment scene2256UTC is in-world by Buckler but a Lutris modal says
+unable to open database file. Parent independently verified `/home/dev/.local/share/lutris`
+and `/home/dev/.config/lutris` are absent; gamePID1033131 `/proc/exe` references
+Wine preloader `(deleted)`. Identity observer correctly refuses it; do not relax
+the guard. Disk/inodes are healthy (310GiB available); game prefix/Battle.net/WoW
+files still exist. System Wine exists; a runtime switch is held pending clarification of the recent
+removal and its effect on the existing prefix. User was asked
+whether they or another agent intentionally removed/moved Lutris; await answer
+before rebuilding directories/relaunching/switching runtime. Current process and
+desktop remain untouched. Retained full-scene SHA256
+`d8cd03abffa1168f443468bec1a0ea7cc0930af517f860f4f7541565758e5bc9`.
+PAUSED69/native=true/input=false/checkpoint clear, daemon2274001. Native gate is
+serialized current-process state; missing executable identity prevents new proof.
+
+Diagnostic candidate is complete, frozen and pushed as commit `c26a844` on branch
+`fix/input-calibration-diagnostics-20261020`:
+[Reviewed candidate](https://github.com/p-kjdeprow/forever_tradecraft/commit/c26a844).
+Parent independently passed89 tests/155 deselected in15.49s plus scoped static
+checks. Sol R1's two Must-Fix findings (owned-temp cleanup/recovery and actual
+reader/parser→workflow→daemon composition) were fixed; Sol R2 READY, no findings.
+ReportSHA `f14188ce555f0aff836f51e79e21f070275eaafe19f2b3910a1f038325011c68`.
+Candidate proof is committed on that branch at
+`.archive/executor-review/input-calibration-diagnostics-candidate-parent-verification.json`.
+It retains bounded1MiB/1024-block actual pre-human XI2 raw data and predicate
+rejections, immutable bindings, and a private atomic latest-only artifact≤2MiB.
+Actual composition, observer reap/target cleanup, unchanged original errors,
+transient replacement recovery and bounded cleanup failure are verified. No
+qualification/admission/readiness validators are relaxed. It is NOT installed
+in MAIN or running daemon. Keep source pins from the proof; do not carry native64
+seal across promotion. After the environment is clarified/recovered: fresh
+quiescence, controlled daemon stop/promotion/restart with gates invalidated,
+fresh native100/ordinary proof, then one instrumented input attempt. Request
+actual user-centered pointer after setup if needed, notify only real GTK readiness.
+
 **Input68 passed the cursor/argv boundary, then timed out before readiness:**
 [Current parent verification](../.archive/executor-review/input68-timeout-parent-verification.json).
 User connected RDP/centered pointer and said ready. Arthur was at character
@@ -58,8 +93,8 @@ failed `XI2 calibration event deadline expired` before READY/human sample.
 The monitor's startup/window/command logs are retained, but do not establish
 retention of the real XI2 stream. Do not infer a missing device/event/root cause
 from that timeout alone. Workflow/driver cleanup appears to discard observer
-text. Luna is designing bounded private pre-human failure diagnostics with exact
-validator reasons before a new instrumented attempt; no gate relaxation.
+text. The reviewed diagnostic candidate above addresses lost failure evidence; the
+underlying rejected synthetic event is still unknown until the instrumented attempt.
 Public PAUSED69/native=true/input=false, checkpoint clear, daemon2274001/game1033131
 unchanged. User controls were released and then user requested continue; offline
 work proceeds first. Notify user for the next actual live calibration handoff.
