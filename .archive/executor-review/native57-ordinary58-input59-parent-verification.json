@@ -1,0 +1,125 @@
+{
+  "status": "NATIVE57_PASS_ORDINARY58_VERIFIED_INPUT59_STARTUP_REFUSED",
+  "verified_at_utc": "2026-10-20T20:25:20.586735+00:00",
+  "native_generation": 57,
+  "ordinary_recovery_generation": 58,
+  "input_attempt_generation": 59,
+  "paused_after_input_failure_generation": 60,
+  "native": {
+    "evidence_hash": "0cd36415bedbe759ec374956733d8d35b1e8159382066acf1cc8b20dbb103e30",
+    "content_fingerprint": "1f5736df137376089888069728575916254faff224cded9c7e13f3cb4d49fdc6",
+    "parent_recomputed_hashes": true,
+    "pid": 1033131,
+    "process_start": "33665951",
+    "identity": "899bf01093de178de122655c436fa6163f7584b74e0294035bf8c6282b9c6439",
+    "held100": {
+      "parent_decoded": true,
+      "render": {
+        "effectiveScale": 0.7111110687255859,
+        "nativePhase": "held",
+        "textureCount": 2048,
+        "cellSize": [
+          2,
+          2
+        ],
+        "nativeOrdinal": 100,
+        "luaHeap": {
+          "method": "collectgarbage_count",
+          "available": true,
+          "beforeKiB": 127225.4375,
+          "afterKiB": 127288.3369140625,
+          "netKiB": 62.8994140625
+        },
+        "updateCount": 109,
+        "updateP99Ms": 25.722299993038177,
+        "constructionSeconds": 0.016811099946498872
+      },
+      "sequence": 110,
+      "crc32": 3791250155,
+      "sha256": "95fa5f8eece53778047d32c0e8fea60d6c89427ac663ec58f2c54d0d29a240a6"
+    },
+    "resume_sequence": 111,
+    "resume_render": {
+      "cellSize": [
+        2,
+        2
+      ],
+      "constructionSeconds": 0.016811099946498872,
+      "effectiveScale": 0.7111110687255859,
+      "luaHeap": {
+        "afterKiB": 127459.3779296875,
+        "available": true,
+        "beforeKiB": 127396.4853515625,
+        "method": "collectgarbage_count",
+        "netKiB": 62.892578125
+      },
+      "nativeOrdinal": 0,
+      "nativePhase": "normal",
+      "textureCount": 2048,
+      "updateCount": 110,
+      "updateP99Ms": 25.722299993038177
+    },
+    "raw_resume_image_parent_decoded": false,
+    "intermediate99_crops_parent_decoded": false,
+    "acceptance": "Unchanged production runner accepted construction, held0, updates1..99, held100 and contiguous resume0 before finalization. Parent independently decoded retained held100 and verified sequence/CRC/hash.",
+    "resource_assessment": {
+      "classification": "within_targets",
+      "method": "linux_proc_status_vmhwm_reset5",
+      "evidenceHash": "0cd36415bedbe759ec374956733d8d35b1e8159382066acf1cc8b20dbb103e30",
+      "construction": {
+        "growthBytes": 0,
+        "targetBytes": 134217728,
+        "withinTarget": true
+      },
+      "updates": {
+        "growthBytes": 7172096,
+        "targetBytes": 16777216,
+        "withinTarget": true
+      }
+    },
+    "offline_resource_recomputed_from_recorded_measurements": true,
+    "operator_receipt_sha256": "538813df7335ef365f12d6e39e34a61b34d7ce78b96dc9605bc53ad1e42f8b9f",
+    "pointer_hover_fix_live_exercised": [
+      {
+        "name": "pointer_parked",
+        "publishedMonotonic": 337144.801245554,
+        "x": 960,
+        "y": 540
+      }
+    ]
+  },
+  "ordinary58": {
+    "parent_fullframes_decoded": true,
+    "sequences": [
+      84,
+      89,
+      93,
+      97,
+      102
+    ],
+    "normal0": true,
+    "speed_current_zero": true,
+    "stable_position": true,
+    "all_inputs_released": true,
+    "AH_closed": true,
+    "pending_zero": true,
+    "fence_inactive": true,
+    "receipt_sha256": "98540f0a106faeaacf01a4c880d544a05e717303fdc8740235e23d8aac542f5c",
+    "parent_verification_sha256": "5dc95cf383a6324fb66cd191e1ee94387241e82207f3e4b197c0354d12eff6f1"
+  },
+  "input59": {
+    "error": "calibration pointer origin is outside the owned target",
+    "ready": false,
+    "human_step_began": false,
+    "synthetic_proof_completed": false,
+    "placement_or_identity_cause": "Unproven: diagnostic monitor ended before input invocation and missed the owned GTK target. Post-cleanup pointer/focus cannot establish pre-GO origin.",
+    "followup": "Prepare persistent monitor and genuine human cursor placement without synthetic origin warping; preserve strict origin guard."
+  },
+  "latest_scene": "Post-failure fullframe shows WOW51900319 disconnect. No current ordinary/speed claim from failed post-pause crops. Sole Luna owner is performing normal reconnect and startup diagnosis.",
+  "qualification": {
+    "native_passed_for_process": 1033131,
+    "input_passed": false,
+    "autonomous_cycles": 0,
+    "launch_qualified": false
+  }
+}

@@ -47,17 +47,29 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
-**Live calibration resumed at user request:** Luna owns GUI input again; the
-previous desktop hold is superseded. Canonical recover56 refused before input
-because the full scene was a disconnected login screen (WOW51900319), despite
-the unchanged foreground Wine identity. [Preserved refusal](../.archive/executor-review/recover56-disconnected-scene-parent-verification.json).
-This does not demonstrate a chat-classifier or pointer-hover defect. Normal
-cached reconnect required a launcher relaunch; new gamePID1033131/start33665951,
+**Native57 and ordinary58 passed; human startup still pending:**
+[Parent verification](../.archive/executor-review/native57-ordinary58-input59-parent-verification.json).
+Same gamePID1033131/start33665951,
 fingerprint899bf01093de178de122655c436fa6163f7584b74e0294035bf8c6282b9c6439.
-Arthur was selected and Enter World dispatched; verify fresh scene/telemetry
-before recovery/calibration. No native or genuine human calibration has passed
-on this binding. Human prompt has not appeared. Continue the bounded live chain;
-do not loosen classifiers or reuse historical native seals.
+Parent recomputed evidence/content hashes and decoded held100 plus five fresh
+ordinary normal0 frames84/89/93/97/102, speed/current0, released controls,
+pending0/AHclosed/inactive fence. Both native memory targets passed: construction
+growth0, updates7,172,096 bytes. Live pointer parking was exercised successfully.
+Canonical recovery58 cleared the checkpoint before input startup.
+
+One input attempt59 refused before readiness: `calibration pointer origin is
+outside the owned target`. Human sample never began. The diagnostic monitor
+ended before invocation and missed the GTK target, so its placement/ancestry
+cause is unproven; post-cleanup pointer/focus cannot establish that cause.
+Cleanup paused60/native true/inputfalse with no checkpoint/reconciliation.
+Post-pause fullframes show WOW51900319 disconnect again; failed crops do not
+establish a new HUD or motion fault. Luna is reconnecting the existing Normal
+realm/Arthur and preparing a persistent exact-target monitor. Preserve the
+origin guard; no synthetic origin warp or fake human input. A new attempt may
+use the actual pointer left by normal login, with fresh world/identity proof
+and monitored target geometry. No stale seal carry across a process replacement.
+Luna remains sole GUI owner; the earlier desktop hold is superseded by the
+user's request to perform calibration. Zero autonomous cycles counted.
 
 **Installed correction:** pointer parking clears button hover before unchanged
 control recognition. Exact matcher replay identified the original Restore hover
@@ -74,11 +86,9 @@ The exact reviewed helper/test files are installed in MAIN. Runtime/config and
 daemon process remain unchanged; installed imports and helper CLI verified.
 Actual CLI Opus was rejected429 before any review; user explicitly switched to
 OpenAI Luna/Sol only. No new Opus approval is claimed or required.
-No live input/capture occurred during installation. Last verified daemon status
-remains PAUSED56/nativefalse/inputfalse/operationidle with deferred recovery still
-required. User retains RDP control until the coordinated desktop handoff. Then
-Luna owns canonical recovery, fresh native100/recovery and monitored genuine
-human calibration. Zero autonomous cycles are counted. Continue already
+No live input/capture occurred during installation. At that boundary the daemon
+was PAUSED56/nativefalse/inputfalse with deferred recovery required. Subsequent
+live results are above. Zero autonomous cycles are counted. Continue already
 authorized work; a status request does not pause it.
 
 
