@@ -47,7 +47,27 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
-**Keyboard ownership fix installed; fresh calibration underway:**
+**Native64 protocol passed; input66 refused before human readiness:**
+[Current parent verification](../.archive/executor-review/native64-ordinary65-input66-parent-verification.json).
+Same gamePID1033131/start33665951 and newdaemon2274001. Parent independently
+recomputed native64 evidence/content hashes and decoded retained held100 sequence110,
+CRC3330663465. Production runner accepted the full strict protocol; parent did not
+re-decode99 released intermediate crops or raw resume0. Memory assessment separately
+classified target_exceeded: construction36,864 bytes≤128MiB; updates90,767,360
+bytes>16MiB. This diagnostic does not block the input gate and needs investigation.
+Public pause64→65 left no checkpoint/reconciliation, so no empty recovery was issued;
+parent decoded five normal0 ordinary frames152/156/160/164/169, speed/current0,
+AHclosed/pending0/fenceinactive and inputs released.
+
+Input66 failed `calibration pointer origin is outside the owned target` before
+readiness. Its persistent monitor survived, but missed the short GTK lifetime;
+geometry/placement cause is unproven. Public pause→67 native=true/input=false,
+no checkpoint/reconciliation. User was asked to place the actual pointer at the
+center of the desktop before a fresh owned GTK creation; wait for their response,
+then one monitored changed-precondition startup. No synthetic origin warp or fake
+human samples. Luna holds GUI pending this response; native64 gate remains live.
+
+**Keyboard ownership fix installed:**
 [Parent verification](../.archive/executor-review/input-key-ownership-release-parent-verification.json).
 Input61 reached its owned GTK target but refused before human readiness with
 `desktop argv holds do not match its sealed input plan`. The raw monitor does

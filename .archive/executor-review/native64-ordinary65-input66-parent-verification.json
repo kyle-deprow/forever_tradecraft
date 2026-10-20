@@ -1,0 +1,65 @@
+{
+  "evidenceHash": "060ad84e134e99ac4461baf30cefb09891f146b4ba9607bc22e0bd2b02c6779c",
+  "fingerprint": "3c8b91ecd806c9f2510812fc8e973479ee9da491542cdb6384f4a40196fca4ef",
+  "gamePid": 1033131,
+  "gameStart": "33665951",
+  "held100ParentDecoded": true,
+  "held100Sequence": 110,
+  "held100Crc": 3330663465,
+  "held100Sha256": "3885390f778e4bb07ebe485f430f9d675d7d58560039b802ff86ac6db12d0eb2",
+  "resume0ReportedSequence": 111,
+  "intermediate99ParentRedecoded": false,
+  "resume0RawParentRedecoded": false,
+  "resourceAssessment": {
+    "classification": "target_exceeded",
+    "method": "linux_proc_status_vmhwm_reset5",
+    "evidenceHash": "060ad84e134e99ac4461baf30cefb09891f146b4ba9607bc22e0bd2b02c6779c",
+    "construction": {
+      "growthBytes": 36864,
+      "targetBytes": 134217728,
+      "withinTarget": true
+    },
+    "updates": {
+      "growthBytes": 90767360,
+      "targetBytes": 16777216,
+      "withinTarget": false
+    }
+  },
+  "journalSha256": "cbfd3362100129689cd3330698713781952383e5ca07ad796421855dd11686b2",
+  "ordinary65": {
+    "receiptSha256": "08f57c84a299ea89b63fe3c2a1a67240ad97828eb8361e19b7ecdc2c2d22fed5",
+    "parentDecodedSequences": [
+      152,
+      156,
+      160,
+      164,
+      169
+    ],
+    "speedCurrent": [
+      0,
+      0
+    ],
+    "normal0": true,
+    "ahClosedPending0FenceInactiveInputsUp": true
+  },
+  "input66": {
+    "readiness": false,
+    "error": "calibration pointer origin is outside the owned target",
+    "targetGeometryCauseProven": false,
+    "traceCapturedGtkWindow": false,
+    "publicCleanup": {
+      "state": "PAUSED",
+      "generation": 67,
+      "nativeCalibration": true,
+      "inputCalibration": false,
+      "checkpoint": null,
+      "reconciliationRequired": false
+    },
+    "waitingFor": "Actual user cursor centered on desktop before next owned GTK creation; no automatic retry",
+    "summary.jsonSha256": "23813e194d1a9005b2c2c95f468a18ebcfa3f68a155001755e5004ebc7e8499f",
+    "startup-trace.jsonlSha256": "b093a64132f80ed344d6959dc886a79e6b1ea6e58019c9b3190b604f8c7b7b2f",
+    "raw-commands.jsonlSha256": "6b43a1abd51eb1d2193501aa1790a76d531135a321ee10827e256b29ea4d3e60"
+  },
+  "qualificationCycles": 0,
+  "resourceDiagnosticIsSeparateFromProtocolGate": true
+}

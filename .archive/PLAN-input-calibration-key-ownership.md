@@ -60,4 +60,3 @@ ordinary recovery must pass before monitored GTK human startup. Normal cached
 reconnect/known Normal realm/Arthur remain authorized; no navigation/trading.
 At actual readiness notify parent immediately; never synthesize human samples.
 Then three new autonomous900-second full cycles remain required. Zero counted.
-
