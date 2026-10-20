@@ -92,3 +92,30 @@ Completion: requirement-to-test map; exact final thirteen-file manifest/hash;
 private hermetic binary+path-bound manifest; checks with actual output; unresolved
 issues. DONE only if all five corrections and decisive tests complete. Root will
 inspect, independently verify and arbitrate reviews. No autonomous claim.
+
+## Final test-only cancellation correction after independent R3 run
+
+Parent R3 actual matrix:12 passed/1 failed. Full measurement accepted99 updates,
+max496.03336ms. Only post-handoff-cancel asserted a synchronous receipt event.
+Root/Luna traced the original case: SIGINT interrupts actor.call; its existing
+late-frame safety poisons the channel; helper logs cancellation failure and retains
+the actor; EOF cleanup successfully cancels exact known ID123ms later. No product
+refusal or timing-regression cause is claimed. Original failed evidence is retained.
+
+Authorize ONLY statements inside the test's `if fixture_case ==
+"post-handoff-cancel":` branch to require either direct receipt cancellation or
+the precise failed/retained asynchronous path AND real exact-ID/generation IPC
+cancel success in both. Observe bounded5s before fixture teardown, prove server
+and resources still owned, Guardian unarmed/native+inputfalse/no qualification,
+capture cleanup, unchanged exact actions/reload/controls. No weakening of any
+production deadline or guard. No other source or test logic changes. Worker runs
+only this decisive case and scoped static, then freezes final-manifest-r3c.
+
+Root independently reproduces this changed case plus all fresh broad/runtime/
+static groups. Carry the prior12passing composition cases and their timing data
+ONLY if all other12files are byte-identical and AST comparison proves every
+statement outside this exact conditional branch is unchanged. Retain original
+failed run/results and explicitly label carried versus fresh evidence. Never
+claim a fresh whole13 pass at new test hash. If equivalence fails or a product
+change is needed, do not carry; reassess scope and run affected cases. Both formal
+R3 reviewers receive this exact evidence provenance and the final13pins.

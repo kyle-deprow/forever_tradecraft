@@ -160,9 +160,15 @@ accepted99 updates/max496.03336ms/zero budget violations. Broad/runtime/static
 groups were not reached. Exact failed-case receipt records interrupted terminal,
 reservation_cancel_failed/OperatorError and cancellation_actor_retained; actual
 IPC later reports successful cancellation ~123ms after that receipt event.
-This is not yet a causal diagnosis or product-fix claim. Source remains frozen;
-Luna is tracing the exact actor/cleanup/fixture boundary read-only before a
-minimal correction proposal. No unchanged retry or R3 source review launched.
+Root/Luna source diagnosis now confirms intentional late-reply safety: SIGINT
+interrupts actor.call, which poisons the channel; helper retains the actor and
+EOF cleanup performs exact known-ID cancellation. Product code remains frozen.
+Only the post-handoff-cancel test branch is being corrected to verify direct or
+retained-actor cancellation through actual matching IPC before fixture teardown.
+Root will independently reproduce that branch plus fresh broad/runtime/static;
+prior12passing cases/timings may carry only with unchanged other12files and exact
+AST equivalence outside this branch. No fresh whole13pass claim at a new hash,
+no production deadline change, and no R3 review launched before final checks.
 
 The [accepted closure plan](../.archive/PLAN-native-observer-accepted-closure.md)
 keeps the same13 files and disjoint8+5 owners. R3 temporarily supersedes the prior8+5 ownership for its seven exact paths.
