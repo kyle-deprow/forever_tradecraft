@@ -25,6 +25,9 @@ Pinned development dependencies permit offline composition before live acceptanc
 finish assigned composition tests instead of deferring them as parent verification.
 Before claiming completion, map each assigned race/deadline requirement to its
 actual regression and result; a broad green total does not cover an omitted case.
+Exercise an input that distinguishes the fix from the old behavior: ordinary
+focus does not test an ancestor walk. Freeze only after the final edit and checks;
+any later source edit invalidates that manifest and needs a new explicit freeze.
 Persist full attempt diagnostics before budget assertions can abort the test.
 Bind retained receipts to the exact case/run timestamps; a later isolated pass
 cannot diagnose an earlier suite failure.
