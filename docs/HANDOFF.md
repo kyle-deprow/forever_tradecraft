@@ -97,6 +97,13 @@ predicate timeout and stale immediate reopen sample are preserved. No separate
 ACK reload or autonomous cycle is claimed. Sole operator may repair only the
 private assisted predicate/read-only postclick polling for these observed states.
 
+Scan159 retained one real incomplete observation: item12361 timed out after30s,
+queried1792463305..1792463335, zero rows, unknown cutoff/witness. Counts are427ok/
+1query_timeout,400full/27bounded/1incomplete. Parent verified the original payload,
+server digest, exact ACK and reopened AH; finish-to-server66.948579s. No retry or
+price/empty-market inference was made. This assisted cycle is not qualification.
+[Original outcome proof](../.archive/executor-review/build-70450-onehundredfiftyninth-scan-parent-verification.json).
+
 Native throughput correction is scoped in the
 [approved Rust observer plan](../.archive/PLAN-native-identity-observer.md).
 Replace CLI fanout with one fresh pinned observer per existing identity boundary;
@@ -506,6 +513,12 @@ Python `/home/dev/repos/pegasus/.venv/bin/python`; session CLI
 Helper `tools/native_calibration_operator.py`; templates
 `~/.local/state/crowley/executor-evidence/native-live-controls-20261019/templates.json`;
 matcher root `~/.cache/crowley/template-matcher/v1`.
+Root's private routine verification/publication wrapper is
+`~/.local/state/crowley/executor-evidence/complete-assisted-cycle.py`:
+arguments NUMBER ORDINAL_WORD PRIOR_START RELATIVE_RECEIPT. It requires clean
+tracked MAIN, verifies original/server/ACK/reopen, derives actual coverage/reason
+counts, updates the handoff, and commits/pushes exactly the two proofs plus handoff.
+Use only after the sole GUI owner seals the full receipt. Logs stay private.
 Helper options: `--generation CURRENT --config CONFIG --templates TEMPLATES
 --matcher-artifact-root ROOT {recover,control-preflight,measure-deferred}`.
 Use exact returned generations and canonical ownership/fence/recovery protocol.
