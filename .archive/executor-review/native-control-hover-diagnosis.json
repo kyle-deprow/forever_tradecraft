@@ -1,0 +1,22 @@
+{
+  "status": "HOVER_RASTER_MISMATCH_IDENTIFIED",
+  "privateReplaySha256": "5fd17ef4808a9e667657efad1ace055be1792d231d38783dcfc73eefe7b012a0",
+  "method": "Offline production TemplateMatcher + pinned runtime on preserved actual success/failure images.",
+  "successPreflight54": {
+    "constructScore": 2.40766,
+    "restoreScore": 1.44243
+  },
+  "failureMeasure55": {
+    "constructScore": 2.40779,
+    "restoreScore": 19.20761,
+    "restoreSad": 152470,
+    "samples": 7938,
+    "threshold": 5.0
+  },
+  "cause": "Pointer remained over Restore after prior click; hovered raster differs from calibrated normal template. Geometry, templates and matcher cache match.",
+  "correction": "Closed admitted pointer-only park before control capture, actual fresh unhovered match at unchanged threshold.",
+  "implementationPlan": ".archive/PLAN-native-control-unhover.md",
+  "sourcePromotion": "Not yet; isolated Luna implementation and checks precede independent parent/Sol/actual CLI Opus reviews.",
+  "liveBoundary": "No agent input/capture/controls; user owns RDP. PAUSED56 native/inputfalse, ordinary renderer recovery pending.",
+  "autonomousCycles": 0
+}

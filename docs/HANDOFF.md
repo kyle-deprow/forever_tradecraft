@@ -48,6 +48,18 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
+**Current offline correction:** exact production matcher replay proves Restore
+hover state caused measure55/recover56 visual refusal: normalpreflight score1.442,
+failedhover19.208 against unchanged5.0 threshold. Construct still matches; geometry,
+templates and cache match. [Diagnosis](../.archive/executor-review/native-control-hover-diagnosis.json).
+Luna implements the [closed pointer-parking plan](../.archive/PLAN-native-control-unhover.md)
+ONLY in `/home/dev/.cache/crowley/worktrees/native-control-hover-20261020`, owning
+helper + scoped tests. MAIN runtime stays unchanged until parent checks and Sol
+and actual CLI Opus approve. No templates/threshold/protocol/Guardian relaxation.
+User can use RDP normally during offline work; all agent game controls/captures
+are held. Coordinate a new hands-off window before live recovery/calibration.
+
+
 **Newest blocker:** new-process preflight54 passed; measure-deferred55 refused
 at post-reload-controls BEFORE bootstrap/native measurement, then canonical
 recover56 refused its restore-control template. PAUSED56/nativefalse/inputfalse;
