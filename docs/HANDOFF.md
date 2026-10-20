@@ -141,13 +141,26 @@ reasons in the proof. One Luna worker owns seven exact paths under the
 [R3 contract-closure plan](../.archive/PLAN-native-observer-r3-contract-closure.md).
 No live install or native retry; root independently reruns final relevant matrix
 only after the corrected source freezes, followed by both R3 reviews.
+R3b is now frozen with all five corrections and decisive regressions complete;
+root's independent final matrix is RUNNING, not yet passed. Private manifest
+`native-identity-observer-r3-20261020/final-manifest-r3b.json`, SHA
+`4bff2a2a6e5f733986d2b8735c145d031944014f8ff27fbd96f4a8be577ccc33`.
+Current binarySHA `ce51b5a0a0ba82f4ac67589610520294d6ccbee860442891575e2e9383c075d7`.
+Worker22 observer/12 driver/5 config focused tests and static checks pass;
+parent full13 composition and fresh broad/runtime/static checks are separate.
+Actual pinned xdotool cases now distinguish descendant-to-client/outer WM_STATE
+normalization, no-WM_STATE raw focus and unrelated foreground; invalid and two
+valid game-window candidates are also covered. Earlier R3 manifest was superseded
+by test-only additions before the parent run; retain it without claiming freeze
+stability. Parent run `native-identity-observer-parent-r3-final-20261020` checks
+all13pins before/after each group. No live native/input/autonomy claim.
 
 The [accepted closure plan](../.archive/PLAN-native-observer-accepted-closure.md)
 keeps the same13 files and disjoint8+5 owners. R3 temporarily supersedes the prior8+5 ownership for its seven exact paths.
 Other six candidate files stay frozen. The PRE-R3 final manifest remains:
 `native-identity-observer-fix-r1-20261020/resource-retention-r4/final-static/final-manifest-r3.json`,
 SHA `f9889c24347bec4e847d0d93176df9c9c3dc03a90edc85fe3b45eed377961956`.
-Published binarySHA `be2f76f352c311e992611ee111028e9e56515b395e3d9ba57cd1b2b01ea149ea`.
+PRE-R3 binarySHA `be2f76f352c311e992611ee111028e9e56515b395e3d9ba57cd1b2b01ea149ea`.
 
 Earlier failed/partial runs and both NEEDS WORK R1 reviews remain preserved in
 [the exact preceding handoff](../.archive/executor-review/handoff-history-before-native-observer-final-20261020T0505Z.md).
