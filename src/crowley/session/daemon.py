@@ -816,6 +816,9 @@ class _NativeObservationDiagnostic:
                 "end_monotonic_ns": None,
                 "duration_ns": None,
                 "outcome": "not_reached",
+                "span_token": None,
+                "thread_id": None,
+                "observer_calls": [],
             }
             for name in _NativeObservationDiagnostic._SPAN_NAMES
         }
@@ -827,6 +830,7 @@ class _NativeObservationDiagnostic:
                 "requested_stage": stage,
                 "requested_ordinal": ordinal,
                 "started_monotonic_ns": time.monotonic_ns(),
+                "thread_id": threading.get_ident(),
                 "finished_monotonic_ns": None,
                 "actual": {
                     "kind": None,
@@ -843,6 +847,7 @@ class _NativeObservationDiagnostic:
                     "update_p99_ms": None,
                 },
                 "backend_receipt": None,
+                "observer_calls": [],
                 "spans": self._empty_spans(),
                 "status": "in_progress",
                 "error": None,
@@ -853,6 +858,60 @@ class _NativeObservationDiagnostic:
                 del self._attempts[: len(self._attempts) - self._MAX_ATTEMPTS]
             self._current = attempt
             self._current_path = None
+
+    def record_observer_call(
+        self,
+        *,
+        nonce: str,
+        start_monotonic_ns: int,
+        end_monotonic_ns: int,
+        thread_id: int,
+        boundary: str | None = None,
+        span_token: str | None = None,
+        caller: str | None = None,
+        timings_ns: dict[str, int] | None = None,
+        observer_phases_ns: dict[str, dict[str, int]] | None = None,
+    ) -> None:
+        """Bind one successful Rust call to its live attempt/span/thread."""
+
+        with self._lock:
+            target_attempt: dict[str, Any] | None = None
+            target_span: dict[str, Any] | None = None
+            if isinstance(span_token, str) and span_token:
+                for candidate in reversed(self._attempts):
+                    spans = candidate.get("spans", {})
+                    for candidate_span in spans.values():
+                        if (
+                            isinstance(candidate_span, dict)
+                            and candidate_span.get("span_token") == span_token
+                        ):
+                            target_attempt = candidate
+                            target_span = candidate_span
+                            break
+                    if target_span is not None:
+                        break
+            if target_attempt is None:
+                target_attempt = self._current
+            if target_attempt is None:
+                return
+            calls = target_attempt.setdefault("observer_calls", [])
+            record = {
+                "nonce": nonce,
+                "start_monotonic_ns": start_monotonic_ns,
+                "end_monotonic_ns": end_monotonic_ns,
+                "thread_id": thread_id,
+                "boundary": boundary or "unattributed",
+                "span_token": span_token,
+                "caller": caller,
+                "timings_ns": copy.deepcopy(timings_ns) if isinstance(timings_ns, dict) else None,
+                "observer_phases_ns": (
+                    copy.deepcopy(observer_phases_ns) if isinstance(observer_phases_ns, dict) else None
+                ),
+            }
+            if len(calls) < 8:
+                calls.append(record)
+            if target_span is not None and len(target_span["observer_calls"]) < 2:
+                target_span["observer_calls"].append(copy.deepcopy(record))
 
     @contextmanager
     def span(
@@ -870,6 +929,8 @@ class _NativeObservationDiagnostic:
             span = attempt.get("spans", {}).get(name) if attempt is not None else None
             if span is not None and span["start_monotonic_ns"] is None:
                 span["start_monotonic_ns"] = time.monotonic_ns()
+                span["span_token"] = uuid.uuid4().hex
+                span["thread_id"] = threading.get_ident()
             run_span: dict[str, Any] | None = None
             if span is None and attempt is None:
                 run_span = {
@@ -884,13 +945,32 @@ class _NativeObservationDiagnostic:
                 self._run_spans.append(run_span)
                 if len(self._run_spans) > self._MAX_RUN_SPANS:
                     del self._run_spans[: len(self._run_spans) - self._MAX_RUN_SPANS]
+            span_token = (
+                span.get("span_token")
+                if isinstance(span, dict)
+                else run_span.get("span_token")
+                if isinstance(run_span, dict)
+                else None
+            )
+        sink_token = None
+        if name == "identity_post_capture" and isinstance(span_token, str):
+            sink_token = _set_identity_latency_sink(
+                _NativeIdentityLatencySink(
+                    self,
+                    boundary=name,
+                    span_token=span_token,
+                    caller="NativeCalibrationRunner.capture_observation",
+                )
+            )
         error: BaseException | None = None
         try:
-            yield
+            yield span_token
         except BaseException as exc:
             error = exc
             raise
         finally:
+            if sink_token is not None:
+                _reset_identity_latency_sink(sink_token)
             with self._lock:
                 if span is not None and span["end_monotonic_ns"] is None:
                     end = time.monotonic_ns()
@@ -1237,24 +1317,83 @@ def _native_diagnostic_span(diagnostic: Any, name: str, *, attach_to_attempt: bo
 class _NativeIdentityLatencySink:
     """Bridge the driver's existing identity barriers into one native attempt."""
 
-    def __init__(self, diagnostic: _NativeObservationDiagnostic) -> None:
+    def __init__(
+        self,
+        diagnostic: _NativeObservationDiagnostic,
+        *,
+        boundary: str | None = None,
+        span_token: str | None = None,
+        caller: str | None = None,
+    ) -> None:
         self.diagnostic = diagnostic
+        self._active_boundary = boundary
+        self._active_span_token = span_token
+        self._active_caller = caller
 
     def span(self, _name: str):
         return nullcontext()
 
     def barrier(self, name: str):
         if name == "backend_pre":
-            return self.diagnostic.span("identity_backend_pre")
-        if name == "backend_post":
-            return self.diagnostic.span("identity_backend_post")
-        return nullcontext()
+            mapped = "identity_backend_pre"
+            caller = "X11Backend.production.resolve_identity.backend_pre"
+        elif name == "backend_post":
+            mapped = "identity_backend_post"
+            caller = "X11Backend.production.resolve_identity.backend_post"
+        elif name == "post_capture":
+            mapped = "identity_post_capture"
+            caller = "NativeCalibrationRunner.capture_observation"
+        else:
+            return nullcontext()
+        return self._named_span(mapped, caller=caller)
+
+    @contextmanager
+    def _named_span(self, name: str, *, caller: str | None = None):
+        with self.diagnostic.span(name) as span_token:
+            previous_boundary = self._active_boundary
+            previous_token = self._active_span_token
+            previous_caller = self._active_caller
+            self._active_boundary = name
+            self._active_span_token = span_token
+            self._active_caller = caller
+            try:
+                yield
+            finally:
+                self._active_boundary = previous_boundary
+                self._active_span_token = previous_token
+                self._active_caller = previous_caller
+
+    @contextmanager
+    def named_span(self, name: str):
+        with self._named_span(name, caller="NativeCalibrationRunner.capture_observation"):
+            yield
 
     def instant(self, _name: str) -> None:
         return None
 
     def mark(self, _name: str) -> None:
         return None
+
+    def observer_call(
+        self,
+        *,
+        nonce: str,
+        start_monotonic_ns: int,
+        end_monotonic_ns: int,
+        timings_ns: dict[str, int] | None = None,
+        observer_phases_ns: dict[str, dict[str, int]] | None = None,
+    ) -> None:
+        self.diagnostic.record_observer_call(
+            nonce=nonce,
+            start_monotonic_ns=start_monotonic_ns,
+            end_monotonic_ns=end_monotonic_ns,
+            thread_id=threading.get_ident(),
+            boundary=self._active_boundary,
+            span_token=self._active_span_token,
+            caller=self._active_caller,
+            timings_ns=timings_ns,
+            observer_phases_ns=observer_phases_ns,
+        )
 
 
 class _NativeCaptureRetained(Exception):
@@ -2770,15 +2909,34 @@ class SessionDaemon:
 
     def _native_construction_terminal_reply(self, reservation_id: str) -> dict[str, Any] | None:
         with self._native_construction_lock:
-            terminal = self._native_construction_terminals.get(reservation_id)
-            if terminal is None:
-                return None
-            return {
-                "reservation": copy.deepcopy(terminal["reservation"]),
-                "handshake": self._native_construction_public_handshake(copy.deepcopy(terminal["handshake"])),
-                "nativeClock": self._native_clock(),
-                "stateHistory": copy.deepcopy(terminal["stateHistory"]),
-            }
+            return self._native_construction_terminal_reply_locked(reservation_id)
+
+    def _native_construction_terminal_reply_locked(
+        self, reservation_id: str, *, expected_generation: int | None = None
+    ) -> dict[str, Any] | None:
+        """Copy one retained terminal while the construction lock is held.
+
+        Rechecks can validate an active reservation without the construction
+        lock.  Finalization may therefore move that reservation to the
+        bounded terminal ledger before the recheck's second lock.  This
+        helper is deliberately read-only and uses the same canonical payload
+        as the first-lock terminal path.
+        """
+
+        terminal = self._native_construction_terminals.get(reservation_id)
+        if terminal is None:
+            return None
+        if (
+            expected_generation is not None
+            and terminal["reservation"].get("controllerGeneration") != expected_generation
+        ):
+            raise DriverError("native construction terminal generation is stale")
+        return {
+            "reservation": copy.deepcopy(terminal["reservation"]),
+            "handshake": self._native_construction_public_handshake(copy.deepcopy(terminal["handshake"])),
+            "nativeClock": self._native_clock(),
+            "stateHistory": copy.deepcopy(terminal["stateHistory"]),
+        }
 
     def _native_construction_expire_locked(self) -> None:
         reservation = self._native_construction_reservation
@@ -3535,19 +3693,10 @@ class SessionDaemon:
             if expired:
                 failure = "native construction reservation expired"
             elif reservation is None or reservation.get("reservationId") != reservation_id:
-                terminal = self._native_construction_terminals.get(reservation_id)
-                if terminal is not None:
-                    if terminal["reservation"].get("controllerGeneration") != expected_generation:
-                        raise DriverError("native construction terminal generation is stale")
-                    result = {
-                        "reservation": copy.deepcopy(terminal["reservation"]),
-                        "handshake": self._native_construction_public_handshake(
-                            copy.deepcopy(terminal["handshake"])
-                        ),
-                        "nativeClock": self._native_clock(),
-                        "stateHistory": copy.deepcopy(terminal["stateHistory"]),
-                    }
-                else:
+                result = self._native_construction_terminal_reply_locked(
+                    reservation_id, expected_generation=expected_generation
+                )
+                if result is None:
                     failure = "native construction reservation is unknown"
             else:
                 snapshot = copy.deepcopy(reservation)
@@ -3564,7 +3713,12 @@ class SessionDaemon:
         with self._native_construction_lock:
             reservation = self._native_construction_reservation
             if reservation is None or reservation.get("reservationId") != reservation_id:
-                raise DriverError("native construction reservation is unknown")
+                result = self._native_construction_terminal_reply_locked(
+                    reservation_id, expected_generation=expected_generation
+                )
+                if result is None:
+                    raise DriverError("native construction reservation is unknown")
+                return result
             result = self._native_construction_reply()
             result["handshake"] = {
                 **result["handshake"],

@@ -48,6 +48,8 @@ class SessionConfig:
     move_profile: Path | None = None
     telemetry_region_executable: Path | None = None
     telemetry_region_executable_sha256: str | None = None
+    identity_observer_executable: Path | None = None
+    identity_observer_executable_sha256: str | None = None
 
 
 def load_config(path: str | Path) -> SessionConfig:
@@ -98,6 +100,22 @@ def load_config(path: str | Path) -> SessionConfig:
         if hashlib.sha256(telemetry_path.read_bytes()).hexdigest() != telemetry_hash:
             raise ValueError("telemetry region executable hash does not match")
         telemetry_digest = telemetry_hash
+    observer_raw = session.get("identity_observer_executable")
+    observer_hash = session.get("identity_observer_executable_sha256")
+    if observer_raw is None and observer_hash is None:
+        observer_path: Path | None = None
+        observer_digest: str | None = None
+    else:
+        if not isinstance(observer_raw, str) or not Path(observer_raw).is_absolute():
+            raise ValueError("identity_observer_executable must be an absolute path")
+        if not isinstance(observer_hash, str) or not re.fullmatch(r"[0-9a-f]{64}", observer_hash):
+            raise ValueError("identity_observer_executable_sha256 must be a lowercase SHA-256")
+        observer_path = Path(observer_raw)
+        if not observer_path.is_file() or not os.access(observer_path, os.X_OK):
+            raise ValueError("identity observer executable is unavailable")
+        if hashlib.sha256(observer_path.read_bytes()).hexdigest() != observer_hash:
+            raise ValueError("identity observer executable hash does not match")
+        observer_digest = observer_hash
     driver_profile = DriverProfile(
         display=str(profile.get("display", ":0")),
         xauthority=str(profile.get("xauthority", "")),
@@ -121,6 +139,8 @@ def load_config(path: str | Path) -> SessionConfig:
         anchor_fingerprints=anchor_fingerprints,
         telemetry_region_executable=telemetry_path,
         telemetry_region_executable_sha256=telemetry_digest,
+        identity_observer_executable=observer_path,
+        identity_observer_executable_sha256=observer_digest,
     )
     if not driver_profile.window_title or not driver_profile.window_class:
         raise ValueError("window title and class are required for one-client identity")
@@ -247,6 +267,8 @@ def load_config(path: str | Path) -> SessionConfig:
         move_profile=motion_profiles["move"],
         telemetry_region_executable=telemetry_path,
         telemetry_region_executable_sha256=telemetry_digest,
+        identity_observer_executable=observer_path,
+        identity_observer_executable_sha256=observer_digest,
     )
 
 

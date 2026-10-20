@@ -13,6 +13,7 @@ import io
 import json
 import os
 import re
+import socket
 import stat
 import subprocess
 import sys
@@ -3861,7 +3862,7 @@ def _native_driver(tmp_path: Path) -> tuple[DesktopDriver, WindowIdentity, subpr
         1,
         process_start,
         ":test",
-        "native-identity",
+        "a" * 64,
         root_xid=0x374,
         managed_frame_xid=1,
         target_event_xids=frozenset({1, 2}),
@@ -7179,11 +7180,20 @@ def test_public_legacy_bootstrap_rejects_live_deferred_owner(tmp_path: Path) -> 
 
 
 @pytest.mark.parametrize(
-    ("cancel_after_first_final_capture", "binding_drift"),
-    [(False, None), (True, None), (False, "identity"), (False, "guardian")],
+    ("cancel_after_first_final_capture", "binding_drift", "recheck_race"),
+    [
+        (False, None, False),
+        (True, None, False),
+        (False, "identity", False),
+        (False, "guardian", False),
+        (False, None, True),
+    ],
 )
 def test_native_construction_composes_real_png_runner_and_finalize(
-    tmp_path: Path, cancel_after_first_final_capture: bool, binding_drift: str | None
+    tmp_path: Path,
+    cancel_after_first_final_capture: bool,
+    binding_drift: str | None,
+    recheck_race: bool,
 ) -> None:
     """Exercise the deferred gate through the production runner callbacks."""
 
@@ -7217,6 +7227,18 @@ def test_native_construction_composes_real_png_runner_and_finalize(
     active_identity = [identity]
     final_capture_returned = threading.Event()
     release_final_capture = threading.Event()
+    recheck_validation_entered = threading.Event()
+    release_recheck_validation = threading.Event()
+    recheck_result: dict[str, object] = {}
+    recheck_error: list[BaseException] = []
+    actor: object | None = None
+    actor_listener: socket.socket | None = None
+    actor_server: threading.Thread | None = None
+    actor_stop = threading.Event()
+    actor_errors: list[BaseException] = []
+    actor_request_count = 0
+    actor_request_lock = threading.Lock()
+    recheck_actor_thread_ids: set[int] = set()
 
     def now() -> float:
         return clock[0]
@@ -7318,6 +7340,15 @@ def test_native_construction_composes_real_png_runner_and_finalize(
     original_native_calibrated = daemon.controller.native_calibrated
     original_transaction = daemon._native_construction_finalize_transaction
     original_flush_expiry = daemon._native_construction_flush_expiry
+    original_validate_snapshot = daemon._native_construction_validate_snapshot
+
+    def gated_validate_snapshot(*args: object, **kwargs: object) -> object:
+        result = original_validate_snapshot(*args, **kwargs)
+        if recheck_race and threading.get_ident() in recheck_actor_thread_ids:
+            recheck_validation_entered.set()
+            if not release_recheck_validation.wait(10.0):
+                raise AssertionError("recheck validation barrier did not release")
+        return result
 
     def gated_rebind(**kwargs: object) -> object:
         rebind_calls.append(kwargs)
@@ -7391,6 +7422,7 @@ def test_native_construction_composes_real_png_runner_and_finalize(
     daemon.controller.native_calibrated = counted_native_calibrated  # type: ignore[method-assign]
     daemon._native_construction_finalize_transaction = gated_transaction  # type: ignore[method-assign]
     daemon._native_construction_flush_expiry = gated_flush_expiry  # type: ignore[method-assign]
+    daemon._native_construction_validate_snapshot = gated_validate_snapshot  # type: ignore[method-assign]
     try:
         prepared = daemon.native_construction_prepare(expected_generation=7)
         reservation = prepared["reservation"]
@@ -7430,6 +7462,95 @@ def test_native_construction_composes_real_png_runner_and_finalize(
         if "error" in worker_result:
             raise worker_result["error"]  # type: ignore[misc]
         assert worker.is_alive(), worker_result.get("error")
+
+        if recheck_race:
+            # Keep one real CancellationActor alive across both rechecks.  Its
+            # first response seeds the immutable binding in the actor child;
+            # the second request is the one that is paused between daemon
+            # validation and its second construction-lock read.
+            from tools import native_calibration_operator as operator
+
+            actor_socket = tmp_path / "finalized-actor.sock"
+            actor_listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            actor_listener.bind(str(actor_socket))
+            actor_socket.chmod(0o600)
+            actor_listener.listen(4)
+            actor_listener.settimeout(0.2)
+
+            def serve_actor_rechecks() -> None:
+                nonlocal actor_request_count
+                try:
+                    while not actor_stop.is_set():
+                        try:
+                            connection, _ = actor_listener.accept()
+                        except TimeoutError:
+                            continue
+                        except OSError:
+                            if actor_stop.is_set():
+                                return
+                            raise
+                        with connection:
+                            raw = bytearray()
+                            while not raw.endswith(b"\n"):
+                                chunk = connection.recv(4096)
+                                if not chunk:
+                                    break
+                                raw.extend(chunk)
+                            operation = json.loads(bytes(raw).decode("utf-8"))
+                            assert operation["command"] == "native_construction_recheck"
+                            with actor_request_lock:
+                                actor_request_count += 1
+                                if actor_request_count == 2:
+                                    recheck_actor_thread_ids.add(threading.get_ident())
+                            response = SessionIPC(daemon.controller, daemon).dispatch(
+                                {
+                                    "command": "native_construction_recheck",
+                                    "generation": operation["generation"],
+                                    "reservationId": operation["reservationId"],
+                                }
+                            )
+                            connection.sendall(
+                                json.dumps(response, separators=(",", ":")).encode("utf-8") + b"\n"
+                            )
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    actor_errors.append(exc)
+
+            actor_server = threading.Thread(target=serve_actor_rechecks, name="native-finalized-actor")
+            actor_server.start()
+            actor = operator.CancellationActor(
+                actor_socket,
+                generation=7,
+                reservation_id=reservation["reservationId"],
+                deadline=time.monotonic() + 60.0,
+                owner_pid=os.getpid(),
+                owner_start=operator._proc_start(os.getpid()),
+            )
+            actor.start()
+            initial_actor_reply = actor.call(
+                "recheck",
+                generation=7,
+                reservation_id=reservation["reservationId"],
+                deadline=actor.deadline,
+            )
+            assert initial_actor_reply["handshake"]["state"] == "resume_ready"
+            assert initial_actor_reply["reservation"]["reservationState"] == "consumed"
+
+            def run_recheck() -> None:
+                try:
+                    assert actor is not None
+                    recheck_result["value"] = actor.call(
+                        "recheck",
+                        reservation_id=reservation["reservationId"],
+                        generation=7,
+                        deadline=actor.deadline,
+                    )
+                except BaseException as exc:  # pragma: no cover - asserted below
+                    recheck_error.append(exc)
+
+            recheck_thread = threading.Thread(target=run_recheck, name="native-recheck-race")
+            recheck_thread.start()
+            assert recheck_validation_entered.wait(5.0)
+
         finalized = daemon.native_construction_finalize_admit(
             expected_generation=7, reservation_id=reservation["reservationId"]
         )
@@ -7438,10 +7559,73 @@ def test_native_construction_composes_real_png_runner_and_finalize(
             expected_generation=7, reservation_id=reservation["reservationId"]
         )
         assert fast_finalize["handshake"]["state"] == "finalize_required"
-        if not cancel_after_first_final_capture and binding_drift is None:
+        if not cancel_after_first_final_capture and binding_drift is None and not recheck_race:
             controller_lock_facade = ForwardingControllerLock(daemon.controller._mutex)
             daemon.controller._mutex = controller_lock_facade  # type: ignore[assignment]
-        if binding_drift is not None:
+
+        if recheck_race:
+            assert transaction_entered.wait(5.0)
+            release_transaction.set()
+            release_rebind.set()
+            terminal_deadline = time.monotonic() + 60.0
+            while time.monotonic() < terminal_deadline:
+                with daemon._native_construction_lock:
+                    terminal_snapshot = copy.deepcopy(
+                        daemon._native_construction_terminals.get(reservation["reservationId"])
+                    )
+                if terminal_snapshot is not None:
+                    break
+                assert worker.is_alive(), worker_result.get("error")
+                time.sleep(0.01)
+            assert terminal_snapshot is not None
+            assert daemon.controller.status().state is ControllerState.INPUT_CALIBRATION, json.dumps(
+                terminal_snapshot, sort_keys=True
+            )
+            journal_native = daemon.controller.journal.read().get("calibrationEvidence", {}).get("native")
+            assert isinstance(journal_native, dict)
+            assert daemon.controller._native_calibrated is True
+            assert isinstance(journal_native.get("capture_path"), str)
+
+            release_recheck_validation.set()
+            recheck_thread.join(timeout=10.0)
+            assert not recheck_thread.is_alive()
+            assert not recheck_error, recheck_error
+            race_reply = recheck_result.get("value")
+            assert isinstance(race_reply, dict)
+            assert race_reply["handshake"]["state"] == "finalized"
+            assert race_reply["reservation"]["reservationState"] == "finalized"
+            assert actor_request_count == 2
+            assert actor is not None
+            actor.close()
+            actor_stop.set()
+            assert actor_listener is not None
+            actor_listener.close()
+            assert actor_server is not None
+            actor_server.join(timeout=5.0)
+            assert not actor_errors, actor_errors
+            race_reply["reservation"]["reservationState"] = "mutated"
+            assert terminal_snapshot["reservation"]["reservationState"] == "finalized"
+            ipc_reply = SessionIPC(daemon.controller, daemon).dispatch(
+                {
+                    "command": "native_construction_recheck",
+                    "generation": 7,
+                    "reservationId": reservation["reservationId"],
+                }
+            )
+            assert ipc_reply["ok"] is True
+            assert ipc_reply["handshake"]["state"] == "finalized"
+            assert ipc_reply["reservation"]["reservationState"] == "finalized"
+            with pytest.raises(DriverError, match="terminal generation is stale"):
+                daemon.native_construction_recheck(
+                    expected_generation=8,
+                    reservation_id=reservation["reservationId"],
+                )
+            with pytest.raises(DriverError, match="reservation is unknown"):
+                daemon.native_construction_recheck(
+                    expected_generation=7,
+                    reservation_id=f"{reservation['reservationId']}-different",
+                )
+        elif binding_drift is not None:
             assert final_capture_returned.wait(5.0)
             if binding_drift == "identity":
                 active_identity[0] = replace(identity, fingerprint="native-r9-final-drift")
@@ -7517,9 +7701,15 @@ def test_native_construction_composes_real_png_runner_and_finalize(
 
         worker.join(timeout=60.0)
         assert not worker.is_alive()
-        assert cancel_thread is not None
-        cancel_thread.join(timeout=5.0)
-        assert not cancel_thread.is_alive()
+        if recheck_race:
+            assert "error" not in worker_result, worker_result.get("error")
+            result = worker_result["value"]
+            assert isinstance(result, dict)
+            assert result["calibration"] == "native"
+        else:
+            assert cancel_thread is not None
+            cancel_thread.join(timeout=5.0)
+            assert not cancel_thread.is_alive()
         if cancel_after_first_final_capture:
             assert len(cancel_response) == 1
             assert cancel_response[0]["ok"] is True
@@ -7538,7 +7728,7 @@ def test_native_construction_composes_real_png_runner_and_finalize(
             )
             assert terminal["handshake"]["state"] == "cancelled"
             assert terminal["reservation"]["reservationState"] == "cancelled"
-        else:
+        elif not recheck_race:
             assert cancel_response == [{"ok": False, "error": "native construction reservation is unknown"}]
             assert "error" not in worker_result, worker_result.get("error")
             result = worker_result["value"]
@@ -7575,6 +7765,8 @@ def test_native_construction_composes_real_png_runner_and_finalize(
                 expected_generation=7, reservation_id=reservation["reservationId"]
             )
             assert polled["stateHistory"] == history
+        else:
+            assert daemon.controller.status().state is ControllerState.INPUT_CALIBRATION
         if not cancel_after_first_final_capture:
             assert capture_index == 105
         assert clock[0] - operation_started > 127.0
@@ -7583,6 +7775,23 @@ def test_native_construction_composes_real_png_runner_and_finalize(
         release_transaction.set()
         release_cancel_flush.set()
         release_final_capture.set()
+        release_recheck_validation.set()
+        recheck_thread = locals().get("recheck_thread")
+        if isinstance(recheck_thread, threading.Thread):
+            recheck_thread.join(timeout=10.0)
+        actor_stop.set()
+        if actor_listener is not None:
+            try:
+                actor_listener.close()
+            except OSError:
+                pass
+        if actor is not None:
+            try:
+                actor.close()
+            except Exception:
+                actor.abandon()
+        if actor_server is not None:
+            actor_server.join(timeout=5.0)
         if controller_lock_facade is not None:
             daemon.controller._mutex = controller_lock_facade.real_lock  # type: ignore[assignment]
         daemon._native_construction_flush_expiry = original_flush_expiry  # type: ignore[method-assign]

@@ -788,6 +788,45 @@ def test_native_region_profile_is_default_off_and_hash_pinned(tmp_path: Path) ->
         ).validate()
 
 
+def test_identity_observer_profile_pair_is_optional_but_exactly_pinned(tmp_path: Path) -> None:
+    profile = DriverProfile(xauthority=str(tmp_path / "Xauthority"))
+    profile.validate()
+    assert profile.identity_observer_executable is None
+    assert profile.identity_observer_executable_sha256 is None
+
+    executable = tmp_path / "observer"
+    executable.write_bytes(b"observer")
+    executable.chmod(0o700)
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    pinned = DriverProfile(
+        xauthority=str(tmp_path / "Xauthority"),
+        identity_observer_executable=executable,
+        identity_observer_executable_sha256=digest,
+    )
+    pinned.validate()
+    with pytest.raises(DriverError, match="configured together"):
+        DriverProfile(
+            xauthority=str(tmp_path / "Xauthority"),
+            identity_observer_executable=executable,
+        ).validate()
+    executable.write_bytes(b"changed")
+    with pytest.raises(DriverError, match="hash does not match"):
+        pinned.validate()
+
+
+def test_identity_observer_profile_requires_private_executable_mode(tmp_path: Path) -> None:
+    executable = tmp_path / "observer"
+    executable.write_bytes(b"observer")
+    executable.chmod(0o600)
+    digest = hashlib.sha256(executable.read_bytes()).hexdigest()
+    with pytest.raises(DriverError, match="private and executable"):
+        DriverProfile(
+            xauthority=str(tmp_path / "Xauthority"),
+            identity_observer_executable=executable,
+            identity_observer_executable_sha256=digest,
+        ).validate()
+
+
 def _write_region_config(tmp_path: Path, *, telemetry: str = "") -> Path:
     saved = tmp_path / "SavedVariables.lua"
     companion = tmp_path / "companion.json"
@@ -845,6 +884,31 @@ def test_load_config_region_capability_rejects_incomplete_or_untrusted_values(
 ) -> None:
     with pytest.raises(ValueError, match=message):
         load_config(_write_region_config(tmp_path, telemetry=telemetry))
+
+
+@pytest.mark.parametrize(
+    ("observer", "message"),
+    (
+        ("identity_observer_executable = '/tmp/observer'\n", "lowercase SHA-256"),
+        (
+            "identity_observer_executable = 'observer'\nidentity_observer_executable_sha256 = '"
+            + "0" * 64
+            + "'\n",
+            "absolute",
+        ),
+        (
+            "identity_observer_executable = '/tmp/observer'\nidentity_observer_executable_sha256 = '"
+            + "0" * 64
+            + "'\n",
+            "unavailable",
+        ),
+    ),
+)
+def test_load_config_identity_observer_pair_rejects_incomplete_or_untrusted_values(
+    tmp_path: Path, observer: str, message: str
+) -> None:
+    with pytest.raises(ValueError, match=message):
+        load_config(_write_region_config(tmp_path, telemetry=observer))
 
 
 def test_daemon_native_region_route_is_opt_in_and_identity_bound() -> None:
@@ -2940,6 +3004,15 @@ def test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samp
         text = config_path.read_text(encoding="utf-8").replace(":runner-fixture", compositor["display"])
         config_path.write_text(text, encoding="utf-8")
         config = load_config(config_path)
+        # This large fixture intentionally exercises the reference/test backend;
+        # shipped default construction is covered by the observer factory tests.
+        monkeypatch.setattr(
+            X11Backend,
+            "production",
+            classmethod(
+                lambda _cls, _profile, *, input_tool=None: X11Backend(_profile, input_tool=input_tool)
+            ),
+        )
         daemon = SessionDaemon(config)
         driver = daemon.driver
         backend = driver.backend

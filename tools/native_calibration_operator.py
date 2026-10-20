@@ -16,6 +16,7 @@ import json
 import math
 import multiprocessing
 import os
+import re
 import secrets
 import select
 import signal
@@ -921,10 +922,14 @@ class X11Screen:
     def __init__(self, config_path: str | os.PathLike[str], root: Path):
         self.config_path = Path(config_path)
         self.tool: PinnedInputTool | None = None
+        self.backend: X11Backend | None = None
         try:
             self.config = load_config(config_path)
-            self.tool = PinnedInputTool.load()
-            self.backend = X11Backend(self.config.profile, input_tool=self.tool)
+            # The production factory checks the observer pins before loading
+            # the input image, so an incomplete observer configuration fails
+            # before any input/capture resource is acquired.
+            self.backend = X11Backend.production(self.config.profile)
+            self.tool = self.backend.input_tool
             self.input_environment = {
                 "DISPLAY": self.config.profile.display,
                 "XAUTHORITY": self.backend.xauthority,
@@ -932,10 +937,12 @@ class X11Screen:
             if not self.input_environment["XAUTHORITY"]:
                 raise OperatorError("profile Xauthority is unavailable for owned input")
         except BaseException:
-            if self.tool is not None:
+            if self.backend is not None:
                 try:
-                    self.tool.close()
+                    self.backend.close()
                 finally:
+                    self.backend.input_tool.close()
+                    self.backend = None
                     self.tool = None
             raise
         self.root = root
@@ -956,6 +963,9 @@ class X11Screen:
         return self.backend.pointer_position(deadline_monotonic=deadline_monotonic)
 
     def close(self) -> None:
+        if self.backend is not None:
+            self.backend.close()
+            self.backend = None
         if self.tool is not None:
             self.tool.close()
             self.tool = None
@@ -4494,6 +4504,145 @@ def _sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _read_private_json(path: Path, *, label: str, max_bytes: int = 256 * 1024) -> dict[str, Any]:
+    """Read one private JSON artifact without following a replacement path."""
+
+    def stat_signature(info: os.stat_result) -> tuple[int, int, int, int, int, int, int, int]:
+        return (
+            info.st_dev,
+            info.st_ino,
+            info.st_mode,
+            info.st_nlink,
+            info.st_uid,
+            info.st_size,
+            info.st_mtime_ns,
+            info.st_ctime_ns,
+        )
+
+    try:
+        before = path.lstat()
+        if not stat.S_ISREG(before.st_mode) or before.st_uid != os.getuid() or before.st_mode & 0o077:
+            raise OperatorError(f"{label} is not a private regular file")
+        descriptor = os.open(path, os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            opened = os.fstat(descriptor)
+            if stat_signature(opened) != stat_signature(before):
+                raise OperatorError(f"{label} changed before read")
+            if opened.st_size > max_bytes:
+                raise OperatorError(f"{label} is oversized")
+            chunks: list[bytes] = []
+            total = 0
+            while True:
+                chunk = os.read(descriptor, min(64 * 1024, max_bytes - total + 1))
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > max_bytes:
+                    raise OperatorError(f"{label} is oversized")
+                chunks.append(chunk)
+            after = os.fstat(descriptor)
+            if stat_signature(after) != stat_signature(opened) or total != opened.st_size:
+                raise OperatorError(f"{label} changed during read")
+        finally:
+            os.close(descriptor)
+        final_path = path.lstat()
+        if stat_signature(final_path) != stat_signature(after):
+            raise OperatorError(f"{label} changed after read")
+    except OperatorError:
+        raise
+    except (OSError, UnicodeError) as exc:
+        raise OperatorError(f"{label} is unavailable") from exc
+    try:
+        value = json.loads(b"".join(chunks).decode("utf-8"), object_pairs_hook=_unique_json_pairs)
+    except (UnicodeError, json.JSONDecodeError, ValueError) as exc:
+        raise OperatorError(f"{label} is malformed") from exc
+    if not isinstance(value, dict):
+        raise OperatorError(f"{label} is not an object")
+    return value
+
+
+def _unique_json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON key")
+        result[key] = value
+    return result
+
+
+def _verify_observer_manifest(screen: X11Screen, observer: Path, digest: str) -> dict[str, str]:
+    """Verify the sealed observer against the current reviewed source bytes."""
+
+    try:
+        binary_info = observer.lstat()
+        if (
+            not stat.S_ISREG(binary_info.st_mode)
+            or binary_info.st_uid != os.getuid()
+            or binary_info.st_mode & 0o077
+            or not binary_info.st_mode & stat.S_IXUSR
+        ):
+            raise OperatorError("configured identity observer is not a private executable")
+        if _sha256_file(observer) != digest:
+            raise OperatorError("configured identity observer digest changed")
+    except OperatorError:
+        raise
+    except OSError as exc:
+        raise OperatorError("configured identity observer is unavailable") from exc
+    manifest_path = observer.with_suffix(".manifest.json")
+    manifest = _read_private_json(manifest_path, label="configured identity observer manifest")
+    expected_keys = {
+        "schema",
+        "target",
+        "binary",
+        "binary_sha256",
+        "source_sha256",
+        "static_inputs",
+        "toolchain",
+        "linker",
+    }
+    if set(manifest) != expected_keys or manifest.get("schema") != "crowley.x11-identity-observer.v1":
+        raise OperatorError("configured identity observer source manifest schema is malformed")
+    if manifest.get("binary") != str(observer) or manifest.get("binary_sha256") != digest:
+        raise OperatorError("configured identity observer manifest is not bound to the binary")
+    source_hashes = manifest.get("source_sha256")
+    expected_sources = {
+        "native/x11_identity_observer/Cargo.toml",
+        "native/x11_identity_observer/Cargo.lock",
+        "native/x11_identity_observer/src/main.rs",
+    }
+    if not isinstance(source_hashes, dict) or set(source_hashes) != expected_sources:
+        raise OperatorError("configured identity observer source set is malformed")
+    repository_root = Path(__file__).resolve().parents[1]
+    bindings: dict[str, str] = {
+        "identity-observer-binary": digest,
+        f"identity-observer-{observer.name}": digest,
+    }
+    for source_name in sorted(expected_sources):
+        source_path = repository_root / source_name
+        try:
+            source_info = source_path.lstat()
+            if not stat.S_ISREG(source_info.st_mode) or source_info.st_uid != os.getuid():
+                raise OperatorError("configured identity observer source is not a regular owned file")
+            source_digest = _sha256_file(source_path)
+        except OperatorError:
+            raise
+        except OSError as exc:
+            raise OperatorError("configured identity observer source is unavailable") from exc
+        expected_digest = source_hashes[source_name]
+        if (
+            not isinstance(expected_digest, str)
+            or not re.fullmatch(r"[0-9a-f]{64}", expected_digest)
+            or source_digest != expected_digest
+        ):
+            raise OperatorError("configured identity observer source digest is stale")
+        bindings[f"identity-observer-source-{Path(source_name).name}"] = source_digest
+    # The configured screen object is part of the binding, but its expected
+    # path is never copied from the manifest.
+    if getattr(getattr(screen, "backend", None), "resolver_kind", None) != "pinned-rust-v1":
+        raise OperatorError("configured identity observer production binding is unavailable")
+    return bindings
+
+
 def _source_bindings(
     screen: X11Screen,
     manifest: TemplateManifest,
@@ -4535,6 +4684,15 @@ def _source_bindings(
     bindings[f"producer-{producer.name}"] = producer_digest
     bindings["producer-manifest"] = producer_digest
     bindings["pinned-input-tool"] = screen.tool.digest
+    observer = screen.config.profile.identity_observer_executable
+    observer_digest = screen.config.profile.identity_observer_executable_sha256
+    if observer is not None or observer_digest is not None:
+        if observer is None or observer_digest is None:
+            raise OperatorError("configured identity observer pin is incomplete")
+        bindings.update(_verify_observer_manifest(screen, observer, observer_digest))
+        bindings["identity-observer-resolver"] = hashlib.sha256(
+            screen.backend.resolver_kind.encode()
+        ).hexdigest()
     if matcher_runtime is not None:
         bindings.update(matcher_runtime.source_bindings)
     return bindings

@@ -1235,6 +1235,91 @@ int main(int argc, char **argv) {
     return artifact
 
 
+def _consume_action_records(
+    pending: bytes,
+    chunk: bytes,
+    *,
+    on_record: Any,
+) -> bytes:
+    """Consume only complete, positively identified fixture action records."""
+
+    pending += chunk
+    while b"\n" in pending:
+        raw, pending = pending.split(b"\n", 1)
+        if not raw:
+            continue
+        try:
+            fields = raw.decode("ascii").split("\t")
+            if len(fields) < 3 or not fields[0].isdecimal() or not fields[1].isdecimal():
+                continue
+            pid = int(fields[0])
+            argc = int(fields[1])
+            arguments = fields[2:]
+            if pid <= 0 or argc <= 0 or argc != len(arguments):
+                continue
+        except (UnicodeDecodeError, ValueError):
+            continue
+        on_record(pid, arguments)
+    return pending
+
+
+def test_action_bridge_buffers_fragments_and_rejects_malformed_records(tmp_path: Path) -> None:
+    """A partial recorder row must not dispatch or acknowledge prematurely."""
+
+    action_log = tmp_path / "owned-actions.log"
+    action_ack = tmp_path / "owned-action-acks"
+    action_ack.mkdir(mode=0o700)
+    prefix_written = threading.Event()
+    allow_suffix = threading.Event()
+    writer_done = threading.Event()
+    writer_errors: list[BaseException] = []
+
+    def writer() -> None:
+        try:
+            with action_log.open("ab") as stream:
+                stream.write(b"7001\t2")
+                stream.flush()
+                prefix_written.set()
+                assert allow_suffix.wait(2.0)
+                stream.write(b"\tmousedown\t1\n0\t2\tmouseup\t1\n7002\t2\tmouseup\n7003\t2\tmouseup\t1\n")
+                stream.flush()
+        except BaseException as exc:
+            writer_errors.append(exc)
+        finally:
+            writer_done.set()
+
+    applied: list[tuple[int, list[str]]] = []
+
+    def on_record(pid: int, arguments: list[str]) -> None:
+        applied.append((pid, arguments))
+        (action_ack / str(pid)).touch(mode=0o600)
+
+    producer = threading.Thread(target=writer)
+    producer.start()
+    assert prefix_written.wait(2.0)
+    pending = b""
+    with action_log.open("rb") as stream:
+        pending = _consume_action_records(pending, stream.read(4096), on_record=on_record)
+        offset = stream.tell()
+        assert pending == b"7001\t2"
+        assert applied == []
+        assert list(action_ack.iterdir()) == []
+    # The production bridge closes and reopens this file between polls.  The
+    # retained pending bytes belong to the parser, while the offset belongs to
+    # the underlying file; rewinding it would dispatch the prefix twice.
+    allow_suffix.set()
+    assert writer_done.wait(2.0)
+    with action_log.open("rb") as stream:
+        stream.seek(offset)
+        pending = _consume_action_records(pending, stream.read(4096), on_record=on_record)
+    producer.join(timeout=2.0)
+    assert not producer.is_alive()
+    assert writer_errors == []
+    assert pending == b""
+    assert applied == [(7001, ["mousedown", "1"]), (7003, ["mouseup", "1"])]
+    assert sorted(path.name for path in action_ack.iterdir()) == ["7001", "7003"]
+
+
 def make_gated_recording_artifact(tmp_path: Path) -> Path:
     """Build a sealed fixture image that reports each owned action and waits for ACK."""
 
@@ -1251,12 +1336,33 @@ def make_gated_recording_artifact(tmp_path: Path) -> Path:
 int main(int argc, char **argv) {
     const char *log = getenv("CROWLEY_ACTION_LOG");
     const char *acks = getenv("CROWLEY_ACTION_ACK_DIR");
+    const char *pointer_state = getenv("CROWLEY_POINTER_STATE");
+    if (argc >= 3 && strcmp(argv[1], "getmouselocation") == 0 && strcmp(argv[2], "--shell") == 0) {
+        if (!pointer_state) return 2;
+        FILE *pointer = fopen(pointer_state, "r");
+        if (!pointer) return 2;
+        long x = 0, y = 0, window = 0;
+        int parsed = fscanf(pointer, "%ld %ld %ld", &x, &y, &window);
+        fclose(pointer);
+        if (parsed != 3 || x < 0 || y < 0 || window <= 0) return 2;
+        dprintf(STDOUT_FILENO, "X=%ld\nY=%ld\nSCREEN=0\nWINDOW=0x%lx\n", x, y, window);
+        return 0;
+    }
     if (!log || !acks || argc < 2) return 2;
     int fd = open(log, O_WRONLY | O_CREAT | O_APPEND, 0600);
     if (fd < 0) return 3;
-    dprintf(fd, "%ld\t%d", (long)getpid(), argc - 1);
-    for (int i = 1; i < argc; i++) dprintf(fd, "\t%s", argv[i]);
-    dprintf(fd, "\n");
+    char record[4096];
+    int length = snprintf(record, sizeof(record), "%ld\t%d", (long)getpid(), argc - 1);
+    if (length < 0 || (size_t)length >= sizeof(record)) return 4;
+    for (int i = 1; i < argc; i++) {
+        int written = snprintf(record + length, sizeof(record) - (size_t)length, "\t%s", argv[i]);
+        if (written < 0 || (size_t)written >= sizeof(record) - (size_t)length) return 4;
+        length += written;
+    }
+    if ((size_t)length + 1 >= sizeof(record)) return 4;
+    record[length++] = '\n';
+    ssize_t total = write(fd, record, (size_t)length);
+    if (total != length) return 5;
     close(fd);
     char ack[4096];
     snprintf(ack, sizeof(ack), "%s/%ld", acks, (long)getpid());
@@ -4915,6 +5021,10 @@ def test_resume_required_marks_retained_only_after_valid_callback(tmp_path: Path
         (operator.MODE_MEASURE_DEFERRED, False, "", "pressed-budget"),
         (operator.MODE_MEASURE_DEFERRED, False, "", "post-handoff-cancel"),
         (operator.MODE_MEASURE_DEFERRED, False, "", "resume-required-reject"),
+        (operator.MODE_MEASURE_DEFERRED, False, "", "observer-backend-pre"),
+        (operator.MODE_MEASURE_DEFERRED, False, "", "observer-backend-post"),
+        (operator.MODE_MEASURE_DEFERRED, False, "", "observer-runner-post"),
+        (operator.MODE_MEASURE_DEFERRED, False, "", "init-source-binding-failure"),
     ],
     ids=[
         "success",
@@ -4926,10 +5036,15 @@ def test_resume_required_marks_retained_only_after_valid_callback(tmp_path: Path
         "pressed-budget",
         "post-handoff-cancel",
         "resume-required-reject",
+        "observer-backend-pre",
+        "observer-backend-post",
+        "observer-runner-post",
+        "init-source-binding-failure",
     ],
 )
 def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
     tmp_path: Path,
+    request: pytest.FixtureRequest,
     monkeypatch: pytest.MonkeyPatch,
     operation_mode: str,
     measurement_failure: bool,
@@ -4953,11 +5068,150 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
     from crowley.session.config import SessionConfig, load_config
     from crowley.session.controller import Controller, ControllerState
     from crowley.session.daemon import SessionDaemon
-    from crowley.session.driver import DesktopDriver, WindowIdentity, X11Backend, _proc_start
+    from crowley.session.driver import DesktopDriver, _proc_start
     from crowley.session.journal import DEFAULT_STATE, Journal
     from tests.test_session_native import _evidence
     from tests.test_session_native_regressions import AUTHENTIC_CODEX_PATH
     from tests.wow_harness import WowClient
+
+    class OwnedComposedResources:
+        """Own every external resource even when setup or assertions abort."""
+
+        def __init__(self) -> None:
+            self.processes: list[subprocess.Popen[Any]] = []
+            self.threads: list[threading.Thread] = []
+            self.connections: list[socket.socket] = []
+            self.stop_events: list[threading.Event] = []
+            self.input_devices: list[Any] = []
+            self.screens: list[Any] = []
+            self.drivers: list[Any] = []
+            self.listeners: list[socket.socket] = []
+            self._cleaned = False
+
+        def process(self, value: subprocess.Popen[Any]) -> subprocess.Popen[Any]:
+            self.processes.append(value)
+            return value
+
+        def thread(self, value: threading.Thread) -> threading.Thread:
+            self.threads.append(value)
+            return value
+
+        def connection(self, value: socket.socket) -> socket.socket:
+            self.connections.append(value)
+            return value
+
+        def event(self, value: threading.Event) -> threading.Event:
+            self.stop_events.append(value)
+            return value
+
+        def cleanup(self) -> None:
+            if self._cleaned:
+                return
+            self._cleaned = True
+            for event in self.stop_events:
+                event.set()
+            for connection in self.connections:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                try:
+                    connection.close()
+                except OSError:
+                    pass
+            for listener in self.listeners:
+                try:
+                    listener.close()
+                except OSError:
+                    pass
+            for resource in (*reversed(self.input_devices), *reversed(self.screens), *reversed(self.drivers)):
+                try:
+                    resource.close()
+                except Exception:
+                    pass
+            for process in self.processes:
+                if process.poll() is None:
+                    process.terminate()
+                    try:
+                        process.wait(timeout=3)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=3)
+            for thread in self.threads:
+                thread.join(timeout=3)
+            assert all(process.poll() is not None for process in self.processes)
+            assert all(not thread.is_alive() for thread in self.threads)
+
+    owned = OwnedComposedResources()
+
+    evidence_root_raw = os.environ.get("CROWLEY_NATIVE_OBSERVER_EVIDENCE_ROOT", "")
+    evidence_base = Path(evidence_root_raw).expanduser() if evidence_root_raw else tmp_path
+    if evidence_base != tmp_path:
+        evidence_base.mkdir(mode=0o700, parents=True, exist_ok=True)
+        evidence_base.chmod(0o700)
+    evidence_label = re.sub(
+        r"[^a-zA-Z0-9_.-]+",
+        "_",
+        f"{operation_mode}-{fixture_case or ('measurement-failure' if measurement_failure else 'ordinary')}-{os.getpid()}-{time.monotonic_ns()}",
+    )
+    evidence_root = evidence_base / evidence_label if evidence_base != tmp_path else tmp_path
+    if evidence_root != tmp_path:
+        evidence_root.mkdir(mode=0o700, parents=True, exist_ok=True)
+        evidence_root.chmod(0o700)
+    artifact_sources: dict[str, Path] = {}
+
+    def persist_run_artifacts() -> None:
+        """Copy exact per-case JSON evidence before pytest rotates tmp_path."""
+
+        if evidence_root == tmp_path:
+            return
+        for label, source in artifact_sources.items():
+            if not source.is_file():
+                continue
+            destination = evidence_root / label
+            destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            if source.resolve() != destination.resolve():
+                shutil.copy2(source, destination)
+            destination.chmod(0o600)
+        diagnostic_root = tmp_path / "native-observation-diagnostics"
+        if diagnostic_root.is_dir():
+            for source in diagnostic_root.glob("*/failure.json"):
+                destination = (
+                    evidence_root / "native-observation-diagnostics" / source.parent.name / source.name
+                )
+                destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                destination.chmod(0o600)
+        receipt_root = tmp_path / "operator-receipts"
+        if receipt_root.is_dir():
+            for source in receipt_root.glob("*/receipt.json"):
+                destination = evidence_root / "operator-receipts" / source.parent.name / source.name
+                destination.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+                shutil.copy2(source, destination)
+                destination.chmod(0o600)
+        metadata = {
+            "fixture_case": fixture_case,
+            "measurement_failure": measurement_failure,
+            "operation_mode": operation_mode,
+            "pid": os.getpid(),
+            "tmp_path": str(tmp_path),
+            "artifact_labels": sorted(artifact_sources),
+            "persisted_at_monotonic_ns": time.monotonic_ns(),
+        }
+        metadata_path = evidence_root / "run-metadata.json"
+        metadata_path.write_text(json.dumps(metadata, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+        metadata_path.chmod(0o600)
+
+    def assert_owned_cleanup() -> None:
+        assert owned._cleaned
+        assert all(process.poll() is not None for process in owned.processes)
+        assert all(not thread.is_alive() for thread in owned.threads)
+
+    # Pytest finalizers run in reverse registration order: cleanup first,
+    # persistence second, so copied evidence never refers to live resources.
+    request.addfinalizer(assert_owned_cleanup)
+    request.addfinalizer(persist_run_artifacts)
+    request.addfinalizer(owned.cleanup)
 
     harness_path = Path(__file__).resolve().parents[1] / "tools/gnome-telemetry-region/offline_harness.py"
     harness_spec = importlib.util.spec_from_file_location("causal_region_harness", harness_path)
@@ -4974,6 +5228,56 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
     assert producer.is_file()
     producer_sha256 = hashlib.sha256(producer.read_bytes()).hexdigest()
     assert producer_sha256 == freeze["build"]["private_binary_sha256"]
+
+    observer_binary = tmp_path / "x11-identity-observer"
+    observer_builder = Path(__file__).resolve().parents[1] / "tools/build_x11_identity_observer.py"
+    subprocess.run(
+        [sys.executable, str(observer_builder), "--output", str(observer_binary)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    observer_sha256 = hashlib.sha256(observer_binary.read_bytes()).hexdigest()
+
+    wine_source = tmp_path / "wine_preloader.c"
+    wine_source.write_text(
+        r"""
+#include <X11/Xlib.h>
+#include <X11/Xatom.h>
+#include <X11/Xutil.h>
+#include <sys/prctl.h>
+#include <unistd.h>
+
+int main(void) {
+    prctl(PR_SET_NAME, "WowB.exe", 0, 0, 0);
+    Display *display = XOpenDisplay(NULL);
+    if (!display) return 2;
+    Window root = DefaultRootWindow(display);
+    Window outer = XCreateSimpleWindow(display, root, 0, 0, 1928, 1092, 0, 0, 0);
+    Window child = XCreateSimpleWindow(display, outer, 0, 0, 1920, 1080, 0, 0, 0);
+    XStoreName(display, outer, "World of Warcraft");
+    XClassHint hint = {"wowb.exe", "wowb.exe"};
+    XSetClassHint(display, outer, &hint);
+    Atom pid_atom = XInternAtom(display, "_NET_WM_PID", False);
+    unsigned long pid = (unsigned long)getpid();
+    XChangeProperty(display, outer, pid_atom, XA_CARDINAL, 32, PropModeReplace,
+                    (unsigned char *)&pid, 1);
+    Atom active_atom = XInternAtom(display, "_NET_ACTIVE_WINDOW", False);
+    unsigned long active = (unsigned long)child;
+    XChangeProperty(display, root, active_atom, XA_WINDOW, 32, PropModeReplace,
+                    (unsigned char *)&active, 1);
+    XMapWindow(display, child);
+    XMapWindow(display, outer);
+    XSetInputFocus(display, child, RevertToParent, CurrentTime);
+    XFlush(display);
+    for (;;) sleep(1);
+}
+""",
+        encoding="utf-8",
+    )
+    wine_fixture = tmp_path / "wine-preloader"
+    subprocess.run(["cc", str(wine_source), "-lX11", "-o", str(wine_fixture)], check=True)
+    wine_fixture.chmod(0o700)
 
     # Keep this isolated compositor from contending with a live session's
     # process-global screenshot lock.  The production lock implementation and
@@ -5139,6 +5443,8 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
     initial_desktop = full_desktop(initial_agent_image)
     gated_tool_root = make_gated_recording_artifact(tmp_path)
     action_log = tmp_path / "owned-actions.log"
+    artifact_sources["action-history.json"] = tmp_path / "action-history.json"
+    artifact_sources["owned-actions.log"] = action_log
     action_ack = tmp_path / "owned-action-acks"
     action_ack.mkdir(mode=0o700)
     action_log.touch(mode=0o600)
@@ -5185,6 +5491,10 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                     f"--config-file={private_bus_config}",
                     *command[1:],
                 ]
+                command = [
+                    item.replace("1920x1080x24", "1928x1092x24") if isinstance(item, str) else item
+                    for item in command
+                ]
             if isinstance(command, list) and command and command[0] == "dbus-run-session":
                 shell_script = next((str(item) for item in command if "compositor.js" in str(item)), None)
                 if shell_script is not None:
@@ -5203,6 +5513,11 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                             "try { Gio.File.new_for_path(ARGV[12]).delete(null); } catch (_) {}"
                         )
                         script = script_path.read_text(encoding="utf-8")
+                        # The real observer fixture owns a 1928x1092 outer
+                        # window around the 1920x1080 client.  Give the
+                        # private Xvfb enough root space for that measured
+                        # geometry; desktop captures remain 1920x1080.
+                        script = script.replace("1920x1080x24", "1928x1092x24")
                         script = script.replace(
                             "while (!GLib.file_test(ARGV[12], GLib.FileTest.EXISTS)) GLib.usleep(10000);",
                             replacement,
@@ -5286,7 +5601,9 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             f"companion_state = {json.dumps(str(tmp_path / 'companion.json'))}\n"
             f"data_lua = {json.dumps(str(tmp_path / 'Data.lua'))}\n"
             f"telemetry_region_executable = {json.dumps(str(producer))}\n"
-            f"telemetry_region_executable_sha256 = {json.dumps(producer_sha256)}\n",
+            f"telemetry_region_executable_sha256 = {json.dumps(producer_sha256)}\n"
+            f"identity_observer_executable = {json.dumps(str(observer_binary))}\n"
+            f"identity_observer_executable_sha256 = {json.dumps(observer_sha256)}\n",
             encoding="utf-8",
         )
         for path in (
@@ -5297,36 +5614,123 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
         ):
             path.touch(mode=0o600, exist_ok=True)
         screen_config = load_config(config_path)
-        child = subprocess.Popen(["/bin/sleep", "600"])
+        gated_tool = operator.PinnedInputTool.from_root(gated_tool_root)
+        # The input recorder remains test-owned, while identity resolution
+        # below goes through the real production factory and sealed observer.
+        monkeypatch.setattr(operator.PinnedInputTool, "load", lambda: gated_tool)
+        child = owned.process(
+            subprocess.Popen(
+                [str(wine_fixture), "WowB.exe"],
+                env={
+                    "DISPLAY": compositor["display"],
+                    "WINEPREFIX": "/private/crowley-fixture",
+                },
+            )
+        )
         process_start = _proc_start(child.pid)
         process_executable = os.path.realpath(os.readlink(f"/proc/{child.pid}/exe"))
-        identity = WindowIdentity(
-            0x400,
-            child.pid,
-            process_executable,
-            "World of Warcraft",
-            "wowb.exe",
-            0x401,
-            (0, 0, 1928, 1092),
-            (0, 0, 1920, 1080),
-            0x400,
-            process_start,
-            compositor["display"],
-            "a" * 64,
-            root_xid=0x374,
-            managed_frame_xid=0x400,
-            target_event_xids=frozenset({0x400, 0x401}),
-        )
+        screen = operator.X11Screen(config_path, tmp_path / "screen-receipts")
+        owned.screens.append(screen)
+        backend = screen.backend
+        assert backend is not None
+        identity = screen.resolve_identity()
+        assert identity.pid == child.pid
+        assert identity.process_start == process_start
+        assert identity.executable == "WowB.exe"
+        assert backend.resolver_kind == "pinned-rust-v1"
+        observer = backend._identity_observer
+        assert observer is not None
+        observer_invocations: list[dict[str, Any]] = []
+        observer_fault_boundary = {
+            "observer-backend-pre": "identity_backend_pre",
+            "observer-backend-post": "identity_backend_post",
+            "observer-runner-post": "identity_post_capture",
+        }.get(fixture_case)
+        observer_fault_applied = False
+        observer_fault_restored = False
+        observer_fault_failures: list[dict[str, Any]] = []
+        observer_fault_rows_before: int | None = None
 
-        backend = X11Backend(screen_config.profile)
-        backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
-        pointer = [0, 0, 0x400]
-        backend.pointer_position = lambda **_kwargs: tuple(pointer)  # type: ignore[method-assign]
+        def set_actual_window_title(title: str) -> None:
+            result = subprocess.run(
+                [
+                    "xprop",
+                    "-id",
+                    hex(identity.xid),
+                    "-f",
+                    "WM_NAME",
+                    "8s",
+                    "-set",
+                    "WM_NAME",
+                    title,
+                ],
+                env={
+                    "DISPLAY": compositor["display"],
+                    "XAUTHORITY": str(xauthority),
+                    "LC_ALL": "C",
+                },
+                check=False,
+                capture_output=True,
+                text=True,
+            )
+            assert result.returncode == 0, result.stderr
+
+        original_observer_invoke = observer.invoke
+
+        def record_observer_invoke(*args: Any, **kwargs: Any) -> dict[str, Any]:
+            nonlocal observer_fault_applied, observer_fault_restored, observer_fault_rows_before
+            sink = session_driver._IDENTITY_LATENCY_SINK.get()
+            boundary = getattr(sink, "_active_boundary", None)
+            mutated = observer_fault_boundary is not None and boundary == observer_fault_boundary
+            if mutated and not observer_fault_applied:
+                # Change the actual X11 property before the sealed observer
+                # reads it.  The Rust process therefore publishes the fault;
+                # this is not a post-hoc mutation of returned facts.
+                if area_log_path.exists():
+                    existing_rows = json.loads(area_log_path.read_text(encoding="utf-8"))
+                    assert isinstance(existing_rows, list)
+                    observer_fault_rows_before = len(existing_rows)
+                else:
+                    observer_fault_rows_before = 0
+                set_actual_window_title("Crowley observer fault")
+                observer_fault_applied = True
+            started = time.monotonic_ns()
+            try:
+                try:
+                    facts = original_observer_invoke(*args, **kwargs)
+                except BaseException as exc:
+                    if mutated:
+                        observer_fault_failures.append(
+                            {"boundary": boundary, "error": str(exc), "thread_id": threading.get_ident()}
+                        )
+                    raise
+                finished = time.monotonic_ns()
+                observer_invocations.append(
+                    {
+                        "start_monotonic_ns": started,
+                        "end_monotonic_ns": finished,
+                        "nonce": facts.get("nonce"),
+                        "thread_id": threading.get_ident(),
+                    }
+                )
+                return facts
+            finally:
+                if mutated:
+                    set_actual_window_title("World of Warcraft")
+                    observer_fault_restored = True
+
+        observer.invoke = record_observer_invoke  # type: ignore[method-assign]
+        pointer = [0, 0, identity.xid]
+        pointer_state_path = tmp_path / "pointer-state"
+        pointer_state_path.write_text(f"{pointer[0]} {pointer[1]} {pointer[2]}\n", encoding="ascii")
+        pointer_state_path.chmod(0o600)
+        monkeypatch.setenv("CROWLEY_POINTER_STATE", str(pointer_state_path))
         driver = DesktopDriver(
             profile=screen_config.profile,
             backend=backend,
             lease_path=tmp_path / "desktop.lock",
         )
+        owned.drivers.append(driver)
         driver.input_hierarchy = lambda **_kwargs: _evidence().xinput_hierarchy  # type: ignore[method-assign]
         native_clock = [time.monotonic()]
         driver.native_memory_meter = LinuxProcStatusVmHwmReset5(
@@ -5339,6 +5743,7 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
         driver.guardian.lease.acquire()
 
         journal_path = tmp_path / "daemon-journal.json"
+        artifact_sources["daemon-journal.json"] = journal_path
         journal_value = copy.deepcopy(DEFAULT_STATE)
         journal_value.update(
             {
@@ -5364,6 +5769,22 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
         )
         controller = Controller(journal, driver=driver, recover_on_restart=False)
         daemon = SessionDaemon(daemon_config, controller=controller, driver=driver)
+        alignment_sleeps: list[dict[str, Any]] = []
+
+        def record_alignment_sleep(seconds: float) -> None:
+            anchor = daemon._native_update_alignment_anchor
+            ordinal = anchor.get("waitingOrdinal") if isinstance(anchor, dict) else None
+            started = time.monotonic_ns()
+            time.sleep(seconds)
+            alignment_sleeps.append(
+                {
+                    "ordinal": ordinal,
+                    "start_monotonic_ns": started,
+                    "end_monotonic_ns": time.monotonic_ns(),
+                }
+            )
+
+        daemon._native_alignment_sleep = record_alignment_sleep
         observed_attempts: list[dict[str, Any]] = []
         # The diagnostic hook receives each completed attempt before the
         # bounded 16-attempt ring can prune it.  This is a test-owned
@@ -5478,14 +5899,48 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
 
         ipc = SessionIPC(daemon.controller, owner=daemon)
         listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        owned.listeners.append(listener)
         listener.bind(str(socket_path))
         socket_path.chmod(0o600)
         listener.listen(16)
         listener.settimeout(0.1)
-        stop_server = threading.Event()
+        ipc_receipt_path = tmp_path / "native-ipc-responses.jsonl"
+        artifact_sources["native-ipc-responses.jsonl"] = ipc_receipt_path
+        ipc_receipt_path.touch(mode=0o600)
+        ipc_receipt_path.chmod(0o600)
+        ipc_receipt_lock = threading.Lock()
+
+        def record_native_ipc_exchange(request: dict[str, Any], reply: Any) -> None:
+            """Keep a private receipt of native construction IPC for diagnosis."""
+
+            command = request.get("command")
+            if not isinstance(command, str) or not command.startswith("native_construction_"):
+                return
+            record = {
+                "monotonic_ns": time.monotonic_ns(),
+                "command": command,
+                "request": request,
+                "reply": reply,
+            }
+            try:
+                # Multiple real AF_UNIX handlers can finish concurrently.  A
+                # lock keeps each private diagnostic JSONL record complete;
+                # this receipt must never affect the IPC response or guards.
+                with ipc_receipt_lock:
+                    with ipc_receipt_path.open("a", encoding="utf-8") as stream:
+                        stream.write(json.dumps(record, sort_keys=True, separators=(",", ":")))
+                        stream.write("\n")
+                        stream.flush()
+                    ipc_receipt_path.chmod(0o600)
+            except (OSError, TypeError, ValueError):
+                # Diagnostics must never change the IPC result or its guards.
+                return
+
+        stop_server = owned.event(threading.Event())
         server_workers: list[threading.Thread] = []
 
         def serve_connection(connection: socket.socket) -> None:
+            owned.connections.append(connection)
             with connection:
                 reader = _BoundedIPCReader(connection)
                 raw = reader.read_record(4096)
@@ -5524,6 +5979,11 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                                 response = ipc.dispatch(request)
                             except Exception:
                                 raise
+                            record_native_ipc_exchange(request, response)
+                            if response.get("ok") is not True:
+                                (tmp_path / "actor-error.json").write_text(
+                                    json.dumps(response, sort_keys=True), encoding="utf-8"
+                                )
                     frame = (
                         b"J" + json.dumps(response, sort_keys=True, separators=(",", ":")).encode() + b"\n"
                     )
@@ -5538,6 +5998,7 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                     response = ipc.dispatch(request)
                 except Exception as exc:
                     response = {"ok": False, "error": str(exc)}
+                record_native_ipc_exchange(request, response)
                 try:
                     connection.sendall(_encode_bounded_record(response, 524288))
                 except OSError:
@@ -5554,30 +6015,13 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                         return
                     raise
                 worker = threading.Thread(target=serve_connection, args=(connection,), daemon=True)
+                owned.thread(worker)
                 server_workers.append(worker)
                 worker.start()
 
-        server_thread = threading.Thread(target=serve_socket, daemon=True)
+        server_thread = owned.thread(threading.Thread(target=serve_socket, daemon=True))
         server_thread.start()
 
-        screen_backend: list[Any] = []
-        original_backend_factory = operator.X11Backend
-
-        def screen_backend_factory(profile, *, input_tool=None):
-            created = original_backend_factory(profile, input_tool=input_tool)
-            created.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
-            created.pointer_position = lambda **_kwargs: tuple(pointer)  # type: ignore[method-assign]
-            screen_backend.append(created)
-            return created
-
-        monkeypatch.setattr(operator, "X11Backend", screen_backend_factory)
-        gated_tool = operator.PinnedInputTool.from_root(gated_tool_root)
-        # The real screen backend and FixedInput must consume the same sealed
-        # executable artifact.  The production loader remains unchanged; this
-        # test-only factory supplies the private recorder artifact to both
-        # owners so the receipt pin covers one actual input image.
-        monkeypatch.setattr(operator.PinnedInputTool, "load", lambda: gated_tool)
-        screen = operator.X11Screen(config_path, tmp_path / "screen-receipts")
         watchdog_env = {
             "DISPLAY": compositor["display"],
             "XAUTHORITY": str(xauthority),
@@ -5586,6 +6030,7 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
         }
         watchdog = operator.Watchdog(gated_tool, interval=0.02, environment=watchdog_env)
         input_device = operator.FixedInput(gated_tool, watchdog=watchdog, environment=watchdog_env)
+        owned.input_devices.append(input_device)
         client = operator.DaemonClient(socket_path, request_fn=_socket_request, timeout=45.0)
         state_lock = threading.RLock()
         state = {
@@ -5760,34 +6205,21 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                     time.sleep(0.001)
             return released_at
 
+        publisher_started = threading.Event()
+        publisher_origin = [0.0]
+
         def drive_updates() -> None:
             """Publish actual deferred Agent state on a real one-second ticker."""
 
-            # Measure publishes update/1 immediately.  Wait only for that
-            # real accepted capture to establish the ticker origin; subsequent
-            # producer polls remain unblocked and reject duplicate frames
-            # until the external publication tick advances the actual client.
-            deadline = time.monotonic() + 20.0
-            first_capture: float | None = None
-            while time.monotonic() < deadline and not stop_server.is_set():
-                if native_provider_trace:
-                    for entry in native_provider_trace:
-                        if entry.get("stage") == "updates" and entry.get("ordinal") == 1:
-                            first_capture = float(entry["capture"])
-                            break
-                else:
-                    first_capture = diagnostic_update_capture(1)
-                if first_capture is not None:
-                    break
-                time.sleep(0.005)
-            if first_capture is None:
+            # The publication clock starts at the real Agent measure action,
+            # independently of the consumer's first identity/capture return.
+            # Duplicate polling therefore cannot move the next one-second
+            # publication boundary or manufacture consumer-driven timing.
+            if not publisher_started.wait(20.0) or stop_server.is_set():
                 return
-            # The unmodified producer starts its next poll while the first
-            # accepted PNG is still being decoded.  Start the first external
-            # publication with that measured ~100 ms launch lead; later ticks
-            # remain exactly one real second apart.
-            next_tick = first_capture + 0.9
+            publication_origin = publisher_origin[0]
             for ordinal in range(2, 100):
+                next_tick = publication_origin + (ordinal - 1)
                 while time.monotonic() < next_tick and not stop_server.is_set():
                     if measurement_error_seen:
                         return
@@ -6020,6 +6452,8 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                             gate_state["auto_updates"] = True
                             area_block_path.unlink(missing_ok=True)
                             area_release_path.touch(mode=0o600, exist_ok=True)
+                        publisher_origin[0] = time.monotonic()
+                        publisher_started.set()
                         assert_actual_publication(6)
                         return "measure"
                     if command == "agent resume":
@@ -6045,7 +6479,11 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                         return False
                     return False
                 elif arguments[0] == "mousemove" and len(arguments) >= 4:
-                    pointer[:] = [int(arguments[-2]), int(arguments[-1]), 0x400]
+                    pointer[:] = [int(arguments[-2]), int(arguments[-1]), identity.xid]
+                    pointer_state_path.write_text(
+                        f"{pointer[0]} {pointer[1]} {pointer[2]}\n", encoding="ascii"
+                    )
+                    pointer_state_path.chmod(0o600)
                     return False
                 elif arguments[0] == "mousedown":
                     # Derive the Lua control from the real emitted pointer;
@@ -6121,32 +6559,35 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                         return True
                 return False
 
+        def process_action_record(pid: int, arguments: list[str]) -> None:
+            release_after_ack = apply_action(arguments)
+            (action_ack / str(pid)).touch(mode=0o600, exist_ok=True)
+            if release_after_ack == "measure":
+                owned.thread(threading.Thread(target=drive_updates, daemon=True)).start()
+            elif release_after_ack:
+                owned.thread(threading.Thread(target=release_area_gate, daemon=True)).start()
+
         def action_bridge() -> None:
+            pending_action = b""
             while not stop_server.is_set():
                 try:
-                    with action_log.open("r", encoding="utf-8") as stream:
+                    with action_log.open("rb") as stream:
                         stream.seek(int(state["offset"]))
                         while True:
-                            line = stream.readline()
-                            if not line:
+                            chunk = stream.read(4096)
+                            if not chunk:
                                 state["offset"] = stream.tell()
                                 break
-                            fields = line.rstrip("\n").split("\t")
-                            if len(fields) < 3:
-                                continue
-                            pid = fields[0]
-                            arguments = fields[2:]
-                            release_after_ack = apply_action(arguments)
-                            (action_ack / pid).touch(mode=0o600, exist_ok=True)
-                            if release_after_ack == "measure":
-                                threading.Thread(target=drive_updates, daemon=True).start()
-                            elif release_after_ack:
-                                threading.Thread(target=release_area_gate, daemon=True).start()
+                            pending_action = _consume_action_records(
+                                pending_action,
+                                chunk,
+                                on_record=process_action_record,
+                            )
                 except OSError:
                     pass
                 time.sleep(0.002)
 
-        bridge_thread = threading.Thread(target=action_bridge, daemon=True)
+        bridge_thread = owned.thread(threading.Thread(target=action_bridge, daemon=True))
         bridge_thread.start()
 
         # Hold every producer request behind an explicit stage boundary.  The
@@ -6205,8 +6646,44 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                     pass
                 time.sleep(0.01)
 
-        area_gate_thread = threading.Thread(target=area_gate_controller, daemon=True)
+        area_gate_thread = owned.thread(threading.Thread(target=area_gate_controller, daemon=True))
         area_gate_thread.start()
+
+        if fixture_case == "init-source-binding-failure":
+            observer_manifest_path = observer_binary.with_suffix(".manifest.json")
+            original_observer_manifest = observer_manifest_path.read_bytes()
+            observer_manifest = json.loads(original_observer_manifest)
+            source_hashes = observer_manifest.get("source_sha256")
+            assert isinstance(source_hashes, dict) and source_hashes
+            first_source = next(iter(source_hashes))
+            source_hashes[first_source] = "0" * 64
+            observer_manifest_path.write_text(json.dumps(observer_manifest, sort_keys=True), encoding="utf-8")
+            observer_manifest_path.chmod(0o600)
+            try:
+                with pytest.raises(operator.OperatorError, match="source digest is stale"):
+                    operator._source_bindings(screen, manifest)
+            finally:
+                observer_manifest_path.write_bytes(original_observer_manifest)
+                observer_manifest_path.chmod(0o600)
+            # This refusal is deliberately before NativeCalibrationOperator
+            # construction/run.  Exercise the same owned teardown path here,
+            # rather than relying on pytest's finalizer, so an initialization
+            # failure cannot strand the real fixture process, listener, or
+            # worker threads.
+            owned.cleanup()
+            assert child.poll() is not None
+            assert owned._cleaned
+            assert all(not thread.is_alive() for thread in owned.threads)
+            assert all(connection.fileno() == -1 for connection in owned.connections)
+            assert all(listener.fileno() == -1 for listener in owned.listeners)
+            assert input_device._closed is True
+            assert screen.backend is None
+            assert screen.tool is None
+            assert backend._identity_observer is None
+            assert observer._closed is True
+            assert backend.input_tool.image.fd == -1
+            assert driver._monitor is None
+            return
 
         def ocr(_path: Path) -> str:
             with state_lock:
@@ -6227,6 +6704,115 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
         )
         assert not driver.backend._cancel_active.is_set()
         try:
+            if observer_fault_boundary is not None:
+                rows_before = (
+                    json.loads(area_log_path.read_text(encoding="utf-8")) if area_log_path.exists() else []
+                )
+                assert isinstance(rows_before, list)
+                with pytest.raises((operator.OperatorError, session_driver.DriverError)) as fault:
+                    operator_instance.run()
+                assert observer_fault_applied and observer_fault_restored
+                assert len(observer_fault_failures) == 1
+                assert observer_fault_failures[0]["boundary"] == observer_fault_boundary
+                # The operator may translate a daemon-side actor rejection
+                # into ``actor_admission_invalid``.  Keep the public error
+                # exact, but prove the retained native IPC carries the
+                # actual sealed-observer refusal rather than accepting that
+                # translation as an identity fault by itself.
+                public_error = str(fault.value).lower()
+                assert "identity" in public_error or "actor_admission_invalid" in public_error
+                ipc_records = [
+                    json.loads(line)
+                    for line in ipc_receipt_path.read_text(encoding="utf-8").splitlines()
+                    if line.strip()
+                ]
+                assert ipc_records
+                assert all(
+                    isinstance(record, dict)
+                    and isinstance(record.get("command"), str)
+                    and record["command"].startswith("native_construction_")
+                    for record in ipc_records
+                )
+                observer_failure_text = " ".join(
+                    str(item.get("error", "")) for item in observer_fault_failures
+                ).lower()
+                assert "identity observer failed" in observer_failure_text
+                # A pre-admission observer refusal leaves an in-progress
+                # measurement in NATIVE_CALIBRATION; recovery/control
+                # workflows must instead return to their paused boundary.
+                if (
+                    operation_mode == operator.MODE_MEASURE_DEFERRED
+                    and observer_fault_boundary == "identity_backend_pre"
+                ):
+                    expected_fault_states = {ControllerState.NATIVE_CALIBRATION}
+                elif (
+                    operation_mode == operator.MODE_MEASURE_DEFERRED
+                    and observer_fault_boundary == "identity_post_capture"
+                ):
+                    # Depending on whether the recovery transition wins the
+                    # final assertion race, the real runner leaves the
+                    # failed native operation in NATIVE_CALIBRATION or has
+                    # already published PAUSED/recovery.  Both are bounded
+                    # states; the latter must retain the exact blocker.
+                    expected_fault_states = {ControllerState.NATIVE_CALIBRATION, ControllerState.PAUSED}
+                else:
+                    expected_fault_states = {ControllerState.PAUSED}
+                status = daemon.controller.status()
+                assert status.state in expected_fault_states
+                if (
+                    observer_fault_boundary == "identity_post_capture"
+                    and status.state is ControllerState.PAUSED
+                ):
+                    assert status.blocker == "native construction recovery"
+                assert not driver.guardian.armed
+                assert daemon._native_owned_capture_paths == set()
+                assert not daemon._native_observation_diagnostic._current
+                rows_after = (
+                    json.loads(area_log_path.read_text(encoding="utf-8")) if area_log_path.exists() else []
+                )
+                assert isinstance(rows_after, list)
+                fault_attempts = [
+                    attempt
+                    for attempt in observed_attempts
+                    if attempt.get("spans", {}).get(observer_fault_boundary, {}).get("outcome") == "failed"
+                ]
+                assert fault_attempts
+                fault_attempt = fault_attempts[-1]
+                capture_span = fault_attempt["spans"]["capture"]
+                if observer_fault_boundary == "identity_backend_pre":
+                    # The sealed observer rejected the actual window before
+                    # producer admission.  The attempt never acquired a
+                    # receipt and no compositor row was added.
+                    assert capture_span["outcome"] == "failed"
+                    assert fault_attempt["backend_receipt"] is None
+                    assert fault_attempt["release_outcome"] == "not_reached"
+                    assert observer_fault_rows_before is not None
+                    assert len(rows_after) == observer_fault_rows_before
+                elif observer_fault_boundary == "identity_backend_post":
+                    # Backend-post rejects before the producer's receipt is
+                    # accepted.  Later setup/cleanup captures can change the
+                    # compositor row count, so correlate the exact attempt
+                    # and its no-receipt outcome instead.
+                    assert capture_span["outcome"] == "failed"
+                    assert fault_attempt["backend_receipt"] is None
+                    assert fault_attempt["release_outcome"] == "not_reached"
+                else:
+                    # Runner-post follows an actual producer completion.  The
+                    # precise attempt carries a finalized, released receipt
+                    # whose digest is the produced capture; the failed
+                    # identity proof still prevents qualification.
+                    assert capture_span["outcome"] == "ok"
+                    receipt = fault_attempt["backend_receipt"]
+                    assert isinstance(receipt, dict)
+                    assert fault_attempt["release_outcome"] == "released"
+                    assert receipt["attempt_retired"] is True
+                    assert receipt["output_sha256"] == fault_attempt["actual"]["capture_sha256"]
+                restored = screen.resolve_identity()
+                assert restored.pid == identity.pid
+                assert restored.process_start == identity.process_start
+                assert restored.fingerprint == identity.fingerprint
+                return
+
             if fixture_case == "watchdog-readiness":
                 input_device.watchdog.close()
                 with pytest.raises(operator.OperatorError):
@@ -6327,8 +6913,85 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                 )
                 assert receipt["outcome"] == "failure"
                 assert receipt["failureCode"] == "interrupted"
-                assert any(event["name"] == "reservation_cancelled" for event in receipt["events"])
+                receipt_events = receipt["events"]
+                direct_cancel = [
+                    event for event in receipt_events if event.get("name") == "reservation_cancelled"
+                ]
+                poisoned_cancel = [
+                    event
+                    for event in receipt_events
+                    if event.get("name") == "reservation_cancel_failed"
+                    and event.get("reason") == "OperatorError"
+                ]
+                retained_actor = [
+                    event for event in receipt_events if event.get("name") == "cancellation_actor_retained"
+                ]
+                assert direct_cancel or (poisoned_cancel and retained_actor)
+
+                def native_ipc_records() -> list[dict[str, Any]]:
+                    records: list[dict[str, Any]] = []
+                    if not ipc_receipt_path.exists():
+                        return records
+                    for line in ipc_receipt_path.read_text(encoding="utf-8").splitlines():
+                        if not line.strip():
+                            continue
+                        try:
+                            record = json.loads(line)
+                        except json.JSONDecodeError:
+                            continue
+                        if isinstance(record, dict):
+                            records.append(record)
+                    return records
+
+                cancel_record: dict[str, Any] | None = None
+                deadline = time.monotonic() + 5.0
+                while time.monotonic() < deadline:
+                    for record in native_ipc_records():
+                        if record.get("command") != "native_construction_recovery_cancel":
+                            continue
+                        request = record.get("request")
+                        reply = record.get("reply")
+                        if isinstance(request, dict) and isinstance(reply, dict) and reply.get("ok") is True:
+                            cancel_record = record
+                            break
+                    if cancel_record is not None:
+                        break
+                    time.sleep(0.01)
+                assert not owned._cleaned
+                assert cancel_record is not None
+                cancel_request = cancel_record["request"]
+                cancel_reply = cancel_record["reply"]
+                prepared_records = [
+                    record
+                    for record in native_ipc_records()
+                    if record.get("command") == "native_construction_prepare"
+                ]
+                assert prepared_records
+                prepared_reply = prepared_records[0]["reply"]
+                prepared_reservation = prepared_reply["reservation"]
+                cancelled_reservation = cancel_reply["reservation"]
+                assert cancel_request["reservationId"] == prepared_reservation["reservationId"]
+                assert cancel_request["generation"] == prepared_reservation["controllerGeneration"]
+                assert cancelled_reservation["reservationId"] == cancel_request["reservationId"]
+                assert cancelled_reservation["controllerGeneration"] == cancel_request["generation"]
+                assert cancel_reply["handshake"]["state"] == "cancelled"
+                assert cancelled_reservation["reservationState"] == "cancelled"
+                assert cancel_reply["handshake"]["absenceCaptureDeleted"] is True
+                assert cancel_reply["status"]["nativeCalibration"] is False
+                assert cancel_reply["status"]["inputCalibration"] is False
+                assert daemon.controller._native_calibrated is False
+                assert daemon.controller._input_calibrated is False
+                assert daemon.controller._accepted == []
+                commands = [record.get("command") for record in native_ipc_records()]
+                assert "native_construction_recovery_complete" not in commands
+                assert "native_construction_finalize_admit" not in commands
                 assert not driver.guardian.armed
+                while daemon._native_owned_capture_paths and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                assert daemon._native_owned_capture_paths == set()
+                assert server_thread.is_alive()
+                assert not owned._cleaned
+                assert input_device.cleanup_failures == []
                 assert_agent_actions(
                     ["agent defer", "reload", "agent release", "agent hold", "agent measure"],
                     exact=True,
@@ -6444,6 +7107,9 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             diagnostic = daemon._native_observation_diagnostic
             attempts = list(observed_attempts)
             accepted = [attempt for attempt in attempts if attempt["status"] == "accepted"]
+            (tmp_path / "observed-update-pre-ack.json").write_text(
+                json.dumps(observed_update_pre_ack, sort_keys=True), encoding="utf-8"
+            )
             assert [(attempt["requested_stage"], attempt["requested_ordinal"]) for attempt in accepted] == [
                 ("construct", 0),
                 ("held", 0),
@@ -6452,6 +7118,8 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                 ("resume", 0),
             ]
             assert len(accepted) == 103
+            performance_rows: list[dict[str, object]] = []
+            budget_violations: list[dict[str, int]] = []
             for attempt in accepted:
                 receipt = attempt["backend_receipt"]
                 assert receipt is not None
@@ -6543,7 +7211,144 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
                 assert span["outcome"] == "ok"
             assert update_99["spans"]["runner_hash"]["outcome"] == "ok"
             assert update_99["spans"]["runner_decode"]["outcome"] == "ok"
-            assert [item["ordinal"] for item in observed_update_pre_ack] == list(range(2, 100))
+            assert len({call["nonce"] for call in observer_invocations}) == len(observer_invocations)
+            for attempt in accepted:
+                if attempt["requested_stage"] != "updates":
+                    continue
+                start = attempt["started_monotonic_ns"]
+                finished = attempt["finished_monotonic_ns"]
+                spans = attempt["spans"]
+                boundary_nonces: list[str] = []
+                observer_calls = attempt.get("observer_calls")
+                assert isinstance(observer_calls, list)
+                assert len(observer_calls) == 3
+                assert all(isinstance(call.get("thread_id"), int) for call in observer_calls)
+                assert all(call["thread_id"] == attempt["thread_id"] for call in observer_calls)
+                for span_name in (
+                    "identity_backend_pre",
+                    "identity_backend_post",
+                    "identity_post_capture",
+                ):
+                    span = spans[span_name]
+                    calls = span.get("observer_calls")
+                    # The production sink binds the observer invocation to
+                    # this exact span token while the call is active.  A
+                    # monotonic-window search would admit an overlapping
+                    # neighboring poll and cannot prove caller causality.
+                    assert isinstance(calls, list)
+                    assert len(calls) == 1, (attempt["requested_ordinal"], span_name, calls)
+                    call = calls[0]
+                    assert call["boundary"] == span_name
+                    assert call["caller"] in {
+                        "X11Backend.production.resolve_identity.backend_pre",
+                        "X11Backend.production.resolve_identity.backend_post",
+                        "NativeCalibrationRunner.capture_observation",
+                    }
+                    assert call["span_token"] == span["span_token"]
+                    assert call["thread_id"] == span["thread_id"]
+                    assert call["thread_id"] == attempt["thread_id"]
+                    assert call["start_monotonic_ns"] >= span["start_monotonic_ns"]
+                    assert call["end_monotonic_ns"] <= span["end_monotonic_ns"]
+                    assert isinstance(call["nonce"], str) and call["nonce"]
+                    timings = call.get("timings_ns")
+                    assert isinstance(timings, dict)
+                    assert set(timings) == {"proc", "x11", "total"}
+                    assert all(isinstance(timings[key], int) and timings[key] >= 0 for key in timings)
+                    assert timings["total"] >= timings["proc"]
+                    assert timings["total"] >= timings["x11"]
+                    phases = call.get("observer_phases_ns")
+                    assert isinstance(phases, dict)
+                    assert set(phases) == {"spawn", "write", "drain", "decode", "total"}
+                    phase_durations: dict[str, int] = {}
+                    for phase_name, phase in phases.items():
+                        assert isinstance(phase, dict)
+                        assert set(phase) == {"start", "end", "duration"}
+                        assert all(isinstance(phase[key], int) for key in phase)
+                        assert phase["start"] <= phase["end"]
+                        assert phase["duration"] == phase["end"] - phase["start"]
+                        phase_durations[phase_name] = phase["duration"]
+                    assert phase_durations["total"] >= sum(
+                        phase_durations[name] for name in ("spawn", "write", "drain", "decode")
+                    )
+                    boundary_nonces.append(call["nonce"])
+                assert {call["nonce"] for call in observer_calls} == set(boundary_nonces)
+                assert len(set(boundary_nonces)) == 3, (
+                    attempt["requested_ordinal"],
+                    boundary_nonces,
+                )
+                all_observer_nonces = {call["nonce"] for call in observer_invocations}
+                assert {call["nonce"] for call in observer_calls}.issubset(all_observer_nonces)
+                sleeper_ns = sum(
+                    item["end_monotonic_ns"] - item["start_monotonic_ns"]
+                    for item in alignment_sleeps
+                    if item["ordinal"] == attempt["requested_ordinal"]
+                    and item["start_monotonic_ns"] >= start
+                    and item["end_monotonic_ns"] <= finished
+                )
+                assert finished >= start
+                active_ns = finished - start - sleeper_ns
+                if active_ns < 0 or active_ns >= 900_000_000:
+                    budget_violations.append(
+                        {
+                            "ordinal": int(attempt["requested_ordinal"]),
+                            "active_ns": active_ns,
+                            "alignment_sleep_ns": sleeper_ns,
+                        }
+                    )
+                performance_rows.append(
+                    {
+                        "ordinal": attempt["requested_ordinal"],
+                        "attempt_start_ns": start,
+                        "attempt_end_ns": finished,
+                        "active_ns": active_ns,
+                        "alignment_sleep_ns": sleeper_ns,
+                        "boundary_spans_ns": {
+                            name: spans[name]["duration_ns"]
+                            for name in (
+                                "identity_backend_pre",
+                                "identity_backend_post",
+                                "identity_post_capture",
+                            )
+                        },
+                        "boundary_nonces": boundary_nonces,
+                        "observer_timings_ns": [
+                            {
+                                "boundary": call["boundary"],
+                                "nonce": call["nonce"],
+                                "timings_ns": call.get("timings_ns"),
+                            }
+                            for call in observer_calls
+                        ],
+                        "observer_phases_ns": [
+                            {
+                                "boundary": call["boundary"],
+                                "nonce": call["nonce"],
+                                "phases_ns": call.get("observer_phases_ns"),
+                            }
+                            for call in observer_calls
+                        ],
+                    }
+                )
+            assert performance_rows
+            performance_path = evidence_root / "native-identity-performance.json"
+            artifact_sources["native-identity-performance.json"] = performance_path
+            performance_path.write_text(
+                json.dumps(
+                    {
+                        "accepted_update_count": len(performance_rows),
+                        "max_active_ns": max(row["active_ns"] for row in performance_rows),
+                        "budget_violations": budget_violations,
+                        "rows": performance_rows,
+                    },
+                    sort_keys=True,
+                ),
+                encoding="utf-8",
+            )
+            performance_path.chmod(0o600)
+            assert not budget_violations, budget_violations
+            observed_ordinals = [item["ordinal"] for item in observed_update_pre_ack]
+            assert observed_ordinals == sorted(observed_ordinals)
+            assert set(observed_ordinals) == set(range(2, 100))
             assert all(item["identity"] == identity.fingerprint for item in observed_update_pre_ack)
             assert all(item["generation"] == 7 for item in observed_update_pre_ack)
             update_1_attempt = next(
@@ -6617,6 +7422,7 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             fresh_gated_tool = operator.PinnedInputTool.from_root(gated_tool_root)
             monkeypatch.setattr(operator.PinnedInputTool, "load", lambda: fresh_gated_tool)
             fresh_screen = operator.X11Screen(config_path, tmp_path / "fresh-screen-receipts")
+            owned.screens.append(fresh_screen)
             fresh_watchdog = operator.Watchdog(fresh_gated_tool, interval=0.02, environment=watchdog_env)
             fresh_input = operator.FixedInput(
                 fresh_gated_tool,
@@ -6713,6 +7519,16 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             expected_dependencies["producer-" + producer_path.name] = expected_dependencies[
                 "producer-manifest"
             ]
+            expected_dependencies["identity-observer-binary"] = observer_sha256
+            expected_dependencies["identity-observer-x11-identity-observer"] = observer_sha256
+            expected_dependencies["identity-observer-resolver"] = hashlib.sha256(
+                b"pinned-rust-v1"
+            ).hexdigest()
+            observer_manifest = json.loads(
+                observer_binary.with_suffix(".manifest.json").read_text(encoding="utf-8")
+            )
+            for source_name, source_digest in observer_manifest["source_sha256"].items():
+                expected_dependencies[f"identity-observer-source-{Path(source_name).name}"] = source_digest
             from crowley.session.input_tool import PRIVATE_TOOL_BASENAME
 
             expected_dependencies["pinned-input-tool"] = hashlib.sha256(
@@ -6732,6 +7548,17 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             for dependency_name, expected_digest in expected_dependencies.items():
                 assert dependency_name in dependency_hashes
                 assert dependency_hashes[dependency_name] == expected_digest
+            ipc_lines = ipc_receipt_path.read_text(encoding="utf-8").splitlines()
+            assert ipc_lines
+            ipc_records = [json.loads(line) for line in ipc_lines]
+            assert all(
+                isinstance(record, dict)
+                and isinstance(record.get("command"), str)
+                and record["command"].startswith("native_construction_")
+                and isinstance(record.get("request"), dict)
+                and isinstance(record.get("reply"), dict)
+                for record in ipc_records
+            )
         finally:
             persist_action_history()
             stop_server.set()
@@ -6746,8 +7573,6 @@ def test_actual_operator_measure_composes_x11_screen_daemon_and_agent(
             # asked to prove the desktop is released.
             input_device.close()
             screen.close()
-            for created in screen_backend:
-                created.input_tool.close()
             driver.close()
             child.terminate()
             child.wait(timeout=3)
@@ -6844,6 +7669,111 @@ def test_measure_deferred_public_admission_retains_real_failure_status(tmp_path:
         driver.close()
         child.terminate()
         child.wait(timeout=3)
+
+
+def test_observer_manifest_binds_current_reviewed_source_bytes(tmp_path: Path) -> None:
+    observer = tmp_path / "observer"
+    observer.write_bytes(b"#!/bin/sh\nexit 0\n")
+    observer.chmod(0o700)
+    source_root = Path(operator.__file__).resolve().parents[1]
+    source_names = (
+        "native/x11_identity_observer/Cargo.toml",
+        "native/x11_identity_observer/Cargo.lock",
+        "native/x11_identity_observer/src/main.rs",
+    )
+    source_hashes = {
+        name: hashlib.sha256((source_root / name).read_bytes()).hexdigest() for name in source_names
+    }
+    manifest_path = observer.with_suffix(".manifest.json")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "schema": "crowley.x11-identity-observer.v1",
+                "target": "x86_64-unknown-linux-gnu",
+                "binary": str(observer),
+                "binary_sha256": hashlib.sha256(observer.read_bytes()).hexdigest(),
+                "source_sha256": source_hashes,
+                "static_inputs": {},
+                "toolchain": {},
+                "linker": {},
+            },
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+    manifest_path.chmod(0o600)
+    screen = SimpleNamespace(backend=SimpleNamespace(resolver_kind="pinned-rust-v1"))
+    bindings = operator._verify_observer_manifest(
+        screen, observer, hashlib.sha256(observer.read_bytes()).hexdigest()
+    )
+    assert bindings["identity-observer-source-main.rs"] == source_hashes[source_names[-1]]
+    mutated = json.loads(manifest_path.read_text(encoding="utf-8"))
+    mutated["source_sha256"][source_names[-1]] = "f" * 64
+    manifest_path.write_text(json.dumps(mutated, sort_keys=True), encoding="utf-8")
+    with pytest.raises(operator.OperatorError, match="source digest is stale"):
+        operator._verify_observer_manifest(
+            screen, observer, hashlib.sha256(observer.read_bytes()).hexdigest()
+        )
+    original_manifest = json.loads(
+        json.dumps(
+            {
+                "schema": "crowley.x11-identity-observer.v1",
+                "target": "x86_64-unknown-linux-gnu",
+                "binary": str(observer),
+                "binary_sha256": hashlib.sha256(observer.read_bytes()).hexdigest(),
+                "source_sha256": source_hashes,
+                "static_inputs": {},
+                "toolchain": {},
+                "linker": {},
+            }
+        )
+    )
+    manifest_path.write_text(json.dumps(original_manifest, sort_keys=True), encoding="utf-8")
+    manifest_path.chmod(0o644)
+    with pytest.raises(operator.OperatorError, match="private regular"):
+        operator._verify_observer_manifest(
+            screen, observer, hashlib.sha256(observer.read_bytes()).hexdigest()
+        )
+    manifest_path.unlink()
+    manifest_path.symlink_to(observer)
+    with pytest.raises(operator.OperatorError, match="private regular|unavailable"):
+        operator._verify_observer_manifest(
+            screen, observer, hashlib.sha256(observer.read_bytes()).hexdigest()
+        )
+
+
+@pytest.mark.parametrize("mutation", ["mtime", "path"])
+def test_private_json_rejects_eof_or_path_mutation_during_read(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mutation: str
+) -> None:
+    """Manifest reads must reject same-size content changes and path swaps."""
+
+    path = tmp_path / "private.json"
+    payload = json.dumps({"blob": "x" * 70_000}, separators=(",", ":"))
+    path.write_text(payload, encoding="utf-8")
+    path.chmod(0o600)
+    replacement = tmp_path / "replacement.json"
+    replacement.write_text(payload, encoding="utf-8")
+    replacement.chmod(0o600)
+    real_read = operator.os.read
+    mutated = False
+
+    def mutate_after_first_chunk(fd: int, size: int) -> bytes:
+        nonlocal mutated
+        chunk = real_read(fd, size)
+        if chunk and not mutated:
+            mutated = True
+            if mutation == "mtime":
+                before = path.lstat()
+                os.utime(path, ns=(before.st_atime_ns, before.st_mtime_ns + 1_000_000))
+            else:
+                os.replace(replacement, path)
+        return chunk
+
+    monkeypatch.setattr(operator.os, "read", mutate_after_first_chunk)
+    with pytest.raises(operator.OperatorError, match="changed"):
+        operator._read_private_json(path, label="private manifest")
+    assert mutated
 
 
 def test_actual_bootstrap_reply_loss_after_prepare_expiry_cancels_known_id(tmp_path: Path) -> None:

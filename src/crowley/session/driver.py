@@ -12,6 +12,7 @@ import math
 import os
 import re
 import select
+import selectors
 import shutil
 import signal
 import socket
@@ -63,6 +64,21 @@ _F_SEAL_SHRINK = getattr(fcntl, "F_SEAL_SHRINK", 0x0002)
 _F_SEAL_GROW = getattr(fcntl, "F_SEAL_GROW", 0x0004)
 _F_SEAL_WRITE = getattr(fcntl, "F_SEAL_WRITE", 0x0008)
 _DEFAULT_CAPTURE_TIMEOUT_SECONDS = 15.0
+_IDENTITY_OBSERVER_REAP_GRACE_SECONDS = 0.5
+
+
+def _create_memfd(name: str, flags: int) -> int:
+    creator = getattr(os, "memfd_create", None)
+    if callable(creator):
+        return creator(name, flags)
+    libc = ctypes.CDLL(None, use_errno=True)
+    libc.memfd_create.argtypes = [ctypes.c_char_p, ctypes.c_uint]
+    libc.memfd_create.restype = ctypes.c_int
+    fd = libc.memfd_create(name.encode("ascii"), flags)
+    if fd < 0:
+        error = ctypes.get_errno()
+        raise OSError(error, os.strerror(error))
+    return fd
 
 
 _IDENTITY_LATENCY_SINK: contextvars.ContextVar[Any | None] = contextvars.ContextVar(
@@ -387,6 +403,12 @@ def _protocol_int(value: Any) -> bool:
 
 def _protocol_string(value: Any) -> bool:
     return isinstance(value, str) and bool(value)
+
+
+def _observer_protocol_uint(value: Any) -> bool:
+    """Validate one bounded observer timing/version integer."""
+
+    return _protocol_int(value) and value >= 0
 
 
 def _protocol_float(value: Any) -> bool:
@@ -958,6 +980,8 @@ class DriverProfile:
     plan_count: int = 428
     telemetry_region_executable: Path | None = None
     telemetry_region_executable_sha256: str | None = None
+    identity_observer_executable: Path | None = None
+    identity_observer_executable_sha256: str | None = None
 
     def validate(self) -> None:
         geometry_values = (
@@ -1009,6 +1033,27 @@ class DriverProfile:
                 raise DriverError("telemetry region executable is unavailable") from exc
             if digest != self.telemetry_region_executable_sha256:
                 raise DriverError("telemetry region executable hash does not match the profile")
+        if (self.identity_observer_executable is None) != (self.identity_observer_executable_sha256 is None):
+            raise DriverError("identity observer executable and SHA-256 must be configured together")
+        if self.identity_observer_executable is not None:
+            if not self.identity_observer_executable.is_absolute():
+                raise DriverError("identity observer executable must be absolute")
+            if not re.fullmatch(r"[0-9a-f]{64}", self.identity_observer_executable_sha256 or ""):
+                raise DriverError("identity observer executable SHA-256 is malformed")
+            try:
+                metadata = self.identity_observer_executable.lstat()
+                if (
+                    not stat.S_ISREG(metadata.st_mode)
+                    or metadata.st_uid != os.getuid()
+                    or not (metadata.st_mode & stat.S_IXUSR)
+                    or (metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH))
+                ):
+                    raise DriverError("identity observer executable is not private and executable")
+                digest = hashlib.sha256(self.identity_observer_executable.read_bytes()).hexdigest()
+            except OSError as exc:
+                raise DriverError("identity observer executable is unavailable") from exc
+            if digest != self.identity_observer_executable_sha256:
+                raise DriverError("identity observer executable hash does not match the profile")
 
 
 class Backend(Protocol):
@@ -1060,6 +1105,525 @@ class RecordingBackend:
 
     def verify_action_postcondition(self, name: str, identity: WindowIdentity) -> bool:
         return self.action_postconditions.get(name, True)
+
+
+class PinnedX11IdentityObserver:
+    """Execute one sealed, pinned observer invocation per identity boundary."""
+
+    _MAX_OUTPUT = 64 * 1024
+    _MAX_BINARY = 32 * 1024 * 1024
+
+    def __init__(self, path: Path, digest: str):
+        self.path = path
+        self.digest = digest
+        self._lifecycle_lock = threading.RLock()
+        self._close_event = threading.Event()
+        self._closed = False
+        self._active_processes: set[subprocess.Popen[bytes]] = set()
+        self._fd = self._seal(path, digest)
+
+    @staticmethod
+    def _seal(path: Path, digest: str) -> int:
+        source_fd: int | None = None
+        memfd = -1
+        try:
+            flags = os.O_RDONLY | os.O_CLOEXEC | getattr(os, "O_NOFOLLOW", 0)
+            source_fd = os.open(path, flags)
+            info = os.fstat(source_fd)
+            if (
+                not stat.S_ISREG(info.st_mode)
+                or info.st_uid != os.getuid()
+                or info.st_mode & 0o022
+                or not info.st_mode & 0o111
+            ):
+                raise DriverError("identity observer is not a private executable regular file")
+            if info.st_size <= 0 or info.st_size > PinnedX11IdentityObserver._MAX_BINARY:
+                raise DriverError("identity observer binary is outside the bounded size")
+            chunks: list[bytes] = []
+            total = 0
+            while chunk := os.read(source_fd, 1024 * 1024):
+                total += len(chunk)
+                if total > PinnedX11IdentityObserver._MAX_BINARY:
+                    raise DriverError("identity observer binary is oversized")
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            after = os.fstat(source_fd)
+            if len(data) != info.st_size or (
+                after.st_dev,
+                after.st_ino,
+                after.st_size,
+                after.st_mtime_ns,
+            ) != (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns):
+                raise DriverError("identity observer changed while being read")
+            if hashlib.sha256(data).hexdigest() != digest:
+                raise DriverError("identity observer digest does not match profile")
+            memfd_flags = getattr(os, "MFD_CLOEXEC", 0x0001) | getattr(os, "MFD_ALLOW_SEALING", 0x0002)
+            memfd = _create_memfd("crowley-x11-identity-observer", memfd_flags)
+            written = 0
+            while written < len(data):
+                written += os.write(memfd, data[written:])
+            os.fchmod(memfd, 0o700)
+            seals = _F_SEAL_SEAL | _F_SEAL_SHRINK | _F_SEAL_GROW | _F_SEAL_WRITE
+            try:
+                fcntl.fcntl(memfd, _F_ADD_SEALS, seals)
+            except OSError as exc:
+                os.close(memfd)
+                memfd = -1
+                raise DriverError("identity observer memfd could not be sealed") from exc
+            return memfd
+        except OSError as exc:
+            if memfd >= 0:
+                os.close(memfd)
+            raise DriverError("identity observer could not be opened") from exc
+        except BaseException:
+            if memfd >= 0:
+                os.close(memfd)
+            raise
+        finally:
+            if source_fd is not None:
+                try:
+                    os.close(source_fd)
+                except OSError:
+                    pass
+
+    def close(self) -> None:
+        with self._lifecycle_lock:
+            if self._closed:
+                return
+            self._closed = True
+            self._close_event.set()
+            active = tuple(self._active_processes)
+            fd = self._fd
+            self._fd = -1
+        cleanup_error: DriverError | None = None
+        for process in active:
+            try:
+                self._kill_and_reap(process)
+            except DriverError as exc:
+                cleanup_error = cleanup_error or exc
+        if fd >= 0:
+            try:
+                os.close(fd)
+            except OSError as exc:
+                cleanup_error = cleanup_error or DriverError("identity observer FD could not be closed")
+                cleanup_error.__cause__ = exc
+        if cleanup_error is not None:
+            raise cleanup_error
+
+    @staticmethod
+    def _kill_group(process: subprocess.Popen[bytes]) -> None:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except (OSError, ProcessLookupError):
+            pass
+
+    @classmethod
+    def _kill_and_reap(cls, process: subprocess.Popen[bytes]) -> None:
+        """Synchronously reap an owned observer after a bounded group kill."""
+
+        if process.poll() is None:
+            cls._kill_group(process)
+        try:
+            process.wait(timeout=_IDENTITY_OBSERVER_REAP_GRACE_SECONDS)
+        except subprocess.TimeoutExpired as exc:
+            cls._kill_group(process)
+            try:
+                process.wait(timeout=_IDENTITY_OBSERVER_REAP_GRACE_SECONDS)
+            except subprocess.TimeoutExpired as reap_exc:
+                raise DriverError("identity observer could not be reaped") from reap_exc
+            if process.poll() is None:
+                raise DriverError("identity observer could not be reaped") from exc
+
+    @classmethod
+    def _drain_process(
+        cls,
+        process: subprocess.Popen[bytes],
+        *,
+        deadline: float,
+        cancel_event: threading.Event | None,
+        close_event: threading.Event | None = None,
+    ) -> tuple[bytes, bytes]:
+        """Drain both pipes without allowing a child-held pipe to escape the deadline."""
+
+        if process.stdout is None or process.stderr is None:
+            raise DriverError("identity observer pipes are unavailable")
+        selector = selectors.DefaultSelector()
+        buffers = {"stdout": bytearray(), "stderr": bytearray()}
+        streams = {"stdout": process.stdout, "stderr": process.stderr}
+        killed = False
+        try:
+            for name, stream in streams.items():
+                os.set_blocking(stream.fileno(), False)
+                selector.register(stream, selectors.EVENT_READ, name)
+            while True:
+                if (cancel_event is not None and cancel_event.is_set()) or (
+                    close_event is not None and close_event.is_set()
+                ):
+                    cls._kill_and_reap(process)
+                    killed = True
+                    raise DriverError("identity observer cancelled")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    cls._kill_and_reap(process)
+                    killed = True
+                    raise DriverError("identity observer timed out")
+                return_code = process.poll()
+                if return_code is not None and not killed:
+                    # The executable may have descendants holding the pipes.
+                    # Close the private process group before waiting for EOF.
+                    cls._kill_group(process)
+                    killed = True
+                if not selector.get_map():
+                    if return_code is not None:
+                        break
+                    # Both pipes can close while a descendant-held process
+                    # group remains alive. Wait in bounded increments instead
+                    # of spinning until the shared deadline.
+                    try:
+                        process.wait(timeout=min(0.05, remaining))
+                    except subprocess.TimeoutExpired:
+                        pass
+                    continue
+                events = selector.select(min(0.05, remaining))
+                for key, _ in events:
+                    name = key.data
+                    try:
+                        piece = os.read(key.fd, 65536)
+                    except BlockingIOError:
+                        continue
+                    if not piece:
+                        selector.unregister(key.fileobj)
+                        key.fileobj.close()
+                        continue
+                    buffer = buffers[name]
+                    if len(buffer) + len(piece) > cls._MAX_OUTPUT:
+                        cls._kill_and_reap(process)
+                        killed = True
+                        raise DriverError(f"identity observer {name} is oversized")
+                    buffer.extend(piece)
+            if process.poll() is None:
+                cls._kill_and_reap(process)
+                killed = True
+            return bytes(buffers["stdout"]), bytes(buffers["stderr"])
+        finally:
+            selector.close()
+            for stream in streams.values():
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+            if process.poll() is None:
+                try:
+                    cls._kill_and_reap(process)
+                except DriverError:
+                    # Preserve the original timeout/cancellation/protocol
+                    # error while still making a best effort to reap here.
+                    pass
+
+    @classmethod
+    def _write_request(
+        cls,
+        process: subprocess.Popen[bytes],
+        request: bytes,
+        *,
+        deadline: float,
+        cancel_event: threading.Event | None,
+        close_event: threading.Event | None = None,
+    ) -> None:
+        if process.stdin is None:
+            raise DriverError("identity observer stdin is unavailable")
+        stream = process.stdin
+        fd = stream.fileno()
+        os.set_blocking(fd, False)
+        pending = memoryview(request + b"\n")
+        while pending:
+            if (cancel_event is not None and cancel_event.is_set()) or (
+                close_event is not None and close_event.is_set()
+            ):
+                raise DriverError("identity observer cancelled")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise DriverError("identity observer timed out")
+            _, writable, _ = select.select([], [fd], [], min(0.05, remaining))
+            if not writable:
+                continue
+            try:
+                written = os.write(fd, pending)
+            except BlockingIOError:
+                continue
+            if written <= 0:
+                raise DriverError("identity observer stdin closed")
+            pending = pending[written:]
+
+    def _decode_response(
+        self,
+        stdout: bytes,
+        stderr: bytes,
+        *,
+        process: subprocess.Popen[bytes],
+        nonce: str,
+    ) -> dict[str, Any]:
+        if process is None or process.returncode != 0:
+            detail = stderr[:256].decode("utf-8", "replace").strip()
+            if not detail and len(stdout) <= self._MAX_OUTPUT:
+                try:
+                    failure = json.loads(stdout.decode("utf-8"), object_pairs_hook=_json_unique_pairs)
+                except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+                    failure = None
+                if isinstance(failure, dict) and set(failure) == {"protocolVersion", "error"}:
+                    if failure.get("protocolVersion") != 1 or not isinstance(failure.get("error"), str):
+                        raise DriverError("identity observer error record is malformed")
+                    detail = failure["error"][:256]
+            raise DriverError(f"identity observer failed: {detail or 'nonzero exit'}")
+        if len(stdout) > self._MAX_OUTPUT:
+            raise DriverError("identity observer output is oversized")
+        try:
+            result = json.loads(stdout.decode("utf-8"), object_pairs_hook=_json_unique_pairs)
+        except (UnicodeDecodeError, json.JSONDecodeError, ValueError) as exc:
+            raise DriverError("identity observer output is malformed") from exc
+        required = {
+            "protocolVersion",
+            "matchingProcessCount",
+            "candidateWindowCount",
+            "pid",
+            "start",
+            "exe",
+            "statusName",
+            "loader",
+            "winePrefix",
+            "xid",
+            "title",
+            "class",
+            "outer",
+            "child",
+            "outerRoot",
+            "outerParent",
+            "outerGeometry",
+            "childGeometry",
+            "outerChildren",
+            "focus",
+            "active",
+            "display",
+            "nonce",
+            "binaryDigest",
+            "timingsNs",
+        }
+        if not isinstance(result, dict) or set(result) != required:
+            raise DriverError("identity observer output keys are malformed")
+        if result.get("protocolVersion") != 1:
+            raise DriverError("identity observer protocol version is unsupported")
+        timings = result.get("timingsNs")
+        if (
+            not isinstance(timings, dict)
+            or set(timings) != {"proc", "x11", "total"}
+            or any(not _observer_protocol_uint(timings.get(key)) for key in ("proc", "x11", "total"))
+            or timings["total"] < timings["proc"]
+            or timings["total"] < timings["x11"]
+        ):
+            raise DriverError("identity observer timings are malformed")
+        string_keys = {
+            "start",
+            "exe",
+            "statusName",
+            "loader",
+            "winePrefix",
+            "title",
+            "class",
+            "display",
+            "nonce",
+            "binaryDigest",
+        }
+        integer_keys = {
+            "matchingProcessCount",
+            "candidateWindowCount",
+            "pid",
+            "xid",
+            "child",
+            "outerRoot",
+            "outerParent",
+            "focus",
+            "active",
+            "outer",
+        }
+        if any(not isinstance(result[key], str) for key in string_keys):
+            raise DriverError("identity observer string facts are malformed")
+        if any(isinstance(result[key], bool) or not isinstance(result[key], int) for key in integer_keys):
+            raise DriverError("identity observer integer facts are malformed")
+        for key in ("outerGeometry", "childGeometry"):
+            value = result[key]
+            if (
+                not isinstance(value, list)
+                or len(value) != 4
+                or any(isinstance(item, bool) or not isinstance(item, int) for item in value)
+            ):
+                raise DriverError("identity observer geometry facts are malformed")
+        children = result["outerChildren"]
+        if not isinstance(children, list) or any(
+            isinstance(item, bool) or not isinstance(item, int) for item in children
+        ):
+            raise DriverError("identity observer child facts are malformed")
+        if result["nonce"] != nonce or result["binaryDigest"] != self.digest:
+            raise DriverError("identity observer response binding changed")
+        return result
+
+    def invoke(
+        self,
+        profile: DriverProfile,
+        *,
+        xauthority: str,
+        deadline_monotonic: float | None,
+        cancel_event: threading.Event | None = None,
+    ) -> dict[str, Any]:
+        with self._lifecycle_lock:
+            if self._closed or self._fd < 0:
+                raise DriverError("identity observer is closed")
+            observer_fd = self._fd
+        deadline = (
+            deadline_monotonic
+            if deadline_monotonic is not None
+            else time.monotonic() + _DEFAULT_CAPTURE_TIMEOUT_SECONDS
+        )
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise DriverError("identity observer deadline expired")
+        nonce = uuid.uuid4().hex
+        request = json.dumps(
+            {
+                "protocolVersion": 1,
+                "display": profile.display,
+                "xauthority": xauthority,
+                "title": profile.window_title,
+                "class": profile.window_class,
+                "executable": profile.executable,
+                "winePrefix": os.path.realpath(os.path.expanduser(profile.wine_prefix)),
+                "loader": "wine-preloader",
+                "outerWidth": profile.outer_width,
+                "outerHeight": profile.outer_height,
+                "clientWidth": profile.client_width,
+                "clientHeight": profile.client_height,
+                "nonce": nonce,
+                "binaryDigest": self.digest,
+            },
+            separators=(",", ":"),
+        ).encode()
+        fd_path = f"/proc/self/fd/{observer_fd}"
+        process: subprocess.Popen[bytes] | None = None
+        invocation_started_ns = time.monotonic_ns()
+        spawn_finished_ns: int | None = None
+        write_started_ns: int | None = None
+        write_finished_ns: int | None = None
+        drain_started_ns: int | None = None
+        drain_finished_ns: int | None = None
+        decode_started_ns: int | None = None
+        decode_finished_ns: int | None = None
+        pending_error: BaseException | None = None
+        try:
+            if (cancel_event is not None and cancel_event.is_set()) or self._close_event.is_set():
+                raise DriverError("identity observer cancelled")
+            with self._lifecycle_lock:
+                if self._closed or self._fd != observer_fd:
+                    raise DriverError("identity observer is closed")
+                process = subprocess.Popen(
+                    [fd_path],
+                    executable=fd_path,
+                    stdin=subprocess.PIPE,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    cwd="/",
+                    env={"DISPLAY": profile.display, "XAUTHORITY": xauthority, "LC_ALL": "C"},
+                    pass_fds=(observer_fd,),
+                    start_new_session=True,
+                )
+                self._active_processes.add(process)
+                spawn_finished_ns = time.monotonic_ns()
+            write_started_ns = time.monotonic_ns()
+            self._write_request(
+                process,
+                request,
+                deadline=deadline,
+                cancel_event=cancel_event,
+                close_event=self._close_event,
+            )
+            if process.stdin is not None:
+                try:
+                    process.stdin.close()
+                except OSError as exc:
+                    raise DriverError("identity observer stdin could not be closed") from exc
+                finally:
+                    process.stdin = None
+            write_finished_ns = time.monotonic_ns()
+            drain_started_ns = time.monotonic_ns()
+            stdout, stderr = self._drain_process(
+                process,
+                deadline=deadline,
+                cancel_event=cancel_event,
+                close_event=self._close_event,
+            )
+            drain_finished_ns = time.monotonic_ns()
+            decode_started_ns = time.monotonic_ns()
+            result = self._decode_response(stdout, stderr, process=process, nonce=nonce)
+            decode_finished_ns = time.monotonic_ns()
+            sink = _IDENTITY_LATENCY_SINK.get()
+            observer_call = getattr(sink, "observer_call", None)
+            if callable(observer_call):
+                total_finished_ns = time.monotonic_ns()
+                phase_bounds = {
+                    "spawn": (invocation_started_ns, spawn_finished_ns),
+                    "write": (write_started_ns, write_finished_ns),
+                    "drain": (drain_started_ns, drain_finished_ns),
+                    "decode": (decode_started_ns, decode_finished_ns),
+                    "total": (invocation_started_ns, total_finished_ns),
+                }
+                observer_phases_ns = {
+                    name: {
+                        "start": int(start),
+                        "end": int(end),
+                        "duration": int(end - start),
+                    }
+                    for name, (start, end) in phase_bounds.items()
+                    if isinstance(start, int) and isinstance(end, int) and end >= start
+                }
+                observer_call(
+                    nonce=nonce,
+                    start_monotonic_ns=invocation_started_ns,
+                    end_monotonic_ns=total_finished_ns,
+                    timings_ns=result["timingsNs"],
+                    observer_phases_ns=observer_phases_ns,
+                )
+            return result
+        except BaseException as exc:
+            pending_error = exc
+            if isinstance(exc, DriverError):
+                raise
+            if isinstance(exc, (BrokenPipeError, OSError, subprocess.SubprocessError)):
+                raise DriverError("identity observer invocation failed") from exc
+            raise
+        finally:
+            cleanup_error: DriverError | None = None
+            if process is not None:
+                try:
+                    if process.poll() is None:
+                        self._kill_and_reap(process)
+                except DriverError as exc:
+                    cleanup_error = exc
+                for stream_name in ("stdin", "stdout", "stderr"):
+                    stream = getattr(process, stream_name, None)
+                    if stream is not None:
+                        try:
+                            stream.close()
+                        except OSError as exc:
+                            cleanup_error = cleanup_error or DriverError(
+                                "identity observer pipe could not be closed"
+                            )
+                            if cleanup_error.__cause__ is None:
+                                cleanup_error.__cause__ = exc
+                with self._lifecycle_lock:
+                    self._active_processes.discard(process)
+            if cleanup_error is not None:
+                if pending_error is not None:
+                    pending_error.add_note(str(cleanup_error))
+                else:
+                    raise cleanup_error
 
 
 def _parse_shell_geometry(text: str) -> tuple[int, int, int, int]:
@@ -1198,6 +1762,41 @@ class X11Backend:
         self._last_synthetic_motion_query: tuple[Any, ...] | None = None
         self.last_region_receipt: TelemetryRegionReceipt | None = None
         self.last_region_attempt: dict[str, float | str | None] = {}
+        self.resolver_kind = "reference-test"
+        self._identity_observer: PinnedX11IdentityObserver | None = None
+        self._production_observer_required = False
+
+    @classmethod
+    def production(cls, profile: DriverProfile, *, input_tool: PinnedInputTool | None = None) -> X11Backend:
+        """Construct the shipped X11 backend only with the reviewed observer."""
+
+        profile.validate()
+        _validate_x11_display_screen(profile.display)
+        if (
+            profile.identity_observer_executable is None
+            or profile.identity_observer_executable_sha256 is None
+        ):
+            raise DriverError("pinned Rust identity observer is required for production X11")
+        backend = cls(profile, input_tool=input_tool)
+        try:
+            backend._identity_observer = PinnedX11IdentityObserver(
+                profile.identity_observer_executable, profile.identity_observer_executable_sha256
+            )
+            backend.resolver_kind = "pinned-rust-v1"
+            backend._production_observer_required = True
+        except BaseException:
+            try:
+                backend.input_tool.close()
+            finally:
+                backend.close()
+            raise
+        return backend
+
+    def close(self) -> None:
+        observer = getattr(self, "_identity_observer", None)
+        if observer is not None:
+            observer.close()
+            self._identity_observer = None
 
     def set_admission(self, admission: Callable[[int, Callable[[], Any]], Any] | None) -> None:
         """Install the guardian's shared generation admission fence."""
@@ -2301,6 +2900,15 @@ class X11Backend:
         require_foreground: bool = True,
         deadline_monotonic: float | None = None,
     ) -> WindowIdentity:
+        observer = self._identity_observer
+        if observer is not None:
+            return self._resolve_identity_pinned(
+                observer,
+                require_foreground=require_foreground,
+                deadline_monotonic=deadline_monotonic,
+            )
+        if self._production_observer_required:
+            raise DriverError("production X11 backend is closed")
         if not self.xauthority:
             raise DriverError("Xauthority path must be explicitly configured or inherited")
         if not self.profile.wine_prefix:
@@ -2404,6 +3012,99 @@ class X11Backend:
                 raise DriverError(identity_errors[0])
             raise DriverError(f"expected one verified game client, found {len(identities)}")
         identity = identities[0]
+        if identity.outer_geometry[2:] != (self.profile.outer_width, self.profile.outer_height):
+            raise DriverError("game outer geometry changed")
+        if identity.child_geometry[2:] != (self.profile.client_width, self.profile.client_height):
+            raise DriverError("game client geometry changed")
+        if require_foreground and identity.foreground_xid not in {identity.xid, identity.child_xid}:
+            raise DriverError("game client is not foreground")
+        if identity.outer_geometry[:2] != (0, 0) or identity.child_geometry[:2] != (0, 0):
+            raise DriverError("game outer/child origin changed from the calibrated origin")
+        self.window_id = hex(identity.xid)
+        self.last_identity = identity
+        return identity
+
+    def _resolve_identity_pinned(
+        self,
+        observer: PinnedX11IdentityObserver,
+        *,
+        require_foreground: bool,
+        deadline_monotonic: float | None,
+    ) -> WindowIdentity:
+        if not self.xauthority:
+            raise DriverError("Xauthority path must be explicitly configured or inherited")
+        if not self.profile.wine_prefix:
+            raise DriverError("Wine prefix must be explicitly configured")
+        facts = observer.invoke(
+            self.profile,
+            xauthority=self.xauthority,
+            deadline_monotonic=deadline_monotonic,
+            cancel_event=self._cancel_active,
+        )
+        if (
+            facts["matchingProcessCount"] != 1
+            or facts["candidateWindowCount"] != 1
+            or facts["exe"] != self.profile.executable
+            or facts["statusName"] != self.profile.executable
+            or facts["loader"] != "wine-preloader"
+            or facts["winePrefix"] != os.path.realpath(os.path.expanduser(self.profile.wine_prefix))
+            or facts["display"] != self.profile.display
+            or facts["title"] != self.profile.window_title
+            or not facts["class"].split(",")
+            or any(value != self.profile.window_class for value in facts["class"].split(","))
+        ):
+            raise DriverError("pinned identity observer facts do not match the configured profile")
+        outer = tuple(facts["outerGeometry"])
+        child_geometry = tuple(facts["childGeometry"])
+        if (
+            not all(
+                isinstance(value, int) and not isinstance(value, bool) for value in outer + child_geometry
+            )
+            or len(outer) != 4
+            or len(child_geometry) != 4
+            or facts["outer"] != facts["xid"]
+            or facts["child"] == facts["xid"]
+            or tuple(facts["outerChildren"]) != (facts["child"],)
+            or facts["outerRoot"] == 0
+            or facts["outerParent"] != facts["outerRoot"]
+        ):
+            raise DriverError("pinned identity observer geometry/tree facts are malformed")
+        payload = {
+            "xid": facts["xid"],
+            "pid": facts["pid"],
+            "exe": facts["exe"],
+            "start": facts["start"],
+            "child": facts["child"],
+            "outer": outer,
+            "childGeometry": child_geometry,
+            "root": facts["outerRoot"],
+            "targetEventXids": sorted({facts["xid"], facts["child"]}),
+            "display": self.profile.display,
+            "xauthority": self.xauthority,
+            "winePrefix": os.path.realpath(os.path.expanduser(self.profile.wine_prefix)),
+            "wineLoader": "wine-preloader",
+            "driver": self.input_tool_version,
+        }
+        fingerprint = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        identity = WindowIdentity(
+            int(facts["xid"]),
+            int(facts["pid"]),
+            facts["exe"],
+            facts["title"],
+            facts["class"],
+            int(facts["child"]),
+            outer,
+            child_geometry,
+            int(facts["focus"] or facts["active"]),
+            facts["start"],
+            self.profile.display,
+            fingerprint,
+            int(facts["outerRoot"]),
+            int(facts["xid"]),
+            frozenset({int(facts["xid"]), int(facts["child"])}),
+        )
         if identity.outer_geometry[2:] != (self.profile.outer_width, self.profile.outer_height):
             raise DriverError("game outer geometry changed")
         if identity.child_geometry[2:] != (self.profile.client_width, self.profile.client_height):
@@ -3898,16 +4599,18 @@ class DesktopDriver:
             raise DriverError("camera motion profile has the wrong role")
         if self.move_motion_profile.role is not DemonstrationRole.MOVE:
             raise DriverError("move motion profile has the wrong role")
-        self.backend = backend or X11Backend(self.profile)
+        self.backend = backend or X11Backend.production(self.profile)
         if isinstance(self.backend, X11Backend):
             try:
                 self.profile.validate()
                 _validate_x11_display_screen(self.profile.display)
             except Exception:
                 self.backend.input_tool.close()
+                self.backend.close()
                 raise
             if self.backend.profile.display != self.profile.display:
                 self.backend.input_tool.close()
+                self.backend.close()
                 raise DriverError("injected X11 backend display does not match the selected profile")
             expected_xauthority = self.profile.xauthority or os.environ.get("XAUTHORITY", "")
             expected_xauthority = (
@@ -3915,6 +4618,7 @@ class DesktopDriver:
             )
             if self.backend.xauthority != expected_xauthority:
                 self.backend.input_tool.close()
+                self.backend.close()
                 raise DriverError("injected X11 backend Xauthority does not match the selected profile")
         self._held_input = False
         watchdog_command: tuple[str, ...] = ()
@@ -3950,6 +4654,7 @@ class DesktopDriver:
         except Exception:
             if isinstance(self.backend, X11Backend):
                 self.backend.input_tool.close()
+                self.backend.close()
             raise
         self.guardian.on_revoke(self._on_guardian_revoke)
         if isinstance(self.backend, X11Backend):
@@ -6858,6 +7563,7 @@ class DesktopDriver:
         self.guardian.close()
         if isinstance(self.backend, X11Backend):
             self.backend.input_tool.close()
+            self.backend.close()
 
 
 __all__ = [

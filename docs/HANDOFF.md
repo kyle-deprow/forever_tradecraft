@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 07:35 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 07:38 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -36,7 +36,7 @@ requires native calibration/recovery, genuine human input calibration and three
   `/home/dev/.cache/crowley/worktrees/native-identity-observer-fix-r1-20261020`.
   Original `/home/dev/.cache/crowley/worktrees/native-identity-observer-20261019`
   stays frozen as the reviewed R1 source. Sol and actualCLI Opus R1 requested
-  changes; final corrections now pass independent checks and are under R2 review.
+  changes; final R4 corrections passed independent checks, Sol and actual CLI Opus review.
   Accepted closure is now split: existing Luna owns eight runtime/helper/test files;
   `/root/luna_observer_facts_closure` owns five Rust/builder/X11-test files.
   Root owns docs, skills, final verification, installation and Git. Review worker:
@@ -84,7 +84,8 @@ Latest fully parent-verified cycle **#179**:
 - [scan proof](../.archive/executor-review/build-70450-onehundredseventyninth-scan-parent-verification.json)
   and [reopen proof](../.archive/executor-review/build-70450-onehundredseventyninth-ah-reopen-parent-verification.json).
 
-Next assisted180 due1792481928 (07:38:48UTC). The legacy watcher had a hardcoded
+Assisted180 nominal due1792481928 (07:38:48UTC) is held for the approved
+installation/native qualification window; do not claim cadence through this pause. The legacy watcher had a hardcoded
 nominal start; its original receipt remains intact alongside an explicit correction.
 Parent instead verified the original SavedVariables/server start and actual gap.
 
@@ -127,19 +128,29 @@ This remains assisted; no guard threshold changed or historical cause inferred.
 Native throughput correction is scoped in the
 [approved Rust observer plan](../.archive/PLAN-native-identity-observer.md).
 Replace CLI fanout with one fresh pinned Rust observer at each of the existing
-three identity boundaries, preserving all calibration guards. No observer is
-installed yet. The final candidate is frozen in the isolated fix worktree.
+three identity boundaries, preserving all calibration guards. The approved R4c
+source is now installed; its isolated fix worktree remains frozen.
 
-**Current milestone: R4c independent verification PASS; both Sol R4 and actual
-CLI Opus R4 READY at the same frozen13pins. Installation is authorized and next.**
+**Current milestone: R4c installed; first fresh live native100/recovery is next.**
+[Release proof](../.archive/executor-review/native-observer-r4-release-parent-verification.json):
+exact13 approved files promoted while the daemon was stopped. The reviewed
+hermetic double-build produced the exact approved binary at the stable path;
+the newly path-bound manifest SHA is
+`bca822007b51ffc1fb25789129a31618772015dbccd43473e95a23278a823ae2`.
+Only the paired observer path/hash fields were added to the private profile.
+Installed uv-tool imports resolve to MAIN; daemon PID1134848 remains stable
+beyond its restart interval, PAUSED48/nativefalse/inputfalse. CompanionPID21909
+and protected input/decoder/calibration/controller sources remain unchanged;
+original gen40/43 archives are byte-exact. Sole GUI owner held all actions during
+promotion after root independently decoded its AH-closed normal0 boundary.
 [Sol R4 READY](../.archive/executor-review/native-observer-sol-r4-review-verification.json)
 and [actual CLI Opus R4 READY](../.archive/executor-review/native-observer-opus-r4-review-verification.json)
-(exit0, claude-opus-5-5) have no blocking findings. Three nonblocking Opus
-follow-ups are retained in its proof; frozen source is not changed for them.
-Assisted179 is independently verified; collection is held AH-closed for promotion.
-Next: install exact approved source and path-bound binary manifest, one fresh
-native100 calibration, canonical recovery, genuine human input, then three new
-unattended900s cycles. Autonomous qualification remains zero.
+(exit0, claude-opus-5-5) approve these exact pins with no blocking findings.
+Three nonblocking Opus follow-ups remain separately recorded.
+Next: one fresh native100, public pause/canonical ordinary recovery, then ask
+for genuine human input availability and prove three new unattended900s cycles.
+No new live calibration is yet claimed; autonomous qualification remains zero.
+
 [Final R4 parent verification](../.archive/executor-review/native-observer-r4-final-parent-verification.json):
 284 aggregate covered cases at byte-identical source across both phases: full13
 composition and251 components before the parent-only path failure, then affected

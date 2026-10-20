@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import subprocess
 import threading
@@ -11,10 +13,13 @@ from types import SimpleNamespace
 import pytest
 
 from crowley.session.calibration import XTestInputProfile
+from crowley.session.config import SessionConfig
+from crowley.session.daemon import SessionDaemon
 from crowley.session.driver import (
     DesktopDriver,
     DriverError,
     DriverProfile,
+    PinnedX11IdentityObserver,
     WindowIdentity,
     X11Backend,
 )
@@ -32,6 +37,7 @@ from crowley.session.executor import (
     plan_pointer_curve,
 )
 from crowley.session.input_events import EventClass, XI2Event
+from crowley.session.input_tool import PinnedInputTool
 from tests.test_session_input_tool import fixture_input_tool
 
 
@@ -736,6 +742,710 @@ def test_native_resolver_accepts_captured_direct_root_wine_client_certificate(
     assert identity.target_event_xids == frozenset({outer, client})
     assert identity.xid == outer
     assert identity.child_xid == client
+
+
+def test_production_x11_factory_requires_pinned_observer_and_never_falls_back(
+    tmp_path: Path,
+) -> None:
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    profile = DriverProfile(
+        display=":factory",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+    )
+    with pytest.raises(DriverError, match="pinned Rust identity observer is required"):
+        X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "missing-pin-tool"))
+
+    observer = tmp_path / "observer"
+    observer.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
+    observer.chmod(0o700)
+    pinned = replace(
+        profile,
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(pinned, input_tool=fixture_input_tool(tmp_path / "pinned-tool"))
+    try:
+        assert backend.resolver_kind == "pinned-rust-v1"
+        assert os.readlink(f"/proc/{os.getpid()}/fd/{backend._identity_observer._fd}").startswith(
+            "/memfd:crowley-x11-identity-observer"
+        )
+        backend._matching_game_pids = lambda: (_ for _ in ()).throw(AssertionError("reference fallback"))  # type: ignore[method-assign]
+        with pytest.raises(DriverError, match="identity observer failed"):
+            backend.resolve_identity()
+        backend.close()
+        with pytest.raises(DriverError, match="production X11 backend is closed"):
+            backend.resolve_identity()
+    finally:
+        backend.close()
+
+
+def test_default_desktop_driver_constructs_the_pinned_production_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    observer = tmp_path / "observer"
+    observer.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
+    observer.chmod(0o700)
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    profile = DriverProfile(
+        display=":0",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    tool = fixture_input_tool(tmp_path / "default-tool")
+    monkeypatch.setattr(PinnedInputTool, "load", lambda: tool)
+    driver = DesktopDriver(profile=profile, lease_path=tmp_path / "desktop.lock")
+    try:
+        assert isinstance(driver.backend, X11Backend)
+        assert driver.backend.resolver_kind == "pinned-rust-v1"
+        assert driver.backend._identity_observer is not None
+    finally:
+        driver.close()
+
+
+def test_session_daemon_default_constructs_the_pinned_production_backend(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The daemon's shipped default path must retain the pinned observer."""
+
+    observer = tmp_path / "observer"
+    observer.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
+    observer.chmod(0o700)
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    profile = DriverProfile(
+        display=":daemon-default",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    plan_json = "{}"
+    codex = tmp_path / "codex"
+    codex.write_text("#!/bin/sh\nprintf 'codex-cli 0.162.1\\n'\n", encoding="utf-8")
+    codex.chmod(0o700)
+    config = SessionConfig(
+        profile=profile,
+        journal=tmp_path / "journal.json",
+        socket=tmp_path / "session.sock",
+        capture_dir=tmp_path / "captures",
+        plan_hash=hashlib.sha256(plan_json.encode()).hexdigest(),
+        plan_json=plan_json,
+        codex_path=str(codex),
+    )
+    monkeypatch.setattr(PinnedInputTool, "load", lambda: fixture_input_tool(tmp_path / "daemon-tool"))
+    monkeypatch.setenv("CROWLEY_DESKTOP_LEASE", str(tmp_path / "desktop.lock"))
+    daemon = SessionDaemon(config)
+    try:
+        assert isinstance(daemon.driver.backend, X11Backend)
+        assert daemon.driver.backend.resolver_kind == "pinned-rust-v1"
+        assert daemon.driver.backend._identity_observer is not None
+        assert daemon.driver.backend._production_observer_required is True
+    finally:
+        daemon.driver.close()
+
+
+def test_pinned_observer_write_failure_reaps_owned_child(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A request write failure still closes pipes and reaps the spawned group."""
+
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    pid_path = tmp_path / "write-failure.pid"
+    observer = tmp_path / "write-failure-observer"
+    observer.write_text(
+        f"#!/bin/sh\necho $$ > {pid_path}\nsleep 30\n",
+        encoding="utf-8",
+    )
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":write-failure",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+
+    def fail_write(process, request, *, deadline, cancel_event, close_event=None):  # type: ignore[no-untyped-def]
+        del request, deadline, cancel_event, close_event
+        deadline = time.monotonic() + 1
+        while not pid_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.005)
+        raise BrokenPipeError("test request pipe closed")
+
+    monkeypatch.setattr(PinnedX11IdentityObserver, "_write_request", staticmethod(fail_write))
+    try:
+        with pytest.raises(DriverError, match="invocation failed|pipe"):
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 2)
+        assert pid_path.is_file()
+        pid = int(pid_path.read_text(encoding="utf-8"))
+        with pytest.raises(ChildProcessError):
+            os.waitpid(pid, os.WNOHANG)
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+        assert not backend._identity_observer._active_processes
+    finally:
+        backend.close()
+
+
+def test_pinned_observer_close_cancels_invoke_and_releases_sealed_fd(tmp_path: Path) -> None:
+    """Closing the production backend while invoking leaves no observer FD/process."""
+
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    pid_path = tmp_path / "close-race.pid"
+    observer = tmp_path / "close-race-observer"
+    observer.write_text(f"#!/bin/sh\necho $$ > {pid_path}\nsleep 30\n", encoding="utf-8")
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":close-race",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    baseline_fds = set(os.listdir("/proc/self/fd"))
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    sealed_observer = backend._identity_observer
+    assert sealed_observer is not None
+    errors: list[BaseException] = []
+
+    def resolve() -> None:
+        try:
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 5.0)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    worker = threading.Thread(target=resolve)
+    worker.start()
+    try:
+        deadline = time.monotonic() + 2.0
+        while not pid_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.005)
+        assert pid_path.is_file()
+        backend.close()
+        worker.join(timeout=2.0)
+        assert not worker.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], DriverError)
+        assert "cancel" in str(errors[0]).lower() or "closed" in str(errors[0]).lower()
+        assert not sealed_observer._active_processes
+        with pytest.raises(DriverError, match="closed"):
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 1.0)
+    finally:
+        backend.close()
+        backend.input_tool.close()
+    assert set(os.listdir("/proc/self/fd")) == baseline_fds
+
+
+def test_pinned_resolver_captures_observer_before_close_race(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A close between resolver selection and invocation remains a typed failure."""
+
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    observer = tmp_path / "close-before-invoke-observer"
+    observer.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":close-before-invoke",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    selected = threading.Event()
+    release = threading.Event()
+    original = X11Backend._resolve_identity_pinned
+
+    def gated(self, pinned_observer, **kwargs):  # type: ignore[no-untyped-def]
+        selected.set()
+        assert release.wait(timeout=2)
+        return original(self, pinned_observer, **kwargs)
+
+    monkeypatch.setattr(X11Backend, "_resolve_identity_pinned", gated)
+    errors: list[BaseException] = []
+
+    def resolve() -> None:
+        try:
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 5)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    worker = threading.Thread(target=resolve)
+    worker.start()
+    try:
+        assert selected.wait(timeout=2)
+        backend.close()
+        release.set()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], DriverError)
+        assert "closed" in str(errors[0]).lower()
+    finally:
+        release.set()
+        worker.join(timeout=2)
+        backend.close()
+
+
+def test_failed_guardian_construction_closes_pinned_observer_fd(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A Guardian construction failure must not strand the sealed observer FD."""
+
+    from crowley.session import driver as session_driver
+
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    observer = tmp_path / "guardian-failure-observer"
+    observer.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":guardian-failure",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    sealed_observer = backend._identity_observer
+    assert sealed_observer is not None
+    sealed_fd = sealed_observer._fd
+
+    def fail_guardian(*_args: object, **_kwargs: object) -> object:
+        raise RuntimeError("fixture Guardian construction failure")
+
+    monkeypatch.setattr(session_driver, "InputGuardian", fail_guardian)
+    try:
+        with pytest.raises(RuntimeError, match="Guardian construction failure"):
+            DesktopDriver(profile=profile, backend=backend, lease_path=tmp_path / "lease.lock")
+        with pytest.raises(OSError):
+            os.fstat(sealed_fd)
+        assert sealed_observer._fd == -1
+        assert not sealed_observer._active_processes
+    finally:
+        backend.close()
+        backend.input_tool.close()
+
+
+def test_failed_input_lease_closes_second_pinned_observer_fd(tmp_path: Path) -> None:
+    """A real lease collision must not retain the second production observer."""
+
+    from crowley.session.guardian import GuardianError
+
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    observer = tmp_path / "lease-failure-observer"
+    observer.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":lease-failure",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    lease_path = tmp_path / "desktop.lock"
+    first_backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "first-tool"))
+    first_driver = DesktopDriver(profile=profile, backend=first_backend, lease_path=lease_path)
+    first_driver.guardian.lease.acquire()
+    second_backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "second-tool"))
+    second_observer = second_backend._identity_observer
+    assert second_observer is not None
+    try:
+        with pytest.raises(GuardianError, match="input lease"):
+            DesktopDriver(profile=profile, backend=second_backend, lease_path=lease_path)
+        assert second_observer._fd == -1
+        assert not second_observer._active_processes
+    finally:
+        first_driver.close()
+        second_backend.close()
+        second_backend.input_tool.close()
+
+
+def test_pinned_observer_protocol_requires_version_and_timings(tmp_path: Path) -> None:
+    observer_path = tmp_path / "observer"
+    observer_path.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    observer_path.chmod(0o700)
+    observer = PinnedX11IdentityObserver(
+        observer_path, hashlib.sha256(observer_path.read_bytes()).hexdigest()
+    )
+    process = SimpleNamespace(returncode=0)
+    base = {
+        "protocolVersion": 1,
+        "matchingProcessCount": 1,
+        "candidateWindowCount": 1,
+        "pid": 10,
+        "start": "start",
+        "exe": "WowB.exe",
+        "statusName": "WowB.exe",
+        "loader": "wine-preloader",
+        "winePrefix": "/tmp/wine",
+        "xid": 100,
+        "title": "World of Warcraft",
+        "class": "wowb.exe,wowb.exe",
+        "outer": 100,
+        "child": 101,
+        "outerRoot": 1,
+        "outerParent": 1,
+        "outerGeometry": [0, 0, 1928, 1092],
+        "childGeometry": [0, 0, 1920, 1080],
+        "outerChildren": [101],
+        "focus": 101,
+        "active": 101,
+        "display": ":0",
+        "nonce": "nonce",
+        "binaryDigest": observer.digest,
+        "timingsNs": {"proc": 10, "x11": 20, "total": 30},
+    }
+    try:
+        assert (
+            observer._decode_response(json.dumps(base).encode(), b"", process=process, nonce="nonce") == base
+        )
+        for mutation, message in (
+            ({"protocolVersion": 2}, "protocol version"),
+            ({"timingsNs": {"proc": 10, "x11": 20}}, "timings"),
+            ({"outerParent": True}, "integer facts"),
+        ):
+            invalid = {**base, **mutation}
+            with pytest.raises(DriverError, match=message):
+                observer._decode_response(json.dumps(invalid).encode(), b"", process=process, nonce="nonce")
+        with pytest.raises(DriverError, match="malformed"):
+            observer._decode_response(
+                b'{"protocolVersion":1,"protocolVersion":1}',
+                b"",
+                process=process,
+                nonce="nonce",
+            )
+        missing_parent = dict(base)
+        missing_parent.pop("outerParent")
+        with pytest.raises(DriverError, match="keys are malformed"):
+            observer._decode_response(
+                json.dumps(missing_parent).encode(), b"", process=process, nonce="nonce"
+            )
+    finally:
+        observer.close()
+
+
+def test_pinned_identity_rejects_wrong_outer_parent(tmp_path: Path) -> None:
+    profile = DriverProfile(
+        display=":0",
+        xauthority=str(tmp_path / "Xauthority"),
+        wine_prefix="/tmp/wine",
+        executable="WowB.exe",
+    )
+    backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    facts = {
+        "protocolVersion": 1,
+        "matchingProcessCount": 1,
+        "candidateWindowCount": 1,
+        "pid": 10,
+        "start": "start",
+        "exe": "WowB.exe",
+        "statusName": "WowB.exe",
+        "loader": "wine-preloader",
+        "winePrefix": "/tmp/wine",
+        "xid": 100,
+        "title": "World of Warcraft",
+        "class": "wowb.exe,wowb.exe",
+        "outer": 100,
+        "child": 101,
+        "outerRoot": 1,
+        "outerParent": 2,
+        "outerGeometry": [0, 0, 1928, 1092],
+        "childGeometry": [0, 0, 1920, 1080],
+        "outerChildren": [101],
+        "focus": 101,
+        "active": 101,
+        "display": ":0",
+        "nonce": "nonce",
+        "binaryDigest": "digest",
+        "timingsNs": {"proc": 10, "x11": 20, "total": 30},
+    }
+    backend._identity_observer = SimpleNamespace(invoke=lambda *_args, **_kwargs: facts)
+    try:
+        with pytest.raises(DriverError, match="geometry/tree facts"):
+            backend.resolve_identity()
+    finally:
+        backend.input_tool.close()
+
+
+def test_unsafe_observer_mode_is_rejected_before_input_or_lease(tmp_path: Path, monkeypatch) -> None:
+    observer = tmp_path / "observer"
+    observer.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    observer.chmod(0o600)
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    profile = DriverProfile(
+        display=":0",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    monkeypatch.setattr(
+        PinnedInputTool, "load", lambda: (_ for _ in ()).throw(AssertionError("input loaded"))
+    )
+    with pytest.raises(DriverError, match="private and executable"):
+        X11Backend.production(profile)
+    assert not (tmp_path / "desktop.lock").exists()
+
+
+def test_desktop_driver_default_requires_the_production_observer_pin(tmp_path: Path) -> None:
+    with pytest.raises(DriverError, match="pinned Rust identity observer is required"):
+        DesktopDriver(
+            profile=DriverProfile(display=":default-factory"),
+            lease_path=tmp_path / "desktop.lock",
+        )
+    assert not (tmp_path / "desktop.lock").exists()
+
+
+def test_pinned_observer_timeout_reaps_its_process_group(tmp_path: Path) -> None:
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    observer = tmp_path / "observer"
+    observer.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":timeout",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    try:
+        with pytest.raises(DriverError, match="timed out"):
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 0.1)
+    finally:
+        backend.close()
+
+
+def test_pinned_observer_timeout_reaps_real_elf_child(tmp_path: Path) -> None:
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    pid_path = tmp_path / "observer.pid"
+    source = tmp_path / "observer.c"
+    source.write_text(
+        "#include <stdio.h>\n"
+        "#include <unistd.h>\n"
+        "int main(void) {\n"
+        f'  FILE *file = fopen("{pid_path}", "w");\n'
+        "  if (!file) return 2;\n"
+        '  fprintf(file, "%ld\\n", (long)getpid());\n'
+        "  fflush(file);\n"
+        "  sleep(30);\n"
+        "  return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    observer = tmp_path / "observer"
+    subprocess.run(["cc", str(source), "-O0", "-o", str(observer)], check=True)
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":timeout-elf",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    try:
+        with pytest.raises(DriverError, match="timed out"):
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 0.1)
+        deadline = time.monotonic() + 1
+        while not pid_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pid_path.is_file()
+        pid = int(pid_path.read_text(encoding="utf-8"))
+        while time.monotonic() < deadline:
+            try:
+                result = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                break
+            assert result == (0, 0)
+            time.sleep(0.01)
+        else:
+            pytest.fail("timed-out observer child was not reaped")
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    finally:
+        backend.close()
+
+
+def test_pinned_observer_bounds_concurrent_output_and_descendant_pipes(tmp_path: Path) -> None:
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    noisy = tmp_path / "noisy-observer"
+    noisy.write_text(
+        "#!/bin/sh\n"
+        '/usr/bin/python3 -c \'import sys; sys.stdout.write("x"*70000); sys.stderr.write("y"*70000)\'\n',
+        encoding="utf-8",
+    )
+    noisy.chmod(0o700)
+    profile = DriverProfile(
+        display=":noisy",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=noisy,
+        identity_observer_executable_sha256=hashlib.sha256(noisy.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    try:
+        with pytest.raises(DriverError, match="stdout is oversized"):
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 2.0)
+    finally:
+        backend.close()
+
+    duplicate = tmp_path / "duplicate-response-observer"
+    duplicate.write_text(
+        "#!/bin/sh\nprintf '%s\\n' '{\"matchingProcessCount\":1,\"matchingProcessCount\":1}'\n",
+        encoding="utf-8",
+    )
+    duplicate.chmod(0o700)
+    duplicate_profile = replace(
+        profile,
+        identity_observer_executable=duplicate,
+        identity_observer_executable_sha256=hashlib.sha256(duplicate.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(
+        duplicate_profile, input_tool=fixture_input_tool(tmp_path / "duplicate-tool")
+    )
+    try:
+        with pytest.raises(DriverError, match="identity observer output is malformed"):
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 2.0)
+    finally:
+        backend.close()
+
+    held = tmp_path / "held-pipe-observer"
+    held.write_text(
+        "#!/bin/sh\n( /bin/sleep 30 ) &\nprintf '%s\\n' '{\"error\":\"held\"}'\nexit 0\n",
+        encoding="utf-8",
+    )
+    held.chmod(0o700)
+    held_profile = replace(
+        profile,
+        identity_observer_executable=held,
+        identity_observer_executable_sha256=hashlib.sha256(held.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(held_profile, input_tool=fixture_input_tool(tmp_path / "held-tool"))
+    try:
+        with pytest.raises(DriverError, match="identity observer output keys are malformed"):
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 2.0)
+    finally:
+        backend.close()
+
+
+def test_pinned_observer_cancellation_reaps_its_process_group(tmp_path: Path) -> None:
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    observer = tmp_path / "observer"
+    observer.write_text("#!/bin/sh\nsleep 30\n", encoding="utf-8")
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":cancel",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    errors: list[BaseException] = []
+
+    def resolve() -> None:
+        try:
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 5)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    worker = threading.Thread(target=resolve)
+    worker.start()
+    try:
+        time.sleep(0.05)
+        backend._cancel_active.set()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], DriverError)
+        assert "cancelled" in str(errors[0])
+    finally:
+        backend.close()
+
+
+def test_pinned_observer_cancellation_reaps_real_elf_child(tmp_path: Path) -> None:
+    xauthority = tmp_path / "Xauthority"
+    xauthority.touch(mode=0o600)
+    pid_path = tmp_path / "cancel-observer.pid"
+    source = tmp_path / "cancel-observer.c"
+    source.write_text(
+        "#include <stdio.h>\n"
+        "#include <unistd.h>\n"
+        "int main(void) {\n"
+        f'  FILE *file = fopen("{pid_path}", "w");\n'
+        "  if (!file) return 2;\n"
+        '  fprintf(file, "%ld\\n", (long)getpid());\n'
+        "  fflush(file);\n"
+        "  sleep(30);\n"
+        "  return 0;\n"
+        "}\n",
+        encoding="utf-8",
+    )
+    observer = tmp_path / "cancel-observer"
+    subprocess.run(["cc", str(source), "-O0", "-o", str(observer)], check=True)
+    observer.chmod(0o700)
+    profile = DriverProfile(
+        display=":cancel-elf",
+        xauthority=str(xauthority),
+        wine_prefix=str(tmp_path / "wine"),
+        identity_observer_executable=observer,
+        identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
+    )
+    backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
+    errors: list[BaseException] = []
+
+    def resolve() -> None:
+        try:
+            backend.resolve_identity(deadline_monotonic=time.monotonic() + 5)
+        except BaseException as exc:  # pragma: no cover - asserted below
+            errors.append(exc)
+
+    worker = threading.Thread(target=resolve)
+    worker.start()
+    try:
+        time.sleep(0.05)
+        backend._cancel_active.set()
+        worker.join(timeout=2)
+        assert not worker.is_alive()
+        assert len(errors) == 1
+        assert isinstance(errors[0], DriverError)
+        assert "cancelled" in str(errors[0])
+        deadline = time.monotonic() + 1
+        while not pid_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert pid_path.is_file()
+        pid = int(pid_path.read_text(encoding="utf-8"))
+        while time.monotonic() < deadline:
+            try:
+                result = os.waitpid(pid, os.WNOHANG)
+            except ChildProcessError:
+                break
+            assert result == (0, 0)
+            time.sleep(0.01)
+        else:
+            pytest.fail("cancelled observer child was not reaped")
+        with pytest.raises(ProcessLookupError):
+            os.kill(pid, 0)
+    finally:
+        backend.close()
 
 
 def test_begin_action_does_not_publish_unemitted_planned_holds(tmp_path: Path) -> None:
