@@ -2649,12 +2649,11 @@ class X11Backend:
         from .calibration import KeyboardProbeOperation, KeyboardProbeStep
 
         def token(keysym: str) -> str:
-            return {
-                "Control_L": "ctrl",
-                "Control_R": "ctrl",
-                "Return": "Return",
-                "Escape": "Escape",
-            }.get(keysym, keysym)
+            # Keep the physical keysym from the sealed probe profile.  The
+            # left/right Control distinction is part of the ownership proof;
+            # collapsing either one to xdotool's ``ctrl`` alias would make the
+            # argv disagree with the held-key metadata before admission.
+            return keysym
 
         for operation in operations:
             if not isinstance(operation, KeyboardProbeOperation) or not operation.steps:

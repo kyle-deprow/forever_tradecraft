@@ -60,6 +60,130 @@ def fixture_input_tool(tmp_path: Path, executable_source: str = "/bin/true") -> 
     return PinnedInputTool.from_root(_artifact_copy(tmp_path, executable_source))
 
 
+def test_synthetic_keyboard_profile_preserves_physical_control_ownership_through_admission(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Exercise the real keyboard profile, Guardian gate, and pinned producer."""
+
+    from crowley.session import driver as driver_module
+    from crowley.session.calibration import KeyboardProbeOperation, KeyboardProbeStep
+
+    source = tmp_path / "argv-recorder.c"
+    executable = tmp_path / "argv-recorder"
+    source.write_text(
+        """
+#define _GNU_SOURCE
+#include <fcntl.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <unistd.h>
+int main(int argc, char **argv) {
+    const char *path = getenv("CROWLEY_KEY_ARGV");
+    if (path == NULL) return 2;
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0600);
+    if (fd < 0) return 3;
+    for (int i = 0; i < argc; ++i) {
+        dprintf(fd, "%s%s", i == 0 ? "" : "|", argv[i]);
+    }
+    dprintf(fd, "\\n");
+    close(fd);
+    return 0;
+}
+""",
+        encoding="utf-8",
+    )
+    subprocess.run(["cc", "-O2", str(source), "-o", str(executable)], check=True)
+    argv_log = tmp_path / "argv.log"
+    monkeypatch.setenv("CROWLEY_KEY_ARGV", str(argv_log))
+
+    profile = driver_module.DriverProfile(
+        display=":input-key-ownership",
+        xauthority=str(tmp_path / "Xauthority"),
+    )
+    tool = fixture_input_tool(tmp_path / "tool", str(executable))
+    backend = driver_module.X11Backend(profile, input_tool=tool)
+    driver = driver_module.DesktopDriver(
+        profile=profile,
+        backend=backend,
+        lease_path=tmp_path / "desktop.lock",
+    )
+    try:
+        epoch = driver.begin_calibration_operation()
+        ticket = driver_module.CalibrationTicket(
+            epoch=epoch,
+            target_pid=os.getpid(),
+            target_xid=0x101,
+            target_xids=frozenset({0x101}),
+            title="Crowley GTK calibration",
+            geometry=(0, 0, 100, 100),
+            managed_frame_xid=0x100,
+            managed_frame_geometry=(0, 0, 100, 100),
+            target_executable=sys.executable,
+            target_process_start=driver_module._proc_start(os.getpid()),
+        )
+        driver.guardian.issue_calibration_ticket(ticket)
+        backend._calibration_focus_ticket = ticket
+
+        published_holds: list[tuple[frozenset[str], frozenset[int], frozenset[int]]] = []
+        publish_holds = backend._publish_holds
+        assert publish_holds is not None
+
+        def observe_holds(authority: object, keys: set[str], buttons: set[int]) -> None:
+            # This is the real admission path: the child is registered before
+            # the gate opens, so the recorder cannot run before ownership is
+            # visible to the Guardian.
+            assert backend.active_process_groups
+            published_holds.append((frozenset(keys), frozenset(buttons), backend.active_process_groups))
+            publish_holds(authority, keys, buttons)
+
+        backend._publish_holds = observe_holds
+        operations = driver.calibration_keyboard_operations()
+        right_control = KeyboardProbeOperation(
+            "select_chat_all_right",
+            "",
+            (
+                KeyboardProbeStep("press", "Control_R"),
+                KeyboardProbeStep("press", "a"),
+                KeyboardProbeStep("release", "a"),
+                KeyboardProbeStep("release", "Control_R"),
+            ),
+        )
+        backend.synthetic_keyboard_profile(operations + (right_control,), calibration_ticket=ticket)
+
+        rows = argv_log.read_text(encoding="utf-8").splitlines()
+        assert rows
+        assert any("key|--|Control_L+a" in row for row in rows)
+        assert any("key|--|Control_R+a" in row for row in rows)
+        assert any("key|--|Return" in row for row in rows)
+        assert not any("key|--|ctrl+a" in row for row in rows)
+        assert published_holds
+        assert not backend.active_process_groups
+        assert not backend._process_calibration_tickets
+
+        before_refusal = len(rows)
+        with pytest.raises(driver_module.DriverError, match="holds do not match"):
+            backend._run(
+                ["xdotool", "key", "--", "Control_L+a"],
+                calibration_ticket=ticket,
+                held_keys={"Control_R", "a"},
+            )
+        assert len(argv_log.read_text(encoding="utf-8").splitlines()) == before_refusal
+        assert not backend.active_process_groups
+
+        driver.guardian.cancel_calibration_operation(ticket)
+        with pytest.raises(driver_module.DriverError, match="cancelled|revoked"):
+            backend._run(
+                ["xdotool", "key", "--", "Control_L+a"],
+                calibration_ticket=ticket,
+                held_keys={"Control_L", "a"},
+            )
+        assert len(argv_log.read_text(encoding="utf-8").splitlines()) == before_refusal
+        assert not backend.active_process_groups
+        assert not backend._process_calibration_tickets
+    finally:
+        driver.close()
+
+
 def test_vendored_source_archive_is_the_pinned_upstream_source() -> None:
     archive = VENDORED_SOURCE_ARCHIVE
     assert archive.stat().st_size == 115654

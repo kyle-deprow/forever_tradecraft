@@ -176,6 +176,8 @@ within existing authorization; respect any current movement limits.
   Check both process reaping and empty Guardian registries during cleanup.
   Retain handles and final summaries for long checks; collected test counts or
   silence after a tool session ends do not establish a completed passing run.
+  Preserve physical left/right keysyms when serializing a sealed keyboard profile;
+  collapsing them to a modifier alias can contradict exact held-key ownership.
   Planner and argv-builder tests do not establish executor behavior. Exercise
   the actual key/camera driver entrypoint and ordered observer completion;
   model the external process/events rather than replacing the ownership gate.

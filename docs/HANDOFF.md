@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 18:41 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 20:51 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -47,29 +47,37 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
-**Native57 and ordinary58 passed; human startup still pending:**
-[Parent verification](../.archive/executor-review/native57-ordinary58-input59-parent-verification.json).
-Same gamePID1033131/start33665951,
-fingerprint899bf01093de178de122655c436fa6163f7584b74e0294035bf8c6282b9c6439.
-Parent recomputed evidence/content hashes and decoded held100 plus five fresh
-ordinary normal0 frames84/89/93/97/102, speed/current0, released controls,
-pending0/AHclosed/inactive fence. Both native memory targets passed: construction
-growth0, updates7,172,096 bytes. Live pointer parking was exercised successfully.
-Canonical recovery58 cleared the checkpoint before input startup.
+**Keyboard ownership fix installed; fresh calibration underway:**
+[Parent verification](../.archive/executor-review/input-key-ownership-release-parent-verification.json).
+Input61 reached its owned GTK target but refused before human readiness with
+`desktop argv holds do not match its sealed input plan`. The raw monitor does
+not serialize action argv/holds; offline production-path reproduction establishes
+that Control_L+a was emitted as ambiguous ctrl+a while owning Control_L+a.
+Synthetic baseline actions could execute before that refusal; no human sample
+was accepted. Public cleanup paused62 with checkpoint clear.
 
-One input attempt59 refused before readiness: `calibration pointer origin is
-outside the owned target`. Human sample never began. The diagnostic monitor
-ended before invocation and missed the GTK target, so its placement/ancestry
-cause is unproven; post-cleanup pointer/focus cannot establish that cause.
-Cleanup paused60/native true/inputfalse with no checkpoint/reconciliation.
-Post-pause fullframes show WOW51900319 disconnect again; failed crops do not
-establish a new HUD or motion fault. Luna is reconnecting the existing Normal
-realm/Arthur and preparing a persistent exact-target monitor. Preserve the
-origin guard; no synthetic origin warp or fake human input. A new attempt may
-use the actual pointer left by normal login, with fresh world/identity proof
-and monitored target geometry. No stale seal carry across a process replacement.
-Luna remains sole GUI owner; the earlier desktop hold is superseded by the
-user's request to perform calibration. Zero autonomous cycles counted.
+Luna fixed only synthetic keyboard-profile serialization to retain physical
+Control_L/Control_R keysyms. Strict validator, admission, Guardian and watchdog
+are unchanged. Parent independently passed56 relevant tests plus scoped static
+checks; the new real-admission/harmless-producer regression fails against old
+MAIN with the exact original refusal. Sol R1 READY, no findings. Exact reviewed
+source/test pins are installed. Parent decoded five fresh ordinary frames
+1142/1146/1151/1155/1159: speed/current0, AHclosed, pending0, inactive fence and
+released controls. Only sessiondaemon restarted3174693→2274001, PAUSED63 with
+both live calibration gates false. Config and seven protected sources unchanged.
+Luna owns fresh preflight/native100→public pause/canonical ordinary recovery→
+five ordinary frames→monitored genuine human-input calibration. Notify the user
+only when actual owned GTK readiness is published; no fabricated human input.
+
+Historical native57 and ordinary58 passed on gamePID1033131/start33665951,
+fingerprint899bf01093de178de122655c436fa6163f7584b74e0294035bf8c6282b9c6439:
+[Native57 verification](../.archive/executor-review/native57-ordinary58-input59-parent-verification.json).
+Parent recomputed hashes/held100 and ordinary5 frames; construction memory growth0
+and updates7,172,096 bytes met targets. Those private live seals were intentionally
+invalidated by the new driver reload; do not carry them forward. Input59 refused
+pointer origin; its old monitor died before invocation and cannot prove the cause.
+Normal reconnect preceded input61 and its corrected persistent target monitor.
+Zero autonomous qualification cycles counted; last verified assisted scan is179.
 
 **Installed correction:** pointer parking clears button hover before unchanged
 control recognition. Exact matcher replay identified the original Restore hover
@@ -92,7 +100,7 @@ live results are above. Zero autonomous cycles are counted. Continue already
 authorized work; a status request does not pause it.
 
 
-**Newest blocker:** new-process preflight54 passed; measure-deferred55 refused
+**Historical blocker (resolved by the installed hover fix):** new-process preflight54 passed; measure-deferred55 refused
 at post-reload-controls BEFORE bootstrap/native measurement, then canonical
 recover56 refused its restore-control template. PAUSED56/nativefalse/inputfalse;
 no human prompt appeared. [Visual refusal evidence](../.archive/executor-review/native55-visual-startup-refusal.json).

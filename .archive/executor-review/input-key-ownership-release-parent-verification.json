@@ -1,0 +1,74 @@
+{
+  "verifiedAt": "2026-10-20T20:49:02.112751+00:00",
+  "worktree": "/home/dev/.cache/crowley/worktrees/input-key-ownership-20261020",
+  "files": {
+    "src/crowley/session/driver.py": "d7b8e36746387bc77ecd3a3cdec90987f8221c87b87182e1f8c1615e969923f5",
+    "tests/test_session_input_tool.py": "466fff98fabbca9a8d6738a3e3a92a34fc6c456d7e59994ae14c9fefe38baa52"
+  },
+  "parentChecks": {
+    "command": "PYTHONPATH=<WT>/src <MAIN>/.venv/bin/python -m pytest -q tests/test_session_input_tool.py tests/test_session_driver_actions.py tests/test_session_native.py -k \"not native or keyboard or keymap\"",
+    "passed": 56,
+    "deselected": 204,
+    "elapsedSeconds": 9.62,
+    "importConfirmed": "<WT>/src/crowley/__init__.py",
+    "ruffCheck": "PASS",
+    "ruffFormat": "PASS",
+    "pyCompile": "PASS",
+    "gitDiffCheck": "PASS"
+  },
+  "baselineDiscrimination": {
+    "command": "PYTHONPATH=<MAIN>/src <MAIN>/.venv/bin/python -m pytest -q <WT>/tests/test_session_input_tool.py::test_synthetic_keyboard_profile_preserves_physical_control_ownership_through_admission --tb=short",
+    "importConfirmed": "<MAIN>/src/crowley/__init__.py",
+    "result": "EXPECTED_FAILURE",
+    "error": "desktop argv holds do not match its sealed input plan",
+    "raisedAt": "src/crowley/session/driver.py:2234",
+    "passed": 0,
+    "failed": 1
+  },
+  "review": {
+    "pairing": "luna/sol",
+    "solRounds": 1,
+    "status": "READY",
+    "findings": [],
+    "reportSha256": "e163cb211a2f15fe158ee902848270c072d3cb67833f2e2ab622f806d09389e3"
+  },
+  "installation": {
+    "oldDaemonPid": 3174693,
+    "newDaemonPid": 2274001,
+    "beforeGeneration": 62,
+    "afterGeneration": 63,
+    "state": "PAUSED",
+    "nativeCalibration": false,
+    "inputCalibration": false,
+    "configSha256": "89580ebd703d4457537b7e2dc49ab5a6f3395805033ef28a34814a54c7ae568f",
+    "protectedUnchanged": {
+      "daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+      "config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+      "calibration.py": "0e96f7f4d9fd6b25c04fc767e57e4c617b69f99cb165811d4bd2a07c8c1932fc",
+      "decoder.py": "badd6c3f469f0f13503d3aa8851e7d0dac416629f3974841593d6b42d2199739",
+      "controller.py": "79768781005d062cf0662c4ef99dd5a0b2263e8ac59f84b832fd09e9351ac81f",
+      "guardian.py": "e73128de1e6fdf38beda8256b11f77d66b2b666eb8b1499018c70781217a2efa",
+      "input_tool.py": "7d4edcc9094a813a2d8d87d0e94257493c11f5740f297eb0aefa7798b22a9ed6"
+    },
+    "installedPins": {
+      "src/crowley/session/driver.py": "d7b8e36746387bc77ecd3a3cdec90987f8221c87b87182e1f8c1615e969923f5",
+      "tests/test_session_input_tool.py": "466fff98fabbca9a8d6738a3e3a92a34fc6c456d7e59994ae14c9fefe38baa52"
+    },
+    "reviewSha256": "e163cb211a2f15fe158ee902848270c072d3cb67833f2e2ab622f806d09389e3",
+    "parentPredeployQuiescenceSha256": "cf5a016dc57d1354c775161b2d3b7d1dd448bb5692afd700e9bb7db3dbd9632a",
+    "gameInputOrCaptureByParent": false
+  },
+  "humanCalibration": false,
+  "autonomousCycles": 0,
+  "liveNext": "Fresh native calibration, canonical ordinary recovery, genuine human input sample, then three new autonomous900-second cycles",
+  "liveInput61": {
+    "readiness": false,
+    "error": "desktop argv holds do not match its sealed input plan",
+    "actualTargetReached": true,
+    "rawTraceContainsActionArgv": false,
+    "causeEvidence": "Offline installed-source reproduction, independently failing new regression against old driver",
+    "syntheticBaselineMayHaveExecuted": true,
+    "summarySha256": "c3f00eca3a0a20283c78f4f6f1a6c0cb5de2ff4c794571d6cf48fad7418c04e3",
+    "startupTraceSha256": "752209028c395fb1aec1d933b8785991d38e6bdbfcbdc7d66ed4d7b3b624e865"
+  }
+}
