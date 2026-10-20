@@ -33,6 +33,8 @@ When an actor collapses admission errors, retain the bounded private raw server
 response before another probe. Multiprocessing spawn requires child-side logging;
 parent monkeypatches alone do not reach the actor. Preserve transport identity,
 absolute deadlines, validation and cleanup while adding diagnostics.
+Seal receipt bytes before publishing their digest externally; adding self-hash
+metadata afterward invalidates that published digest.
 Bind retained receipts to the exact case/run timestamps; a later isolated pass
 cannot diagnose an earlier suite failure.
 For concurrent identity checks, bind one invocation to its actual caller, span

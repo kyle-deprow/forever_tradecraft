@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 07:38 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 08:00 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -52,9 +52,11 @@ Stable game identity: PID644491/start15495385, xid0x02e00001,
 child0x2000011, fingerprint
 `e84a459bda54c891092f049af9c523eb171588ce566a44123723d733baf6918a`.
 1920x1080 client, telemetry crop80,48,256,256. DISPLAY:0; obtain fresh authority
-and controller generation before mutation. Latest canonical native recovery was PAUSED47,
-nativefalse/inputfalse; do not treat this historical generation as fresh.
+and controller generation before mutation. Latest canonical recovery is PAUSED51,
+nativetrue/inputfalse after the successful generation50 native calibration.
+Obtain fresh state before any mutation; no physical calibration has started.
 
+The following daemon/resource-policy history predates the installed Rust observer.
 Daemon `crowley-session` restarted after accepted resource-policy R2 installation
 at21:28UTC, PID184662, PAUSED45/nativefalse/inputfalse. All six accepted files and
 three unchanged boundaries match final pins; MAIN imports verified; copy occurred
@@ -131,23 +133,29 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. The approved R4c
 source is now installed; its isolated fix worktree remains frozen.
 
-**Current milestone: R4c installed; live control preflight refuses admission.**
-[Preflight evidence](../.archive/executor-review/native-observer-r4-live-preflight-refusal.json):
-initial gen48 preflight and one private diagnostic wrapper both stopped before
-checkpoint/capture/input on `actor_admission_invalid`. This is a generic actor
-validation code; the underlying rejected server condition is not yet established.
-No native measurement started. One public pause advanced to PAUSED49 with
-native/input false, empty action intent, idle handshake and no reconciliation.
-No standalone recovery was issued without a checkpoint; GUI owner holds input.
-A later gen49 diagnostic retained the exact daemon response: `game client is
-not foreground` (raw-logSHA `eeb8a2eadd994c973e10df4636391d5a955bb1dbc95fa58600937c5676717ce7`).
-Root inspected the private child-only logger and independently passed its offline
-spawn/response/exception/permissions check; source/validation/deadlines are intact.
-Earlier gen48 cause remains unknown. Sole GUI owner may perform a guarded focus
-restoration with fresh pinned identity, verify actual foreground, then run the
-original preflight/native100/recovery chain once at the changed operating state.
-No source/config/restart or guard relaxation is involved.
-Native100/recovery, genuine human input and three unattended cycles remain pending.
+**Current milestone: live native calibration PASS; ordinary recovery independently verified.**
+[Generation50 parent proof](../.archive/executor-review/native-observer-live50-parent-verification.json):
+one canonical measure attempt completed construction/held0, exact updates1..99,
+held100, contiguous resume0 and finalization through the unchanged reviewed
+production runner. Parent recomputed the archived evidence hash/fingerprint and
+independently decoded the retained held100 PNG and recovered ordinary full-frame
+PNG. Successful intermediate crops are released by production; no independent
+raw re-decode of all99 updates is claimed. EvidenceHash
+`8afd1e0e50d8f27835fcf521a5bd1cfa571235e8136966230c4a95f4bb52bf1a`.
+Public pause50→51 and canonical recovery succeeded: PAUSED51/native true/input
+false, normal0/inactive, scanner ready, AHclosed, pending0, speed0, chat inactive,
+construction checkpoint absent. All source/protected pins and old40/43 archives
+remain unchanged. Helpers/input are stopped and GUI held at this boundary.
+Resource result is separately `target_exceeded`: update whole-process HWM growth
+45,514,752bytes (43.40625MiB) against16MiB; construction growth0 against128MiB.
+This is a retained resource follow-up, not a transport/render calibration failure.
+The gen49 raw admission refusal was `game client is not foreground`. One guarded
+pinned-tool activation restored verified foreground; preflight then passed and
+recovered. Earlier gen48 cause is not inferred from that later diagnostic.
+[Original refusal evidence](../.archive/executor-review/native-observer-r4-live-preflight-refusal.json)
+retains all refused probes, the child-only raw logger and operating correction.
+Next: ask availability for genuine physical input, then prove three NEW
+unattended900s full cycles. No human input or autonomous cycle is counted yet.
 
 [Release proof](../.archive/executor-review/native-observer-r4-release-parent-verification.json):
 exact13 approved files promoted while the daemon was stopped. The reviewed
@@ -164,9 +172,8 @@ promotion after root independently decoded its AH-closed normal0 boundary.
 and [actual CLI Opus R4 READY](../.archive/executor-review/native-observer-opus-r4-review-verification.json)
 (exit0, claude-opus-5-5) approve these exact pins with no blocking findings.
 Three nonblocking Opus follow-ups remain separately recorded.
-Next: one fresh native100, public pause/canonical ordinary recovery, then ask
-for genuine human input availability and prove three new unattended900s cycles.
-No new live calibration is yet claimed; autonomous qualification remains zero.
+Installation prerequisites and native100/recovery above are now complete. Genuine
+human input and three new unattended900s cycles remain; qualification is zero.
 
 [Final R4 parent verification](../.archive/executor-review/native-observer-r4-final-parent-verification.json):
 284 aggregate covered cases at byte-identical source across both phases: full13

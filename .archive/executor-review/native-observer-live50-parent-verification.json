@@ -1,0 +1,102 @@
+{
+  "status": "NATIVE_PASS_RECOVERY_VERIFIED",
+  "nativeGeneration": 50,
+  "recoveredGeneration": 51,
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "e19671a4620ef86047232b8325a7d0ef152ab7558cf45137424dc76f6535ef35",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+    "tests/test_native_calibration_operator.py": "872c056497b0c1dd90ebccc87a856550ffacdc7929fe1610324f8f74c9761124",
+    "tests/test_session_driver_actions.py": "2e5d9a764c57e349aab8613b076de142650f0c5ceac38747fa5d0a4570c20c0a",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "d19966745745ae9dfce1b107631fe31e261efe04968dbfdc8fed437851f553f1",
+    "tools/build_x11_identity_observer.py": "006b97b08386e83fe75347461b75059aaff4375bf1bc3804857a783e7db5ace0",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "sourceAndProtectedBoundariesUnchanged": true,
+  "prior40And43FailureArchivesUnchanged": true,
+  "focusCorrectionReceiptSha256": "05e0cf666ceae7edacabe89c177975396822592917d99a2c526b7e784890610b",
+  "focusReceiptSelfHashCaveat": "Its embedded earlier digest preceded a self-metadata rewrite; the parent pins final bytes above.",
+  "operatorReceipts": [
+    {
+      "mode": "control-preflight",
+      "receiptSha256": "00dc9164597748325c1b52f62a020cd5e2dd038a25063835a91bda1711930c53",
+      "terminal": "success",
+      "events": 30
+    },
+    {
+      "mode": "measure-deferred",
+      "receiptSha256": "6249abdf85b793efaf2464d3587e74a10777e828bff72db473e924f58e1fef46",
+      "terminal": "success",
+      "events": 80
+    },
+    {
+      "mode": "recover",
+      "receiptSha256": "3ea6bfb9f3f8f4ce35b9ccb66b241755502e8e3b9d924ed1d74aa44b250b1531",
+      "terminal": "success",
+      "events": 17
+    }
+  ],
+  "evidenceArchiveSha256": "b6f4f33abf1f1962baa304120a02d6388847271b3385c8f9fa8c2dc5effd0f58",
+  "evidenceHash": "8afd1e0e50d8f27835fcf521a5bd1cfa571235e8136966230c4a95f4bb52bf1a",
+  "evidenceContentFingerprint": "76bab8520468a85ac7fdf56c486228764aac4ca85eb9708ac7a043d377b3c72a",
+  "parentRecomputedArchiveHashes": true,
+  "held100": {
+    "parentProductionDecoded": true,
+    "imageSha256": "df85498155768bf908134c0f9fce8aacbbc2c30c7cd7b99d332000e466a556eb",
+    "boot": "native-construction:1792482748-673893",
+    "sequence": 110,
+    "crc32": 2140752181,
+    "ordinal": 100,
+    "updateCount": 109
+  },
+  "resume0": {
+    "evidenceHashBound": true,
+    "ordinal": 0,
+    "sequence": 111,
+    "updateCount": 110,
+    "rawImageRetained": false
+  },
+  "strictSequenceAcceptance": "Approved unchanged production runner accepted construction/held0, exact updates1..99, held100 and contiguous resume0 before finalization. Intermediate successful crops are released; parent does not claim independent raw re-decode of all99 updates.",
+  "ordinaryRecovery": {
+    "parentProductionDecoded": true,
+    "imageSha256": "a30a10db53512bf55bfcea7e0c39ab36de2fc93b9f79b23a341fcb389c6aabef",
+    "metadataSha256": "956f7dfc4f39119053eb22523f806c04183ba4a1646d5ad2c7cc23f8777c8234",
+    "boot": "1792482987-614901",
+    "sequence": 51,
+    "nativePhase": "normal",
+    "nativeOrdinal": 0,
+    "fence": "inactive",
+    "ahOpen": false,
+    "pending": 0,
+    "speed": 0,
+    "chatInactive": true,
+    "checkpointCleared": true,
+    "decodeTiming": "Parent used current decode monotonic time; original capture timing is bounded by owner metadata wall timestamps, not reconstructed from telemetry uptime."
+  },
+  "statusSha256": "c2dbb033d550cd1753af6222516224c534299f26ccf28e5914ef0bbd4f453afc",
+  "resourceAssessment": {
+    "classification": "target_exceeded",
+    "construction": {
+      "growthBytes": 0,
+      "targetBytes": 134217728,
+      "withinTarget": true
+    },
+    "current": true,
+    "evidenceHash": "8afd1e0e50d8f27835fcf521a5bd1cfa571235e8136966230c4a95f4bb52bf1a",
+    "method": "linux_proc_status_vmhwm_reset5",
+    "updates": {
+      "growthBytes": 45514752,
+      "targetBytes": 16777216,
+      "withinTarget": false
+    }
+  },
+  "nativeCalibration": true,
+  "inputCalibration": false,
+  "autonomousQualificationCycles": 0,
+  "qualification": "Native transport/render calibration and ordinary recovery passed. Genuine physical input and three new autonomous full cycles remain pending."
+}
