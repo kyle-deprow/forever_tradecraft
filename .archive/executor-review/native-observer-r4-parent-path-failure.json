@@ -1,0 +1,32 @@
+{
+  "status": "PARENT_TEST_ENVIRONMENT_FAILURE",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "e19671a4620ef86047232b8325a7d0ef152ab7558cf45137424dc76f6535ef35",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+    "tests/test_native_calibration_operator.py": "872c056497b0c1dd90ebccc87a856550ffacdc7929fe1610324f8f74c9761124",
+    "tests/test_session_driver_actions.py": "2e5d9a764c57e349aab8613b076de142650f0c5ceac38747fa5d0a4570c20c0a",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "d19966745745ae9dfce1b107631fe31e261efe04968dbfdc8fed437851f553f1",
+    "tools/build_x11_identity_observer.py": "006b97b08386e83fe75347461b75059aaff4375bf1bc3804857a783e7db5ace0",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "resultsSha256": "4f833fd252020d0fbf8d48baed69d2aa1a73405bf14c9334fb3a2edcaa698d6a",
+  "passedCompositionCases": 13,
+  "passedComponentCases": 251,
+  "failedCase": "test_paused_diagnostic_uses_actual_config_ipc_driver_and_eight_compiled_samples",
+  "failedAssertion": "supervised_started.wait(2.0)",
+  "componentLogSha256": "c7f73b5a1d621df2ff87b5d744b860f0e79ddd7058a2ddfae2aca959c3ccd417",
+  "diagnosisSha256": "fd16abb30d3c5a038f3979f93c748f051e2c4325985960d6f708dab9933e040e",
+  "socketPathBytes": 110,
+  "actualHostBindError": "AF_UNIX path too long",
+  "cause": "Root-selected temporary path exceeds Unix socket limit; cli.serve binds before supervised owner starts",
+  "correction": "Only parent basetemp shortened; all13source/test bytes and deadlines unchanged",
+  "followup": "Independent affected diagnostic + remaining groups in native-identity-observer-parent-r4-path-closure-20261020; prior same-source passing cases explicitly linked",
+  "installed": false,
+  "autonomousQualificationCycles": 0
+}

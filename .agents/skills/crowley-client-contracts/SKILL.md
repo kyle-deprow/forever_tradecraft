@@ -193,6 +193,9 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   database for schema-changing tests; never point them at persistent Crowley data.
   Restore any companion service deliberately paused during a failed-upload loop
   after deploying the reviewed correction.
+- Keep private pytest basetemps short when testing real Unix sockets. Count the
+  complete nested socket path, including the longest filename, against the host
+  limit; diagnose bind errors before changing worker-readiness deadlines.
 - If the host CLI auto-updates past the tested pin, distinguish that startup
   failure from source regressions and subsequent leaked-fixture lease failures.
   Verify an authentic private pinned binary before retrying. A private mount

@@ -115,13 +115,31 @@ was a contention lead; no unrelated process was killed and no global env changed
 [Recovery proof](../.archive/executor-review/build-70450-onehundredsixtyfirst-scan-parent-verification.json).
 
 Native throughput correction is scoped in the
+Scan177's initial helper stopped before its ACK reload on buffer MAE14.449>12;
+its cause remains unproven. A later owned reload was rejected by a stale decoder;
+rebind at that verified reload boundary observed exact loadedACK/pending0. Fresh
+same-boot AH reopening completed. Parent independently composed the original
+saved/server payload with those ACK/reopen frames, retaining all three recovery
+receipts and both failures unchanged. CompositeSHA
+`80644b07c3e115cd4d47a94f5b0212c22616ad4d66ab0412a856d1c6692b1d6a`;
+[verified outcome](../.archive/executor-review/build-70450-onehundredseventyseventh-ah-reopen-parent-verification.json).
+This remains assisted; no guard threshold changed or historical cause inferred.
+
 [approved Rust observer plan](../.archive/PLAN-native-identity-observer.md).
 Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
 installed yet. The final candidate is frozen in the isolated fix worktree.
 
-**Current milestone: R4c is frozen and fresh independent full verification is
-RUNNING. Source reviews and installation remain pending these checks.**
+**Current milestone: R4c source remains frozen. Fresh13 composition and251
+components passed; one parent-created Unix-path failure is being closed with
+shorter test paths. Source reviews/installation remain pending final checks.**
+[Parent environment diagnosis](../.archive/executor-review/native-observer-r4-parent-path-failure.json):
+actual supervised socket path110bytes; direct host bind refuses AF_UNIX path too
+long before owner startup. Root caused the long per-command basetemp. New run
+`native-identity-observer-parent-r4-path-closure-20261020` freshly checks that
+same diagnostic and remaining groups with short paths; ALL13source bytes and
+production/test deadlines are unchanged. Prior same-source13+251passes and
+numerical/X11 receipts link explicitly; no uninterrupted full-group rerun claim.
 Private final manifest `native-identity-observer-r4-20261020/final-manifest-r4c.json`,
 SHA `e2cd9b22d2e9651d7af69b5c88f7f937df571d443c0184a37bb2fa99052ef0ba`.
 BinarySHA `5f4cb94ba23d079885ac9aaf7034619f60cf59f33dd91ae2f91174631c675b58`.
