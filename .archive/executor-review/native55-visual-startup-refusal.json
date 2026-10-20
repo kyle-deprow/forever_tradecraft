@@ -1,0 +1,26 @@
+{
+  "status": "VISUAL_STARTUP_AND_RECOVERY_REFUSED",
+  "generation": 56,
+  "gamePID": 2800399,
+  "operatorReceipts": [
+    {
+      "mode": "measure-deferred",
+      "receiptSha256": "d3e690a748f0648710add6d52aeca63612fc611e109dd612f4a79baf74888975",
+      "failureCode": "visual_evidence_refused"
+    },
+    {
+      "mode": "recover",
+      "receiptSha256": "581009e2d35cc5d4d17730768c2a150b5af37f6b954949457c325ca714ee8f4c",
+      "failureCode": "visual_evidence_refused"
+    }
+  ],
+  "nativeRunnerStarted": false,
+  "causeBoundary": "measure-deferred post-reload-controls failed before bootstrap; ordinary recover failed at restore-control matching.",
+  "nativeCalibration": false,
+  "inputCalibration": false,
+  "userInputPromptReady": false,
+  "autonomousCycles": 0,
+  "ordinaryHud": "Not restored: latest five retained crops reject non-black/white pixels. No current speed/ordinary-frame claim.",
+  "investigation": "Offline exact template/matcher comparison against last successful preflight54; no guard weakening or uninstrumented retry.",
+  "controlOwnership": "All agent GUI/input/capture stopped; user may use RDP while offline investigation continues."
+}

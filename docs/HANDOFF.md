@@ -48,6 +48,18 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
+**Newest blocker:** new-process preflight54 passed; measure-deferred55 refused
+at post-reload-controls BEFORE bootstrap/native measurement, then canonical
+recover56 refused its restore-control template. PAUSED56/nativefalse/inputfalse;
+no human prompt appeared. [Visual refusal evidence](../.archive/executor-review/native55-visual-startup-refusal.json).
+Actual images show Construct+Restore, then onlyRestore; the ordinary HUD is still
+absent, so later crop failures do not prove a new movement fault. No current speed
+claim. All agent input/capture is stopped; user can use RDP while Luna performs an
+offline exact matcher/template comparison against successful preflight54. Do not
+retry/restart/loosen guards or take desktop control until root coordinates it.
+Autonomous qualification is still zero; the human-input step has never begun.
+
+
 **Latest boundary:** user manually repositioned Arthur after saved/new frames
 reported real speed7 at constant coordinates with all controls released. Root
 refused quiescence before daemon mutation; no S stop key was dispatched. After
