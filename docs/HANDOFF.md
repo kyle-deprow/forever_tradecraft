@@ -32,9 +32,14 @@ requires native calibration/recovery, genuine human input calibration and three
   artifacts but must not operate/capture/input the GUI concurrently.
 - Arthur remains stationary at Ironforge AH. No navigation/trading. Standard
   Wine desktop; Sunshine disabled. Character revival/login already completed.
-- Implementation owner: `/root/luna_rust_matcher` in the isolated worktree below.
+- Implementation owner: `/root/luna_rust_matcher` now works ONLY in
+  `/home/dev/.cache/crowley/worktrees/native-identity-observer-fix-r1-20261020`.
+  Original `/home/dev/.cache/crowley/worktrees/native-identity-observer-20261019`
+  stays frozen for the ongoing actualCLI OpusR1 review.
   Root owns docs, skills, final verification, installation and Git. Review worker:
   `/root/sol_final_composition_plan`.
+- Communication: explain the overall autonomy objective, current milestone and
+  remaining gates. User asked for clearer progress and less per-probe/tool noise.
 - Never reset/stash/revert others or use `git add .`. Many untracked files are
   private. Stage only explicit reviewed files. No messages to outside parties.
 
@@ -130,12 +135,17 @@ One earlier R4 actor_admission_invalid remains unexplained; backendclosed was
 proven183mslaterduringcleanup. Two instrumented passes, a cleanprelogger pass,
 and finalparent pass are retained; no causal closure is claimed. The test now
 retains private native-construction request/reply receipts on its actual IPC path.
-Formal SolR1 and actualCLI OpusR1 (resolvedclaude-opus-5-5) source reviews are
-running at frozen13pins. Parent also reproduced a remaining fixtureouter-loop
-bug: it retains pending bytes and rewinds the fileoffset, duplicating the fragment
-onreopen; its currentpersistent-stream regression misses that seam. No source
-edits until reviews finish; combine this with accepted review findings in Luna's
-fix round. No observer is installed and no unchanged live native retry occurred.
+Formal SolR1 returned NEEDS WORK: process/window lifetime revalidation,
+synchronized observer shutdown/constructor cleanup, fragment/reopen regression,
+actual actor at the forced finalize/recheck race, and real mutation/boundary proof
+coverage. Builder sourceallowlist and executable-mode contract also need correction.
+[Sol review proof](../.archive/executor-review/native-observer-sol-r1-review-verification.json).
+ActualCLI OpusR1 (resolvedclaude-opus-5-5) is still reviewing the original frozen
+13pins. Root seeded a separate fix checkout at those exact pins and authorized
+Luna's consolidated correction under the [R1 fix plan](../.archive/PLAN-native-identity-observer-review-r1.md).
+The original reviewed source remains byte-exact; additional accepted Opus findings
+will join this fix batch. Reference-only prefilter optimization is deferred.
+No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
 and mocked-identity composition evidence.
 

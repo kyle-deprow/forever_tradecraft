@@ -1,0 +1,38 @@
+{
+  "reviewer": "Native Sol worker",
+  "round": 1,
+  "status": "NEEDS WORK",
+  "reportSha256": "df04c2d447f89ac6f9bf4e30151c369c7c538d4e1cd24a4db19835f5523745e5",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "53c753ccb7557a7277725cf83caedef5a15e16edaced769e4ea23d7ede69d825",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "35563c91ef75408dd48ca4843cc45aa779c22e60686a78f18fe74240dc017d0f",
+    "src/crowley/session/driver.py": "29b7e9885a5fa400994eec98edce2ef0c87d7e9f628b7085eca404e587e88b08",
+    "tests/test_native_calibration_operator.py": "b44f071fa5bd8f1d90be2424284ccd0599d2a99ff20949fccb99e8a721059140",
+    "tests/test_session_driver_actions.py": "7e1242290958540d59dcea64a74784da47cb887fae20bcec385773f6201d884c",
+    "tests/test_session_native.py": "8a2eb509900435d5966f7aa2b2b9b12238dea12b645d38bae986c7359576d6f7",
+    "tests/test_session_native_regressions.py": "480b9ebb9eaae22ae13676057329d908102c07ce7be100ea6abc9b355c21d430",
+    "tests/test_x11_identity_observer.py": "2079fd0a524637aea0277b70a11d076949d7d694980ceea54c35b42f65141326",
+    "tools/build_x11_identity_observer.py": "974c695fa14145110bc22f8e0b74c27282462462802669f724bb115d87b3b9e2",
+    "tools/native_calibration_operator.py": "9e688fd3ce5f0dc8026784273f0c9fe9171539c1768167c56d55566fd0c4001f"
+  },
+  "binarySha256": "054985de37f20c50b3ca5f2ac9bccd1c46174cfafb8b5d4f66a8d08af054f25b",
+  "sourceUnchanged": true,
+  "mustFixCount": 5,
+  "shouldFixCount": 2,
+  "nitCount": 1,
+  "acceptedFixGroups": [
+    "Complete process/window lifetime revalidation",
+    "Synchronized observer FD/process shutdown and constructor cleanup",
+    "Correct fixture fragment/reopen ownership",
+    "Actual actor validation at forced finalize/recheck interleaving",
+    "Actual process/Xvfb mutation and capture-boundary proofs",
+    "Exact builder source allowlist",
+    "Executable-mode contract"
+  ],
+  "deferred": "Reference-only prefilter performance nit; mandatory production usesRust.",
+  "implementation": "New isolated checkout seeded from exact reviewed13pins; original remains frozen for actualCLI OpusR1.",
+  "liveInstallation": false
+}
