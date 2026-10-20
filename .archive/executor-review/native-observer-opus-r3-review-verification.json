@@ -1,0 +1,38 @@
+{
+  "reviewer": "Actual Claude CLI Opus",
+  "status": "NEEDS WORK",
+  "resolvedModels": [
+    "claude-opus-5-5"
+  ],
+  "returncode": 0,
+  "reportSha256": "63974d5b32a9cf7592ba40a35672b203aef9b9ec567f12f96087d915adb0914c",
+  "rawSha256": "ddfec159c22e5635386548527b3703e2af7f105cb096c45cc9ddbba815271848",
+  "processMetadataSha256": "38f4ad12874b78b752c860cf073f2acd8c48018bbe4e200133c18c6189fd35be",
+  "shouldFix": [
+    "Refuse raw None/zero focus rather than accepting active-window substitution"
+  ],
+  "nitArbitration": {
+    "candidateOuterSize": "Choose the approved complete-geometry-before-counting contract; explicitly document the legacy reference difference. A valid target remains fully verified.",
+    "closeRaceFdBaseline": "Coverage-only nit deferred: real observer lifecycle/constructor FD tests already cover closing, and close-race proves typed refusal."
+  },
+  "round": 3,
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "4eb13a706175b3b2b8758c3eaaa93f551599298dd48acbb3883ab7af6865ad5f",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "680d99b48873bd345b989e2a447445e291cc3d9dff98b3e7d2990cc4888f5be3",
+    "tests/test_native_calibration_operator.py": "872c056497b0c1dd90ebccc87a856550ffacdc7929fe1610324f8f74c9761124",
+    "tests/test_session_driver_actions.py": "2e5d9a764c57e349aab8613b076de142650f0c5ceac38747fa5d0a4570c20c0a",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "8d010c1ce133f37529ba55cbc220ae764054279b698371f6cdfed47f1d465ed1",
+    "tools/build_x11_identity_observer.py": "006b97b08386e83fe75347461b75059aaff4375bf1bc3804857a783e7db5ace0",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "sourceUnchanged": true,
+  "mustFixCount": 0,
+  "shouldFixCount": 1,
+  "installed": false
+}

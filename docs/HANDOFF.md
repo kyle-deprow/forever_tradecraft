@@ -120,8 +120,20 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
 installed yet. The final candidate is frozen in the isolated fix worktree.
 
-**Current milestone: final R3 independent checks PASS; formal Sol R3 and actual
-CLI Opus R3 are reviewing identical frozen13 pins. Installation remains held.**
+**Current milestone: R3 independent checks PASS, but both R3 source reviews
+requested one correction each. Installation remains held for a two-file R4 task.**
+[Sol R3](../.archive/executor-review/native-observer-sol-r3-review-verification.json)
+requires query uncertainty on an already matching candidate to propagate rather
+than be dropped; [actual CLI Opus R3](../.archive/executor-review/native-observer-opus-r3-review-verification.json)
+(exit0/claude-opus-5-5) requires None/zero focus to refuse, matching the real tool.
+Root rewrote the next phase as the [two-file rejection-state plan](../.archive/PLAN-native-observer-r4-rejection-states.md):
+only Rust main and its component test may change; other11source files stay at
+R3d. Actual deterministic X11 error and None-focus regressions are required.
+Complete geometry before counting remains intentional; the old reference's
+outer-size-after-count behavior can differ and is not universal parity. The
+close-race FD-baseline coverage nit is deferred with existing lifecycle proofs.
+No new native attempt or source installation. The following R3 result is the
+historical pre-R4 validation, not approval of future changed Rust bytes:
 [Final R3 parent verification](../.archive/executor-review/native-observer-r3-final-parent-verification.json)
 records272 fresh tests plus12 carried unchanged composition cases (284 aggregate).
 The corrected cancellation branch passed independently39.49s; observer/driver/
