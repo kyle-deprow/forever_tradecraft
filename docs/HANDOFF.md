@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 00:28 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 00:33 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -35,7 +35,8 @@ requires native calibration/recovery, genuine human input calibration and three
 - Implementation owner: `/root/luna_rust_matcher` now works ONLY in
   `/home/dev/.cache/crowley/worktrees/native-identity-observer-fix-r1-20261020`.
   Original `/home/dev/.cache/crowley/worktrees/native-identity-observer-20261019`
-  stays frozen for the ongoing actualCLI OpusR1 review.
+  stays frozen as the reviewed R1 source. Sol and actualCLI Opus both requested
+  changes; Luna is implementing the consolidated corrections in the new worktree.
   Root owns docs, skills, final verification, installation and Git. Review worker:
   `/root/sol_final_composition_plan`.
 - Communication: explain the overall autonomy objective, current milestone and
@@ -70,18 +71,18 @@ dominate while ScreenshotArea itself takes about44ms. Luna investigates the
 smallest deterministic correction without relaxing exact ordinals. Assisted140 resumed with an actual1512s gap after139;141 returned to exact900s.
 No claim of900s through the calibration pause.
 
-Latest fully parent-verified cycle **#150**:
+Latest fully parent-verified cycle **#151**:
 
-- UID `beta-normal-alliance-1792454928-Arthur-4953`;
-- start1792454928, finish1792455402:474s;428 observations/2,154 rows;
-- 405 full/23 bounded, all428 `ok`, zero query failures;
-- exact900s after149;26.148803s finish-to-server receipt;
+- UID `beta-normal-alliance-1792455828-Arthur-7533`;
+- start1792455828, finish1792456319:491s;428 observations/2,151 rows;
+- 404 full/24 bounded, all428 `ok`, zero query failures;
+- exact900s after150;25.247843s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredfiftieth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredfiftieth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredfiftyfirst-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredfiftyfirst-ah-reopen-parent-verification.json).
 
-Next assisted151 due1792455828 (00:23:48UTC). The legacy watcher had a hardcoded
+Next assisted152 due1792456728 (00:38:48UTC). The legacy watcher had a hardcoded
 nominal start; its original receipt remains intact alongside an explicit correction.
 Parent instead verified the original SavedVariables/server start and actual gap.
 
@@ -157,8 +158,8 @@ Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..150 completed at exact900s intervals;140 has the explicit
-1512s calibration gap. Nextdue1792455828 (00:23:48UTC). Full chains125..150 are
+Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..151 completed at exact900s intervals;140 has the explicit
+1512s calibration gap. Nextdue1792456728 (00:38:48UTC). Full chains125..151 are
 parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
