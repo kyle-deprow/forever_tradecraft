@@ -216,6 +216,15 @@ failure/performance/receipt data are in its sibling `diagnosis-r2/` directory.
 Root also retained current13-source snapshot in
 `native-observer-closure-current-diagnosis-20261020/`. No formal R2 approval,
 new parent full pass, observer installation or live calibration is claimed.
+Sol diagnosis: failed925ms row was never persisted before its assertion; the copied
+recovery receipt belongs to a later passing rerun, not the failed full suite.
+Neither failure has a proven product cause. Confirmed fixture initialization
+cleanup gap needs correction. Root resumed A for ONLY
+`tests/test_native_calibration_operator.py`: immediate resource ownership/verified
+teardown, timing persistence before assertions, exact actor/case evidence, then
+one isolated success and one measurement-failure serially. Full12 follows only if
+both pass. Other12candidatefiles remain held;900ms/exact1Hz/recovery guards stay.
+No unchanged full-suite retry or speculative product optimization is authorized.
 Reference-only prefilter optimization is deferred.
 No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
