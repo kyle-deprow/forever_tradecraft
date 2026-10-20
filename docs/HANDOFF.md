@@ -130,8 +130,16 @@ Replace CLI fanout with one fresh pinned Rust observer at each of the existing
 three identity boundaries, preserving all calibration guards. No observer is
 installed yet. The final candidate is frozen in the isolated fix worktree.
 
-**Current milestone: R4c independent verification PASS; formal Sol R4 and actual
-CLI Opus R4 are reviewing the same frozen13pins. Installation awaits approval.**
+**Current milestone: R4c independent verification PASS; both Sol R4 and actual
+CLI Opus R4 READY at the same frozen13pins. Installation is authorized and next.**
+[Sol R4 READY](../.archive/executor-review/native-observer-sol-r4-review-verification.json)
+and [actual CLI Opus R4 READY](../.archive/executor-review/native-observer-opus-r4-review-verification.json)
+(exit0, claude-opus-5-5) have no blocking findings. Three nonblocking Opus
+follow-ups are retained in its proof; frozen source is not changed for them.
+Assisted179 is independently verified; collection is held AH-closed for promotion.
+Next: install exact approved source and path-bound binary manifest, one fresh
+native100 calibration, canonical recovery, genuine human input, then three new
+unattended900s cycles. Autonomous qualification remains zero.
 [Final R4 parent verification](../.archive/executor-review/native-observer-r4-final-parent-verification.json):
 284 aggregate covered cases at byte-identical source across both phases: full13
 composition and251 components before the parent-only path failure, then affected
