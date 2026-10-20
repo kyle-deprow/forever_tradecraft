@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 03:05 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 03:18 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -73,18 +73,18 @@ dominate while ScreenshotArea itself takes about44ms. Luna investigates the
 smallest deterministic correction without relaxing exact ordinals. Assisted140 resumed with an actual1512s gap after139;141 returned to exact900s.
 No claim of900s through the calibration pause.
 
-Latest fully parent-verified cycle **#161**:
+Latest fully parent-verified cycle **#162**:
 
-- UID `beta-normal-alliance-1792464828-Arthur-9149`;
-- start1792464828, finish1792465311:483s;428 observations/1,997 rows;
-- 399 full/29 bounded, all428 `ok`, zero query failures;
-- exact900s after160;65.749333s finish-to-server receipt;
+- UID `beta-normal-alliance-1792465728-Arthur-3110`;
+- start1792465728, finish1792466209:481s;428 observations/2,004 rows;
+- 400 full/28 bounded, all428 `ok`, zero query failures;
+- exact900s after161;33.385597s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredsixtyfirst-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredsixtyfirst-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredsixtysecond-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredsixtysecond-ah-reopen-parent-verification.json).
 
-Next assisted162 due1792465728 (03:08:48UTC). The legacy watcher had a hardcoded
+Next assisted163 due1792466628 (03:23:48UTC). The legacy watcher had a hardcoded
 nominal start; its original receipt remains intact alongside an explicit correction.
 Parent instead verified the original SavedVariables/server start and actual gap.
 
@@ -204,8 +204,8 @@ Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..161 completed at exact900s intervals;140 has the explicit
-1512s calibration gap. Nextdue1792465728 (03:08:48UTC). Full chains125..161 are
+Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..162 completed at exact900s intervals;140 has the explicit
+1512s calibration gap. Nextdue1792466628 (03:23:48UTC). Full chains125..162 are
 parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
