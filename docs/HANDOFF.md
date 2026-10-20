@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 00:03 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 00:28 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -70,18 +70,18 @@ dominate while ScreenshotArea itself takes about44ms. Luna investigates the
 smallest deterministic correction without relaxing exact ordinals. Assisted140 resumed with an actual1512s gap after139;141 returned to exact900s.
 No claim of900s through the calibration pause.
 
-Latest fully parent-verified cycle **#149**:
+Latest fully parent-verified cycle **#150**:
 
-- UID `beta-normal-alliance-1792454028-Arthur-8331`;
-- start1792454028, finish1792454500:472s;428 observations/2,174 rows;
-- 407 full/21 bounded, all428 `ok`, zero query failures;
-- exact900s after148;29.993564s finish-to-server receipt;
+- UID `beta-normal-alliance-1792454928-Arthur-4953`;
+- start1792454928, finish1792455402:474s;428 observations/2,154 rows;
+- 405 full/23 bounded, all428 `ok`, zero query failures;
+- exact900s after149;26.148803s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredfortyninth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredfortyninth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredfiftieth-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredfiftieth-ah-reopen-parent-verification.json).
 
-Next assisted150 due1792454928 (00:08:48UTC). The legacy watcher had a hardcoded
+Next assisted151 due1792455828 (00:23:48UTC). The legacy watcher had a hardcoded
 nominal start; its original receipt remains intact alongside an explicit correction.
 Parent instead verified the original SavedVariables/server start and actual gap.
 
@@ -140,11 +140,15 @@ synchronized observer shutdown/constructor cleanup, fragment/reopen regression,
 actual actor at the forced finalize/recheck race, and real mutation/boundary proof
 coverage. Builder sourceallowlist and executable-mode contract also need correction.
 [Sol review proof](../.archive/executor-review/native-observer-sol-r1-review-verification.json).
-ActualCLI OpusR1 (resolvedclaude-opus-5-5) is still reviewing the original frozen
-13pins. Root seeded a separate fix checkout at those exact pins and authorized
+ActualCLI OpusR1 completedexit0 asclaude-opus-5-5 withNEEDS WORK atunchanged13pins.
+[Opus review proof](../.archive/executor-review/native-observer-opus-r1-review-verification.json). Root seeded a separate fix checkout at those exact pins and authorized
 Luna's consolidated correction under the [R1 fix plan](../.archive/PLAN-native-identity-observer-review-r1.md).
-The original reviewed source remains byte-exact; additional accepted Opus findings
-will join this fix batch. Reference-only prefilter optimization is deferred.
+The original reviewed source remains byte-exact; accepted Opus findings nowjoin
+this fix batch via the appended plan adjudication. Parentcompleted5race/7runtime
+checks close Opus's staleinitialRUNNINGsnapshot concern. All9changedcomposition
+cases, realmutation/actor/defaultwiring/boundaryproofs and finalsourcechecks are
+required before fresh parentverification and Sol/actualCLI OpusR2.
+Reference-only prefilter optimization is deferred.
 No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
 and mocked-identity composition evidence.
@@ -153,8 +157,8 @@ Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..149 completed at exact900s intervals;140 has the explicit
-1512s calibration gap. Nextdue1792454928 (00:08:48UTC). Full chains125..149 are
+Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..150 completed at exact900s intervals;140 has the explicit
+1512s calibration gap. Nextdue1792455828 (00:23:48UTC). Full chains125..150 are
 parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
