@@ -1,0 +1,115 @@
+{
+  "status": "PASS",
+  "scope": "Independent final frozen native observer closure verification; offline fixture evidence",
+  "sourceSha256": {
+    "native/x11_identity_observer/Cargo.lock": "985f8880e1401ab2bff617ee50fb2f62b73e9acbb09f951320a607a0f1980c9c",
+    "native/x11_identity_observer/Cargo.toml": "224d23c3053709a8af05bd797cbd3b2e45ddcd04995ab56ccf8a7b8521f1e485",
+    "native/x11_identity_observer/src/main.rs": "39c1b9c3c246a3d3aa8ecd106d2f5b1b83e0ae4fa70a4444202a5c4d5e82cbc5",
+    "src/crowley/session/config.py": "8ffd49d29faf932fc964e0e9dc945ac96c5d6b145c122fcdbbedd91158f5fa6c",
+    "src/crowley/session/daemon.py": "205b31791942f9b99a30493a814df13a0b4d7db62de42a23f5ba09a326be3937",
+    "src/crowley/session/driver.py": "4791fc38ba6648ad97a3ce2039ff8b14751b43a9bb6cf708d6f421f307a7db37",
+    "tests/test_native_calibration_operator.py": "e4a5cf10ef177cf43f70c32f12f499bfd38c80c8e3b568bef18a81d057c0e536",
+    "tests/test_session_driver_actions.py": "724b470b89a449e4f055b29df092cac37e23d845d57cbe998645d4f144b9ed7b",
+    "tests/test_session_native.py": "4a711d6f57308699319bb959f56b1e2bdbc75c1df50fe15d4e2834b065b414fc",
+    "tests/test_session_native_regressions.py": "0a30bb15327287073278095b309fbd05e617c068ac8a361a45146ecc2229a176",
+    "tests/test_x11_identity_observer.py": "16f8ae680568b34ee88ef56a0106b95294c274ae40f12ef58b803a8df8c09600",
+    "tools/build_x11_identity_observer.py": "943b764bb69b70549eeb427ca7ed61662be4ea4c115a2a0b627226930bb8c864",
+    "tools/native_calibration_operator.py": "f2f8f28981fe5f200e6e0203d72b08cdfad94cd9b3cc371cc12f7a2b1e1e66c6"
+  },
+  "checks": [
+    {
+      "name": "real-composition",
+      "returncode": 0,
+      "passedTests": 13,
+      "durationSeconds": 786.4124927520752,
+      "logSha256": "110f8689b6ba34d19fffa62f3693d5764ca065730ee1fd89fd1157a40ee21b83"
+    },
+    {
+      "name": "component-driver-full-native",
+      "returncode": 0,
+      "passedTests": 248,
+      "durationSeconds": 487.709698677063,
+      "logSha256": "0ef2408d50d956d5e3e4081604056f106ed43c840591714ef09d7f698a21a1ac"
+    },
+    {
+      "name": "fragment-and-provenance",
+      "returncode": 0,
+      "passedTests": 4,
+      "durationSeconds": 0.6600766181945801,
+      "logSha256": "4360fa7339c4a70d24c736b923140bd796d48ec5f82b5188e01cfbc3c0addf73"
+    },
+    {
+      "name": "finalize-race",
+      "returncode": 0,
+      "passedTests": 5,
+      "durationSeconds": 127.06023025512695,
+      "logSha256": "9cb7bdea3df773bb95b4a4152d633f60603f175abaa81c0731afd22444dc09ed"
+    },
+    {
+      "name": "receipt-runtime",
+      "returncode": 0,
+      "passedTests": 7,
+      "durationSeconds": 78.24240899085999,
+      "logSha256": "69646a2b30461c3b769cad50f924b07c6012019f868b661be09dea2e0b684615"
+    },
+    {
+      "name": "display-constructor",
+      "returncode": 0,
+      "passedTests": 3,
+      "durationSeconds": 0.5865006446838379,
+      "logSha256": "41e5dd986787a03d85b977c6ef676533a375d56da7dad3bfebac26a9c834c2ad"
+    },
+    {
+      "name": "ruff",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.04151749610900879,
+      "logSha256": "82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18"
+    },
+    {
+      "name": "format",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.04171872138977051,
+      "logSha256": "5b9f70ad96522f492ef846065642c069b5627379aff2ab3f74acd2e3b9ecfe34"
+    },
+    {
+      "name": "compile",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.0748589038848877,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "name": "diff",
+      "returncode": 0,
+      "passedTests": null,
+      "durationSeconds": 0.034795522689819336,
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    }
+  ],
+  "passedTestsTotal": 280,
+  "performance": {
+    "acceptedUpdates": 99,
+    "maxActiveMilliseconds": 550.425186,
+    "activeBudgetMillisecondsExclusive": 900,
+    "artifactSha256": "9aee4478eed2bb0267396afaa6fc729724438dfa04f83f7a7e6bca2e02d71648",
+    "budgetViolations": 0
+  },
+  "privateResultsSha256": "8f6c3cd18810381e812f688078961e9978a7a9690a26c2ecdeed4428f348b41e",
+  "privateEvidenceDirectory": "native-identity-observer-parent-closure-final-20261020",
+  "candidateManifestSha256": "f9889c24347bec4e847d0d93176df9c9c3dc03a90edc85fe3b45eed377961956",
+  "sourceStableBeforeAfterEveryCheck": true,
+  "protectedCalibrationDecoderGuardianInputToolUnchanged": true,
+  "freshBroadRun": true,
+  "priorBroadResultsCarried": false,
+  "sourceReviews": "Formal Sol R2 and actual CLI Opus R2 in progress; no approval claimed",
+  "installed": false,
+  "liveNativeCalibration": false,
+  "autonomousQualificationCycles": 0,
+  "historicalLimitations": [
+    "Earlier925.875446ms failing row was not persisted; no subphase cause claimed.",
+    "Earlier copied measurement-failure receipt was a later passing case; no historical causal closure claimed.",
+    "Current pass does not reclassify preserved generation40/43/46 live failures."
+  ]
+}

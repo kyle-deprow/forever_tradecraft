@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 05:03 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 05:05 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -35,8 +35,8 @@ requires native calibration/recovery, genuine human input calibration and three
 - Implementation owner: `/root/luna_rust_matcher` now works ONLY in
   `/home/dev/.cache/crowley/worktrees/native-identity-observer-fix-r1-20261020`.
   Original `/home/dev/.cache/crowley/worktrees/native-identity-observer-20261019`
-  stays frozen as the reviewed R1 source. Sol and actualCLI Opus both requested
-  changes; Luna is implementing the consolidated corrections in the new worktree.
+  stays frozen as the reviewed R1 source. Sol and actualCLI Opus R1 requested
+  changes; final corrections now pass independent checks and are under R2 review.
   Accepted closure is now split: existing Luna owns eight runtime/helper/test files;
   `/root/luna_observer_facts_closure` owns five Rust/builder/X11-test files.
   Root owns docs, skills, final verification, installation and Git. Review worker:
@@ -116,119 +116,47 @@ was a contention lead; no unrelated process was killed and no global env changed
 
 Native throughput correction is scoped in the
 [approved Rust observer plan](../.archive/PLAN-native-identity-observer.md).
-Replace CLI fanout with one fresh pinned observer per existing identity boundary;
-preserve all three boundaries and all calibration guards. Cheaper /proc filtering
-and Pillow cell checks were measured privately but were insufficient alone. No
-new observer is installed yet. Luna froze a13-file candidate in the isolated
-worktree. Parent independently reproduced the actual Rust/default-factory
-operator/daemon/Agent composition:1 passed in148.57s, including real independent
-1Hz updates1..99, held100/resume0 and the three fresh identity-boundary/active
-work<900ms assertions. This is fixture evidence, not live qualification.
-Parent source inspection found required corrections before formal review:
-concurrent bounded output/deadline cleanup, strict protocol duplicate-key refusal,
-closed-production no-fallback refusal, both WM_CLASS values/reference identity
-parity, immutable build-input/linker provenance and all3 Rust source pins in the
-sealed helper evidence. Actual Xvfb mutation coverage and retained numerical
-performance measurements also need completion. Luna has planned the corrections;
-parent forced-race regression passed1 case in23.11s. The R1 broad check reached
-149passed/0failed257.40s before deliberateSIGINT/exit2 because source corrections
-were already required; this is NOT a full-suite pass. Luna's corrected R2
-composition passed143.64s in the worker, reporting99 updates and365.881ms worst
-active work. Parent froze R2 and independently reproduced one remaining lifecycle
-bug:5/5 real owned C ELF timeout trials returned with the exact child unreaped.
-Parent reaped all fixtures. R3 corrected the bounded process cleanup; parent's
-independent5-trial real-ELF probe passed with no FD growth. The frozen production
-observer/driver/full-native suite passed232tests389.04s. The composed check then
-failed before measurement at simulatedConstruct mouseup ACK. A deterministic
-private replay confirmed the fixture's multi-write log records can be consumed as
-EOF fragments, losing the exact ACK; retained history does not prove the precise
-past fragment interleaving. Luna corrected only the operator TEST writer/reader
-and its barrier regression. Parent reproduced that regression successfully.
-The nonzero-screen-before-pin correction now passes independently3 cases.
-Final R4 observer/default-factory composition passed independently145.38s:
-99acceptedupdates, worstactive405.267311ms, strict1Hz/held100/resume0/threefresh
-identity boundaries. Parentdriver33, fragment/display4, config5, finalize-race5,
-runtime7 and static checks all pass. Broader232 result is carried with a verified
-one-lineproductionordering delta and separatetest-onlyfixture changes.
-[Final parent checks](../.archive/executor-review/native-observer-r4-parent-verification.json).
-One earlier R4 actor_admission_invalid remains unexplained; backendclosed was
-proven183mslaterduringcleanup. Two instrumented passes, a cleanprelogger pass,
-and finalparent pass are retained; no causal closure is claimed. The test now
-retains private native-construction request/reply receipts on its actual IPC path.
-Formal SolR1 returned NEEDS WORK: process/window lifetime revalidation,
-synchronized observer shutdown/constructor cleanup, fragment/reopen regression,
-actual actor at the forced finalize/recheck race, and real mutation/boundary proof
-coverage. Builder sourceallowlist and executable-mode contract also need correction.
-[Sol review proof](../.archive/executor-review/native-observer-sol-r1-review-verification.json).
-ActualCLI OpusR1 completedexit0 asclaude-opus-5-5 withNEEDS WORK atunchanged13pins.
-[Opus review proof](../.archive/executor-review/native-observer-opus-r1-review-verification.json). Root seeded a separate fix checkout at those exact pins and authorized
-Luna's consolidated correction under the [R1 fix plan](../.archive/PLAN-native-identity-observer-review-r1.md).
-The original reviewed source remains byte-exact; accepted Opus findings nowjoin
-this fix batch via the appended plan adjudication. Parentcompleted5race/7runtime
-checks close Opus's staleinitialRUNNINGsnapshot concern. All9changedcomposition
-cases, realmutation/actor/defaultwiring/boundaryproofs and finalsourcechecks are
-required before fresh parentverification and Sol/actualCLI OpusR2.
-The first full nine-case run of this fix batch finished7passed/2failed585.50s.
-Parent independently inspected retained actual IPC replies: success failed after
-a Rust X_GetProperty BadWindow response; measurement-failure recovery_complete
-was refused because its reservation expired. These current failures are localized,
-not fixed or explained by later passes; the earlier R4 failure lacks equivalent
-raw evidence and remains unclosed. Luna owns diagnosis and in-scope corrections.
-Private logSHA256 `8b192dd5a9b712fbf49c469256129242715085a64cd099cf4241874afe11d5d2`.
-Parent then found actor-race and overlapping-call proof gaps. Luna corrected both
-with bounded Sol design advice; the same-actor race passed23.74s, causal success
-150.24s, and all9causal cases560.16s. The final actor-test-only delta is separately
-covered. Protected calibration source matches MAIN; no protected edit remains.
-Fresh broad run was239passed/1failed462.50s (misplaced fixture cleanup); no final
-full broad pass is claimed yet. Parent verification of that frozen candidate
-reproduced2failed/5passed382.89s before deliberately interrupting remaining cases.
-Actual replies show BadWindow X_QueryTree0x400001 and recovery_complete expiry;
-the fresh broad/runtime/static groups were not reached. Private run:
-`native-identity-observer-parent-fix-r1-20261020`, results FAILED/exit2.
-Parent corrected the worker's manifest scope (daemon omitted, unchanged runtime
-test included); original manifest is retained. Corrected13-pin manifest SHA256
-`4f9c07570bcb9163666dad9aec4aa54021427017e420703ff8902864d09af2c9`.
-Sol's coverage audit also found accepted timing, boundary-fault/parity/process-
-lifetime, pipe/lifecycle, manifest/default-wiring and wire-version requirements
-missing or partial. This is not a formal R2 approval. Root partitioned the same13
-files into disjoint8+5 Luna tasks under the [accepted closure plan](../.archive/PLAN-native-observer-accepted-closure.md).
-Source freeze is lifted only for those owners' assigned files; no new scope or
-protected/public schema changes. Complete requirement maps, isolated failing
-cases, then final integrated checks must precede parent verification and reviews.
-Latest closure state: B completed full reference identity/fingerprint parity and
-a held-server real process-replacement test (exact process-binding refusal, then
-fresh success). Final Rust mainSHA `39c1b9c3c246a3d3aa8ecd106d2f5b1b83e0ae4fa70a4444202a5c4d5e82cbc5`,
-X11testSHA `16f8ae680568b34ee88ef56a0106b95294c274ae40f12ef58b803a8df8c09600`,
-binarySHA `be2f76f352c311e992611ee111028e9e56515b395e3d9ba57cd1b2b01ea149ea`.
-A added lifecycle, manifest stability/current-source, real default-daemon,
-three boundary-fault and detailed timing proofs. An earlier12-case run passed;
-the final current-source12-case run is NONQUALIFYING:10passed/2failed901.22s,
-success ordinal11 active925875446ns (>900ms), plus missing recovery_complete in
-measurement-failure. Current isolated success accepted99updates/max852483098ns;
-standalone passes do not close the full-run failures. No causal B39-versus-B0
-performance regression is established because host load also changed.
-Source is HELD, both implementation workers completed their turns. Sol is actively
-diagnosing retained timings/actual IPC and the confirmed pre-try fixture cleanup
-gap. Resume a completed worker with followup_task when assigning fixes.
-Private exact13 manifest: `native-identity-observer-fix-r1-20261020/final-r4-candidate-manifest.json`
-SHA `6f75133be3bb71c7e42226306aa73ea95666bb5f6a23908371e443cb76229f0c`;
-failure/performance/receipt data are in its sibling `diagnosis-r2/` directory.
-Root also retained current13-source snapshot in
-`native-observer-closure-current-diagnosis-20261020/`. No formal R2 approval,
-new parent full pass, observer installation or live calibration is claimed.
-Sol diagnosis: failed925ms row was never persisted before its assertion; the copied
-recovery receipt belongs to a later passing rerun, not the failed full suite.
-Neither failure has a proven product cause. Confirmed fixture initialization
-cleanup gap needs correction. Root resumed A for ONLY
-`tests/test_native_calibration_operator.py`: immediate resource ownership/verified
-teardown, timing persistence before assertions, exact actor/case evidence, then
-one isolated success and one measurement-failure serially. Full12 follows only if
-both pass. Other12candidatefiles remain held;900ms/exact1Hz/recovery guards stay.
-No unchanged full-suite retry or speculative product optimization is authorized.
-Reference-only prefilter optimization is deferred.
-No observer is installed and no unchanged live native retry occurred.
-The compact client-contract skill now explicitly distinguishes separate component
-and mocked-identity composition evidence.
+Replace CLI fanout with one fresh pinned Rust observer at each of the existing
+three identity boundaries, preserving all calibration guards. No observer is
+installed yet. The final candidate is frozen in the isolated fix worktree.
+
+**Current milestone: final independent offline checks PASS; formal Sol R2 and
+actual CLI Opus R2 source reviews are running at the same thirteen pins.**
+[Final parent verification](../.archive/executor-review/native-observer-closure-final-parent-verification.json):
+280 tests passed:13 actual compiled operator/daemon/Agent composition cases,
+248 observer/driver/native,4 fragment/provenance,5 same-actor finalize/recheck
+race,7 runtime and3 constructor checks. Scoped Ruff/format/compile/diff pass.
+The complete measurement accepted99 updates with worst active550.425186ms,
+zero900ms budget violations, and existing exact1Hz/held100/resume0 guards.
+Per-case timings, IPC replies, journal and cleanup artifacts are retained
+privately outside rotating pytest directories. This is offline fixture evidence.
+
+The [accepted closure plan](../.archive/PLAN-native-observer-accepted-closure.md)
+keeps the same13 files and disjoint8+5 owners. Both source owners must keep
+candidate files frozen during review; Luna A monitors the root-prepared actual
+CLI Opus process without editing source or authoring its verdict. Final manifest:
+`native-identity-observer-fix-r1-20261020/resource-retention-r4/final-static/final-manifest-r3.json`,
+SHA `f9889c24347bec4e847d0d93176df9c9c3dc03a90edc85fe3b45eed377961956`.
+Published binarySHA `be2f76f352c311e992611ee111028e9e56515b395e3d9ba57cd1b2b01ea149ea`.
+
+Earlier failed/partial runs and both NEEDS WORK R1 reviews remain preserved in
+[the exact preceding handoff](../.archive/executor-review/handoff-history-before-native-observer-final-20261020T0505Z.md).
+The earlier925ms row was not persisted and the copied failed-recovery receipt
+belonged to a later passing case; neither historical product cause is established.
+Test-only corrections now register resources immediately, verify teardown even
+on initialization refusal and persist timings/actor receipts before assertions.
+No speculative product optimization or relaxed900ms/cadence guard was introduced.
+Reference-only prefilter optimization remains deferred.
+
+After both source reviews approve these same pins: coordinate sole-owner fresh
+quiescence; stop daemon; promote exact reviewed source; use the reviewed builder
+to publish the stable observer path with a newly path-bound private manifest;
+verify binary/source/static/linker pins; atomically configure paired path/hash;
+restart and verify imports/PAUSED/unarmed. Never blindly copy a manifest whose
+`binary` field names the old private output path. Then one fresh native100 and
+canonical pause/ordinary recovery. Only after that ask user availability for
+real input calibration, followed by three new autonomous900s full cycles.
+No new live native attempt, human input calibration or autonomous cycle occurred.
 
 Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
