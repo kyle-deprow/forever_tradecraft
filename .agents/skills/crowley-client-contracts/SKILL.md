@@ -25,6 +25,10 @@ Pinned development dependencies permit offline composition before live acceptanc
 finish assigned composition tests instead of deferring them as parent verification.
 Before claiming completion, map each assigned race/deadline requirement to its
 actual regression and result; a broad green total does not cover an omitted case.
+For concurrent identity checks, bind one invocation to its actual caller, span
+token and thread; overlapping timestamps can select another poll. Preserve that
+assertion when fixing a failure. A race proof must route the barrier-paused request
+itself through the real actor, including its earlier immutable binding.
 In composed Lua/desktop fixtures, derive every served frame from the current
 client, including initial captures. Change clients only after the actual accepted
 reload action, using its written SavedVariables; assert deliberate inactive-control
