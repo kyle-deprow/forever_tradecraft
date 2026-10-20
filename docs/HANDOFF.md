@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-20 01:48 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-20 02:06 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -37,6 +37,8 @@ requires native calibration/recovery, genuine human input calibration and three
   Original `/home/dev/.cache/crowley/worktrees/native-identity-observer-20261019`
   stays frozen as the reviewed R1 source. Sol and actualCLI Opus both requested
   changes; Luna is implementing the consolidated corrections in the new worktree.
+  Accepted closure is now split: existing Luna owns eight runtime/helper/test files;
+  `/root/luna_observer_facts_closure` owns five Rust/builder/X11-test files.
   Root owns docs, skills, final verification, installation and Git. Review worker:
   `/root/sol_final_composition_plan`.
 - Communication: explain the overall autonomy objective, current milestone and
@@ -71,18 +73,18 @@ dominate while ScreenshotArea itself takes about44ms. Luna investigates the
 smallest deterministic correction without relaxing exact ordinals. Assisted140 resumed with an actual1512s gap after139;141 returned to exact900s.
 No claim of900s through the calibration pause.
 
-Latest fully parent-verified cycle **#156**:
+Latest fully parent-verified cycle **#157**:
 
-- UID `beta-normal-alliance-1792460328-Arthur-2509`;
-- start1792460328, finish1792460802:474s;428 observations/2,050 rows;
-- 404 full/24 bounded, all428 `ok`, zero query failures;
-- exact900s after155;38.871031s finish-to-server receipt;
+- UID `beta-normal-alliance-1792461228-Arthur-9180`;
+- start1792461228, finish1792461702:474s;428 observations/2,035 rows;
+- 401 full/27 bounded, all428 `ok`, zero query failures;
+- exact900s after156;39.987745s finish-to-server receipt;
 - original saved/server digest agreement, exact loaded ACK, pending0, reopened
   AH, normal0/inactive fence, zero speed and released controls;
-- [scan proof](../.archive/executor-review/build-70450-onehundredfiftysixth-scan-parent-verification.json)
-  and [reopen proof](../.archive/executor-review/build-70450-onehundredfiftysixth-ah-reopen-parent-verification.json).
+- [scan proof](../.archive/executor-review/build-70450-onehundredfiftyseventh-scan-parent-verification.json)
+  and [reopen proof](../.archive/executor-review/build-70450-onehundredfiftyseventh-ah-reopen-parent-verification.json).
 
-Next assisted157 due1792461228 (01:53:48UTC). The legacy watcher had a hardcoded
+Next assisted158 due1792462128 (02:08:48UTC). The legacy watcher had a hardcoded
 nominal start; its original receipt remains intact alongside an explicit correction.
 Parent instead verified the original SavedVariables/server start and actual gap.
 
@@ -161,14 +163,21 @@ with bounded Sol design advice; the same-actor race passed23.74s, causal success
 150.24s, and all9causal cases560.16s. The final actor-test-only delta is separately
 covered. Protected calibration source matches MAIN; no protected edit remains.
 Fresh broad run was239passed/1failed462.50s (misplaced fixture cleanup); no final
-full broad pass is claimed yet. Candidate source is now frozen for independent
-parent all9/fresh broad/runtime/static verification in private run
-`native-identity-observer-parent-fix-r1-20261020`; results are RUNNING.
+full broad pass is claimed yet. Parent verification of that frozen candidate
+reproduced2failed/5passed382.89s before deliberately interrupting remaining cases.
+Actual replies show BadWindow X_QueryTree0x400001 and recovery_complete expiry;
+the fresh broad/runtime/static groups were not reached. Private run:
+`native-identity-observer-parent-fix-r1-20261020`, results FAILED/exit2.
 Parent corrected the worker's manifest scope (daemon omitted, unchanged runtime
 test included); original manifest is retained. Corrected13-pin manifest SHA256
 `4f9c07570bcb9163666dad9aec4aa54021427017e420703ff8902864d09af2c9`.
-Sol is checking coverage of the already accepted R1 requirements before formal
-review; this is not an approval or live qualification.
+Sol's coverage audit also found accepted timing, boundary-fault/parity/process-
+lifetime, pipe/lifecycle, manifest/default-wiring and wire-version requirements
+missing or partial. This is not a formal R2 approval. Root partitioned the same13
+files into disjoint8+5 Luna tasks under the [accepted closure plan](../.archive/PLAN-native-observer-accepted-closure.md).
+Source freeze is lifted only for those owners' assigned files; no new scope or
+protected/public schema changes. Complete requirement maps, isolated failing
+cases, then final integrated checks must precede parent verification and reviews.
 Reference-only prefilter optimization is deferred.
 No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
@@ -178,8 +187,8 @@ Scans108..122 have full-chain proofs and exact900s starts. Scan123 started
 1792429927 after the qualification pause (1216s after122,316s late). Its full
 chain is verified;124 also complete at exact900s. Next nominal ordinary
 deadline1792431727 (17:42:07UTC) was held for the single diagnostic native run.
-Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..156 completed at exact900s intervals;140 has the explicit
-1512s calibration gap. Nextdue1792461228 (01:53:48UTC). Full chains125..156 are
+Assisted125 began1792431816:989s after124 (89slate). Assisted126..139 and141..157 completed at exact900s intervals;140 has the explicit
+1512s calibration gap. Nextdue1792462128 (02:08:48UTC). Full chains125..157 are
 parent verified. After122, parent decoded fresh closedAH/pending0/ordinary
 normal0/inactive/speed0/released boundary; [quiescence proof](../.archive/executor-review/native-ack-release-quiescence-parent-verification.json).
 Exact accepted six files installed while service stopped, imports verified from
