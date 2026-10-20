@@ -156,15 +156,19 @@ was refused because its reservation expired. These current failures are localize
 not fixed or explained by later passes; the earlier R4 failure lacks equivalent
 raw evidence and remains unclosed. Luna owns diagnosis and in-scope corrections.
 Private logSHA256 `8b192dd5a9b712fbf49c469256129242715085a64cd099cf4241874afe11d5d2`.
-Latest intermediate nine-case run passed9 in571.71s; isolated success passed149.02s
-and measurement-failure44.81s. This is not final acceptance: parent source inspection
-found the new actor test asks a separate fresh finalized recheck instead of routing
-the original raced reply through the actor with prior canonical binding. The nonce
-proof still selects first calls by overlapping timestamps instead of proving exactly
-one causally bound call per boundary/thread. Both corrections remain in accepted R1
-scope; Luna owns them and Sol is providing bounded read-only design assistance.
-Fresh broad run was239passed/1failed462.50s, the failure being misplaced test cleanup
-in the ambient-Cargo-config fixture. No full broad pass at final pins is claimed yet.
+Parent then found actor-race and overlapping-call proof gaps. Luna corrected both
+with bounded Sol design advice; the same-actor race passed23.74s, causal success
+150.24s, and all9causal cases560.16s. The final actor-test-only delta is separately
+covered. Protected calibration source matches MAIN; no protected edit remains.
+Fresh broad run was239passed/1failed462.50s (misplaced fixture cleanup); no final
+full broad pass is claimed yet. Candidate source is now frozen for independent
+parent all9/fresh broad/runtime/static verification in private run
+`native-identity-observer-parent-fix-r1-20261020`; results are RUNNING.
+Parent corrected the worker's manifest scope (daemon omitted, unchanged runtime
+test included); original manifest is retained. Corrected13-pin manifest SHA256
+`4f9c07570bcb9163666dad9aec4aa54021427017e420703ff8902864d09af2c9`.
+Sol is checking coverage of the already accepted R1 requirements before formal
+review; this is not an approval or live qualification.
 Reference-only prefilter optimization is deferred.
 No observer is installed and no unchanged live native retry occurred.
 The compact client-contract skill now explicitly distinguishes separate component
