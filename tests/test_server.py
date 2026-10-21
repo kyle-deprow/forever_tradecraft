@@ -400,6 +400,99 @@ def test_uploads_are_idempotent_and_acked(client):
     assert plan["planHash"] and plan["planJSON"]
 
 
+def test_item_reference_ingest_is_typed_idempotent_and_exposed_in_latest_view(client):
+    from crowley.core.watchlist import load_catalog
+
+    from .test_reference import capture
+    from .wow_harness import Auction, WowClient
+
+    addon = WowClient()
+    addon.set_auctions([Auction(2589, "Linen Cloth", 20, 100, isCommodity=True, sellPrice=3)])
+    raw = capture(addon, [2589])
+    first = client.post("/v1/item-reference", json=raw)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "created"
+    duplicate = client.post("/v1/item-reference", json=raw)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["status"] == "duplicate"
+
+    changed = dict(raw, finishedAt=raw["finishedAt"] + 1)
+    conflict = client.post("/v1/item-reference", json=changed)
+    assert conflict.status_code == 409, conflict.text
+
+    with psycopg.connect(DB_URL) as conn:
+        capture_row = conn.execute(
+            "SELECT client_build, ah_open, content_digest FROM item_reference_captures"
+        ).fetchone()
+        typed = conn.execute(
+            "SELECT status, max_stack, sell_price, deposit_kind FROM item_reference"
+        ).fetchone()
+        deposits = conn.execute("SELECT count(*) FROM item_deposits").fetchone()[0]
+    assert capture_row[:2] == ("70450", True)
+    assert len(capture_row[2]) == 64
+    assert typed == ("ok", 20, 3, "commodity")
+    assert deposits == 6
+
+    latest = client.get("/v1/houses/us-normal-horde/item-reference")
+    assert latest.status_code == 200
+    assert latest.json()["items"][0]["item_id"] == 2589
+    addon_data = client.post("/v1/addon-data", json={"scan_ids": []}).json()
+    assert addon_data["referenceItemIDs"] == sorted(item.item_id for item in load_catalog().items)
+
+
+def test_item_reference_auth_storage_limits_and_latest_selection(client):
+    from .test_reference import capture
+    from .wow_harness import Auction, WowClient
+
+    addon = WowClient()
+    addon.set_auctions([Auction(2589, "Linen Cloth", 20, 100, isCommodity=True, sellPrice=3)])
+    raw = capture(addon, [2589])
+
+    assert (
+        client.post(
+            "/v1/item-reference",
+            json=raw,
+            headers={"Authorization": "Bearer nope"},
+        ).status_code
+        == 401
+    )
+    assert (
+        client.get(
+            "/v1/houses/us-normal-horde/item-reference",
+            headers={"Authorization": "Bearer nope"},
+        ).status_code
+        == 401
+    )
+
+    too_large = deepcopy(raw)
+    too_large["id"] = "us-normal-horde-1760000000-Tester-overflow"
+    too_large["items"]["2589"]["info"]["quality"] = 32768
+    assert client.post("/v1/item-reference", json=too_large).status_code == 422
+
+    assert client.post("/v1/item-reference", json=raw).status_code == 200
+    other_build = deepcopy(raw)
+    other_build["id"] = "us-normal-horde-1760000001-Tester-build2"
+    other_build["startedAt"] += 1
+    other_build["finishedAt"] += 1
+    other_build["context"]["clientBuild"] = "70451"
+    assert client.post("/v1/item-reference", json=other_build).status_code == 200
+
+    newer_not_ok = deepcopy(raw)
+    newer_not_ok["id"] = "us-normal-horde-1760000002-Tester-not-ok"
+    newer_not_ok["startedAt"] += 2
+    newer_not_ok["finishedAt"] += 2
+    newer_not_ok["items"]["2589"] = {"itemID": 2589, "status": "not_found"}
+    assert client.post("/v1/item-reference", json=newer_not_ok).status_code == 200
+
+    latest = client.get("/v1/houses/us-normal-horde/item-reference")
+    assert latest.status_code == 200
+    rows = latest.json()["items"]
+    assert {(row["client_build"], row["status"]) for row in rows} == {
+        ("70450", "ok"),
+        ("70451", "ok"),
+    }
+
+
 def test_v1_and_malformed_v2_are_rejected(client):
     old = {"id": "old", "format": 1}
     assert client.post("/v1/scans", json=old).status_code == 422
@@ -516,7 +609,10 @@ def test_migration_003_normalizes_old_rows_and_guards_invalid_data():
         before = conn.execute(
             "SELECT payload, content_digest, raw_path FROM market_sweeps WHERE id=%s", (sweep_id,)
         ).fetchone()
-        assert migrate(conn) == ["003_item_unit_price_and_time_left.sql"]
+        assert migrate(conn) == [
+            "003_item_unit_price_and_time_left.sql",
+            "004_item_reference.sql",
+        ]
         captured = conn.execute(
             "SELECT unit_numerator, unit_denominator, row_data FROM market_captured_rows WHERE sweep_id=%s",
             (sweep_id,),

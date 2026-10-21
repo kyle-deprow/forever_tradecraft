@@ -15,10 +15,12 @@ from .test_core import raw_scan
 FIXTURE = Path(__file__).parent / "fixtures/native-construction-unknown-savedvars.lua"
 
 
-def write_savedvars(path, scans, probe=None):
+def write_savedvars(path, scans, probe=None, reference=None):
     db = {"scans": {scan["id"]: scan for scan in scans}}
     if probe is not None:
         db["probe"] = probe
+    if reference is not None:
+        db["reference"] = reference
     path.write_text(render_assignment("CrowleyDB", db, header="test"))
 
 
@@ -144,3 +146,102 @@ def test_unknown_native_marker_fixture_preserves_scan_wire_and_is_not_uploaded(c
     assert len(uploaded) == 1
     assert uploaded[0]["payload"] == original_payload
     assert "nativeConstruction" not in uploaded[0]
+
+
+def test_item_reference_upload_is_remembered_and_retried_on_error(companion):
+    instance, saved = companion
+    reference = {
+        "format": 1,
+        "id": "us-normal-alliance-1760000000-Tester-0001",
+        "house": {
+            "region": "us",
+            "ruleset": "normal",
+            "faction": "alliance",
+            "source": "auto",
+            "key": "us-normal-alliance",
+        },
+        "context": {
+            "character": "Tester",
+            "realm": "Normal",
+            "playerFaction": "Alliance",
+            "zone": "Orgrimmar",
+            "subzone": "",
+            "locale": "enUS",
+            "clientVersion": "1.60.1",
+            "clientBuild": "70450",
+            "interface": 16001,
+            "addonVersion": "0.2.0",
+        },
+        "startedAt": 1760000000,
+        "finishedAt": 1760000000,
+        "ahOpen": False,
+        "items": {
+            "2589": {
+                "itemID": 2589,
+                "status": "ok",
+                "info": {
+                    "quality": 1,
+                    "itemLevel": 0,
+                    "minLevel": 0,
+                    "classID": 7,
+                    "subclassID": 0,
+                    "maxStack": 20,
+                    "sellPrice": 3,
+                    "bindType": 0,
+                    "expansionID": 1,
+                    "isCraftingReagent": True,
+                },
+                "deposit": {"kind": "unqueried", "reason": "ah_closed"},
+            }
+        },
+    }
+    write_savedvars(saved, [], reference=reference)
+    calls = []
+
+    def respond(request):
+        if request.url.path == "/v1/item-reference":
+            calls.append(json.loads(request.content))
+            return httpx.Response(200, json={"status": "created", "items": 1})
+        return httpx.Response(200, json={"generatedAt": 1, "ackedScans": [], "shoppingLists": []})
+
+    instance.client = httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond))
+    instance.once()
+    instance.once()
+    assert len(calls) == 1
+    assert State.load(instance.state_file).references == [reference["id"]]
+
+    failure = httpx.Client(
+        base_url="http://test",
+        transport=httpx.MockTransport(
+            lambda request: (
+                httpx.Response(302, text="redirect")
+                if request.url.path == "/v1/item-reference"
+                else httpx.Response(200, json={"generatedAt": 1, "ackedScans": [], "shoppingLists": []})
+            )
+        ),
+    )
+    instance.client.close()
+    instance.client = failure
+    new_reference = dict(reference, id="us-normal-alliance-1760000000-Tester-0002")
+    write_savedvars(saved, [], reference=new_reference)
+    with pytest.raises(RuntimeError, match="server rejected item reference"):
+        instance.once()
+    assert State.load(instance.state_file).references == [reference["id"]]
+
+    successful_calls = []
+
+    def succeed(request):
+        if request.url.path == "/v1/item-reference":
+            successful_calls.append(json.loads(request.content)["id"])
+            return httpx.Response(200, json={"status": "created", "items": 1})
+        return httpx.Response(200, json={"generatedAt": 1, "ackedScans": [], "shoppingLists": []})
+
+    instance.client.close()
+    instance.client = httpx.Client(base_url="http://test", transport=httpx.MockTransport(succeed))
+    instance.once()
+    assert successful_calls == [new_reference["id"]]
+    assert State.load(instance.state_file).references == [reference["id"], new_reference["id"]]
+
+    # once() reprocesses the file unconditionally, so only the remembered id prevents a second upload.
+    instance.once()
+    assert successful_calls == [new_reference["id"]]

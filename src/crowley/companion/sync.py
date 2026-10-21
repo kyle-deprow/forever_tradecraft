@@ -30,21 +30,26 @@ log = logging.getLogger(__name__)
 class State:
     uploaded: dict[str, int] = field(default_factory=dict)  # scan id -> upload time
     probes: list[int] = field(default_factory=list)
+    references: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> State:
         if not path.exists():  # first run
             return cls()
         data = json.loads(path.read_text())
-        return cls(uploaded=data["uploaded"], probes=data["probes"])
+        return cls(uploaded=data["uploaded"], probes=data["probes"], references=data.get("references", []))
 
     def save(self, path: Path) -> None:
         # Uploaded ids only matter while the scan may still be in SavedVariables.
         cutoff = time.time() - 30 * 86400
         self.uploaded = {k: v for k, v in self.uploaded.items() if v >= cutoff}
         self.probes = self.probes[-50:]
+        self.references = self.references[-50:]
         path.parent.mkdir(parents=True, exist_ok=True)
-        atomic_write(path, json.dumps({"uploaded": self.uploaded, "probes": self.probes}))
+        atomic_write(
+            path,
+            json.dumps({"uploaded": self.uploaded, "probes": self.probes, "references": self.references}),
+        )
 
 
 def atomic_write(path: Path, text: str) -> None:
@@ -100,6 +105,11 @@ class Companion:
                 self.upload_scan(scan_id, scan)
                 uploaded += 1
 
+        reference = db.get("reference")
+        if reference and reference["id"] not in self.state.references:
+            self.upload_reference(reference)
+            uploaded += 1
+
         # Only present after /crowley probe has been run.
         probe = db.get("probe")
         if probe and probe["at"] not in self.state.probes:
@@ -119,6 +129,22 @@ class Companion:
             "scan %s -> %s (%s listings, %s)", scan_id, result["house"], result["listings"], result["status"]
         )
         self.state.uploaded[scan_id] = int(time.time())
+
+    def upload_reference(self, reference: dict[str, Any]) -> None:
+        capture_id = reference["id"]
+        response = self.client.post("/v1/item-reference", json=reference)
+        if not response.is_success:
+            raise RuntimeError(
+                f"server rejected item reference {capture_id}: {response.status_code} {response.text}"
+            )
+        result = response.json()
+        log.info(
+            "item reference %s -> %s (%s)",
+            capture_id,
+            result.get("status", "ok"),
+            result.get("items", "unknown"),
+        )
+        self.state.references.append(capture_id)
 
     # -- writing back into the game -----------------------------------------------------
 

@@ -313,13 +313,42 @@ C_Item = {
     if type(itemID) ~= "number" then return nil end
     return itemID, "Item", "", "", 1, nativeClassID(itemID)
   end,
+  GetItemInfo = function(itemID)
+    if harness.referenceInfoPending and harness.referenceInfoPending[itemID] then return nil end
+    local override = harness.itemInfo and harness.itemInfo[itemID]
+    local auction = lookupAuction(itemID)
+    if override then
+      return override.name, override.link, override.quality, override.itemLevel, override.minLevel,
+        override.itemType, override.itemSubType, override.stackCount, override.equipLoc, override.texture,
+        override.sellPrice, override.classID, override.subclassID, override.bindType, override.expansionID,
+        override.setID, override.isCraftingReagent
+    end
+    local classID = auction and auction.classID
+    if not auction then classID = Enum.ItemClass.Tradegoods end
+    return auction and auction.name or ("Item " .. itemID), auction and auction.link or "",
+      auction and auction.quality or 1, auction and auction.itemLevel or 0, auction and auction.minLevel or 0,
+      "Trade Goods", "", auction and (auction.stackCount or auction.count) or 1, "", 1,
+      auction and auction.sellPrice or 0, classID,
+      auction and auction.subclassID or 0, auction and auction.bindType or 0,
+      auction and auction.expansionID or 1, auction and auction.setID or 0,
+      auction and auction.isCraftingReagent == true or false
+  end,
   RequestLoadItemDataByID = function(id)
     harness.requested[id] = true
-    C_Timer.After(harness.metadataDelay or 0, function()
+    harness.referenceInfoPending = harness.referenceInfoPending or {}
+    harness.referenceInfoPending[id] = true
+    if harness.referenceNever and harness.referenceNever[id] then return end
+    C_Timer.After(harness.referenceDelay or harness.metadataDelay or 0, function()
       if harness.metadataPending then harness.metadataPending[id] = nil end
+      if harness.referenceInfoPending then harness.referenceInfoPending[id] = nil end
       harness.keyWarm = harness.keyWarm or {}
       harness.keyWarm[id] = true
       _fire("ITEM_KEY_ITEM_INFO_RECEIVED", id)
+      if harness.referenceFailures and harness.referenceFailures[id] then
+        _fire("ITEM_DATA_LOAD_RESULT", id, false)
+      else
+        _fire("ITEM_DATA_LOAD_RESULT", id, true)
+      end
     end)
   end,
 }
@@ -565,6 +594,20 @@ C_AuctionHouse = {
       bidAmount = a.bid > 0 and a.bid or nil, buyoutAmount = a.buyout > 0 and a.buyout or nil }
   end,
   GetTimeLeftBandInfo = function(band) return band * 3600, band * 3600 + 3600 end,
+  CalculateCommodityDeposit = function(itemID, duration, quantity)
+    harness.depositCalls = harness.depositCalls or {}
+    table.insert(harness.depositCalls, { itemID = itemID, duration = duration, quantity = quantity })
+    local overrides = harness.depositReturns and harness.depositReturns[itemID]
+    local durationValues = overrides and overrides[duration]
+    if durationValues and durationValues[quantity] ~= nil then return durationValues[quantity] end
+    if harness.depositRaises and harness.depositRaises[itemID] ~= nil then
+      error(harness.depositRaises[itemID])
+    end
+    if harness.depositErrors and harness.depositErrors[itemID] ~= nil then return harness.depositErrors[itemID] end
+    local auction = lookupAuction(itemID, true)
+    if not auction then return nil end
+    return (auction.sellPrice or 1) * duration * quantity
+  end,
 }
 
 function _serialize(name, value)
@@ -615,6 +658,14 @@ class Auction:
     itemLevel: int = 0
     itemSuffix: int = 0
     classID: int | None = 7
+    subclassID: int = 0
+    minLevel: int = 0
+    stackCount: int | None = None
+    sellPrice: int = 1
+    bindType: int = 0
+    expansionID: int = 1
+    setID: int = 0
+    isCraftingReagent: bool = False
     battlePetSpeciesID: int = 0
     bonusIDs: list[int] = field(default_factory=list)
     owners: list[str] = field(default_factory=list)
@@ -752,6 +803,14 @@ class WowClient:
                 "deadOrGhost": self.dead_or_ghost,
                 "bindings": self.lua.table(),
                 "requested": self.lua.table(),
+                "itemInfo": self.lua.table(),
+                "referenceInfoPending": self.lua.table(),
+                "referenceNever": self.lua.table(),
+                "referenceFailures": self.lua.table(),
+                "depositReturns": self.lua.table(),
+                "depositRaises": self.lua.table(),
+                "depositErrors": self.lua.table(),
+                "depositCalls": self.lua.table(),
                 "queryCalls": 0,
                 "queryMethods": self.lua.table(),
                 "ignoredCommoditySellQueries": 0,
@@ -1008,6 +1067,36 @@ class WowClient:
 
         self.state.textureCreateCount = 0
         self.state.textureFailureAt = int(index or 0)
+
+    def set_reference_items(self, item_ids: list[int]) -> None:
+        self.lua.globals().CROWLEY_DATA.referenceItemIDs = self._to_lua(item_ids)
+
+    def set_reference_load_behavior(
+        self,
+        *,
+        delay: int = 0,
+        never: list[int] | None = None,
+        failures: list[int] | None = None,
+    ) -> None:
+        self.state.referenceDelay = delay
+        self.state.referenceNever = self._to_lua({item_id: True for item_id in (never or [])})
+        self.state.referenceFailures = self._to_lua({item_id: True for item_id in (failures or [])})
+
+    def set_reference_item_info(self, item_id: int, info: dict) -> None:
+        self.state.itemInfo[item_id] = self._to_lua(info)
+
+    def set_reference_info_pending(self, item_ids: list[int]) -> None:
+        self.state.referenceInfoPending = self._to_lua({item_id: True for item_id in item_ids})
+
+    def set_deposit_error(self, item_id: int, value) -> None:
+        self.state.depositErrors[item_id] = value
+
+    def set_deposit_raise(self, item_id: int, message: str = "native failure") -> None:
+        self.state.depositRaises[item_id] = message
+
+    @property
+    def deposit_calls(self) -> list[dict]:
+        return [dict(entry.items()) for entry in self.state.depositCalls.values()]
 
     @property
     def visible_native_textures(self) -> list[bool]:

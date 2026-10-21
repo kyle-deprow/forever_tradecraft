@@ -9,6 +9,7 @@
 Core.lua
 Context.lua
 Probe.lua
+Reference.lua
 Scanner.lua
 Agent.lua
 Bridge.lua

@@ -9,6 +9,7 @@ local HELP = {
   "/crowley set <region|ruleset|faction> <value|auto> - override house detection",
   "/crowley lists - push Crowley shopping lists into Auctionator",
   "/crowley probe - record which AH APIs this client has",
+  "/crowley reference - capture item metadata and AH deposits",
 }
 -- Reserved for the local repeating-session controller.  It is intentionally
 -- absent from help and accepts no arguments; the controller must prove this
@@ -218,6 +219,9 @@ SlashCmdList.CROWLEY = function(msg)
       :format(ns.Bridge.SyncShoppingLists(houseKey), houseKey))
   elseif cmd == "probe" then
     ns.Probe()
+  elseif cmd == "reference" and not args[2] then
+    local ok, reason = ns.Reference.Start()
+    if not ok then ns.Print("reference refused: " .. tostring(reason)) end
   else
     for _, line in ipairs(HELP) do ns.Print(line) end
   end
