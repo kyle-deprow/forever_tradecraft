@@ -29,7 +29,7 @@ requires native calibration/recovery, genuine human input calibration and three
 - User now requires OpenAI Luna implementation/game control and Sol review;
   Anthropic quota is offline. Opus is no longer a gate for new work. Preserve
   historical actual Opus evidence without claiming any new review occurred.
-- Sole live GUI owner: `/root/luna_live_recovery`. Root may inspect retained
+- Sole live GUI owner: `/root/luna_assisted_scanner`. Root may inspect retained
   artifacts but must not operate/capture/input the GUI concurrently.
 - Arthur is at Ironforge AH. User now authorizes Luna-assisted scanning; a bounded
   safe approach to the auctioneer is allowed when fresh scene evidence requires it.
@@ -51,13 +51,22 @@ requires native calibration/recovery, genuine human input calibration and three
 **Current priority: Luna-assisted collection every900seconds while the unattended
 controller is repaired.** User explicitly said not to pause scanning and authorized
 Luna to direct the scanner until the fix. This supersedes the previous GUI hold
-and calibration-first handoff. Sole GUI owner `/root/luna_live_recovery` is active;
+and calibration-first handoff. Sole GUI owner `/root/luna_assisted_scanner` is active with fresh task context;
 root must not capture or dispatch input concurrently. Start a fresh428-observation
 scan, preserve its original SavedVariables, upload, verify exact loaded ACK and
 reopen AH; continue on the addon900-second schedule. First new start/upload is
 not yet independently verified. Latest verified assisted scan remains179; report
 actual gaps rather than promise backfill. Assisted collection does not count as
 autonomous qualification. Do not let diagnostics interrupt collection.
+Previous owner `/root/luna_live_recovery` is interrupted/held; no concurrent GUI
+work. Retained-image Sol review found attempted points hit floating names/posts
+or players obscuring auctioneers. Fresh owner should use exact target plus a
+measured Interact-With-Target binding, or exposed actual NPC tooltip before one
+immediate right-click. Same-house auctioneers are equivalent. Immediate pointer
+placement works; delayed postcapture recenter alone does not prove emitter failure.
+Fresh progress: `executor-evidence/assisted-collection-luna-20261021/progress.json`
+under private state. Earlier resume artifact paths in progress were stale; inspect
+actual retained bytes and use unique action directories going forward.
 
 Game and persistent Wine launcher are restored; Arthur is logged in at Ironforge
 AH. ControllerPAUSED70/nativefalse/inputfalse remains appropriate for its
