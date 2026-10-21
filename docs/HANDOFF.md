@@ -1,9 +1,60 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 02:10 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 16:39 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
+
+## Latest calibration appointment update (supersedes historical live state)
+
+User is connected through RDP and available for the planned 11:30 AM Chicago
+(16:30 UTC) calibration. Sole GUI owner remains `/root/luna_assisted_scanner`.
+Appointment plan committed at `abc4278`:
+[runbook](../.archive/PLAN-calibration-run-20261021-1130.md), reviewed READY by Sol
+at SHA91bc4852c66c2674e19732e4dbc910410182f777877f31800fd77659abacd945.
+The private exact command sequence is `calibration-resume-20261021/sol-appointment-review.md`.
+
+Assisted collection continued through cycle235 (428 attempted, zero failures,
+1768 rows, original upload/exact loaded ACK/AH reopen). Cycle236 started16:23:03Z
+and ended early16:27:01Z because AH closed. UID
+`beta-normal-alliance-1792599783-Arthur-8176`: 215 attempted,1093 rows; actual
+coverage201full/13bounded/1incomplete/213unqueried. Reasons214ok/214ah_closed;
+this is one interrupted query and213 unqueried entries, not214 query timeouts.
+Original payload was preserved/uploaded and exact loaded ACK verified. AH was
+held closed for the authorized dedicated calibration window.
+
+Fresh preflight at16:32:54Z refused before any game input because the empty-chat
+classifier returned unknown. Actual closed crop medians96/63/92/96 exceeded two
+inactive background bands by3/2; no slash OCR or synthetic XI2 step was reached.
+A single bounded D pulse returned the character toward a known working pose;
+after settling at(-4949.6,-901.0), the actual production classifier accepted the
+new crop (medians67/34/62/67). Input was explicitly released and speed0 verified.
+No source, OCR rule, admission guard, config or validator was changed.
+
+That refused preflight created a valid generation70 preflight/recovery_required
+checkpoint. Canonical public recovery subsequently SUCCEEDED at16:38 UTC:
+private receipt `native-calibration-operator/native-calibration-recover-20261021T163759848559Z-1598579-c0eb6488/receipt.json`.
+Root independently read its success receipt and journal at16:38:32Z: PAUSED70,
+lastAction native_construction_recovery_commit, **nativeConstruction key ABSENT**.
+Explicit JSON null is malformed; always check key membership, not `.get()`.
+The separate prior owner64 checkpoint already cleared at10:08 UTC. Never recover
+either checkpoint again from an older handoff. Re-read actual state before acting.
+
+At a fresh16:37:02Z scene the game showed live SERVER shutdown2:00/1:45 countdown
+messages. The normal native measurement historically takes157–161seconds, so root
+held the native100 attempt rather than start it across that imminent shutdown.
+**Native and input calibration remain false; no human prompt was started and no
+autonomous cycle is qualified.** Finish ordinary recovery and retain original data;
+when the server is actually available, restore normal cached connection/assisted
+collection and coordinate the existing reviewed calibration sequence with the user.
+Do not infer server return time or availability from this countdown. The owner
+will report the actual next scene; root must not capture/input concurrently.
+
+Private current operation notes, appointment and progress are under
+`executor-evidence/assisted-collection-luna-20261021/`; raw receipts outrank stale
+sidecar fields. Offline closed-editor analysis is
+`calibration-resume-20261021/closed-editor-preflight-diagnosis.md`.
+Its candidate future classifier change is diagnosis only, not installed code.
 
 ## Objective and completion criteria
 
