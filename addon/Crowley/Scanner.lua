@@ -11,6 +11,9 @@ local OWNED_TIMEOUT = 30
 local SWEEP_TIMEOUT = 600
 local MAX_PAGES = 10
 local MAX_SAFE = 9007199254740991
+local UINT32_MODULUS = 4294967296
+local UINT32_MAX = UINT32_MODULUS - 1
+local WRAPPED_TIME_LEFT_MIN = UINT32_MODULUS - 300
 local QUERY_TRACE_VERSION = 1
 local QUERY_TRACE_CAP = 256
 local CANONICAL_PLAN_HASH = "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4"
@@ -435,8 +438,11 @@ end
 
 local function timeLeft(info)
   if type(info.timeLeftSeconds) == "number" then
-    if info.timeLeftSeconds < 0 or info.timeLeftSeconds > MAX_SAFE or info.timeLeftSeconds ~= math.floor(info.timeLeftSeconds) then return nil end
-    return { kind = "exact", seconds = info.timeLeftSeconds }
+    local seconds = info.timeLeftSeconds
+    if seconds < 0 or seconds > MAX_SAFE or seconds ~= math.floor(seconds) then return nil end
+    if seconds >= WRAPPED_TIME_LEFT_MIN and seconds <= UINT32_MAX then seconds = seconds - UINT32_MODULUS
+    elseif seconds > 172800 then return nil end
+    return { kind = "exact", seconds = seconds }
   end
   if info.timeLeft ~= nil and C_AuctionHouse.GetTimeLeftBandInfo then
     local minimum, maximum = C_AuctionHouse.GetTimeLeftBandInfo(info.timeLeft)
@@ -675,7 +681,7 @@ local function resultInfo(s, index)
     if s.kind == "item" and (info.buyoutAmount == nil or info.buyoutAmount == 0) then return nil, "eligible_skip" end
     return nil, "numeric_range"
   end
-  local unit = s.kind == "commodity" and rational(copper, 1) or rational(copper, quantity)
+  local unit = rational(copper, 1)
   if not unit then return nil, "numeric_range" end
   local owners = ownerObject(info, s.kind == "commodity")
   if not owners then return nil, "identity_mismatch" end
@@ -1125,7 +1131,7 @@ function Scanner.Finish()
   local payload = { planHash = s.planHash, planJSON = s.planJSON, observations = s.observations, owned = owned }
   local compressed = C_EncodingUtil.CompressString(C_EncodingUtil.SerializeJSON(payload), Enum.CompressionMethod.Deflate)
   local id = ("%s-%d-%s-%04d"):format(s.house.key, s.startedAt, s.context.character, math.random(0, 9999))
-  ns.db.scans[id] = { id = id, format = 2, house = s.house, context = s.context, startedAt = s.startedAt, finishedAt = time(), numRows = 0,
+  ns.db.scans[id] = { id = id, format = 3, house = s.house, context = s.context, startedAt = s.startedAt, finishedAt = time(), numRows = 0,
     numObservations = #s.order, payload = C_EncodingUtil.EncodeBase64(compressed) }
   for _, observation in pairs(s.observations) do ns.db.scans[id].numRows = ns.db.scans[id].numRows + observation.rowCount end
   local stored = 0 for _ in pairs(ns.db.scans) do stored = stored + 1 end

@@ -1,5 +1,6 @@
 """Format-2 API tests against the temporary TimescaleDB when configured."""
 
+import gzip
 import hashlib
 import json
 import os
@@ -12,7 +13,7 @@ import psycopg
 import pytest
 from fastapi.testclient import TestClient
 
-from crowley.core.scanformat import decode_json_payload, encode_json_payload
+from crowley.core.scanformat import decode_json_payload, encode_json_payload, validate_envelope
 
 DB_URL = os.environ.get("CROWLEY_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DB_URL, reason="CROWLEY_TEST_DATABASE_URL not set")
@@ -148,6 +149,199 @@ def scan(uid: str, faction: str, *, ruleset: str = "normal", price: int = 100, a
     }
 
 
+def grouped_item_scan(uid: str, *, format: int, at: int | None = None) -> tuple[dict, dict]:
+    raw = scan(uid, "horde", at=at)
+    payload = decode_json_payload(raw["payload"])
+    observation = payload["observations"]["2589"]
+    observation["kind"] = "item"
+    row = observation["rows"]["row:1"]
+    row.update(
+        {
+            "link": {"kind": "known", "value": "|Hitem:2589:0:0:0:0:0:0:0:0:0:0:0:0|h[x]|h"},
+            "quantity": 4,
+            "price": {"kind": "auction", "copper": 1500},
+            "unitPrice": {"numerator": 375 if format == 2 else 1500, "denominator": 1},
+            "timeLeft": {"kind": "exact", "seconds": 4294967293 if format == 2 else -3},
+        }
+    )
+    raw["format"] = format
+    raw["payload"] = _encode_native_payload(payload)
+    return raw, payload
+
+
+def install_002_only() -> None:
+    from crowley.server.db import migrate
+
+    migration_dir = os.path.join(os.path.dirname(__file__), "..", "src", "crowley", "server", "migrations")
+    with psycopg.connect(DB_URL, autocommit=True) as conn:
+        conn.execute("DROP SCHEMA public CASCADE")
+        conn.execute("CREATE SCHEMA public")
+    with psycopg.connect(DB_URL, autocommit=True) as conn:
+        conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
+        conn.execute(
+            "CREATE TABLE schema_migrations (name text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())"
+        )
+        for name in ("001_init.sql", "002_market_observations.sql"):
+            with open(os.path.join(migration_dir, name)) as handle:
+                sql = handle.read()
+            if name == "001_init.sql":
+                sql = sql.replace("CREATE EXTENSION IF NOT EXISTS timescaledb;\n\n", "")
+            conn.execute(sql)
+            conn.execute("INSERT INTO schema_migrations (name) VALUES (%s)", (name,))
+        # Keep the helper's migration import available to callers after the
+        # schema is prepared; the assertion also guards this fixture's intent.
+        assert migrate is not None
+
+
+def insert_old_item_rows() -> tuple[dict, str, int]:
+    from crowley.server.ingest import _logical_digest
+
+    raw, payload = grouped_item_scan("migration-old", format=2, at=1_760_000_000)
+    digest = _logical_digest(raw, payload)
+    observation = payload["observations"]["2589"]
+    row = observation["rows"]["row:1"]
+    with psycopg.connect(DB_URL, autocommit=True) as conn:
+        house_id = conn.execute(
+            "INSERT INTO houses (key, region, ruleset, faction) VALUES (%s,%s,%s,%s) RETURNING id",
+            ("us-normal-horde", "us", "normal", "horde"),
+        ).fetchone()[0]
+        plan_json = json.dumps({"test": True}, sort_keys=True)
+        plan_hash = "a" * 64
+        conn.execute(
+            "INSERT INTO market_plans (plan_hash, plan_json, plan_body) VALUES (%s,%s,%s)",
+            (plan_hash, plan_json, json.dumps({"test": True})),
+        )
+        sweep_id = conn.execute(
+            """
+            INSERT INTO market_sweeps
+              (sweep_uid, house_id, plan_hash, started_at, finished_at, character,
+               client_version, client_build, interface, house_source, num_rows,
+               num_observations, context, payload, content_digest, raw_path)
+            VALUES (%s,%s,%s,to_timestamp(%s),to_timestamp(%s),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            RETURNING id
+            """,
+            (
+                raw["id"],
+                house_id,
+                plan_hash,
+                raw["startedAt"],
+                raw["finishedAt"],
+                "Tester",
+                "1.60.1",
+                "70338",
+                16001,
+                "auto",
+                1,
+                1,
+                json.dumps(raw["context"]),
+                json.dumps(payload),
+                digest,
+                "untouched.raw.gz",
+            ),
+        ).fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO market_observations
+              (sweep_id, house_id, item_id, item_key, ordinal, kind, query,
+               coverage, source_complete, cutoff, higher_price_witness, reason_code,
+               row_count, observation)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                sweep_id,
+                house_id,
+                2589,
+                "2589",
+                1,
+                "item",
+                json.dumps(observation["query"]),
+                observation["coverage"],
+                observation["sourceComplete"],
+                json.dumps(observation["cutoff"]),
+                json.dumps(observation["higherPriceWitness"]),
+                observation["reasonCode"],
+                1,
+                json.dumps(observation),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO market_captured_rows
+              (sweep_id,item_id,row_key,result_id,item_key,raw_item_key,quantity,
+               unit_numerator,unit_denominator,row_data)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                sweep_id,
+                2589,
+                "row:1",
+                row["resultID"],
+                row["itemKey"],
+                json.dumps(row["rawItemKey"]),
+                row["quantity"],
+                row["unitPrice"]["numerator"],
+                row["unitPrice"]["denominator"],
+                json.dumps(row),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO owned_observations
+              (sweep_id, house_id, character, status, query, reason_code, row_count, rows)
+            VALUES (%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                sweep_id,
+                house_id,
+                "Tester",
+                "unqueried",
+                json.dumps({"kind": "unqueried"}),
+                "not_started",
+                0,
+                json.dumps([]),
+            ),
+        )
+        conn.execute(
+            """
+            INSERT INTO own_sale_evidence
+              (house_id, character, auction_id, first_seen_sold_at, first_seen_sweep_id,
+               item_id, item_key, raw_item_key, quantity, listed_buyout, item_link,
+               observation_window, inconsistent)
+            VALUES (%s,%s,%s,to_timestamp(%s),%s,%s,%s,%s,%s,%s,%s,%s,%s)
+            """,
+            (
+                house_id,
+                "Tester",
+                7001,
+                1_760_000_000,
+                sweep_id,
+                2589,
+                "2589",
+                json.dumps(row["rawItemKey"]),
+                row["quantity"],
+                row["price"]["copper"],
+                row["link"]["value"],
+                json.dumps({"kind": "owned", "at": 1_760_000_000}),
+                False,
+            ),
+        )
+    return raw, digest, sweep_id
+
+
+def _migration_untouched_snapshot(sweep_id: int) -> dict[str, list[tuple]]:
+    with psycopg.connect(DB_URL) as conn:
+        return {
+            "market_sweeps": conn.execute("SELECT * FROM market_sweeps WHERE id=%s", (sweep_id,)).fetchall(),
+            "market_plans": conn.execute("SELECT * FROM market_plans ORDER BY plan_hash").fetchall(),
+            "owned_observations": conn.execute(
+                "SELECT * FROM owned_observations WHERE sweep_id=%s", (sweep_id,)
+            ).fetchall(),
+            "own_sale_evidence": conn.execute(
+                "SELECT * FROM own_sale_evidence WHERE first_seen_sweep_id=%s", (sweep_id,)
+            ).fetchall(),
+        }
+
+
 def test_houses_are_kept_separate(client):
     now = int(time.time())
     assert (
@@ -221,6 +415,138 @@ def test_real_addon_envelope_reaches_archive_history_and_volume(client):
     volume = volume_response.json()
     assert volume["latestObservation"]["itemID"] == 2589
     assert volume["marketActualSalesEstimate"] is None
+
+
+def test_ingest_normalizes_format2_but_keeps_received_payload_and_accepts_format3(client):
+    from crowley.server.ingest import _logical_digest
+
+    format2, _ = grouped_item_scan("normalize-format2", format=2)
+    response = client.post("/v1/scans", json=format2)
+    assert response.status_code == 200, response.text
+    with psycopg.connect(DB_URL) as conn:
+        stored = conn.execute(
+            "SELECT payload, content_digest, raw_path FROM market_sweeps WHERE sweep_uid=%s",
+            (format2["id"],),
+        ).fetchone()
+        observation, captured = conn.execute(
+            """
+            SELECT mo.observation, mcr.row_data
+            FROM market_observations mo
+            JOIN market_captured_rows mcr USING (sweep_id, item_id)
+            WHERE mo.sweep_id = (SELECT id FROM market_sweeps WHERE sweep_uid=%s)
+            """,
+            (format2["id"],),
+        ).fetchone()
+    received_decoded = validate_envelope(format2)["decoded"]
+    assert stored[0] == received_decoded
+    assert stored[1] == _logical_digest(format2, received_decoded)
+    assert json.loads(gzip.open(stored[2], "rb").read()) == format2
+    assert observation["rows"]["row:1"]["unitPrice"] == {"numerator": 1500, "denominator": 1}
+    assert observation["rows"]["row:1"]["timeLeft"] == {"kind": "exact", "seconds": -3}
+    assert captured["unitPrice"] == {"numerator": 1500, "denominator": 1}
+    assert captured["timeLeft"] == {"kind": "exact", "seconds": -3}
+
+    format3, _ = grouped_item_scan("normalize-format3", format=3)
+    response = client.post("/v1/scans", json=format3)
+    assert response.status_code == 200, response.text
+    with psycopg.connect(DB_URL) as conn:
+        stored_payload, observation, cutoff, witness, unit_numerator, unit_denominator, captured = (
+            conn.execute(
+                """
+            SELECT ms.payload, mo.observation, mo.cutoff, mo.higher_price_witness,
+                   mcr.unit_numerator, mcr.unit_denominator, mcr.row_data
+            FROM market_sweeps ms
+            JOIN market_observations mo ON mo.sweep_id = ms.id
+            JOIN market_captured_rows mcr
+              ON mcr.sweep_id = mo.sweep_id AND mcr.item_id = mo.item_id
+            WHERE ms.sweep_uid=%s
+            """,
+                (format3["id"],),
+            ).fetchone()
+        )
+    received = validate_envelope(format3)["decoded"]
+    received_observation = received["observations"]["2589"]
+    received_row = received_observation["rows"]["row:1"]
+    assert stored_payload == received
+    assert observation == received_observation
+    assert cutoff == received_observation["cutoff"]
+    assert witness == received_observation["higherPriceWitness"]
+    assert (unit_numerator, unit_denominator) == (
+        received_row["unitPrice"]["numerator"],
+        received_row["unitPrice"]["denominator"],
+    )
+    assert captured == received_row
+
+
+def test_migration_003_normalizes_old_rows_and_guards_invalid_data():
+    from crowley.server.db import migrate
+
+    install_002_only()
+    raw, digest, sweep_id = insert_old_item_rows()
+    untouched_before = _migration_untouched_snapshot(sweep_id)
+    with psycopg.connect(DB_URL) as conn:
+        before = conn.execute(
+            "SELECT payload, content_digest, raw_path FROM market_sweeps WHERE id=%s", (sweep_id,)
+        ).fetchone()
+        assert migrate(conn) == ["003_item_unit_price_and_time_left.sql"]
+        captured = conn.execute(
+            "SELECT unit_numerator, unit_denominator, row_data FROM market_captured_rows WHERE sweep_id=%s",
+            (sweep_id,),
+        ).fetchone()
+        observation = conn.execute(
+            "SELECT observation FROM market_observations WHERE sweep_id=%s", (sweep_id,)
+        ).fetchone()[0]
+        after = conn.execute(
+            "SELECT payload, content_digest, raw_path FROM market_sweeps WHERE id=%s", (sweep_id,)
+        ).fetchone()
+        assert migrate(conn) == []
+    assert before == after
+    assert untouched_before == _migration_untouched_snapshot(sweep_id)
+    assert before[0] == decode_json_payload(raw["payload"])
+    assert before[1] == digest
+    assert captured[0:2] == (1500, 1)
+    assert captured[2]["unitPrice"] == {"numerator": 1500, "denominator": 1}
+    assert captured[2]["timeLeft"] == {"kind": "exact", "seconds": -3}
+    assert observation["rows"]["row:1"]["unitPrice"] == {"numerator": 1500, "denominator": 1}
+    assert observation["rows"]["row:1"]["timeLeft"] == {"kind": "exact", "seconds": -3}
+    assert captured[2]["unitPrice"] == observation["rows"]["row:1"]["unitPrice"]
+
+    for violation in ("bounded", "captured_time", "captured_price", "observation_time", "observation_price"):
+        install_002_only()
+        _, _, _ = insert_old_item_rows()
+        with psycopg.connect(DB_URL, autocommit=True) as conn:
+            if violation == "bounded":
+                conn.execute("UPDATE market_observations SET coverage='bounded'")
+            elif violation == "captured_time":
+                conn.execute(
+                    "UPDATE market_captured_rows SET row_data=jsonb_set(row_data, '{timeLeft,seconds}', '172801'::jsonb)"
+                )
+            elif violation == "captured_price":
+                conn.execute(
+                    "UPDATE market_captured_rows SET row_data=jsonb_set(row_data, '{price,kind}', %s::jsonb)",
+                    ('"unit"',),
+                )
+            elif violation == "observation_time":
+                conn.execute(
+                    """
+                    UPDATE market_observations
+                    SET observation=jsonb_set(
+                        observation, '{rows,row:1,timeLeft,seconds}', '172801'::jsonb
+                    )
+                    """
+                )
+            else:
+                conn.execute(
+                    """
+                    UPDATE market_observations
+                    SET observation=jsonb_set(
+                        observation, '{rows,row:1,price,kind}', %s::jsonb
+                    )
+                    """,
+                    ('"unit"',),
+                )
+            with pytest.raises(psycopg.Error, match="cannot normalize"):
+                migrate(conn)
 
 
 def test_upload_rejects_duplicate_outer_json_keys_before_archive(client):

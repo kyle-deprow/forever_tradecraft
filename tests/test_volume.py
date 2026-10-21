@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from crowley.core.volume import compare_observations, project_observation_variant, volume_report
+from crowley.core.volume import (
+    NORMALIZATION_POLICY,
+    compare_observations,
+    project_observation_variant,
+    volume_report,
+)
 
 
 def _row(
@@ -123,6 +128,28 @@ def test_metadata_change_excludes_interval():
         },
     }
     assert "client_build_changed" in compare_observations(left, right)["excludedIntervals"]
+
+
+def test_normalization_policy_change_excludes_interval():
+    left = {
+        "observation": _obs(100, [_row(7, 1)]),
+        "envelope": {"normalizationPolicy": "format2-whole-buyout-quantity-reduced-rational"},
+    }
+    right = {
+        "observation": _obs(110, []),
+        "envelope": {"normalizationPolicy": NORMALIZATION_POLICY},
+    }
+    changed = compare_observations(left, right)
+    assert "normalization_changed" in changed["excludedIntervals"]
+
+    same = compare_observations(
+        left,
+        {
+            "observation": _obs(110, []),
+            "envelope": {"normalizationPolicy": "format2-whole-buyout-quantity-reduced-rational"},
+        },
+    )
+    assert "normalization_changed" not in same["excludedIntervals"]
 
 
 def test_persistent_id_change_outside_common_cutoff_is_inconsistent():

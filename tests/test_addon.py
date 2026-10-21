@@ -1624,13 +1624,13 @@ def test_absent_plan_refuses_actionable_collection():
     assert not list(client.lua.globals().CrowleyDB.scans.items())
 
 
-def test_targeted_sweep_roundtrips_strict_v2_payload():
+def test_targeted_sweep_roundtrips_strict_v3_payload():
     raw = run_sweep(WowClient())
     parsed = validate_v2_envelope(envelope(raw))
-    assert raw["format"] == 2
+    assert raw["format"] == 3
     observation = parsed["decoded"]["observations"]["2589"]
     assert observation["coverage"] == "full"
-    assert observation["rows"]["row:1"]["unitPrice"] == {"numerator": 100, "denominator": 1}
+    assert observation["rows"]["row:1"]["unitPrice"] == {"numerator": 200, "denominator": 1}
     assert parsed["decoded"]["owned"]["status"] == "full"
 
 
@@ -1647,6 +1647,71 @@ def test_commodity_sweep_uses_unit_price_and_item_id_key_without_link():
     assert observation["kind"] == "commodity"
     assert observation["rows"]["row:1"]["itemKey"] == "2589"
     assert observation["rows"]["row:1"]["price"] == {"kind": "unit", "copper": 25}
+
+
+def test_format3_grouped_item_uses_one_auction_buyout_and_emits_format3():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions([Auction(2589, "Linen Cloth", 4, 1500, auctionID=1)])
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+
+    raw = next(iter(savedvars.loads(client.saved_variables())["CrowleyDB"]["scans"].values()))
+    observation = validate_v2_envelope(envelope(raw))["decoded"]["observations"]["2589"]
+    row = observation["rows"]["row:1"]
+    assert raw["format"] == 3
+    assert row["quantity"] == 4
+    assert row["unitPrice"] == {"numerator": 1500, "denominator": 1}
+
+
+def test_format3_decodes_wrapped_commodity_time_left_and_rejects_other_large_values():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions(
+        [Auction(2589, "Linen Cloth", 1, 25, isCommodity=True, timeLeftSeconds=4_294_967_293)]
+    )
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+    row = decoded_payload(client)["observations"]["2589"]["rows"]["row:1"]
+    assert row["timeLeft"] == {"kind": "exact", "seconds": -3}
+
+    rejected = WowClient()
+    rejected.login()
+    rejected.set_canonical_plan()
+    rejected.set_auctions(
+        [Auction(2589, "Linen Cloth", 1, 25, isCommodity=True, timeLeftSeconds=4_294_000_000)]
+    )
+    rejected.fire("AUCTION_HOUSE_SHOW")
+    rejected.slash("scan")
+    rejected.run_timers()
+    observation = decoded_payload(rejected)["observations"]["2589"]
+    assert observation["coverage"] == "incomplete"
+    assert observation["reasonCode"] == "numeric_range"
+
+
+def test_item_depth_selection_is_ordered_by_per_auction_copper():
+    client = WowClient()
+    client.login()
+    client.set_canonical_plan()
+    client.set_auctions(
+        [
+            Auction(2589, "Linen Cloth", 100 if price == 21 else 1, price, auctionID=price)
+            for price in range(1, 22)
+        ]
+    )
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.slash("scan")
+    client.run_timers()
+
+    observation = decoded_payload(client)["observations"]["2589"]
+    assert observation["coverage"] == "bounded"
+    assert {row["resultID"] for row in observation["rows"].values()} == set(range(1, 21))
+    assert observation["cutoff"] == {"kind": "price", "numerator": 20, "denominator": 1}
+    assert observation["higherPriceWitness"] == {"kind": "known", "numerator": 21, "denominator": 1}
 
 
 def test_representative_full_watchlist_payload_size_is_measured():
@@ -1753,7 +1818,7 @@ def test_bounded_commodity_has_known_witness_and_strict_roundtrip():
     assert len(observation["rows"]) == 20
 
 
-def test_full_item_normalizes_unit_price_after_whole_buyout_source_order():
+def test_full_item_uses_per_auction_buyout_for_unit_price_and_order():
     client = WowClient()
     client.login()
     client.set_canonical_plan()
@@ -1771,11 +1836,11 @@ def test_full_item_normalizes_unit_price_after_whole_buyout_source_order():
     observation = validate_v2_envelope(envelope(raw))["decoded"]["observations"]["2589"]
     assert observation["coverage"] == "full"
     ordered_rows = [observation["rows"][f"row:{index}"] for index in range(1, 4)]
-    assert [row["resultID"] for row in ordered_rows] == [1, 3, 2]
+    assert [row["resultID"] for row in ordered_rows] == [1, 2, 3]
     assert [row["unitPrice"] for row in ordered_rows] == [
-        {"numerator": 1, "denominator": 1},
-        {"numerator": 1, "denominator": 1},
+        {"numerator": 2, "denominator": 1},
         {"numerator": 3, "denominator": 1},
+        {"numerator": 4, "denominator": 1},
     ]
 
 
@@ -1799,13 +1864,13 @@ def test_page_limit_preserves_sorted_partial_rows_beyond_depth():
     first_units = [observation["rows"][f"row:{index}"]["unitPrice"] for index in range(1, 5)]
     assert first_units == [
         {"numerator": 1, "denominator": 1},
-        {"numerator": 1, "denominator": 1},
         {"numerator": 2, "denominator": 1},
         {"numerator": 3, "denominator": 1},
+        {"numerator": 4, "denominator": 1},
     ]
 
 
-def test_unsafe_nonadjacent_price_product_keeps_partial_rows():
+def test_item_buyout_comparison_uses_safe_unit_copper_without_quantity_cross_products():
     max_safe = 9007199254740991
     client = WowClient()
     client.login()
@@ -1822,8 +1887,8 @@ def test_unsafe_nonadjacent_price_product_keeps_partial_rows():
     client.run_timers()
     raw = next(iter(savedvars.loads(client.saved_variables())["CrowleyDB"]["scans"].values()))
     observation = validate_v2_envelope(envelope(raw))["decoded"]["observations"]["2589"]
-    assert observation["coverage"] == "incomplete"
-    assert observation["reasonCode"] == "numeric_range"
+    assert observation["coverage"] == "full"
+    assert observation["reasonCode"] == "ok"
     assert observation["rowCount"] == 3
 
 

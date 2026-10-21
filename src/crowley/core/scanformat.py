@@ -1,4 +1,4 @@
-"""Strict format-2 wire validation and raw-deflated JSON payload encoding."""
+"""Strict scan-format validation and raw-deflated JSON payload encoding."""
 
 from __future__ import annotations
 
@@ -10,12 +10,17 @@ import re
 import zlib
 from typing import Any
 
-WIRE_FORMAT = 2
+PRODUCER_FORMAT = 3
+ACCEPTED_FORMATS = (2, 3)
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
+UINT32_MODULUS = 4_294_967_296
+UINT32_MAX = UINT32_MODULUS - 1
+WRAPPED_TIME_LEFT_MIN = UINT32_MODULUS - 300
+MAX_EXACT_TIME_LEFT_SECONDS = 172_800
 
 
 class ScanFormatError(ValueError):
-    """A format-2 envelope or payload is not admissible."""
+    """A supported scan envelope or payload is not admissible."""
 
 
 def _json_pairs(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -341,13 +346,24 @@ def _validate_owners(value: Any, kind: str, where: str) -> None:
         raise ScanFormatError(f"{where}.grouped owner identity is inconsistent")
 
 
-def _validate_time_left(value: Any, where: str) -> None:
+def _validate_time_left(value: Any, where: str, wire_format: int) -> None:
     if not isinstance(value, dict):
         raise ScanFormatError(f"{where} is invalid")
     kind = _choice(value.get("kind"), {"exact", "band", "unknown"}, f"{where}.kind")
     if kind == "exact":
         _keys(value, {"kind", "seconds"}, where)
-        _int(value["seconds"], f"{where}.seconds")
+        if wire_format == 3:
+            _int(
+                value["seconds"],
+                f"{where}.seconds",
+                minimum=-300,
+                maximum=MAX_EXACT_TIME_LEFT_SECONDS,
+            )
+        else:
+            # Format 2 is historical wire data.  Preserve its original
+            # non-negative safe-integer rule; normalization handles the one
+            # newly understood uint32-wrapped window for storage.
+            _int(value["seconds"], f"{where}.seconds")
     elif kind == "band":
         _keys(value, {"kind", "band", "minimumSeconds", "maximumSeconds"}, where)
         _int(value["band"], f"{where}.band", maximum=3)
@@ -359,7 +375,7 @@ def _validate_time_left(value: Any, where: str) -> None:
         _keys(value, {"kind"}, where)
 
 
-def _validate_row(value: Any, planned_id: int, kind: str, where: str) -> None:
+def _validate_row(value: Any, planned_id: int, kind: str, where: str, wire_format: int) -> None:
     _keys(
         value,
         {
@@ -397,10 +413,14 @@ def _validate_row(value: Any, planned_id: int, kind: str, where: str) -> None:
     unit = _rational(value["unitPrice"], f"{where}.unitPrice")
     if kind == "commodity" and unit != (copper, 1):
         raise ScanFormatError(f"{where}.unitPrice must equal commodity price")
-    if kind == "item" and unit != _reduced(copper, quantity):
-        raise ScanFormatError(f"{where}.unitPrice must equal reduced buyout / quantity")
+    if kind == "item":
+        expected = (copper, 1) if wire_format == 3 else _reduced(copper, quantity)
+        if unit != expected:
+            if wire_format == 3:
+                raise ScanFormatError(f"{where}.unitPrice must equal item auction price")
+            raise ScanFormatError(f"{where}.unitPrice must equal reduced buyout / quantity")
     _validate_owners(value["owners"], kind, f"{where}.owners")
-    _validate_time_left(value["timeLeft"], f"{where}.timeLeft")
+    _validate_time_left(value["timeLeft"], f"{where}.timeLeft", wire_format)
 
 
 def _validate_pairwise_prices(
@@ -435,6 +455,7 @@ def _validate_observation(
     sweep_end: int,
     initial_levels: int,
     where: str,
+    wire_format: int,
 ) -> int:
     _keys(
         value,
@@ -544,7 +565,7 @@ def _validate_observation(
     for row_key, row in rows.items():
         if not isinstance(row_key, str) or not re.fullmatch(r"row:[1-9]\d*", row_key):
             raise ScanFormatError(f"{where}.rows key invalid")
-        _validate_row(row, item_id, kind, f"{where}.rows.{row_key}")
+        _validate_row(row, item_id, kind, f"{where}.rows.{row_key}", wire_format)
         if row["resultID"] in seen_ids:
             raise ScanFormatError(f"{where} has duplicate resultID")
         seen_ids.add(row["resultID"])
@@ -673,8 +694,8 @@ def _validate_owned(value: Any, sweep_start: int, sweep_end: int) -> None:
         _choice(row["status"], {"active", "sold"}, f"owned.rows.{key}.status")
 
 
-def validate_v2_envelope(raw: dict[str, Any]) -> dict[str, Any]:
-    """Validate and return a format-2 envelope with its decoded payload."""
+def validate_envelope(raw: dict[str, Any]) -> dict[str, Any]:
+    """Validate and return a supported envelope with its decoded payload."""
     _keys(
         raw,
         {
@@ -691,8 +712,9 @@ def validate_v2_envelope(raw: dict[str, Any]) -> dict[str, Any]:
         "envelope",
     )
     _string(raw["id"], "envelope.id")
-    if raw["format"] != WIRE_FORMAT:
-        raise ScanFormatError("format 2 is the only accepted upload format")
+    wire_format = raw["format"]
+    if wire_format not in ACCEPTED_FORMATS:
+        raise ScanFormatError("formats 2 and 3 are the only accepted upload formats")
     started = _validate_timestamp(raw["startedAt"], "envelope.startedAt")
     finished = _validate_timestamp(raw["finishedAt"], "envelope.finishedAt")
     if started > finished:
@@ -747,7 +769,13 @@ def validate_v2_envelope(raw: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(key, str) or not key.isdecimal() or int(key) not in plan["itemIDs"]:
             raise ScanFormatError("observation key is not a planned decimal item ID")
         rows_total += _validate_observation(
-            observation, int(key), started, finished, plan["initialPriceLevels"], f"observations.{key}"
+            observation,
+            int(key),
+            started,
+            finished,
+            plan["initialPriceLevels"],
+            f"observations.{key}",
+            wire_format,
         )
         ordinals.append(observation["ordinal"])
     if sorted(ordinals) != list(range(1, len(plan["itemIDs"]) + 1)):
@@ -758,4 +786,58 @@ def validate_v2_envelope(raw: dict[str, Any]) -> dict[str, Any]:
     return {**raw, "decoded": decoded, "plan": plan}
 
 
-parse_v2_envelope = validate_v2_envelope
+def normalize_observation(format: int, kind: str, observation: dict[str, Any]) -> dict[str, Any]:
+    """Return an immutable-semantic copy suitable for storage.
+
+    Format 3 is already corrected on the wire.  Format 2 remains accepted for
+    historical uploads, but item unit prices and the observed uint32-wrapped
+    exact time-left values are translated before they enter the normalized
+    observation tables.  The received decoded payload is never edited.
+    """
+    if format not in ACCEPTED_FORMATS:
+        raise ScanFormatError("cannot normalize an unsupported scan format")
+    if not isinstance(kind, str) or kind not in {"commodity", "item", "unknown"}:
+        raise ScanFormatError("observation kind is invalid")
+    if not isinstance(observation, dict):
+        raise ScanFormatError("observation must be an object")
+
+    import copy
+
+    normalized = copy.deepcopy(observation)
+    if format == 2 and kind == "item" and normalized.get("coverage") == "bounded":
+        raise ScanFormatError("format-2 item bounded coverage cannot be normalized")
+
+    rows = normalized.get("rows", {})
+    if not isinstance(rows, dict):
+        raise ScanFormatError("observation rows must be an object")
+    for row in rows.values():
+        if not isinstance(row, dict):
+            raise ScanFormatError("observation row must be an object")
+        time_left = row.get("timeLeft")
+        if isinstance(time_left, dict) and time_left.get("kind") == "exact":
+            seconds = time_left.get("seconds")
+            if isinstance(seconds, bool) or not isinstance(seconds, int):
+                raise ScanFormatError("exact time-left seconds must be an integer")
+            if format == 2:
+                if WRAPPED_TIME_LEFT_MIN <= seconds <= UINT32_MAX:
+                    time_left["seconds"] = seconds - UINT32_MODULUS
+                elif seconds > MAX_EXACT_TIME_LEFT_SECONDS:
+                    raise ScanFormatError("exact time-left seconds are outside the understood range")
+            elif not -300 <= seconds <= MAX_EXACT_TIME_LEFT_SECONDS:
+                raise ScanFormatError("format-3 exact time-left seconds are outside the valid range")
+
+        if format == 2 and kind == "item":
+            price = row.get("price")
+            if (
+                not isinstance(price, dict)
+                or isinstance(price.get("copper"), bool)
+                or not isinstance(price.get("copper"), int)
+            ):
+                raise ScanFormatError("item row price copper is invalid")
+            row["unitPrice"] = {"numerator": price["copper"], "denominator": 1}
+    return normalized
+
+
+# Compatibility names remain aliases for historical callers and archives.
+validate_v2_envelope = validate_envelope
+parse_v2_envelope = validate_envelope

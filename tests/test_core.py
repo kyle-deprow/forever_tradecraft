@@ -12,6 +12,8 @@ from crowley.core.scanformat import (
     decode_json_envelope,
     decode_json_payload,
     encode_json_payload,
+    normalize_observation,
+    validate_envelope,
     validate_v2_envelope,
 )
 
@@ -241,11 +243,16 @@ def test_generic_payload_encoder_does_not_repair_an_empty_object():
 
 
 def test_format2_rejects_old_format_and_malformed_scope():
-    with pytest.raises(ScanFormatError, match="format 2"):
+    with pytest.raises(ScanFormatError, match="formats 2 and 3"):
         validate_v2_envelope(raw_scan(format=1))
     malformed = raw_scan(numRows=2)
     with pytest.raises(ScanFormatError, match="counts"):
         validate_v2_envelope(malformed)
+
+
+def test_format4_is_rejected():
+    with pytest.raises(ScanFormatError, match="formats 2 and 3"):
+        validate_envelope(raw_scan(format=4))
 
 
 def test_format2_rejects_fraction_not_reduced_and_unknown_fields():
@@ -336,6 +343,103 @@ def test_item_buyout_quantity_uses_reduced_fraction_without_float_division():
         "numerator": 3,
         "denominator": 2,
     }
+
+
+def _format3_item_raw(*, unit_price: tuple[int, int] = (1500, 1), quantity: int = 4) -> dict:
+    raw = raw_scan(format=3)
+    payload = decode_json_payload(raw["payload"])
+    observation = payload["observations"]["10"]
+    observation["kind"] = "item"
+    row = observation["rows"]["row:1"]
+    row["link"] = {"kind": "known", "value": "|Hitem:10:0:0:0:0:0:0:0:1:0:0:0:0|h[x]|h"}
+    row["quantity"] = quantity
+    row["price"] = {"kind": "auction", "copper": 1500}
+    row["unitPrice"] = {"numerator": unit_price[0], "denominator": unit_price[1]}
+    row["owners"] = {
+        "names": [],
+        "totalNumberOfOwners": 0,
+        "containsOwnerItem": False,
+        "containsAccountItem": False,
+        "identityKind": "grouped",
+    }
+    raw["payload"] = _encode_native_payload(payload)
+    return raw
+
+
+def test_format3_corrects_item_units_while_format2_keeps_historical_rule():
+    format3 = _format3_item_raw()
+    assert validate_envelope(format3)["decoded"]["observations"]["10"]["rows"]["row:1"]["unitPrice"] == {
+        "numerator": 1500,
+        "denominator": 1,
+    }
+    with pytest.raises(ScanFormatError, match="item auction price"):
+        validate_envelope(_format3_item_raw(unit_price=(375, 1)))
+
+    format2 = _format3_item_raw(unit_price=(375, 1))
+    format2["format"] = 2
+    assert validate_envelope(format2)["decoded"]["observations"]["10"]["rows"]["row:1"]["unitPrice"] == {
+        "numerator": 375,
+        "denominator": 1,
+    }
+    format2_corrected = _format3_item_raw(unit_price=(1500, 1))
+    format2_corrected["format"] = 2
+    with pytest.raises(ScanFormatError, match="reduced buyout / quantity"):
+        validate_envelope(format2_corrected)
+
+
+@pytest.mark.parametrize("seconds", [-301, 172801, 4_294_967_293])
+def test_format3_rejects_out_of_range_exact_time_left(seconds):
+    raw = raw_scan(format=3)
+    payload = decode_json_payload(raw["payload"])
+    payload["observations"]["10"]["rows"]["row:1"]["timeLeft"] = {
+        "kind": "exact",
+        "seconds": seconds,
+    }
+    raw["payload"] = _encode_native_payload(payload)
+    with pytest.raises(ScanFormatError, match="seconds"):
+        validate_envelope(raw)
+
+
+def test_format3_accepts_decoded_negative_exact_time_left():
+    raw = raw_scan(format=3)
+    payload = decode_json_payload(raw["payload"])
+    payload["observations"]["10"]["rows"]["row:1"]["timeLeft"] = {
+        "kind": "exact",
+        "seconds": -3,
+    }
+    raw["payload"] = _encode_native_payload(payload)
+    assert validate_envelope(raw)["decoded"]["observations"]["10"]["rows"]["row:1"]["timeLeft"] == {
+        "kind": "exact",
+        "seconds": -3,
+    }
+
+
+def test_format2_wrapped_time_left_normalizes_without_mutating_input():
+    raw = raw_scan()
+    payload = decode_json_payload(raw["payload"])
+    observation = payload["observations"]["10"]
+    observation["rows"]["row:1"]["timeLeft"] = {"kind": "exact", "seconds": 4_294_967_293}
+    original = json.loads(json.dumps(observation))
+    normalized = normalize_observation(2, "commodity", observation)
+    assert normalized["rows"]["row:1"]["timeLeft"] == {"kind": "exact", "seconds": -3}
+    assert observation == original
+
+    item_raw = _format3_item_raw(unit_price=(375, 1))
+    item_observation = decode_json_payload(item_raw["payload"])["observations"]["10"]
+    item_observation["rows"]["row:1"]["timeLeft"] = {"kind": "exact", "seconds": 4_294_967_293}
+    item_original = json.loads(json.dumps(item_observation))
+    item_normalized = normalize_observation(2, "item", item_observation)
+    assert item_normalized["rows"]["row:1"]["unitPrice"] == {"numerator": 1500, "denominator": 1}
+    assert item_normalized["rows"]["row:1"]["timeLeft"] == {"kind": "exact", "seconds": -3}
+    assert item_observation == item_original
+
+
+def test_format2_bounded_item_observation_cannot_be_normalized():
+    raw = _format3_item_raw(unit_price=(375, 1))
+    observation = decode_json_payload(raw["payload"])["observations"]["10"]
+    observation["coverage"] = "bounded"
+    with pytest.raises(ScanFormatError, match="bounded"):
+        normalize_observation(2, "item", observation)
 
 
 def test_numeric_range_partial_preserves_safe_fractional_rows_without_cross_product():

@@ -35,6 +35,8 @@
 | **Live observed and fixed:** empty Lua tables serialize as `[]`; the native contract accepts that only for empty collections, requires objects for nonempty keyed collections, normalizes them to dictionaries, and rejects `{}` empty / nonempty arrays | `Scanner.lua`, `scanformat.py` | The earlier 422 row/count mismatch is historical; the original scans now POST 200. No archive payload format changed |
 | Native commodity `SendSearchQuery` and class-aware item search dispatch produce matching result events | `Scanner.lua` | Verified with retained commodity, recipe, container and equipment prices in full sweep `beta-normal-alliance-1792040351-Arthur-6643` |
 | Full source-complete coverage at exactly N retained levels uses an unbounded cutoff and unknown witness; bounded coverage needs a strictly higher N+1 witness | `Scanner.lua` | The earlier producer defect was rejected with HTTP 422; the correction is accepted by strict validation in sweep 4 |
+| Non-commodity search results group identical one-unit auctions; `buyoutAmount` is one auction's buyout and `quantity` is units available in that result | `Scanner.lua`, `scanformat.py` | Item unit prices use the per-auction buyout; grouped quantity is retained as availability |
+| Exact `timeLeftSeconds` in the uint32 window `2^32-300..2^32-1` decodes as `seconds - 2^32`; format 3 exact seconds are `[-300,172800]` | `Scanner.lua`, `scanformat.py` | Values outside the understood window fail through the existing incomplete/numeric-range path |
 | Auctionator is installed (hard dependency) | `Crowley.toc` | Addon doesn't load |
 
 `/crowley probe` saves the client's API surface for checking these. The scanner uses the
@@ -60,15 +62,24 @@ The addon keeps at most 6 unacknowledged sweeps. The companion acknowledges uplo
 through Data.lua, and the addon prunes them on the next load. At capacity it pauses and never
 evicts evidence. Uploads are idempotent on the addon-generated sweep ID.
 
-## Scan format (v2)
+## Scan format (v2 and v3)
 
-`CrowleyDB.scans[id]` holds an envelope with `format=2`, integer sweep bounds, house/context,
+`CrowleyDB.scans[id]` holds an envelope with `format=3`, integer sweep bounds, house/context,
 row and observation counts, and one raw-deflated/base64 JSON payload. The payload has exactly
 `planHash`, canonical string `planJSON`, object-keyed `observations`, and object-keyed `owned`.
-Each planned item has a query window, kind, coverage (`full`, `bounded`, `incomplete` or
-`unqueried`), source completeness, rational cutoff/witness and retained `row:<n>` objects.
-Commodity price is unit copper; item price is whole-auction copper and quantity, represented as
-a reduced rational unit price. Unsafe cross-products produce `numeric_range`; bid-only rows do
+The server also accepts historical format-2 envelopes. Each planned item has a query window,
+kind, coverage (`full`, `bounded`, `incomplete` or `unqueried`), source completeness, rational
+cutoff/witness and retained `row:<n>` objects.
+Commodity price is unit copper. A non-commodity result groups identical one-unit auctions: its
+`price.copper`/`buyoutAmount` is the buyout of one auction, while `quantity` is the number of
+units available in that result, so format 3 stores `unitPrice` as `{copper, 1}`. Historical
+format-2 rows retain their old reduced `copper / quantity` wire value for validation and are
+normalized to the corrected unit price before storage. Format-3 exact time-left values may be
+negative: a client uint32 value from `2^32-300` through `2^32-1` is decoded by subtracting
+`2^32`; all other exact values must be in `[-300,172800]`. Format-2 wrapped values are likewise
+decoded during storage normalization. Stored observations and captured rows always use corrected
+semantics; `market_sweeps.payload`, its content digest, and the raw archive keep the received
+envelope/payload unchanged. Unsafe cross-products produce `numeric_range`; bid-only rows do
 not become zero-price listings. Noncommodity keys preserve parsed link bonuses plus raw level,
 suffix and pet identity. Successful full/bounded scopes prove every retained rational pair and
 the higher witness; incomplete captures retain safe partial rows, sort them when comparisons are
@@ -100,7 +111,7 @@ seconds, common proved price scope, excluded intervals, commodity depletion/repl
 individual candidate units per observed hour labelled `UNCALIBRATED`, and a separate own-Sold
 evidence section. Market actual-sales estimates and confidence intervals remain null.
 
-Format-2 envelopes are archived as gzip JSON under content-addressed
+Accepted envelopes are archived as gzip JSON under the retained content-addressed
 `data_dir/raw/format2/<digest-prefix>/<digest>.json.gz` so observations can be replayed without
 trusting a UID path. Legacy archives remain where they were written. New depth and volume
 reports never use legacy whole-market statistics.

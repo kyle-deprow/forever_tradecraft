@@ -16,7 +16,7 @@ from starlette.concurrency import run_in_threadpool
 
 from crowley.core.house import House
 from crowley.core.scanformat import ScanFormatError
-from crowley.core.volume import project_observation_variant, volume_report
+from crowley.core.volume import NORMALIZATION_POLICY, project_observation_variant, volume_report
 from crowley.core.watchlist import load_catalog
 
 from .config import ServerSettings, get_settings
@@ -325,7 +325,7 @@ def item_volume(
     report = volume_report(records, hours=hours, end=int(time.time()), item_key=item_key)
     report["house"] = key
     report["itemKey"] = item_key
-    report["normalizationPolicy"] = "format2-whole-buyout-quantity-reduced-rational"
+    report["normalizationPolicy"] = NORMALIZATION_POLICY
     report["ownConfirmed"] = {
         "units": sum(row["quantity"] for row in own_sales if not row["inconsistent"]),
         "evidence": own_sales,

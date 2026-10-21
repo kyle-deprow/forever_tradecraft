@@ -1,4 +1,4 @@
-"""Validate and persist format-2 market sweeps atomically."""
+"""Validate and persist market sweeps atomically."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from typing import Any
 import psycopg
 
 from crowley.core.house import House
-from crowley.core.scanformat import ScanFormatError, validate_v2_envelope
+from crowley.core.scanformat import ScanFormatError, normalize_observation, validate_envelope
 
 
 class SweepConflictError(Exception):
@@ -29,7 +29,7 @@ class IngestResult:
     status: str  # created | duplicate
     listings: int
     items: int
-    format: int = 2
+    format: int = 3
 
 
 def _ts(epoch: int) -> datetime:
@@ -64,7 +64,7 @@ def _logical_digest(envelope: dict[str, Any], decoded: dict[str, Any]) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _archive_v2(data_dir: Path, envelope: dict[str, Any], digest: str) -> Path:
+def _archive_envelope(data_dir: Path, envelope: dict[str, Any], digest: str) -> Path:
     path = data_dir / "raw" / "format2" / digest[:2] / f"{digest}.json.gz"
     path.parent.mkdir(parents=True, exist_ok=True)
     if path.exists():
@@ -211,9 +211,9 @@ def _insert_sold_evidence(
 
 
 def ingest_market_sweep(conn: psycopg.Connection, raw: dict[str, Any], data_dir: Path) -> IngestResult:
-    """Validate and atomically persist one format-2 sweep."""
+    """Validate and atomically persist one accepted-format sweep."""
     try:
-        validated = validate_v2_envelope(raw)
+        validated = validate_envelope(raw)
     except ScanFormatError:
         raise
     except Exception as exc:
@@ -221,9 +221,13 @@ def ingest_market_sweep(conn: psycopg.Connection, raw: dict[str, Any], data_dir:
         # reach archive or database code).  The wire validator intentionally
         # reports its own domain errors; this catches type errors from every
         # other malformed shape.
-        raise ScanFormatError("malformed format-2 envelope") from exc
+        raise ScanFormatError("malformed format-2-or-3 envelope") from exc
     decoded = validated["decoded"]
     plan = validated["plan"]
+    normalized_observations = {
+        item_key: normalize_observation(raw["format"], observation["kind"], observation)
+        for item_key, observation in decoded["observations"].items()
+    }
     digest = _logical_digest(raw, decoded)
     envelope_id = raw["id"]
     house_raw = raw["house"]
@@ -253,14 +257,14 @@ def ingest_market_sweep(conn: psycopg.Connection, raw: dict[str, Any], data_dir:
             # A previous transaction may have committed the DB row before a
             # filesystem restore.  Recreate only this content-addressed path;
             # never overwrite a different archive.
-            _archive_v2(data_dir, raw, digest)
+            _archive_envelope(data_dir, raw, digest)
             return IngestResult(
-                envelope_id, house.key, "duplicate", raw["numRows"], raw["numObservations"], 2
+                envelope_id, house.key, "duplicate", raw["numRows"], raw["numObservations"], raw["format"]
             )
         # The archive is created only after validation and UID conflict checks.
         # It is still inside the DB transaction, so an insert failure rolls the
         # database back; the immutable archive is then simply unreferenced.
-        path = _archive_v2(data_dir, raw, digest)
+        path = _archive_envelope(data_dir, raw, digest)
         house_id = ensure_house(conn, house)
         conn.execute(
             """
@@ -297,7 +301,7 @@ def ingest_market_sweep(conn: psycopg.Connection, raw: dict[str, Any], data_dir:
                 str(path),
             ),
         ).fetchone()[0]
-        for item_key, observation in decoded["observations"].items():
+        for item_key, observation in normalized_observations.items():
             conn.execute(
                 """
                 INSERT INTO market_observations
@@ -346,4 +350,6 @@ def ingest_market_sweep(conn: psycopg.Connection, raw: dict[str, Any], data_dir:
                 )
         _insert_owned(conn, sweep_id, house_id, context["character"], decoded["owned"])
         _insert_sold_evidence(conn, sweep_id, house_id, context["character"], decoded["owned"])
-    return IngestResult(envelope_id, house.key, "created", raw["numRows"], raw["numObservations"], 2)
+    return IngestResult(
+        envelope_id, house.key, "created", raw["numRows"], raw["numObservations"], raw["format"]
+    )

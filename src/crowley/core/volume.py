@@ -1,4 +1,4 @@
-"""Conservative turnover evidence for format-2 market observations."""
+"""Conservative turnover evidence for normalized market observations."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from fractions import Fraction
 from typing import Any
 
 MAX_INTERVAL_SECONDS = 1800
-NORMALIZATION_POLICY = "format2-whole-buyout-quantity-reduced-rational"
+NORMALIZATION_POLICY = "item-per-auction-unit-signed-time-left-v3"
 
 
 def _ratio(value: dict[str, Any]) -> Fraction:
