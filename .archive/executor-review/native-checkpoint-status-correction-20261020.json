@@ -1,0 +1,24 @@
+{
+  "kind": "native-checkpoint-status-correction",
+  "verifiedAt": "2026-10-20T23:55:33.558794+00:00",
+  "journalSha256": "81836cd26ee096e75015801dcb7014f1b7ccc0acace418dc8f1624155bb5c37a",
+  "generation": 70,
+  "durableNativeConstruction": {
+    "B0": "1792529483-586601",
+    "expectedConstructorBoot": "native-construction:1792529483-586601",
+    "kind": "measure",
+    "ownerGeneration": 64,
+    "phase": "recovery_required",
+    "schema": 1
+  },
+  "publicStatusDoesNotExposeNativeConstruction": true,
+  "correction": "Prior post-native64 reports inferred clear checkpoint from status.get(nativeConstruction)==None. That field was absent, so the inference was invalid. The durable journal retains ownerGeneration64 recovery_required. Advancing ordinary normal0 frames prove a usable game, not canonical durable checkpoint completion.",
+  "affectedReports": [
+    "native64-ordinary65-input66-parent-verification.json",
+    "input68-timeout-parent-verification.json",
+    "missing-lutris-runtime-parent-verification.json"
+  ],
+  "native57CanonicalRecovery58NotInvalidated": true,
+  "manualClearPerformed": false,
+  "autonomousQualificationCycles": 0
+}

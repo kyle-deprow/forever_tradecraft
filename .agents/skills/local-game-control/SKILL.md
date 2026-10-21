@@ -355,7 +355,8 @@ Choose controller commands from the actual persisted state. A paused session can
 require `resume`, with missing gates returning it to unarmed calibration; repeating
 `start` with a new generation cannot fix a state-specific command refusal.
 After native success, complete public pause/canonical ordinary recovery and prove
-checkpoint clear before human-input startup. Inspect actual target geometry and
+checkpoint clear before human-input startup. Read the durable journal checkpoint
+when IPC status does not expose it; an absent field is not evidence of clearance. Inspect actual target geometry and
 pointer at the failed boundary; post-cleanup focus cannot establish its cause.
 A planned collection cutoff should stop new scans while allowing authorized save/logout
 cleanup. A user's explicit takeover or stop ends input immediately, including cleanup.

@@ -1,0 +1,86 @@
+{
+  "receiptSha256": "109e9cbb23d19db9c7f3d6617b5a1025d055668243e6a4476e3a3a1b95f85eaa",
+  "rows": [
+    {
+      "sequence": 1009,
+      "speed": 0,
+      "current": 0,
+      "position": {
+        "y": -908.4000244140625,
+        "x": -4939.80029296875,
+        "instance": 0,
+        "z": 0
+      }
+    },
+    {
+      "sequence": 1012,
+      "speed": 0,
+      "current": 0,
+      "position": {
+        "y": -908.4000244140625,
+        "x": -4939.80029296875,
+        "instance": 0,
+        "z": 0
+      }
+    },
+    {
+      "sequence": 1014,
+      "speed": 0,
+      "current": 0,
+      "position": {
+        "y": -908.4000244140625,
+        "x": -4939.80029296875,
+        "instance": 0,
+        "z": 0
+      }
+    },
+    {
+      "sequence": 1017,
+      "speed": 0,
+      "current": 0,
+      "position": {
+        "y": -908.4000244140625,
+        "x": -4939.80029296875,
+        "instance": 0,
+        "z": 0
+      }
+    },
+    {
+      "sequence": 1019,
+      "speed": 0,
+      "current": 0,
+      "position": {
+        "y": -908.4000244140625,
+        "x": -4939.80029296875,
+        "instance": 0,
+        "z": 0
+      }
+    }
+  ],
+  "normal0": true,
+  "AHclosedPending0FenceInactivePostInputsUp": true,
+  "positionStable": true,
+  "initialSpeed": 7,
+  "scriptedStopHoldSeconds": 0.03,
+  "qualificationCycles": 0,
+  "kind": "working-wow-final-stationary-handoff",
+  "verifiedAt": "2026-10-21T00:01:13.396889+00:00",
+  "gamePid": 2792826,
+  "gameFingerprint": "bf242eeac260a077173e9a0107c2646be9d07b1d78c54d2198a8bb196f9d2808",
+  "chat": "inactive; recovery helper already cancelled refused buffer",
+  "guiControl": "handed back to user; sole Luna owner held with no further input scheduled",
+  "controller": {
+    "state": "PAUSED",
+    "generation": 70,
+    "nativeCalibration": false,
+    "inputCalibration": false,
+    "durableNativeConstructionOwnerGeneration": 64,
+    "durableNativeConstructionPhase": "recovery_required"
+  },
+  "remainingScanBlockers": [
+    "Canonical recovery OCR rejects visible /reload as lreload; no reload submitted",
+    "Durable native64 checkpoint must be completed by canonical recovery",
+    "Fresh native and genuine human input calibration",
+    "Three new autonomous900-second cycles"
+  ]
+}
