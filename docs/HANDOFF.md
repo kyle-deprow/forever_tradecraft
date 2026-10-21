@@ -1,14 +1,23 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 16:47 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 17:08 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Latest calibration appointment update (supersedes historical live state)
 
-User is connected through RDP and available for the planned 11:30 AM Chicago
-(16:30 UTC) calibration. Sole GUI owner remains `/root/luna_assisted_scanner`.
+User connected through RDP for the planned 11:30 AM Chicago (16:30 UTC)
+calibration, which could not finish before the realm outage. The user now thinks
+the realm will remain down until **4 PM Chicago today (21:00 UTC)**; this is a
+tentative user estimate, not verified server availability. At17:07 UTC Luna
+stopped all reconnect input and screen polling, reaped helpers and released input.
+`/root/luna_assisted_scanner` completed its outage-watch task; no GUI worker is
+currently operating. Do not keep polling during this hold. At/after21:00 UTC or
+an earlier user update, wake that worker with a follow-up task and verify it is
+running before expecting recovery. First check actual realm/scene availability,
+then restore authorized Normal/Arthur assisted900-second collection. Reconfirm
+human availability before a new expiring calibration prompt.
 Appointment plan committed at `abc4278`:
 [runbook](../.archive/PLAN-calibration-run-20261021-1130.md), reviewed READY by Sol
 at SHA91bc4852c66c2674e19732e4dbc910410182f777877f31800fd77659abacd945.
@@ -51,8 +60,9 @@ The game actually disconnected at16:39–16:40 UTC (WOW51900319). Cached reconne
 advanced through the authorized Normal ruleset; the16:46:46Z receipt
 `assisted-collection-luna-20261021/505-confirm-normal/receipt.json` then confirmed
 **No realms are currently available (WOW51900309)**. This is the current external
-blocker. Do not infer a server return time. Luna continues normal cached reconnect
-with backoff and must restore assisted collection when the realm returns. Reconfirm
+blocker. Do not infer a server return time. The latest17:07 UTC read-only frame
+still showed the same error; current GUI hold supersedes earlier reconnect loops.
+Resume normal cached recovery and assisted collection after that hold. Reconfirm
 user availability before opening an expiring human-input window; do not launch it
 while the parent/user is away. Root must not capture/input concurrently.
 
