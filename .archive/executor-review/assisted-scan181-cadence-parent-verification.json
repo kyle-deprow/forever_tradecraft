@@ -1,0 +1,33 @@
+{
+  "status": "PASS",
+  "kind": "assisted-next-sweep-start",
+  "parentIndependentProductionDecode": true,
+  "verificationScope": "Retained PNG CRC/payload and actual published start interval. Watcher omitted host capture monotonic; decoder argument0 is structural only, not an independent freshness attestation. No client uptime substituted for capture time.",
+  "image_sha256": "031407a75ed904eb2321c2fc200e65bde425b75691d6ac1948f6860c26073cdf",
+  "boot": "1792548093-891408",
+  "sequence": 287,
+  "worker_reported_capture_utc": "2026-10-21T02:06:22.497482+00:00",
+  "preceding_started_at": 1792547461,
+  "actual_published_started_at": 1792548361,
+  "published_start_interval_seconds": 900,
+  "next_due_at": 1792549261,
+  "scanner": {
+    "scheduleFence": {
+      "state": "inactive",
+      "command": "/crowley session fence",
+      "reason": ""
+    },
+    "ordinal": 19,
+    "startedAt": 1792548361,
+    "planned": 428,
+    "phase": "item",
+    "dueAt": 1792549261,
+    "activeSweepId": "",
+    "cursorItemID": 2313
+  },
+  "loaded_previous_exact_ack": true,
+  "pending": 0,
+  "ahOpen": true,
+  "speed": 0,
+  "qualification": "One complete assisted cycle followed by a published900-second next start. No autonomous qualification."
+}

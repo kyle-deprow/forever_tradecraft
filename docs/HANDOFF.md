@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 01:54 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 02:10 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -56,21 +56,42 @@ root must not capture or dispatch input concurrently. Start a fresh428-observati
 scan, preserve its original SavedVariables, upload, verify exact loaded ACK and
 reopen AH; continue on the addon900-second schedule.
 
-**NEW assisted sweep started2026-10-21T01:51:01Z.** Parent independently decoded
-[actual retained start frame](../.archive/executor-review/assisted-scan180-start-parent-verification.json):
-AHopen, phaseitem/ordinal1/planned428, startedAt1792547461,
-dueAt1792548361 (900seconds), ordinarynormal0, inactivefence, speed0, releasedkeys.
-`activeSweepId` is literally blank in this real start frame; do not invent an ID.
-Completion still requires a fresh saved UID and original payload, server storage,
-exact loaded ACK and reopened AH. No new upload or autonomous cycle is counted yet.
-Latest verified uploaded sweep remains179 at2026-10-20T07:33:20Z. Preserve/report
-the actual gap; do not promise backfill. Collection takes precedence over calibration.
+**ASSISTED COLLECTION RESTORED: full scan180 verified; scan181 started900seconds later.**
+Luna must continue900-second assisted cycles until explicit user/parent handoff or
+an actual blocker; three cycles are a minimum validation target, not a stop rule.
+
+Scan180 UID `beta-normal-alliance-1792547461-Arthur-9410`, actual start01:51:01Z,
+finish01:59:05Z, all428 attempted, zero failures,1667 raw rows. Parent validated
+original SavedVariablesSHA a95a53fb7c09adb2a9922368748c71285a48e1dca82e4ff9ab48bc6cb4836c5f,
+logical digest against actual database row, and real loaded-ACK pixels:
+[scan proof](../.archive/executor-review/build-70450-onehundredeighty-scan-parent-verification.json).
+Coverage413full/15bounded; all428 reasonok. Server received02:01:16.400972Z,
+**131.400972seconds after finish**, missing the60-second target. The private helper
+first refused a wrong nested lastSaved path; it now uses observed top-level
+lastSaved. Preserve actual lateness. Existing prior-start gap66433seconds is
+recorded, not backfilled. No autonomous qualification cycle is counted.
+
+Exact ACK loaded in a real new boot with pending0. Parent decoded the actual AH
+reopen PNG at02:05:42 published wall time: normal0, inactivefence, speed0,
+AHopen/scheduled and original dueAt1792548361:
+[reopen proof](../.archive/executor-review/build-70450-onehundredeighty-ah-reopen-parent-verification.json).
+
+Scan181 actual published startedAt1792548361 (02:06:01Z), exactly900seconds after
+scan180; nextdue1792549261 (02:21:01Z). New sweep advanced ordinal19→34→140;
+latest worker capture02:08:36Z reported AHopen/speed0/pending0/exact prior ACK.
+[Retained PNG cadence proof](../.archive/executor-review/assisted-scan181-cadence-parent-verification.json)
+validates CRC/payload and published start interval. The watcher omitted host
+capture monotonic, so this proof explicitly makes no independent capture-freshness
+attestation and substitutes no client uptime. Add actual capture start/return to
+future watcher receipts without interrupting this sweep. `activeSweepId` remains
+literally blank during real sweeps; completion requires a new saved UID.
 
 Previous owner `/root/luna_live_recovery` is interrupted/held; no concurrent GUI
 work. Root retained-image review found prior clicks hit names/posts/players.
 Interact-With-Target was unbound; CTRL-F12 was measured empty, temporarily set to
 INTERACTTARGET without SaveBindings, and read back. Current owner must restore
-CTRL-F12 to empty before handback/exit. Physical Control_L/F12 hold/release was
+CTRL-F12 to empty before handback/exit. Owned reloads actually clear this temporary
+binding; measure empty, reapply and verify before keyboard reopen as needed. Physical Control_L/F12 hold/release was
 verified. The actual successful interaction required returning near the known
 working Buckler pose: position(-4951.3003,-902.4000,0), fresh exact Buckler target,
 literal range flags1/2/3/4 alltrue, then one physical chord. Earlier flags were
@@ -80,9 +101,10 @@ movement toward a reference world pose; old NPC pixel coordinates are stale.
 
 Private action receipts and progress are under
 `executor-evidence/assisted-collection-luna-20261021/` in private state. The owner
-is staging watcher/save/upload/loadedACK/reopen during the active sweep. Direct
-worker messages and hash-bound receipts are authoritative; progress.json had
-lagged behind and is being refreshed. Use unique per-action dirs/script hashes.
+is running the scan181 watcher and staging its corrected save/upload/loadedACK/
+reopen flow during the active sweep. Direct worker messages and hash-bound
+receipts are authoritative; progress.json now carries actual observed capture UTC
+and sequence. It previously lagged and must not replace raw evidence. Use unique per-action dirs/script hashes.
 
 Literal command staging now uses bounded effect polling on advancing HUD frames;
 initial frames after input could still report a partial/old editor state. Chat
