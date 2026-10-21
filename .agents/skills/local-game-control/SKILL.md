@@ -219,6 +219,11 @@ within existing authorization; respect any current movement limits.
   and release; process exit alone does not prove released input. Reap the typer,
   release its owned emitted keys, cancel the editor, and verify a fresh clear
   state before retrying. Never submit a partial buffer after a timeout.
+- For Wayland clipboard providers feeding Wine/XWayland, keep an owned foreground
+  provider alive through verified paste. The installed wl-clipboard manual warns
+  that `--paste-once` can break XWayland clients that make multiple requests;
+  one GUI paste does not imply one protocol request. Restore prior clipboard bytes
+  before reaping only the obsolete owned provider.
 - When typing slash commands through a clipboard helper, inspect the final chat
   buffer. Opening chat with `/` and pasting a command starting with `/` can leave
   `//command`. Correct the actual buffer before pressing Enter. Do not risk sending

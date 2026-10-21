@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 00:25 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 01:23 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -64,9 +64,20 @@ or players obscuring auctioneers. Fresh owner should use exact target plus a
 measured Interact-With-Target binding, or exposed actual NPC tooltip before one
 immediate right-click. Same-house auctioneers are equivalent. Immediate pointer
 placement works; delayed postcapture recenter alone does not prove emitter failure.
-Fresh progress: `executor-evidence/assisted-collection-luna-20261021/progress.json`
-under private state. Earlier resume artifact paths in progress were stale; inspect
-actual retained bytes and use unique action directories going forward.
+Private action receipts are under `executor-evidence/assisted-collection-luna-20261021/`;
+worker messages currently provide progress (`progress.json` is not yet written).
+The reconnect queue cleared and Arthur re-entered Ironforge. Interact-With-Target
+was unbound; measured CTRL-F12 was empty. Luna set CTRL-F12 to INTERACTTARGET
+in-session only, verified readback, and pressed it once; AH remained closed.
+Binding restoration to empty is pending before handback/exit; no SaveBindings.
+Current owner is checking range before a bounded safe approach. No new scan or
+upload is verified. Latest server row is still scan179 at2026-10-20T07:33:20Z.
+Literal command staging now uses an owned Wayland clipboard provider and bounded
+fresh-frame effect polling; short one-shot reads saw stale/partial HUD fields.
+Keep the provider alive across Wine/XWayland requests; `--paste-once` is explicitly
+incompatible with some XWayland clients per installed wl-clipboard manual.
+Original clipboard bytes were restored and verified after each completed attempt.
+
 
 Game and persistent Wine launcher are restored; Arthur is logged in at Ironforge
 AH. ControllerPAUSED70/nativefalse/inputfalse remains appropriate for its
