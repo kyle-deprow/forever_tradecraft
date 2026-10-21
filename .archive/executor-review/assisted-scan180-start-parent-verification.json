@@ -1,0 +1,32 @@
+{
+  "status": "PASS",
+  "kind": "assisted-scan-start",
+  "parentIndependentProductionDecode": true,
+  "raw_receipt_sha256": "c19fd9d716b0dc836f4672f107d8123ad94ba42492c3d1dcffea6db93b4027de",
+  "image_sha256": "48c212dd9bce88c0b4a945f3ebabb391867cdaf83cd8bf7de648351961a9c3c5",
+  "boot": "1792543967-352632",
+  "sequence": 3462,
+  "ahOpen": true,
+  "scanner": {
+    "scheduleFence": {
+      "state": "inactive",
+      "command": "/crowley session fence",
+      "reason": ""
+    },
+    "ordinal": 1,
+    "startedAt": 1792547461,
+    "planned": 428,
+    "phase": "item",
+    "dueAt": 1792548361,
+    "activeSweepId": "",
+    "cursorItemID": 730
+  },
+  "characterSpeed": 0,
+  "position": {
+    "y": -902.4000244140625,
+    "x": -4951.30029296875,
+    "instance": 0,
+    "z": 0
+  },
+  "qualification": "Operator-assisted start only; save/upload/loaded ACK/reopen not yet verified. Zero autonomous qualification cycles."
+}

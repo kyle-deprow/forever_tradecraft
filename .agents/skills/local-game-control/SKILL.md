@@ -56,6 +56,9 @@ within existing authorization; respect any current movement limits.
   afterward: an AFK logout invalidates any previously staged chat command.
 - Use current screenshot dimensions and visible controls. Coordinates from a
   previous resolution or window position are stale.
+  A known prior safe world pose can guide a fresh observed approach after accidental
+  movement; it is distinct from stale screen coordinates. Check actual range and
+  clear floor before investigating another input device when NPC interaction fails.
   Floating NPC names locate a character but do not establish its clickable body.
   Verify the actual model/tooltip before interaction; an equivalent auctioneer
   in the same auction house is sufficient when the selected one is obscured.

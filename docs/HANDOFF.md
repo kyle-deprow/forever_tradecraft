@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 01:23 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 01:54 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -54,32 +54,45 @@ Luna to direct the scanner until the fix. This supersedes the previous GUI hold
 and calibration-first handoff. Sole GUI owner `/root/luna_assisted_scanner` is active with fresh task context;
 root must not capture or dispatch input concurrently. Start a fresh428-observation
 scan, preserve its original SavedVariables, upload, verify exact loaded ACK and
-reopen AH; continue on the addon900-second schedule. First new start/upload is
-not yet independently verified. Latest verified assisted scan remains179; report
-actual gaps rather than promise backfill. Assisted collection does not count as
-autonomous qualification. Do not let diagnostics interrupt collection.
+reopen AH; continue on the addon900-second schedule.
+
+**NEW assisted sweep started2026-10-21T01:51:01Z.** Parent independently decoded
+[actual retained start frame](../.archive/executor-review/assisted-scan180-start-parent-verification.json):
+AHopen, phaseitem/ordinal1/planned428, startedAt1792547461,
+dueAt1792548361 (900seconds), ordinarynormal0, inactivefence, speed0, releasedkeys.
+`activeSweepId` is literally blank in this real start frame; do not invent an ID.
+Completion still requires a fresh saved UID and original payload, server storage,
+exact loaded ACK and reopened AH. No new upload or autonomous cycle is counted yet.
+Latest verified uploaded sweep remains179 at2026-10-20T07:33:20Z. Preserve/report
+the actual gap; do not promise backfill. Collection takes precedence over calibration.
+
 Previous owner `/root/luna_live_recovery` is interrupted/held; no concurrent GUI
-work. Retained-image Sol review found attempted points hit floating names/posts
-or players obscuring auctioneers. Fresh owner should use exact target plus a
-measured Interact-With-Target binding, or exposed actual NPC tooltip before one
-immediate right-click. Same-house auctioneers are equivalent. Immediate pointer
-placement works; delayed postcapture recenter alone does not prove emitter failure.
-Private action receipts are under `executor-evidence/assisted-collection-luna-20261021/`;
-worker messages currently provide progress (`progress.json` is not yet written).
-The reconnect queue cleared and Arthur re-entered Ironforge. Interact-With-Target
-was unbound; measured CTRL-F12 was empty. Luna set CTRL-F12 to INTERACTTARGET
-in-session only, verified readback, and pressed it once; AH remained closed.
-Binding restoration to empty is pending before handback/exit; no SaveBindings.
-Current owner is checking range before a bounded safe approach. No new scan or
-upload is verified. Latest server row is still scan179 at2026-10-20T07:33:20Z.
-Literal command staging now uses an owned Wayland clipboard provider and bounded
-fresh-frame effect polling; short one-shot reads saw stale/partial HUD fields.
-Keep the provider alive across Wine/XWayland requests; `--paste-once` is explicitly
-incompatible with some XWayland clients per installed wl-clipboard manual.
-Earlier clipboard byte-exact claims used default wl-paste, which appends a
-newline, and are unproven. The current owner corrected reads to --no-newline,
-measured provider readiness (old selection22ms/new selection146ms), and verified
-restoration of exact currently captured plaintext bytes. Private raw receipts remain.
+work. Root retained-image review found prior clicks hit names/posts/players.
+Interact-With-Target was unbound; CTRL-F12 was measured empty, temporarily set to
+INTERACTTARGET without SaveBindings, and read back. Current owner must restore
+CTRL-F12 to empty before handback/exit. Physical Control_L/F12 hold/release was
+verified. The actual successful interaction required returning near the known
+working Buckler pose: position(-4951.3003,-902.4000,0), fresh exact Buckler target,
+literal range flags1/2/3/4 alltrue, then one physical chord. Earlier flags were
+1true/2false/3false/4true; initial pose and forward movement remained out of reach.
+Do not assign undocumented yard values to those flags. Use fresh observed safe
+movement toward a reference world pose; old NPC pixel coordinates are stale.
+
+Private action receipts and progress are under
+`executor-evidence/assisted-collection-luna-20261021/` in private state. The owner
+is staging watcher/save/upload/loadedACK/reopen during the active sweep. Direct
+worker messages and hash-bound receipts are authoritative; progress.json had
+lagged behind and is being refreshed. Use unique per-action dirs/script hashes.
+
+Literal command staging now uses bounded effect polling on advancing HUD frames;
+initial frames after input could still report a partial/old editor state. Chat
+text over128bytes deliberately publishes inactive/empty and must never be
+submitted without exact proof. Prefer short bounded read-only queries.
+Wayland clipboard providers need selection-readiness polling and must survive
+multiple Wine/XWayland requests; installed manual warns --paste-once can fail.
+Default wl-paste appends a newline, invalidating earlier byte-exact clipboard
+claims; current corrected --no-newline reads and provider restoration are verified
+in private receipts. No addon/decoder/ownership guard was relaxed for assistance.
 
 
 Game and persistent Wine launcher are restored; Arthur is logged in at Ironforge
