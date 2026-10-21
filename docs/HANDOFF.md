@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 16:39 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 16:47 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -47,8 +47,14 @@ held the native100 attempt rather than start it across that imminent shutdown.
 autonomous cycle is qualified.** Finish ordinary recovery and retain original data;
 when the server is actually available, restore normal cached connection/assisted
 collection and coordinate the existing reviewed calibration sequence with the user.
-Do not infer server return time or availability from this countdown. The owner
-will report the actual next scene; root must not capture/input concurrently.
+The game actually disconnected at16:39–16:40 UTC (WOW51900319). Cached reconnect
+advanced through the authorized Normal ruleset; the16:46:46Z receipt
+`assisted-collection-luna-20261021/505-confirm-normal/receipt.json` then confirmed
+**No realms are currently available (WOW51900309)**. This is the current external
+blocker. Do not infer a server return time. Luna continues normal cached reconnect
+with backoff and must restore assisted collection when the realm returns. Reconfirm
+user availability before opening an expiring human-input window; do not launch it
+while the parent/user is away. Root must not capture/input concurrently.
 
 Private current operation notes, appointment and progress are under
 `executor-evidence/assisted-collection-luna-20261021/`; raw receipts outrank stale

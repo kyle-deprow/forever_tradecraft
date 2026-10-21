@@ -340,6 +340,9 @@ within existing authorization; respect any current movement limits.
   remains logged in. Within normal recovery authorization, verify the launcher
   session and close the old client gracefully; prove its PID/window absent before
   one cached Play launch. Ask for login only if that normal launcher path needs it.
+  On cached reconnect, inspect the full scene between phases. A ruleset, realm or
+  character chooser requires the already-authorized selection before world HUD
+  polling can succeed; use bounded waits for actual loading transitions.
   Correlate fresh launch logs with process/window lifetime. Token refresh or an
   automatically completed challenge is not evidence that user login is needed;
   establish that from the current visible login form or an explicit failure.
