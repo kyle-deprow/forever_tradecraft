@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 00:01 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 00:20 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -31,8 +31,9 @@ requires native calibration/recovery, genuine human input calibration and three
   historical actual Opus evidence without claiming any new review occurred.
 - Sole live GUI owner: `/root/luna_live_recovery`. Root may inspect retained
   artifacts but must not operate/capture/input the GUI concurrently.
-- Arthur remains stationary at Ironforge AH. No navigation/trading. Standard
-  Wine desktop; Sunshine disabled. Character revival/login already completed.
+- Arthur is at Ironforge AH. User now authorizes Luna-assisted scanning; a bounded
+  safe approach to the auctioneer is allowed when fresh scene evidence requires it.
+  No trading or general navigation. Standard Wine desktop; Sunshine disabled.
 - Implementation worker: `/root/luna_rust_matcher`; latest hover candidate in
   `/home/dev/.cache/crowley/worktrees/native-control-hover-20261020` is frozen and
   installed at its final two-file hashes. Earlier Rust observer worktrees remain
@@ -47,36 +48,46 @@ requires native calibration/recovery, genuine human input calibration and three
 
 ## Live state and collection
 
-**Current handoff: WoW restored; scanning paused at recovery/OCR refusal.**
-The game and persistent Wine launcher are healthy; Arthur is logged in at Ironforge AH.
-ControllerPAUSED70/nativefalse/inputfalse. Preflight70 refused a durable owner64
-native-construction checkpoint. Recovery70 then typed `/reload` but refused
-before Return because production OCR read `lreload`. No reload/native measurement
-or input calibration occurred. Actual failure receipts/fullframe remain private
-under `native-calibration-recover-20261020T235235763356Z-3137690-c15bc8e5`;
-receiptSHA `a3d1f21e35a31fd23ca80fd6b24324391952c35f35ee04622bcdb63eea72c871`.
-The helper already cancelled its refused chat buffer with guarded Escape. A later
-fresh probe reported7/current7 despite all keys up; preserve this actual state
-rather than infer zero from constant coordinates. One30ms pulse of the freshly
-measured moveForward=W binding stopped that movement. Parent independently
-decoded final advancing frames1009/1012/1014/1017/1019, all speed/current0,
-identical position(-4939.8003,-908.4000,0), normal0, AHclosed/pending0/fenceinactive
-and released inputs. Chat is inactive. [Final handoff proof](../.archive/executor-review/wow-restoration-handoff-parent-verification.json).
-GUI/input is handed back to the user; Luna is held. Do not claim Arthur remains
-at the earlier pre-helper coordinates or automatically reposition him. Do not
-submit through a different unguarded path.
+**Current priority: Luna-assisted collection every900seconds while the unattended
+controller is repaired.** User explicitly said not to pause scanning and authorized
+Luna to direct the scanner until the fix. This supersedes the previous GUI hold
+and calibration-first handoff. Sole GUI owner `/root/luna_live_recovery` is active;
+root must not capture or dispatch input concurrently. Start a fresh428-observation
+scan, preserve its original SavedVariables, upload, verify exact loaded ACK and
+reopen AH; continue on the addon900-second schedule. First new start/upload is
+not yet independently verified. Latest verified assisted scan remains179; report
+actual gaps rather than promise backfill. Assisted collection does not count as
+autonomous qualification. Do not let diagnostics interrupt collection.
+
+Game and persistent Wine launcher are restored; Arthur is logged in at Ironforge
+AH. ControllerPAUSED70/nativefalse/inputfalse remains appropriate for its
+unqualified unattended path; it does not forbid explicitly authorized assisted
+scans. Last handoff position(-4939.8003,-908.4000,0), speed/current0 on advancing
+frames1009/1012/1014/1017/1019, normal0, AHclosed/pending0/fenceinactive and released
+controls. Current GUI owner must revalidate identity/scene and actual NPC range;
+old coordinates are not proof of present interaction range.
+[Prior restoration proof](../.archive/executor-review/wow-restoration-handoff-parent-verification.json).
+
+**Offline repair:** implementation worker owns
+`/home/dev/.cache/crowley/worktrees/native-chat-ocr-20261021`, following
+[bounded OCR plan](../.archive/PLAN-native-chat-ocr-20261021.md).
+Canonical recovery70 typed `/reload` but actual production OCR read `lreload`;
+strict guard correctly refused before Return and cancelled with Escape. Fix real
+image recognition against retained crop, preserving exact command comparison
+and editor/ownership guards. No command aliases or expected-command hints.
+Parent tests and Sol review precede promotion; no live recovery/calibration may
+interrupt current assisted collection. Input diagnostics are already installed,
+but no fresh post-install synthetic attempt has run.
 
 [Checkpoint correction](../.archive/executor-review/native-checkpoint-status-correction-20261020.json):
-public status DOES NOT expose a nativeConstruction field. Earlier post-native64
-clear-checkpoint claims based on `.get(...)=None` were unproven. The current
-journal retains ownerGeneration64/phase recovery_required. Fresh normal0 HUD
-proves visible ordinary operation, not durable checkpoint completion. Preserve
-checkpoint; fix the actual OCR readback with retained evidence/review and finish
-canonical public recovery. Do not privately clear or weaken OCR/ownership checks.
-The previous native57→canonical58 proof is separate and remains valid historically.
-Underlying synthetic event timeout68 cause still needs the instrumented attempt.
-Zero autonomous cycles counted. Latest user request was restoring working WoW;
-that recovery is complete. Further GUI/input waits for a clear calibration handoff.
+public status DOES NOT expose nativeConstruction. Earlier post-native64
+clear-checkpoint claims based on `.get(...)=None` were unproven. The durable
+journal retains ownerGeneration64/phase recovery_required. Normal0 HUD proves
+visible ordinary operation, not durable checkpoint completion. Preserve this
+checkpoint and eventually finish canonical public recovery after reviewed repair.
+The previous native57→canonical58 proof remains separate historical evidence.
+Underlying synthetic event timeout68 needs a later instrumented attempt.
+Zero autonomous cycles counted.
 
 **Completed restoration and diagnostic installation:**
 [Recovery proof](../.archive/executor-review/wow-runtime-restoration-parent-verification.json),
