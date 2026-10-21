@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 00:20 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-21 00:25 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -68,16 +68,17 @@ controls. Current GUI owner must revalidate identity/scene and actual NPC range;
 old coordinates are not proof of present interaction range.
 [Prior restoration proof](../.archive/executor-review/wow-restoration-handoff-parent-verification.json).
 
-**Offline repair:** implementation worker owns
-`/home/dev/.cache/crowley/worktrees/native-chat-ocr-20261021`, following
-[bounded OCR plan](../.archive/PLAN-native-chat-ocr-20261021.md).
-Canonical recovery70 typed `/reload` but actual production OCR read `lreload`;
-strict guard correctly refused before Return and cancelled with Escape. Fix real
-image recognition against retained crop, preserving exact command comparison
-and editor/ownership guards. No command aliases or expected-command hints.
-Parent tests and Sol review precede promotion; no live recovery/calibration may
-interrupt current assisted collection. Input diagnostics are already installed,
-but no fresh post-install synthetic attempt has run.
+**OCR recognition repair installed:**
+[Parent release proof](../.archive/executor-review/native-chat-ocr-release-parent-verification.json),
+[bounded plan](../.archive/PLAN-native-chat-ocr-20261021.md).
+The actual retained crop reproducibly read `lreload` with the old cursor probe45;
+probe60 preserves `/reload` while removing the insertion cursor. Production uses
+one preprocessing pipeline; exact command comparison and editor/ownership guards
+remain unchanged. Luna implementation, parent22focused tests, Sol R1 READY/no
+findings, then promoted-MAIN22tests passed at identical reviewed hashes. No daemon
+restart, game reload, native/input attempt or durable-checkpoint change occurred.
+Do not interrupt assisted collection to test recovery. Synthetic diagnostics are
+installed but still await a fresh post-install attempt after canonical recovery.
 
 [Checkpoint correction](../.archive/executor-review/native-checkpoint-status-correction-20261020.json):
 public status DOES NOT expose nativeConstruction. Earlier post-native64

@@ -1,0 +1,35 @@
+{
+  "status": "PASS",
+  "scope": "Offline chat OCR recognition correction only; no live recovery or qualification claimed.",
+  "review": "Sol R1 READY, no findings",
+  "review_sha256": "936c019f5a00c6a017b025fb4eef30beac737174e39f5a64a45ec6a4e65acd5b",
+  "retained_actual_crop_sha256": "269634eb9956eec19ab2ff63e19df4798db7c44ed9edd50381e4b57dc06189d6",
+  "actual_production_reproduction": {
+    "old_cursor_probe_45": "lreload",
+    "new_cursor_probe_60": "/reload",
+    "expected_command_hints": false,
+    "acceptance_relaxation": false
+  },
+  "parent_verification": {
+    "worktree_tests": "22 passed, 98 deselected in 2.63s",
+    "promoted_main_tests": "22 passed, 98 deselected in 2.85s",
+    "selection": "chat or readback or diagnostic or cleanup or all_fixed_measure_sequence",
+    "ruff_check": "PASS",
+    "ruff_format": "PASS",
+    "py_compile": "PASS",
+    "diff_check": "PASS"
+  },
+  "installed_files": {
+    "tools/native_calibration_operator.py": "4c61d33ce2e2358536a0bb5498b0212fee7005163d572aa334fa35fc004acf1c",
+    "tests/test_native_calibration_operator.py": "0feacf3c0e26ac0a75b4dbe3f476a4df4c56705301a05ab54914d2e1843d17d9",
+    "tests/fixtures/native-chat-ocr/failed-reload-actual.png": "269634eb9956eec19ab2ff63e19df4798db7c44ed9edd50381e4b57dc06189d6"
+  },
+  "runtime_actions": {
+    "daemon_restart": false,
+    "game_reload": false,
+    "native_calibration": false,
+    "input_calibration": false,
+    "checkpoint_changed": false
+  },
+  "collection": "Luna-assisted collection continues separately; no new start or upload independently verified at this proof publication."
+}

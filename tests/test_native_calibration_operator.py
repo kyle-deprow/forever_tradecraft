@@ -22,7 +22,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
-from PIL import Image
+from PIL import Image, ImageOps
 
 from tools import template_matcher_runtime as matcher_runtime
 
@@ -377,6 +377,35 @@ def _legacy_chat_ocr_without_contrast(path: Path, destination: Path) -> str:
     return operator.normalize_ocr(result.stdout)
 
 
+def _chat_ocr_with_cursor_threshold(path: Path, destination: Path, threshold: int) -> str:
+    """Reproduce the production preprocessing with one cursor threshold."""
+    with Image.open(path) as image_raw:
+        image = image_raw.convert("L")
+        left, top, width, height = operator.CHAT_OCR_BOX
+        prepared = ImageOps.autocontrast(image.crop((left, top, left + width, top + height)), cutoff=1)
+        foreground_probe = prepared.point(lambda value: 255 if value > threshold else 0)
+        for column in range(width):
+            foreground = sum(foreground_probe.getpixel((column, row)) // 255 for row in range(height))
+            if foreground >= height - 1:
+                for row in range(height):
+                    prepared.putpixel((column, row), 0)
+        prepared = prepared.resize(
+            (width * operator.CHAT_OCR_SCALE, height * operator.CHAT_OCR_SCALE),
+            Image.Resampling.BICUBIC,
+        )
+        prepared_path = destination / f"threshold-{threshold}.png"
+        prepared.save(prepared_path, format="PNG")
+    result = subprocess.run(
+        ["tesseract", str(prepared_path), "stdout", "--psm", "7"],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=2.0,
+        env={**os.environ, "OMP_THREAD_LIMIT": "1"},
+    )
+    return operator.normalize_ocr(result.stdout)
+
+
 def _synthetic_chat_state(_path: Path) -> str:
     return operator.CHAT_EDITOR_INACTIVE
 
@@ -416,9 +445,7 @@ def test_production_chat_ocr_preserves_typed_command_and_documents_inactive_text
     assert Image.open(closed).size == operator.CHAT_CROP_SIZE
     assert Image.open(typed).size == operator.CHAT_CROP_SIZE
     assert operator.NativeCalibrationOperator._chat_editor_state(closed) == operator.CHAT_EDITOR_INACTIVE
-    assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(closed)) == (
-        "lea -—---------—~- i eel"
-    )
+    assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(closed)) == ""
     assert (
         operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(typed))
         == "/crowley agent recover"
@@ -442,6 +469,21 @@ def test_production_chat_ocr_normalizes_sanitized_failed_reload_texture(tmp_path
     )
     assert Image.open(failed).mode == "L"
     assert _legacy_chat_ocr_without_contrast(failed, tmp_path) == "reload"
+    assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(failed)) == "/reload"
+
+
+def test_actual_failed_reload_crop_distinguishes_cursor_threshold_regression(tmp_path):
+    failed = Path(__file__).parent / "fixtures" / "native-chat-ocr" / "failed-reload-actual.png"
+    assert hashlib.sha256(failed.read_bytes()).hexdigest() == (
+        "269634eb9956eec19ab2ff63e19df4798db7c44ed9edd50381e4b57dc06189d6"
+    )
+    with Image.open(failed) as image:
+        assert image.mode == "L"
+        assert image.size == operator.CHAT_CROP_SIZE
+    # The retained production crop fails with the old probe: it erases the
+    # antialiased slash column and Tesseract reports a leading ``l``.
+    assert _chat_ocr_with_cursor_threshold(failed, tmp_path, operator.CHAT_OCR_THRESHOLD) == "lreload"
+    assert _chat_ocr_with_cursor_threshold(failed, tmp_path, operator.CHAT_CURSOR_THRESHOLD) == "/reload"
     assert operator.normalize_ocr(operator.NativeCalibrationOperator._ocr_file(failed)) == "/reload"
 
 

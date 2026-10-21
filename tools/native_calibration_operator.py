@@ -74,6 +74,11 @@ CHAT_CROP_SIZE = (460, 37)
 # The cursor is removed by bounded preprocessing.
 CHAT_OCR_BOX = (40, 7, 400, 13)
 CHAT_OCR_THRESHOLD = 45
+# The body background is dimmer than the insertion cursor.  A probe at the
+# body threshold mistakes one antialiased slash column for the cursor; keep a
+# stricter, preprocessing-only threshold so only the measured full-height
+# cursor columns are removed.
+CHAT_CURSOR_THRESHOLD = 60
 CHAT_OCR_SCALE = 3
 CHAT_EDITOR_ACTIVE = "active"
 CHAT_EDITOR_INACTIVE = "inactive"
@@ -3098,7 +3103,7 @@ class NativeCalibrationOperator:
                 # through the body.  Its probe height is 13/13; the tallest
                 # glyph/rule probe is 11/13.  Drop columns at >=12/13, leaving
                 # a one-row margin, while preserving grayscale command pixels.
-                foreground_probe = prepared.point(lambda value: 255 if value > CHAT_OCR_THRESHOLD else 0)
+                foreground_probe = prepared.point(lambda value: 255 if value > CHAT_CURSOR_THRESHOLD else 0)
                 for column in range(width):
                     foreground = sum(foreground_probe.getpixel((column, row)) // 255 for row in range(height))
                     if foreground >= height - 1:
