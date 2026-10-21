@@ -44,7 +44,7 @@ class ItemSnapshot:
     """
 
     item_id: int
-    t: int
+    t: int  # when this item's book was observed (within the current sweep)
     levels: tuple[Level, ...]
     visible_min: int | None
     visible_units: int
@@ -60,12 +60,14 @@ class ItemSnapshot:
 
 @dataclass(frozen=True)
 class ItemFacts:
-    """Static client facts. ``vendor_unit_price`` is buy_price / vendor_stack_count, and is
-    None unless the item is a known vendor supply (only those may be bought from a vendor)."""
+    """Static client facts. A vendor sells ``vendor_bundle_size`` units for
+    ``vendor_bundle_price`` copper; both are None unless the item is a known vendor supply
+    (only those may be bought from a vendor). VendorBuy rounds up to whole bundles."""
 
     item_id: int
     sell_price: int
-    vendor_unit_price: Fraction | None
+    vendor_bundle_size: int | None
+    vendor_bundle_price: int | None
     max_stack: int
     bonding: int
 
@@ -84,6 +86,8 @@ class Recipe:
 
 
 class MarketView(Protocol):
+    """One decision step per recorded sweep, taken when that sweep finished (``t``)."""
+
     t: int
     sweep_index: int
 
