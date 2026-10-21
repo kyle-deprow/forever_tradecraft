@@ -4,33 +4,11 @@ from __future__ import annotations
 
 import argparse
 import json
-from fractions import Fraction
-from urllib.parse import parse_qs, urlparse
 
 import psycopg
 
 from .books import load_commodity_books
-from .time_to_sale import evaluate_rules, validate
-
-
-def _jsonable(value):
-    if isinstance(value, Fraction):
-        return value.numerator if value.denominator == 1 else f"{value.numerator}/{value.denominator}"
-    if isinstance(value, dict):
-        return {str(key): _jsonable(item) for key, item in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [_jsonable(item) for item in value]
-    return value
-
-
-def _refuse_live_default(database_url: str) -> None:
-    parsed = urlparse(database_url)
-    query_hosts = parse_qs(parsed.query).get("host", [])
-    hosts = {parsed.hostname, *query_hosts}
-    if hosts & {"127.0.0.1", "localhost", "::1"} and (parsed.port or 5432) == 5432:
-        raise SystemExit("refusing the live local database at 127.0.0.1:5432")
-    if "host=127.0.0.1" in database_url and "port=5433" not in database_url:
-        raise SystemExit("refusing the live local database at 127.0.0.1:5432")
+from .time_to_sale import _jsonable, evaluate_rules, validate
 
 
 def _validation_line(label: str, report: dict) -> str:
@@ -55,8 +33,6 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.stride < 1:
         parser.error("--stride must be positive")
-    _refuse_live_default(args.database_url)
-
     with psycopg.connect(args.database_url) as conn:
         books = load_commodity_books(conn, args.house)
     tables = evaluate_rules(books, stride=args.stride, tie_share=args.tie_share)

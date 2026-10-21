@@ -22,6 +22,7 @@ class Group:
     unit: Fraction
     quantity: int
     time_left_seconds: int | float
+    owners: int = 0
 
     @property
     def time_left(self) -> int | float:
@@ -212,6 +213,21 @@ def _exact_seconds(row_data: Any) -> int | float:
     return seconds
 
 
+def _owners(row_data: Any) -> int:
+    data = _json_value(row_data)
+    if not isinstance(data, dict) or not isinstance(data.get("owners"), dict):
+        raise ValueError("commodity row has no owners object")
+    value = data["owners"].get("totalNumberOfOwners")
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        raise ValueError("commodity totalNumberOfOwners is not a nonnegative integer")
+    if isinstance(value, str) and (not value or not value.isascii() or not value.isdecimal()):
+        raise ValueError("commodity totalNumberOfOwners is not a nonnegative integer")
+    owners = int(value)
+    if owners < 0:
+        raise ValueError("commodity totalNumberOfOwners is not a nonnegative integer")
+    return owners
+
+
 def _row_value(row: Any, key: str, index: int) -> Any:
     if isinstance(row, dict):
         return row[key]
@@ -292,15 +308,19 @@ def load_commodity_books(conn: Any, house_key: str) -> dict[int, list[Book]]:
             continue
         quantity = int(_row_value(row, "quantity", 8))
         unit = _fraction(_row_value(row, "unit_numerator", 9), _row_value(row, "unit_denominator", 10))
-        time_left = _exact_seconds(_row_value(row, "row_data", 11))
+        row_data = _row_value(row, "row_data", 11)
+        time_left = _exact_seconds(row_data)
+        owners = _owners(row_data)
         prior = entry["groups"].get(result_id)
         if prior is None:
-            entry["groups"][result_id] = Group(result_id, unit, quantity, time_left)
+            entry["groups"][result_id] = Group(result_id, unit, quantity, time_left, owners)
         else:
             if prior.unit != unit:
                 raise ValueError("one commodity result_id has multiple unit prices")
+            if prior.owners != owners:
+                raise ValueError("one commodity result_id has multiple owner counts")
             entry["groups"][result_id] = Group(
-                result_id, unit, prior.quantity + quantity, min(prior.time_left_seconds, time_left)
+                result_id, unit, prior.quantity + quantity, min(prior.time_left_seconds, time_left), owners
             )
 
     for entry in grouped.values():

@@ -50,6 +50,37 @@ uv run python -m crowley.analysis \
 exact time-left values above 172800 seconds. The loader performs one read-only
 transaction and never writes to the database.
 
+## Metrics
+
+`crowley.analysis.metrics` computes pre-model metrics for each commodity item in
+one explicitly selected house. It uses the same exact rational price levels,
+common ceilings, valid intervals, expiry rule, and bottom walk as the
+time-to-sale analysis.
+
+The reference is the unit price of the 20th-cheapest unit. Fair value at a
+sweep is the median reference from the strictly past 24-hour window, only when
+at least eight references are defined; the report also includes the 25th and
+75th percentiles, sample count, and Theil–Sen log-price trend per day. Depth
+reports exact cost, VWAP, marginal price, and fair-relative units for 1, 20,
+100, and 500 units. Bounded books remain unknown when their ceiling or
+in-scope quantity cannot establish a value.
+
+Demand is the bottom-walk consumed units and copper per covered day. The
+non-bottom removal metric is the all non-expiring in-scope removal upper bound
+minus the bottom walk. Competition reports new-group undercuts, cheapest-group
+tenure with Kaplan–Meier censoring, and seller counts/owners at the cheapest
+five price levels. Opportunities report new groups at 0.6x, 0.7x, and 0.8x
+fair value, including arrival, units, discount value, next-sweep survival, and
+lifetime. Risk reports reference volatility scaled by the square root of hours,
+fair-value mean reversion, and its half-life. Capacity reports bottom-walk
+units consumed strictly above 0.9x, 1.0x, and 1.1x fair value.
+
+Known metric biases include interval-resolution timing, invisible activity
+between sweeps, cancellations that can resemble demand, bounded-book censoring,
+and seller-selected observations. Arrival survival and tenure are likewise
+right-censored at chain breaks and data ends; they should not be interpreted as
+random-sample estimates of all marketplace activity.
+
 Known biases are intentional: purchases of listings posted and bought between
 sweeps are invisible and therefore understate demand; bottom cancellations can
 look like purchases and overstate demand; the counterfactual assumes the new

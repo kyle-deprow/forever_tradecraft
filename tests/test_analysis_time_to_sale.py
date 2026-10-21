@@ -364,7 +364,10 @@ def loader_row(seconds=100):
         "quantity": 2,
         "unit_numerator": 5,
         "unit_denominator": 1,
-        "row_data": {"timeLeft": {"kind": "exact", "seconds": seconds}},
+        "row_data": {
+            "timeLeft": {"kind": "exact", "seconds": seconds},
+            "owners": {"totalNumberOfOwners": "1"},
+        },
     }
 
 

@@ -463,6 +463,18 @@ def _fraction_json(value: Fraction) -> int | str:
     return value.numerator if value.denominator == 1 else f"{value.numerator}/{value.denominator}"
 
 
+def _jsonable(value: Any) -> Any:
+    """Convert exact analysis values to the stable JSON representation."""
+
+    if isinstance(value, Fraction):
+        return _fraction_json(value)
+    if isinstance(value, dict):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(item) for item in value]
+    return value
+
+
 def _item_books(books: dict[Any, Sequence[Book]] | Sequence[Book]) -> dict[Any, list[Book]]:
     if isinstance(books, dict):
         return {item: list(item_books) for item, item_books in books.items()}
@@ -984,4 +996,6 @@ __all__ = [
     "replay_listing",
     "rule_prices",
     "validate",
+    "_jsonable",
+    "_reference",
 ]
