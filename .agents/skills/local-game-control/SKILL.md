@@ -56,6 +56,9 @@ within existing authorization; respect any current movement limits.
   afterward: an AFK logout invalidates any previously staged chat command.
 - Use current screenshot dimensions and visible controls. Coordinates from a
   previous resolution or window position are stale.
+  Floating NPC names locate a character but do not establish its clickable body.
+  Verify the actual model/tooltip before interaction; an equivalent auctioneer
+  in the same auction house is sufficient when the selected one is obscured.
 - A worker shell can lack the graphical environment while the game is running.
   Obtain `DISPLAY` and `XAUTHORITY` from the verified game or graphical session
   and pass them to capture/query tools and fresh owner launches. Verify that a
