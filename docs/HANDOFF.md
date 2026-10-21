@@ -76,7 +76,10 @@ Literal command staging now uses an owned Wayland clipboard provider and bounded
 fresh-frame effect polling; short one-shot reads saw stale/partial HUD fields.
 Keep the provider alive across Wine/XWayland requests; `--paste-once` is explicitly
 incompatible with some XWayland clients per installed wl-clipboard manual.
-Original clipboard bytes were restored and verified after each completed attempt.
+Earlier clipboard byte-exact claims used default wl-paste, which appends a
+newline, and are unproven. The current owner corrected reads to --no-newline,
+measured provider readiness (old selection22ms/new selection146ms), and verified
+restoration of exact currently captured plaintext bytes. Private raw receipts remain.
 
 
 Game and persistent Wine launcher are restored; Arthur is logged in at Ironforge

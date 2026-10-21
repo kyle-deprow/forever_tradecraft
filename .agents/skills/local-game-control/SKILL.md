@@ -224,6 +224,9 @@ within existing authorization; respect any current movement limits.
   that `--paste-once` can break XWayland clients that make multiple requests;
   one GUI paste does not imply one protocol request. Restore prior clipboard bytes
   before reaping only the obsolete owned provider.
+  Poll new selection readiness rather than checking immediately after startup.
+  Use `wl-paste --no-newline` for exact bytes; default output appends a newline
+  and cannot establish byte-identical clipboard preservation.
 - When typing slash commands through a clipboard helper, inspect the final chat
   buffer. Opening chat with `/` and pasting a command starting with `/` can leave
   `//command`. Correct the actual buffer before pressing Enter. Do not risk sending
