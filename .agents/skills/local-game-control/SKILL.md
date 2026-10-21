@@ -214,6 +214,11 @@ within existing authorization; respect any current movement limits.
   vector at a nonzero facing; stored calibration values alone do not prove it.
   Keep capture time and receipt/admission time distinct; missing receipt evidence
   cannot be replaced by assuming the observation arrived when it was captured.
+- Size a typing subprocess budget from actual text length and per-character delay,
+  with bounded execution overhead. A timeout can interrupt a key between press
+  and release; process exit alone does not prove released input. Reap the typer,
+  release its owned emitted keys, cancel the editor, and verify a fresh clear
+  state before retrying. Never submit a partial buffer after a timeout.
 - When typing slash commands through a clipboard helper, inspect the final chat
   buffer. Opening chat with `/` and pasting a command starting with `/` can leave
   `//command`. Correct the actual buffer before pressing Enter. Do not risk sending
