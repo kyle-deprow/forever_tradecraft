@@ -20,6 +20,38 @@ pytestmark = pytest.mark.skipif(not DB_URL, reason="CROWLEY_TEST_DATABASE_URL no
 TOKEN = "test-token"
 
 
+def _reset_public_schema() -> None:
+    """Stop TimescaleDB jobs before replacing the disposable public schema."""
+
+    with psycopg.connect(DB_URL, autocommit=True) as conn:
+        has_timescaledb = conn.execute("SELECT 1 FROM pg_extension WHERE extname = 'timescaledb'").fetchone()
+        if has_timescaledb:
+            conn.execute("SELECT _timescaledb_functions.stop_background_workers()")
+            deadline = time.monotonic() + 10
+            while True:
+                jobs = conn.execute(
+                    """
+                    SELECT pid, backend_type, application_name, state, query
+                    FROM pg_stat_activity
+                    WHERE datname = current_database()
+                      AND pid <> pg_backend_pid()
+                      AND state <> 'idle'
+                      AND (
+                          backend_type ILIKE '%timescaledb%'
+                          OR application_name ILIKE '%timescaledb%'
+                          OR query ILIKE '%_timescaledb_functions.%'
+                      )
+                    """
+                ).fetchall()
+                if not jobs:
+                    break
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(f"TimescaleDB jobs did not stop before schema reset: {jobs!r}")
+                time.sleep(0.05)
+        conn.execute("DROP SCHEMA public CASCADE")
+        conn.execute("CREATE SCHEMA public")
+
+
 def _encode_native_payload(value: dict) -> str:
     """Encode an internal payload using WoW's empty keyed-table wire shape."""
 
@@ -40,9 +72,7 @@ def _encode_native_payload(value: dict) -> str:
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
-    with psycopg.connect(DB_URL, autocommit=True) as conn:
-        conn.execute("DROP SCHEMA public CASCADE")
-        conn.execute("CREATE SCHEMA public")
+    _reset_public_schema()
     monkeypatch.setenv("CROWLEY_DATABASE_URL", DB_URL)
     monkeypatch.setenv("CROWLEY_API_TOKEN", TOKEN)
     monkeypatch.setenv("CROWLEY_DATA_DIR", str(tmp_path))
@@ -173,9 +203,7 @@ def install_002_only() -> None:
     from crowley.server.db import migrate
 
     migration_dir = os.path.join(os.path.dirname(__file__), "..", "src", "crowley", "server", "migrations")
-    with psycopg.connect(DB_URL, autocommit=True) as conn:
-        conn.execute("DROP SCHEMA public CASCADE")
-        conn.execute("CREATE SCHEMA public")
+    _reset_public_schema()
     with psycopg.connect(DB_URL, autocommit=True) as conn:
         conn.execute("CREATE EXTENSION IF NOT EXISTS timescaledb")
         conn.execute(
