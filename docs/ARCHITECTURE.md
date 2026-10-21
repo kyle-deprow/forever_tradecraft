@@ -14,8 +14,9 @@
   goblin `neutral` houses (15% cut instead of 5%). The house key `us-normal-horde` is
   decided **at scan time** in game (auto-detected, overridable with `/crowley set`) and
   stored with every scan. The server never mixes data across houses.
-- **One click per protected action.** Buying, posting and cancelling need a hardware event.
-  We automate analysis and queue-building, never the clicks.
+- **Human-speed automated clicks.** Buying, posting and cancelling need a hardware event, which
+  the session input driver can supply. Automated clicks are hard-capped at one per second
+  (at least 1.0 s between consecutive clicks), enforced in code and not configurable.
 - **One assumed path, no fallbacks.** Each unknown about the Forever client has one assumed
   answer, written below. If an assumption is wrong, the code fails loudly and we fix that
   one path rather than carrying alternatives.
@@ -38,6 +39,14 @@
 | Non-commodity search results group identical one-unit auctions; `buyoutAmount` is one auction's buyout and `quantity` is units available in that result | `Scanner.lua`, `scanformat.py` | Item unit prices use the per-auction buyout; grouped quantity is retained as availability |
 | Exact `timeLeftSeconds` in the uint32 window `2^32-300..2^32-1` decodes as `seconds - 2^32`; format 3 exact seconds are `[-300,172800]` | `Scanner.lua`, `scanformat.py` | Values outside the understood window fail through the existing incomplete/numeric-range path |
 | Auctionator is installed (hard dependency) | `Crowley.toc` | Addon doesn't load |
+| **Assumption:** after `ITEM_DATA_LOAD_RESULT`, `C_Item.GetItemInfo` returns sell price, stack size, binding and class; `C_AuctionHouse.CalculateCommodityDeposit` returns integer copper for a commodity while the AH is open and nil for a non-commodity | `Reference.lua` | Per-item `invalid_native` or `deposit.kind = "error"`; never coerced |
+| **Assumption (client data A1):** hotfix-cache status-3 entries are deletes | `client_data.py` | 38 base Item rows would reappear |
+| **Assumption (A2):** a create-item effect quantity of 0 means 1 | `client_data.py` | Yields of 107 recipes (e.g. Transmute: Arcanite) would be wrong |
+| **Assumption (A3):** green skill = floor((yellow + grey) / 2) | `client_data.py` | Skill-up planning only |
+| **Assumption (A4):** `ItemSparse.BuyPrice` is for `VendorStackCount` units | `client_data.py` | Vendor reagent costs off by the bundle factor |
+| **Assumption (A5):** items without an `ItemSparse` row have no price/name until the client caches them | `client_data.py` | Recorded as `no_sparse_row` |
+| **Observed:** a recipe item teaches through `ItemXItemEffect` → `ItemEffect` with `TriggerType = 6`, whose `SpellID` is the recipe (12958 → 17187, 2555 → 2335) | `client_data.py` | Teaching links missing |
+| **Observed:** recipe availability on Forever is **not** determinable from client data (Season of Discovery recipes ship in the shared client); only learn evidence is stored, availability needs in-game evidence | `client_data.py` | Phantom recipes; models must gate on market evidence |
 
 `/crowley probe` saves the client's API surface for checking these. The scanner uses the
 client's `hooksecurefunc` callbacks to flag an Auctionator or user search that overlaps an
@@ -104,6 +113,19 @@ scans/listings/item_stats stay separate and are returned under `legacy_full_scan
 the volume endpoint reads only the new observation tables. Public churn is an uncalibrated
 proxy. A disappearing listing is never a confirmed sale, and own Sold evidence is reported
 separately only after a full owned result.
+
+Migration 003 rewrites stored format-2 item rows to the corrected per-auction unit price and
+signed time-left; `market_sweeps.payload` and digests keep the received bytes. Migration 004 adds
+`item_reference_captures`, `item_reference`, `item_deposits` and the `latest_item_reference`
+view, filled by `/crowley reference` through `POST /v1/item-reference`; these live captures are the
+source for AH deposits and a cross-check of client data. Migration 005 adds the client-data tables
+(`client_data_exports`, recipes, recipe/skill-line associations, reagents, outputs, teachers, tool
+requirements, `client_items`), loaded by `tools/client_data_export.py` from a private, offline,
+read-only DB2 export of the local client (see the assumptions above). Client data is the single
+source for recipes and static item facts; bulk game data is never committed.
+
+`src/crowley/analysis/` holds the offline models' inputs: commodity time-to-sale and the market
+metrics package (`python -m crowley.analysis.metrics`); see [ANALYSIS.md](ANALYSIS.md).
 
 `GET /v1/houses/{house}/items/{item_key}/volume?hours=24` accepts 1–168 hours and compares
 only new observations whose end windows fall inside the request. It reports actual compared
@@ -261,7 +283,7 @@ ingested as legacy whole-market statistics.
 2. **Pre-launch:** inferred sales (listings that disappear before expiring), the strategy
    engine (vendor flips, deals below market, faction-vs-neutral arbitrage, crafting
    margins), and strategy output in Data.lua and Auctionator lists.
-3. **Launch week:** continuous scanning, a "next action" executor button (one protected
-   call per click, within strategy limits), and a dashboard.
+3. **Launch week:** continuous scanning, an automated trade executor (within strategy limits
+   and the one-click-per-second cap), and a dashboard.
 4. **Weeks 2–4:** demand ranking, anomaly detection, price forecasting once there is
    history, alerts.

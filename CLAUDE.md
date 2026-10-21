@@ -10,7 +10,11 @@ Shared agent workflows live in `.agents/skills/`; see `AGENTS.md` for when to us
   assumption if it's wrong. Record client assumptions in the HANDOFF §6 table.
 - Never key items by name; use `itemKey` (`scanformat.py`). Never mix houses.
 - Schema changes go in a new `src/crowley/server/migrations/NNN_*.sql`; never edit applied ones.
-- Buying, posting and cancelling stay one click per protected action. Never automate input.
+- Automated clicks are hard-capped at human speed: at most one per second, enforced in code as
+  at least 1.0 s between consecutive automated clicks. No config, flag or caller may raise it.
+- Every automated click is a full simulated human action through the session executor: curved,
+  Fitts-timed pointer movement with human variability (submovements, endpoint scatter, seeded
+  and recorded), then a real button press and release. Never warp the pointer or move linearly.
 - Ask before committing, pushing, or destroying data.
 
 ## Commands
