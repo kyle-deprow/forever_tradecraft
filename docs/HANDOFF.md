@@ -7,6 +7,14 @@ by the current state below.
 
 ## Latest calibration appointment update (supersedes historical live state)
 
+**CURRENT USER HOLD (after the 4 PM return check):** User reports the game is
+still not playable and will tell us when it is ready. Stop reconnect attempts,
+screen polling, game input and calibration until that update. The attempted
+stale-modal dismissal refused at its PID/start guard before capture or input;
+the current game identity is unconfirmed. `/root/luna_assisted_scanner` is now
+interrupted. Resume only on a new user update with a follow-up task and fresh
+identity/scene checks; the older21:00 UTC not-before time is no longer a trigger.
+
 User connected through RDP for the planned 11:30 AM Chicago (16:30 UTC)
 calibration, which could not finish before the realm outage. The user now thinks
 the realm will remain down until **4 PM Chicago today (21:00 UTC)**; this is a
