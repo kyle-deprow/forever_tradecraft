@@ -1,0 +1,17 @@
+841626;dbfilesclient/item.db2
+841946;dbfilesclient/spellreagents.db2
+969941;dbfilesclient/itemeffect.db2
+1002162;dbfilesclient/spelltotems.db2
+1002166;dbfilesclient/spellcastingrequirements.db2
+1139924;dbfilesclient/spellcooldowns.db2
+1139939;dbfilesclient/spellcategories.db2
+1140088;dbfilesclient/spelleffect.db2
+1140089;dbfilesclient/spell.db2
+1240935;dbfilesclient/skillline.db2
+1266278;dbfilesclient/skilllineability.db2
+1280619;dbfilesclient/spellcategory.db2
+1302850;dbfilesclient/tactkey.db2
+1302851;dbfilesclient/tactkeylookup.db2
+1572924;dbfilesclient/itemsparse.db2
+1990283;dbfilesclient/spellname.db2
+3177687;dbfilesclient/itemxitemeffect.db2

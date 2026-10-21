@@ -1,0 +1,5 @@
+AbilityVerb_lang,AbilityAllVerb_lang,ID,SkillLine,Spell,MinSkillLineRank,ClassMask,SupercedesSpell,AcquireMethod,TrivialSkillLineRankHigh,TrivialSkillLineRankLow,Flags,NumSkillUps,UniqueBit,TradeSkillCategoryID,SkillupSkillLineID,Field_5_5_4_67090_014[0],Field_5_5_4_67090_014[1],RaceMasks[0],RaceMasks[1]
+,,1,171,100,10,,0,0,100,60,0,,,,,,,,
+,,2,202,101,20,,0,3,80,40,0,,,,,,,,
+,,3,197,102,30,,0,0,95,65,0,,,,,,,,
+,,4,202,100,11,,0,0,100,60,0,,,,,,,,

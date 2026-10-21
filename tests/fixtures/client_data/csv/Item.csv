@@ -1,0 +1,6 @@
+ID,ClassID,SubclassID,Material,InventoryType,SheatheType,ItemPetFoodID,Sound_override_subclassID,IconFileDataID,ItemGroupSoundsID,ContentTuningID,ModifiedCraftingReagentItemID,AmmunitionType,CraftingQualityID,ItemSquishEraID,RecraftReagentCountPercentage,OrderSource
+200,0,1,,,,,,,,,,,,,,
+201,0,2,,,,,,,,,,,,,,
+300,5,3,,,,,,,,,,,,,,
+400,0,4,,,,,,,,,,,,,,
+401,0,5,,,,,,,,,,,,,,

@@ -1,0 +1,9 @@
+DisplayName_lang,AlternateVerb_lang,Description_lang,HordeDisplayName_lang,NeutralDisplayName,ID,CategoryID,SpellIconFileID,CanLink,ParentSkillLineID,ParentTierIndex,Flags,SpellBookSpellID,ExpansionNameSharedStringID,HordeExpansionNameSharedStringID
+First Aid,,,First Aid,First Aid,129,,,,,,,,,
+Blacksmithing,,,Blacksmithing,Blacksmithing,164,,,,,,,,,
+Leatherworking,,,Leatherworking,Leatherworking,165,,,,,,,,,
+Alchemy,,,Alchemy,Alchemy,171,,,,,,,,,
+Cooking,,,Cooking,Cooking,185,,,,,,,,,
+Tailoring,,,Tailoring,Tailoring,197,,,,,,,,,
+Engineering,,,Engineering,Engineering,202,,,,,,,,,
+Enchanting,,,Enchanting,Enchanting,333,,,,,,,,,

@@ -1,0 +1,5 @@
+ID,EffectAura,DifficultyID,EffectIndex,Effect,EffectAmplitude,EffectAttributes,EffectAuraPeriod,EffectBonusCoefficient,EffectChainAmplitude,EffectChainTargets,EffectItemType,EffectMechanic,EffectPointsPerResource,EffectPos_facing,EffectRealPointsPerLevel,EffectTriggerSpell,BonusCoefficientFromAP,PvpMultiplier,Coefficient,Variance,ResourceCoefficient,GroupSizeBasePointsCoefficient,EffectBasePointsF,ScalingClass,Node__Field_12_0_0_63534_001,EffectMiscValue[0],EffectMiscValue[1],EffectRadiusIndex[0],EffectRadiusIndex[1],EffectSpellClassMask[0],EffectSpellClassMask[1],EffectSpellClassMask[2],EffectSpellClassMask[3],ImplicitTarget[0],ImplicitTarget[1],SpellID
+1,,,,24,,,,,,,200,,,,,,,,,0,,,0,,,,,,,,,,,,,100
+2,,,,24,,,,,,,0,,,,,,,,,0,,,1,,,,,,,,,,,,,101
+3,,,,24,,,,,,,201,,,,,,,,,0.25,,,2.5,,,,,,,,,,,,,102
+4,,,,36,,,,,,,,,,,,100,,,,,,,,,,,,,,,,,,,,600

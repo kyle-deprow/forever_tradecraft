@@ -8,6 +8,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime
+from pathlib import Path
 
 import psycopg
 import pytest
@@ -609,10 +610,13 @@ def test_migration_003_normalizes_old_rows_and_guards_invalid_data():
         before = conn.execute(
             "SELECT payload, content_digest, raw_path FROM market_sweeps WHERE id=%s", (sweep_id,)
         ).fetchone()
-        assert migrate(conn) == [
-            "003_item_unit_price_and_time_left.sql",
-            "004_item_reference.sql",
-        ]
+        migration_dir = Path(__file__).parents[1] / "src" / "crowley" / "server" / "migrations"
+        expected_migrations = sorted(
+            path.name
+            for path in migration_dir.glob("*.sql")
+            if path.name not in {"001_init.sql", "002_market_observations.sql"}
+        )
+        assert migrate(conn) == expected_migrations
         captured = conn.execute(
             "SELECT unit_numerator, unit_denominator, row_data FROM market_captured_rows WHERE sweep_id=%s",
             (sweep_id,),
