@@ -2512,7 +2512,7 @@ def test_agent_samples_actual_motion_and_changed_values_are_fresh():
     first = client.publish_agent()
     client.set_motion(position=(101.25, 202.5, 31.75, 2), facing=2.5, speed=7.5, combat=True)
     second = client.publish_agent()
-    assert first["schema"] == second["schema"] == 3
+    assert first["schema"] == second["schema"] == 4
     assert first["motion"]["native"]["ctm"] == {
         "accessor": "C_CVar.GetCVarBool",
         "cvar": "autointeract",
@@ -2535,6 +2535,81 @@ def test_agent_samples_actual_motion_and_changed_values_are_fresh():
     assert second["sequence"] > first["sequence"]
     decoded = decode_frame(client.agent_frame)
     assert decoded.snapshot["motion"] == second["motion"]
+
+
+def test_agent_hover_reports_unit_object_and_none_with_strict_tooltip_owner():
+    client = WowClient()
+    client.login()
+
+    client.set_hover_unit("Auctioneer Jaxon")
+    assert client.publish_agent()["hover"] == {"kind": "unit", "name": "Auctioneer Jaxon"}
+
+    client.set_hover_object("Mailbox")
+    assert client.publish_agent()["hover"] == {"kind": "object", "name": "Mailbox"}
+
+    client.set_hover_object("Mailbox", owner_ui_parent=False)
+    assert client.publish_agent()["hover"] == {"kind": "none", "name": ""}
+
+    client.clear_hover()
+    assert client.publish_agent()["hover"] == {"kind": "none", "name": ""}
+
+
+@pytest.mark.parametrize(
+    ("name", "overlong"),
+    [(b"x" * 49, True), ("é".encode() * 24, False), ("é".encode() * 25, True)],
+    ids=["ascii-overlong", "multibyte-exactly-48-bytes", "multibyte-overlong"],
+)
+def test_agent_hover_enforces_48_utf8_bytes(name: bytes, overlong: bool):
+    client = WowClient()
+    client.login()
+    client.set_hover_unit_bytes(name)
+    if overlong:
+        with pytest.raises(Exception, match="overlong name"):
+            client.ns.Agent.Publish()
+    else:
+        value = client.publish_agent()
+        assert value["hover"]["kind"] == "unit"
+        assert value["hover"]["name"].encode("latin-1") == name
+
+
+def test_agent_hover_shown_ui_parent_tooltip_with_nil_first_line_is_none():
+    client = WowClient()
+    client.login()
+    client.set_hover_object("Mailbox")
+    client.state.tooltipName = None
+    assert client.publish_agent()["hover"] == {"kind": "none", "name": ""}
+
+
+@pytest.mark.parametrize(
+    "api",
+    ["UnitExists", "UnitName", "GameTooltip", "GameTooltipTextLeft1", "UIParent", "MailFrame"],
+)
+def test_agent_hover_and_mail_apis_fail_loudly_when_missing(api: str):
+    client = WowClient()
+    client.login()
+    client.lua.globals()[api] = None
+    with pytest.raises(Exception, match=api):
+        client.ns.Agent.Publish()
+
+
+@pytest.mark.parametrize("open_state", [False, True])
+def test_agent_reports_mail_frame_visibility(open_state: bool):
+    client = WowClient()
+    client.login()
+    client.set_mail(open=open_state)
+    assert client.publish_agent()["mailOpen"] is open_state
+
+
+@pytest.mark.parametrize(
+    ("action", "field"),
+    [("JUMP", "jump"), ("TURNRIGHT", "turnRight")],
+)
+def test_agent_rejects_unbound_new_motion_bindings(action: str, field: str):
+    client = WowClient()
+    client.login()
+    client.state.bindings[action] = None
+    with pytest.raises(Exception, match=field):
+        client.ns.Agent.Publish()
 
 
 @pytest.mark.parametrize(
@@ -3295,7 +3370,7 @@ def test_native_capability_ctm_failures_are_explicit_and_still_decode(
         for field in ("flying", "falling", "swimming", "submerged", "mounted", "taxi")
     }
     value = client.publish_agent()
-    assert value["schema"] == 3
+    assert value["schema"] == 4
     assert value["motion"]["native"]["ctm"]["state"] in {"enabled", "unknown"}
     if ctm_mode == "true":
         assert value["motion"]["native"]["ctm"] == {

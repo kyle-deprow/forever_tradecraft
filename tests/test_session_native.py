@@ -5300,7 +5300,7 @@ def test_runtime_source_readers_reject_path_replacement_after_descriptor_read(
             module._runtime_source_hashes()
 
 
-def test_real_agent_pixel_decoder_motion_frame_binds_schema3_native_capability() -> None:
+def test_real_agent_pixel_decoder_motion_frame_binds_schema4_native_capability() -> None:
     client = WowClient()
     client.set_canonical_plan()
     client.login()

@@ -708,7 +708,9 @@ def _motion_sample(
     chat_focused: bool = False,
 ) -> Sample:
     snapshot = {
-        "schema": 3,
+        "schema": 4,
+        "hover": {"kind": "none", "name": ""},
+        "mailOpen": False,
         "chatEdit": {"active": chat_focused, "focused": chat_focused},
         "motion": {
             "position": {"x": position[0], "y": position[1], "z": 3.0, "instance": 4},
@@ -722,6 +724,8 @@ def _motion_sample(
                 "strafeLeft": "A",
                 "strafeRight": "D",
                 "turnLeft": "Q",
+                "jump": "SPACE",
+                "turnRight": "E",
             },
             "native": {
                 "ctm": {
@@ -2551,7 +2555,9 @@ def test_session_ipc_interaction_stop_revokes_inflight_physical_process(tmp_path
 
 def _frame(*, facing: float = 0.0) -> MotionFrame:
     snapshot = {
-        "schema": 3,
+        "schema": 4,
+        "hover": {"kind": "none", "name": ""},
+        "mailOpen": False,
         "chatEdit": {"active": False, "focused": False},
         "motion": {
             "position": {"x": 10.0, "y": 20.0, "z": 3.0, "instance": 4},
@@ -2565,6 +2571,8 @@ def _frame(*, facing: float = 0.0) -> MotionFrame:
                 "strafeLeft": "A",
                 "strafeRight": "D",
                 "turnLeft": "Q",
+                "jump": "SPACE",
+                "turnRight": "E",
             },
             "native": {
                 "ctm": {
@@ -2764,7 +2772,9 @@ def test_native_provider_forwards_one_absolute_deadline_to_production_capture() 
             sequence=motion.sequence,
             snapshot=SimpleNamespace(
                 value={
-                    "schema": 3,
+                    "schema": 4,
+                    "hover": {"kind": "none", "name": ""},
+                    "mailOpen": False,
                     "chatEdit": {"active": False, "focused": False},
                     "motion": {
                         "position": {

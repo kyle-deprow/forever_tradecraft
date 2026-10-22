@@ -59,7 +59,7 @@ def _snapshot(
     started = wall if active else 0
     due = started + 900 if active else wall
     return {
-        "schema": 3,
+        "schema": 4,
         "boot": boot,
         "sequence": sequence,
         "wallTime": wall,
@@ -85,6 +85,8 @@ def _snapshot(
             "initialPriceLevels": 20,
         },
         "ahOpen": ah_open,
+        "hover": {"kind": "none", "name": ""},
+        "mailOpen": False,
         "scanner": {
             "phase": phase,
             "activeSweepId": "",
@@ -129,6 +131,8 @@ def _snapshot(
                 "strafeLeft": "A",
                 "strafeRight": "D",
                 "turnLeft": "Q",
+                "jump": "SPACE",
+                "turnRight": "E",
             },
             "native": {
                 "ctm": {

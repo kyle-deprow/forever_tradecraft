@@ -1,6 +1,6 @@
 """Bounded native motion feedback and waypoint control primitives.
 
-The provider consumes the already decoded schema-3 status surface. It never
+The provider consumes the already decoded schema-4 status surface. It never
 manufactures a frame when the addon has not published one, and all higher
 level control is finite, generation-bound, and feedback driven.
 """
@@ -252,6 +252,9 @@ class MotionFrame:
     combat: bool
     dead_or_ghost: bool
     chat_focused: bool
+    hover_kind: str
+    hover_name: str
+    mail_open: bool
     bindings: tuple[tuple[str, str], ...]
 
     @classmethod
@@ -263,18 +266,20 @@ class MotionFrame:
         capture_started_monotonic: float | None = None,
     ) -> MotionFrame:
         if getattr(sample, "kind", None) != "FRESH" or getattr(sample, "frame", None) is None:
-            raise MotionError("native motion requires a fresh schema-3 frame")
+            raise MotionError("native motion requires a fresh schema-4 frame")
         frame = sample.frame
         snapshot_object = getattr(frame, "snapshot", None)
         snapshot = getattr(snapshot_object, "value", None)
         if not isinstance(snapshot, dict):
             raise MotionError("native motion frame has no decoded snapshot")
-        if snapshot.get("schema") != 3:
-            raise MotionError("native motion requires schema 3")
+        if snapshot.get("schema") != 4:
+            raise MotionError("native motion requires schema 4")
         identity_fingerprint = _text(getattr(identity, "fingerprint", ""), "motion.identity")
         motion = snapshot.get("motion")
         context = snapshot.get("context")
         chat_edit = snapshot.get("chatEdit")
+        hover = snapshot.get("hover")
+        mail_open = snapshot.get("mailOpen")
         if not isinstance(motion, dict) or not isinstance(context, dict):
             raise MotionError("native motion frame is missing motion/context")
         if (
@@ -283,11 +288,35 @@ class MotionFrame:
             or not isinstance(chat_edit.get("focused"), bool)
         ):
             raise MotionError("native motion frame is missing chat-edit focus state")
+        if not isinstance(hover, dict) or set(hover) != {"kind", "name"}:
+            raise MotionError("native motion frame is missing hover state")
+        hover_kind = hover["kind"]
+        if not isinstance(hover_kind, str) or hover_kind not in {"none", "unit", "object"}:
+            raise MotionError("native motion hover kind is invalid")
+        hover_name = _text(hover["name"], "motion.hover_name", empty=True)
+        try:
+            hover_name_bytes = len(hover_name.encode("utf-8"))
+        except UnicodeEncodeError as exc:
+            raise MotionError("motion.hover_name is not valid UTF-8") from exc
+        if hover_name_bytes > 48:
+            raise MotionError("motion.hover_name is too long")
+        if (hover_kind == "none") != (hover_name == ""):
+            raise MotionError("motion.hover kind/name combination is invalid")
+        if not isinstance(mail_open, bool):
+            raise MotionError("native motion frame is missing mailbox state")
         position = motion.get("position")
         bindings = motion.get("bindings")
         if not isinstance(position, dict) or not isinstance(bindings, dict):
             raise MotionError("native motion fields are malformed")
-        required = ("moveForward", "moveBackward", "strafeLeft", "strafeRight", "turnLeft")
+        required = (
+            "moveForward",
+            "moveBackward",
+            "strafeLeft",
+            "strafeRight",
+            "turnLeft",
+            "jump",
+            "turnRight",
+        )
         if set(bindings) != set(required):
             raise MotionError("native motion bindings are incomplete")
         parsed_bindings: list[tuple[str, str]] = []
@@ -335,6 +364,9 @@ class MotionFrame:
             combat=combat,
             dead_or_ghost=dead,
             chat_focused=chat_edit["active"] and chat_edit["focused"],
+            hover_kind=hover_kind,
+            hover_name=hover_name,
+            mail_open=mail_open,
             bindings=tuple(parsed_bindings),
         )
 

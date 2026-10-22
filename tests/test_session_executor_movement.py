@@ -47,7 +47,9 @@ def _sample(
     speed: float = 1.0,
 ) -> Sample:
     snapshot = {
-        "schema": 3,
+        "schema": 4,
+        "hover": {"kind": "none", "name": ""},
+        "mailOpen": False,
         "boot": boot,
         "sequence": sequence,
         "chatEdit": {"active": False, "focused": False, "text": ""},
@@ -63,6 +65,8 @@ def _sample(
                 "strafeLeft": "A",
                 "strafeRight": "D",
                 "turnLeft": "Q",
+                "jump": "SPACE",
+                "turnRight": "E",
             },
             "native": {
                 "ctm": {

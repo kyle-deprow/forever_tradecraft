@@ -158,7 +158,7 @@ class _FixtureNativeMemoryMeter(LinuxProcStatusVmHwmReset5):
 
 def _snapshot(wall: int, *, boot: str = "boot-1", sequence: int = 1) -> dict:
     return {
-        "schema": 3,
+        "schema": 4,
         "boot": boot,
         "sequence": sequence,
         "wallTime": wall,
@@ -184,6 +184,8 @@ def _snapshot(wall: int, *, boot: str = "boot-1", sequence: int = 1) -> dict:
             "initialPriceLevels": 20,
         },
         "ahOpen": True,
+        "hover": {"kind": "none", "name": ""},
+        "mailOpen": False,
         "scanner": {
             "phase": "ready",
             "activeSweepId": "",
@@ -218,6 +220,8 @@ def _snapshot(wall: int, *, boot: str = "boot-1", sequence: int = 1) -> dict:
                 "strafeLeft": "A",
                 "strafeRight": "D",
                 "turnLeft": "Q",
+                "jump": "SPACE",
+                "turnRight": "E",
             },
             "native": {
                 "ctm": {
@@ -663,7 +667,7 @@ class LifecycleBackend(X11Backend):
             current_region=110,
             current_region_name="beta",
         )
-        self.agent_client.lua.globals().UnitName = lambda _unit: "Arthur"
+        self.agent_client.set_player_name("Arthur")
         self.agent_client.set_canonical_plan()
         self.agent_client.set_auctions(
             [
@@ -691,7 +695,7 @@ class LifecycleBackend(X11Backend):
             current_region=110,
             current_region_name="beta",
         )
-        client.lua.globals().UnitName = lambda _unit: "Arthur"
+        client.set_player_name("Arthur")
         client.set_canonical_plan()
         client.login()
         client.set_chat_edit(active=True, focused=True)
@@ -741,7 +745,7 @@ class LifecycleBackend(X11Backend):
             current_region=110,
             current_region_name="beta",
         )
-        client.lua.globals().UnitName = lambda _unit: "Arthur"
+        client.set_player_name("Arthur")
         client.set_canonical_plan()
         client.set_auctions(
             [

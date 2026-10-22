@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import binascii
 import hashlib
 import json
 import os
 import re
+import struct
 import tempfile
 import threading
 import time
+import zlib
 from pathlib import Path
 
 import pytest
@@ -37,7 +40,7 @@ from .wow_harness import WowClient
 
 def snapshot(sequence: int = 1) -> dict:
     return {
-        "schema": 3,
+        "schema": 4,
         "boot": "boot-1",
         "sequence": sequence,
         "wallTime": 1_000,
@@ -63,6 +66,8 @@ def snapshot(sequence: int = 1) -> dict:
             "initialPriceLevels": 20,
         },
         "ahOpen": True,
+        "hover": {"kind": "none", "name": ""},
+        "mailOpen": False,
         "scanner": {
             "phase": "ready",
             "activeSweepId": "",
@@ -97,6 +102,8 @@ def snapshot(sequence: int = 1) -> dict:
                 "strafeLeft": "A",
                 "strafeRight": "D",
                 "turnLeft": "Q",
+                "jump": "SPACE",
+                "turnRight": "E",
             },
             "native": {
                 "ctm": {
@@ -489,6 +496,8 @@ def test_lua_frame_roundtrips_through_pixel_packer_and_python_decoder() -> None:
             "strafeLeft": "A",
             "strafeRight": "D",
             "turnLeft": "Q",
+            "jump": "SPACE",
+            "turnRight": "E",
         },
         "native": {
             "ctm": {
@@ -523,12 +532,15 @@ def test_lua_frame_roundtrips_through_pixel_packer_and_python_decoder() -> None:
     assert "mutated" not in client.publish_agent()["pending"]["ids"]
 
 
-def test_protocol_requires_schema3_motion_and_rejects_legacy_or_malformed_motion() -> None:
+def test_protocol_requires_schema4_motion_and_rejects_legacy_or_malformed_motion() -> None:
     legacy = snapshot()
     legacy["schema"] = 1
     with pytest.raises(ProtocolError, match="schema"):
         encode_frame(legacy)
     legacy["schema"] = 2
+    with pytest.raises(ProtocolError, match="schema"):
+        encode_frame(legacy)
+    legacy["schema"] = 3
     with pytest.raises(ProtocolError, match="schema"):
         encode_frame(legacy)
 
@@ -538,7 +550,7 @@ def test_protocol_requires_schema3_motion_and_rejects_legacy_or_malformed_motion
         encode_frame(missing)
 
     malformed = snapshot()
-    malformed["motion"]["bindings"]["turnRight"] = "D"
+    malformed["motion"]["bindings"]["turnRight"] = "shift w"
     with pytest.raises(ProtocolError, match="motion"):
         encode_frame(malformed)
 
@@ -551,6 +563,75 @@ def test_protocol_requires_schema3_motion_and_rejects_legacy_or_malformed_motion
     malformed["motion"]["bindings"]["moveForward"] = "shift w"
     with pytest.raises(ProtocolError, match="moveForward"):
         encode_frame(malformed)
+
+
+def test_protocol_hover_name_limit_counts_utf8_bytes() -> None:
+    value = snapshot()
+    exact = "é" * 24
+    value["hover"] = {"kind": "unit", "name": exact}
+    decoded = decode_frame(encode_frame(value))
+    assert decoded.snapshot["hover"] == {"kind": "unit", "name": exact}
+
+    value["hover"]["name"] = "é" * 25
+    with pytest.raises(ProtocolError, match="UTF-8 value is too long"):
+        encode_frame(value)
+
+
+def test_pixel_decoder_rejects_forged_legacy_wire_frame() -> None:
+    valid = encode_frame(snapshot())
+    payload_length = int.from_bytes(valid[8:10], "little")
+    raw = zlib.decompress(valid[26 : 26 + payload_length], wbits=-15)
+    assert b'"schema":4' in raw
+    forged_raw = raw.replace(b'"schema":4', b'"schema":3', 1)
+    compressor = zlib.compressobj(wbits=-15)
+    forged_payload = compressor.compress(forged_raw) + compressor.flush()
+    assert 1 <= len(forged_payload) <= 2000
+    forged = bytearray(valid[:26] + forged_payload + bytes(2048 - 26 - len(forged_payload)))
+    struct.pack_into("<H", forged, 8, len(forged_payload))
+    struct.pack_into("<I", forged, 22, binascii.crc32(forged[:22] + forged_payload) & 0xFFFFFFFF)
+    forged_frame = bytes(forged)
+
+    with pytest.raises(ProtocolError, match="schema"):
+        decode_frame(forged_frame)
+
+    image = Image.new("RGB", (256, 256), (0, 0, 0))
+    pixels = image.load()
+    for row, bits in enumerate(pack_cells(forged_frame)):
+        for column, bit in enumerate(bits):
+            color = (255, 255, 255) if bit else (0, 0, 0)
+            for dy in range(2):
+                for dx in range(2):
+                    pixels[column * 2 + dx, row * 2 + dy] = color
+    with pytest.raises(ProtocolError, match="schema"):
+        PixelDecoder().decode(image, monotonic=1.0, window_identity="legacy-wire")
+
+
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: value["hover"].update(kind="unknown"),
+        lambda value: value["hover"].update(kind="object", name=""),
+        lambda value: value["hover"].update(kind="none", name="NPC"),
+        lambda value: value["hover"].update(kind="unit", name="x" * 49),
+        lambda value: value.update(mailOpen=1),
+        lambda value: value["motion"]["bindings"].pop("jump"),
+        lambda value: value["motion"]["bindings"].pop("turnRight"),
+    ],
+    ids=[
+        "unknown-hover-kind",
+        "object-empty-name",
+        "none-nonempty-name",
+        "overlong-hover-name",
+        "nonboolean-mail-open",
+        "missing-jump",
+        "missing-turn-right",
+    ],
+)
+def test_protocol_rejects_schema4_hover_mail_and_binding_contract_mutations(mutate) -> None:
+    value = snapshot()
+    mutate(value)
+    with pytest.raises(ProtocolError):
+        encode_frame(value)
 
 
 @pytest.mark.parametrize(
@@ -712,7 +793,15 @@ def test_realistic_worst_queue_and_motion_payload_stays_within_wire_caps() -> No
     }
     value["motion"]["bindings"] = {
         name: "SHIFT-ALT-CTRL-" + "X" * 17
-        for name in ("moveForward", "moveBackward", "strafeLeft", "strafeRight", "turnLeft")
+        for name in (
+            "moveForward",
+            "moveBackward",
+            "strafeLeft",
+            "strafeRight",
+            "turnLeft",
+            "jump",
+            "turnRight",
+        )
     }
     current_speed = 999.8754321098765
     value["motion"]["speed"] = current_speed

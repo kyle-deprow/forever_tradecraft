@@ -218,10 +218,10 @@ def _validate_motion(value: Any) -> None:
     _boolean(motion["deadOrGhost"], "motion.deadOrGhost")
     bindings = _keys(
         motion["bindings"],
-        {"moveForward", "moveBackward", "strafeLeft", "strafeRight", "turnLeft"},
+        {"moveForward", "moveBackward", "strafeLeft", "strafeRight", "turnLeft", "jump", "turnRight"},
         "motion.bindings",
     )
-    for name in ("moveForward", "moveBackward", "strafeLeft", "strafeRight", "turnLeft"):
+    for name in ("moveForward", "moveBackward", "strafeLeft", "strafeRight", "turnLeft", "jump", "turnRight"):
         _binding(bindings[name], f"motion.bindings.{name}")
     _validate_native(motion["native"], speed=motion["speed"])
 
@@ -271,6 +271,8 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
             "house",
             "plan",
             "ahOpen",
+            "hover",
+            "mailOpen",
             "scanner",
             "lastSaved",
             "pending",
@@ -281,8 +283,8 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
         },
         "snapshot",
     )
-    if _integer(top["schema"], "schema", minimum=3, maximum=3) != 3:
-        raise _error("schema", "must be 3")
+    if _integer(top["schema"], "schema", minimum=4, maximum=4) != 4:
+        raise _error("schema", "must be 4")
     _string(top["boot"], "boot", limit=96)
     # The addon increments before its first publication; zero is reserved for
     # an absent/uninitialized frame and cannot establish freshness.
@@ -401,6 +403,13 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
         raise _error("plan", "cadence, cap, and retained levels must be 900/600/20")
 
     _boolean(top["ahOpen"], "ahOpen")
+    hover = _keys(top["hover"], {"kind", "name"}, "hover")
+    if not isinstance(hover["kind"], str) or hover["kind"] not in {"none", "unit", "object"}:
+        raise _error("hover.kind", "must be none, unit, or object")
+    hover_name = _string(hover["name"], "hover.name", empty=True, limit=48)
+    if (hover["kind"] == "none") != (hover_name == ""):
+        raise _error("hover", "name must be empty exactly when kind is none")
+    _boolean(top["mailOpen"], "mailOpen")
     scanner = _keys(
         top["scanner"],
         {

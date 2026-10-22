@@ -46,7 +46,14 @@ function collectgarbage(option)
   end
   return harness.luaHeapValue or 512
 end
-function UnitName() return "Tester" end
+function UnitExists(unit)
+  if unit ~= "mouseover" then return false end
+  return harness.mouseoverExists == true
+end
+function UnitName(unit)
+  if unit == "mouseover" then return harness.mouseoverName end
+  return harness.playerName or "Tester"
+end
 function UnitFactionGroup() return harness.faction end
 function GetRealmName() return harness.realm end
 function GetZoneText() return harness.zone end
@@ -172,6 +179,15 @@ UIParent = {
 function UIParent:GetWidth() return self.width end
 function UIParent:GetHeight() return self.height end
 function UIParent:GetEffectiveScale() return self.effectiveScale end
+
+GameTooltip = {}
+function GameTooltip:IsShown() return harness.tooltipShown == true end
+function GameTooltip:GetOwner()
+  if harness.tooltipOwnerUIParent == true then return UIParent end
+  return harness.otherTooltipOwner
+end
+GameTooltipTextLeft1 = {}
+function GameTooltipTextLeft1:GetText() return harness.tooltipName end
 
 local chatEdit = harness.chatEdit
 function chatEdit:IsShown() return self.shown end
@@ -1040,6 +1056,8 @@ class WowClient:
             "STRAFELEFT": "A",
             "STRAFERIGHT": "D",
             "TURNLEFT": "Q",
+            "JUMP": "SPACE",
+            "TURNRIGHT": "E",
         }
     )
     money: int = 12345
@@ -1050,6 +1068,12 @@ class WowClient:
     recipe_infos: dict[int, dict] = field(default_factory=dict)
     cooldowns: dict[int, dict] = field(default_factory=dict)
     mail_open: bool = False
+    player_name: str = "Tester"
+    mouseover_exists: bool = False
+    mouseover_name: str | None = None
+    tooltip_shown: bool = False
+    tooltip_name: str = ""
+    tooltip_owner_ui_parent: bool = True
     mail: list[dict] = field(default_factory=list)
     account_fakes: bool | None = None
     initial_savedvars: dict | None = None
@@ -1130,6 +1154,13 @@ class WowClient:
                     }
                 ),
                 "mailOpen": self.mail_open,
+                "playerName": self.player_name,
+                "mouseoverExists": self.mouseover_exists,
+                "mouseoverName": self.mouseover_name,
+                "tooltipShown": self.tooltip_shown,
+                "tooltipName": self.tooltip_name,
+                "tooltipOwnerUIParent": self.tooltip_owner_ui_parent,
+                "otherTooltipOwner": self.lua.table(),
                 "mail": self._to_lua(self.mail),
                 "accountFakes": self.account_fakes,
                 "requested": self.lua.table(),
@@ -1285,6 +1316,31 @@ class WowClient:
     def set_mail(self, *, open: bool, messages: list[dict] | None = None) -> None:
         self.state.mailOpen = open
         self.state.mail = self._to_lua(messages or [])
+
+    def set_player_name(self, name: str) -> None:
+        self.state.playerName = name
+
+    def set_hover_unit(self, name: str | None) -> None:
+        self.state.mouseoverExists = name is not None
+        self.state.mouseoverName = name
+
+    def set_hover_unit_bytes(self, name: bytes) -> None:
+        self.state.mouseoverExists = True
+        self.state.mouseoverName = name.decode("latin-1")
+
+    def set_hover_object(self, name: str, *, shown: bool = True, owner_ui_parent: bool = True) -> None:
+        self.state.mouseoverExists = False
+        self.state.mouseoverName = None
+        self.state.tooltipShown = shown
+        self.state.tooltipName = name
+        self.state.tooltipOwnerUIParent = owner_ui_parent
+
+    def clear_hover(self) -> None:
+        self.state.mouseoverExists = False
+        self.state.mouseoverName = None
+        self.state.tooltipShown = False
+        self.state.tooltipName = ""
+        self.state.tooltipOwnerUIParent = True
 
     def set_source_incomplete(self, incomplete: bool = True) -> None:
         self.state.forceIncomplete = incomplete

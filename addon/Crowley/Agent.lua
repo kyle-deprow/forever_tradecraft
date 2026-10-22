@@ -278,6 +278,47 @@ local function nativeBinding(action, field)
   return value
 end
 
+local function hoverTelemetry()
+  if type(UnitExists) ~= "function" then
+    error("Crowley hover telemetry requires UnitExists")
+  end
+  if type(UnitName) ~= "function" then
+    error("Crowley hover telemetry requires UnitName")
+  end
+  if not GameTooltip or type(GameTooltip.IsShown) ~= "function" or
+      type(GameTooltip.GetOwner) ~= "function" then
+    error("Crowley hover telemetry requires GameTooltip")
+  end
+  if not GameTooltipTextLeft1 or type(GameTooltipTextLeft1.GetText) ~= "function" then
+    error("Crowley hover telemetry requires GameTooltipTextLeft1")
+  end
+  if not UIParent then error("Crowley hover telemetry requires UIParent") end
+
+  local kind, name = "none", ""
+  if UnitExists("mouseover") then
+    kind, name = "unit", UnitName("mouseover")
+  elseif GameTooltip:IsShown() and GameTooltip:GetOwner() == UIParent then
+    local objectName = GameTooltipTextLeft1:GetText()
+    if type(objectName) == "string" and #objectName > 0 then
+      kind, name = "object", objectName
+    end
+  end
+  if kind ~= "none" and (type(name) ~= "string" or #name == 0) then
+    error("Crowley hover telemetry has invalid " .. kind .. " name")
+  end
+  if type(name) ~= "string" or #name > 48 then
+    error("Crowley hover telemetry has an overlong name")
+  end
+  return { kind = kind, name = name }
+end
+
+local function mailTelemetry()
+  if not MailFrame or type(MailFrame.IsShown) ~= "function" then
+    error("Crowley mail telemetry requires MailFrame")
+  end
+  return MailFrame:IsShown() == true
+end
+
 local function movementTelemetry()
   if type(UnitPosition) ~= "function" then error("Crowley movement telemetry requires UnitPosition") end
   if type(GetPlayerFacing) ~= "function" then error("Crowley movement telemetry requires GetPlayerFacing") end
@@ -318,6 +359,8 @@ local function movementTelemetry()
       strafeLeft = nativeBinding("STRAFELEFT", "strafeLeft"),
       strafeRight = nativeBinding("STRAFERIGHT", "strafeRight"),
       turnLeft = nativeBinding("TURNLEFT", "turnLeft"),
+      jump = nativeBinding("JUMP", "jump"),
+      turnRight = nativeBinding("TURNRIGHT", "turnRight"),
     },
     native = native,
   }
@@ -343,7 +386,7 @@ function Agent.Snapshot()
   -- fence attempt.
   scannerValue.scheduleFence = copy(scanner.scheduleFence)
   local value = {
-    schema = 3, boot = boot, sequence = sequence + 1, wallTime = now, uptimeMs = uptime,
+    schema = 4, boot = boot, sequence = sequence + 1, wallTime = now, uptimeMs = uptime,
     context = {
       addonVersion = context.addonVersion or ns.VERSION, interface = context.interface or 0,
       clientBuild = context.clientBuild or "", character = context.character or "", realm = context.realm or "",
@@ -351,6 +394,7 @@ function Agent.Snapshot()
       locale = context.locale or "", clientVersion = context.clientVersion or "",
     },
     house = { key = house.key, source = house.source }, plan = planInfo(scanner.plan), ahOpen = ns.ahOpen == true,
+    hover = hoverTelemetry(), mailOpen = mailTelemetry(),
     scanner = scannerValue,
     lastSaved = {
       memoryUid = last.memoryUid or "", finishedAt = last.finishedAt or 0, planned = last.planned or 0,
