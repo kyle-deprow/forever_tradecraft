@@ -1,11 +1,70 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 20:28 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 20:56 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
+
+**CURRENT USER TAKEOVER / AUDIT HOLD:** User explicitly confirmed "Yes—I or
+another agent am using it" after Luna found foreign unsubmitted `/run F=C` text.
+This supersedes earlier AWAY/sole-Luna-control instructions. ALL GAME INPUT AND
+LIVE GUI CAPTURE HELD, including cleanup/Escape/Return/reload/AH reopen, until a
+new explicit user handback. Luna may inspect files/public status only. Do not
+cancel or overwrite that other controller's editor. This is confirmed current
+shared control, not a speculative blocker.
+
+**Opus audit COMPLETE: MAJOR ISSUES / SIMPLIFY BEFORE CONTINUING.**
+Read [the preserved independent audit](../.archive/REVIEW-calibration-architecture-opus-20261022.md).
+Actual model claude-opus-5-5, read-only Read/Grep/Glob, no MCP/fallback; CLIexit0.
+Root independently verified restart clears both calibration gates and runtime
+AH-open still hardcodes Ironforge Buckler. Do not deploy the isolated patch or
+run another calibration attempt under the existing design. Preserve that small
+correct patch for the simplification. No runtime rewrite is proposed by the audit.
+Next design should decouple routine startup/telemetry checks from native memory
+benchmarking and per-restart human sampling, retain Guardian/watchdog/identity/
+focus/curvedclickcap/decoder/journal/ACK, use a persistent takeover drill with real
+input-environment invalidation, and port the proven Stormwind interaction path.
+The audit is a recommendation; simplification implementation/code review and
+human acceptance remain undone. User's current game takeover still takes priority.
+Private original CLI prompt/raw/process/result: calibration-audit-opus-20261022/.
+
+**Latest scan288:** Started20:35:05 UTC (`1792701305`), finished20:43:13
+(`1792701793`), UID`beta-normal-alliance-1792701305-Arthur-3046`,428attempts/
+zero failures/645rows. Preserved original SHA
+`6a2a8f6a536618df45d160342d700b9d6f7b7a58e3165165e8379da8c2e02a6b`.
+Companion uploaded/Data.lua strictACK observed timestamp1792701846=20:44:06,
+53safterfinish. Exact loadedHUD ACK and AHreopen are PENDING: helper's first
+chat-open Return exposed the foreign controller's `/run F=C` text and refused
+typing/submission. No command was typed after that Return; no cleanup was sent.
+Receipt `scan288-postprocess-stage-20261022T204327Z/scan288-save-upload-ack-20261022T204346728505Z/receipt.json`
+under assisted-collection-luna-20261021. No active sweep at takeover; collection
+is NOT currently running. Nominal next due20:50:05 must not override user control.
+
+**Isolated candidate FROZEN, NOT DEPLOYED:** Luna completed the minimal12-line
+unused select_chat_all profile deletion in input92-keyboard-rehearsal worktree.
+Private native workflow reaches real strict keyboard+pointer readiness and
+no-input wait:8runtimeoperations/134steps/272keyboardrecords plus8pointerrecords;
+observer staysopen/idle afterfinalrelease, then target/observer reaped and Guardian
+registriesclear. Private fixture preconditions XTEST sources before observing to
+avoid fresh-Xvfb DeviceChanged metadata; no production filtering/parser changes.
+Scoped78PASS/1known-baseline test deselected, native9PASS/176deselected, Ruff/diffclean.
+Unfiltered78PASS/1FAIL reproduced exactsame pointer gesture-plan assertion onclean
+base1130c81. Report/manifest/native proof under input92-xi2-implementation; diffSHA
+13a1e8345c4b950dfeab9a0db4ffc663fb83e638663b34855b9270760c11dcfb.
+No productionpromotion, restart, code review or live qualification is claimed.
+
+**Latest collection boundary:**287 completed20:26:57 UTC, UID
+`beta-normal-alliance-1792700329-Arthur-5720`,428 attempts/zero failures/691 rows.
+Original224404B SHA`da34f9f7fad98ad43fbf682486cffc44fa33ae26ee7ab5c51b921370f3505fd5`.
+Companion upload1792700867=20:27:47 UTC,50s after finish. Exact loaded ACK/pending0
+verified; parent independently decoded boot1792700890-960915 seq5 and parsed the
+original SavedVariables queue key (not a UID substring). Parent proof:
+`scan287-postprocess-stage-20261022T202108Z/scan287-save-upload-ack-20261022T202727179496Z/parent-loaded-ack-verification.json`.
+GUI owner is staging288 for exact due20:33:49, without waiting for pending fix review.
+Do not start early solely because post-reload scanner dueAt=0. Main runtime source
+unchanged; latest pushedc252a3f contains only documentation/plan/skill updates.
 
 **Offline repair RUNNING20:28 UTC:** Luna is implementing the minimal input92
 fix in isolated worktree `~/.cache/crowley/worktrees/input92-keyboard-rehearsal-20261022`,

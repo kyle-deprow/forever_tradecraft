@@ -15,6 +15,8 @@ within existing authorization; respect any current movement limits.
 - Reused workers can retain an earlier worktree as their working directory.
   Bind live diagnostics and source references to the current absolute repository
   path and accepted hashes before using their conclusions.
+  Native fixture proofs must also bind the imported module and function code-file
+  paths; a correct working directory can still load an installed older package.
   Reuse production identity/capture helpers. Keep standalone Python helper names
   distinct from imported standard-library modules, such as `inspect`.
 - Check processes and map window IDs to PIDs before launching anything. A running
