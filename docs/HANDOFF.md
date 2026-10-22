@@ -1,26 +1,134 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 19:52 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 20:28 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**Current collection19:51 UTC:** Assisted286 started19:51:09 UTC,
-`startedAt=1792698669`, due20:06:09 (`1792699569`). Parent independently decoded
-its original retained start PNG: AHopen/item1/planned428/speed0/pending0/exact285
-loaded ACK. Physical Control_L+F12 interaction succeeded once; both keys released
-and final keymap clear. Proof:
-`assisted-collection-luna-20261021/scan286-interaction-20261022T1949Z/parent-start-verification.json`.
-The folder label is not the actual start time. Actual285->286 start gap3294s
-(54m54); assisted collection is restored but900s cadence is NOT qualified.
-Game refresh banner had reached8seconds at interaction. GUI owner monitors the
-active sweep, preserves partial/original data if interrupted, and owns normal
-cached reconnect/re-entry and continuing collection. No source/config/binding
-cleanup or competing GUI capture during the active sweep. Native89/input are still
-invalid; after terminal/save/upload/exactACK and stable realm, complete native and
-one readiness-only rehearsal while user AWAY. Zero autonomous cycles qualify.
+**Offline repair RUNNING20:28 UTC:** Luna is implementing the minimal input92
+fix in isolated worktree `~/.cache/crowley/worktrees/input92-keyboard-rehearsal-20261022`,
+base1130c81, under [keyboard rehearsal plan](../.archive/PLAN-input92-keyboard-rehearsal-20261022.md).
+Sol design review READY; exact runtime-vocabulary equality/sealed operation coverage
+and real private-Xvfb open-idle final-release/workflow-readiness proof are required.
+Production runtime bytes remain unchanged; GUI owner keeps scanning. No live retry
+until frozen implementation, independent Sol code review and parent verification,
+then promotion/restart/source rebinding at an exact ACK boundary and fresh native proof.
+Plan ownership now explicitly includes tests/test_session_input_tool.py to retain
+its generic left/right modifier-hold admission/refusal tests with explicit fixtures.
+
+Completed exact diagnostic replay:281 source5 key records vs280 expected; first
+mismatch is unused select_chat_all, then all256 suffix records align after one
+extra raw Control release. Exact raw+partial bytes yield289 parsed events including
+final KeyRelease40; finish()None. Missing final blank delimiter makes diagnostic
+replayable=false but did not withhold the semantic event. Pinned xinput uses line
+buffering; no parser/observer change is justified. Private diagnosis/report and
+Sol design review: `calibration-resume-20261021/input92-xi2-implementation/`.
+The existing game-control skill now records these two reusable lessons; validation
+passes. No new skill folder or incident dump is added.
+
+**Current collection20:18:49 UTC:** Assisted287 started at Jaxon,
+`startedAt=1792700329`, due20:33:49 (`1792701229`), AHopen/item2/speed0/pending0,
+interaction keys released. Receipt:
+`assisted-collection-luna-20261021/scan287-interaction-20261022T201757Z/receipt.json`.
+Actual286->287 start gap1660s(27m40),760s late against20:06:09 nominaldue.
+Keep watching287, preserve/save/upload/exactACK and repeat900s assisted cycles;
+no extra calibration attempt until reviewed fix promoted at a safe boundary.
+
+**Input92 diagnosis underway:** Actual first keyboard divergence occurs in
+calibration-only `select_chat_all`: expected release(a) before release(Control_L),
+but pinned xdotool releases Control_L before a and emits duplicate raw Control_L
+release due modifier compensation. All later256 class/detail records align after
+that one extra record; final deliveredrelease remains partial. Runtime ACTIONS
+explicitly exclude select_chat_all; public typing uses per-character allowlisted
+keys. Luna is finishing exact parser/validator replay and producer-tail flushing
+audit before root defines smallest fix. Preserve strict validation; don't filter
+extra records, reorder contract to hide mismatches, or invent missing native fields.
+Report under `calibration-resume-20261021/input92-xi2-implementation/`.
+
+**Current blocker20:13 UTC:** Readiness-only input92 FAILED before human readiness:
+`XI2 calibration event deadline expired`, operation started1792699794 and
+finished1792699807 (20:10:07 UTC). No genuine/fakehuman input and no unchanged retry.
+GTK root-child certificate and synthetic pointer pre/post predicates DID pass;
+failure stage synthetic, keyboard predicate "extra or missing key transitions"
+twice. Observer retained289/290 blocks/63,195bytes, no parserfailure/truncation;
+final delivered KeyRelease is partial, replayable=false. Do not infer its cause
+or invent missing native fields from that incomplete record. Immutable bundle:
+`assisted-collection-luna-20261021/input-calibration-failure-92-20261022T201139Z/failure-index.json`,
+original diagnostic SHA3e3cad097d297bbb86afcbb04f0f2916c2107a7b4e3b38a8c734eb9358ef903e.
+
+Publicpause92 advanced PAUSED93/native=true/input=false; exact target PID549304
+and title are gone, observer reaped, checkpoint keyABSENT, controlsUP and two advancing
+ordinary stationary frames verified. GUI owner `/root/luna_assisted_scanner` is
+restoring287 via the established Jaxon interaction chain. Next nominal due20:06:09
+was missed for calibration; actual287 start is not yet confirmed. Keep collecting
+while repairing, no further calibration attempt before reviewed fix and fresh gates.
+
+Offline READ-ONLY Luna diagnosis is RUNNING in `/root/luna_calibration_diagnosis`,
+bound to canonical1130c81 source (not its stale previous worktree). It compares
+actual keyboard operations/keymap and raw/primary stream at parser/validator
+boundaries, distinguishes incomplete evidence from replay, and proposes smallest
+source/test fix. Report under `calibration-resume-20261021/input92-xi2-implementation/`.
+Root will define an implementation plan after that diagnosis; Luna implements,
+Sol independently reviews, root verifies/promotes. No host GUI/input/capture/IPC,
+deployment or daemon restart by coding/review workers. Sole GUI owner remains Luna
+scanner. User remains AWAY; human calibration has NEVER reached readiness.
+
+**Successful native boundary20:09 UTC:** Mandatory control-preflight89 PASSED;
+resume90/full100-update103-call measure-deferred PASSED with native proof valid.
+Public pause advanced91; durable journal retained a valid measure90 checkpoint
+although aggregate status omitted it. Canonical recover91 then SUCCEEDED;
+parent independently verified journal PAUSED91/native=true/input=false,
+`nativeConstruction` keyABSENT and lastAction native_construction_recovery_commit.
+Receipt: `native-calibration-operator/native-calibration-recover-20261022T200732651521Z-481965-9e546958/receipt.json`;
+parent proof: `closed-chat-world-implementation/parent-recovery91-verification.json`.
+Resource assessment remains target_exceeded: construction12,779,520B within128MiB,
+updates73,740,288B exceeds16MiB. Native validity is not a performance-target pass.
+
+Two fresh post-recovery ordinary frames boot1792699669-261365 seq77->79 verify
+stationary Arthur/Stormwind build70450/validmovementbindings/AHclosed/noactive/
+pending0/native-normal/controlsUP/currentidentity+pins. GUI owner is proceeding
+with the reviewed readiness-only input rehearsal, staged before public resume;
+reuse matching auto-started input op, don't duplicate it. Do not rerun mutating
+native preflight or restart with native proof already valid. No live input readiness
+or human acceptance has yet been established. After calibration flow the current
+loaded ACK list is empty; separately retained exact286 upload/ACK proof remains
+valid. Next nominal due20:06:09 is already passed; retain actual overrun and restore
+assisted collection after operation terminal and cleanup. User remains AWAY.
+
+**Previous scan boundary20:02 UTC:** Assisted286 is completed, saved, uploaded and
+exact-loaded ACK/pending0 verified. Actual start19:51:09 (`1792698669`), finish
+19:59:13 (`1792699153`),428 attempts/zero failures/727 rows, UID
+`beta-normal-alliance-1792698669-Arthur-7290`. Original226875-byte SavedVariables
+SHA`4064f8f402ce0920718058c7f98365fd8c1333f4d7103ccbc2abf55fb9943843`.
+Companion timestamp1792699216=20:00:16 UTC,63s after finish. Loaded ACK verified
+20:00:47; parent independently decoded original PNG boot1792699238-294888 seq7
+and checked original bytes. Proof:
+`scan286-postprocess-stage/scan285-save-upload-ack-20261022T195955811091Z/parent-loaded-ack-verification.json`
+under assisted-collection-luna-20261021; the reused folder name does not identify
+the scan. Actual285->286 start gap3294s(54m54); neither900s cadence nor60s upload
+qualification is claimed. Zero autonomous cycles qualify.
+
+Two fresh post-ACK frames verify ordinary state/complete movement bindings
+(moveForward=W)/speed0/pending0/exact286loaded/controlsUP/current identity+pins,
+public PAUSED89/native=false/input=false/opidle/checkpoint keyABSENT.
+The Agent.lua invalid moveForward message visible in earlier post-save chat is
+historical; actual fresh native snapshots are valid. Do not change user bindings
+or weaken the publisher based on that retained log line. Proof:
+`scan286-postack-readonly-gate-20261022T2001Z/receipt.json`.
+
+GUI owner now owns the staged mandatory mutating control-preflight89, actual
+resume/full100-update103-call native measurement, pause/canonical recovery if valid
+checkpoint present, ordinary/checkpoint keyABSENT, then ONE reviewed readiness-only
+input rehearsal. User AWAY: no human/fakehuman events. At actual matching ready+
+visible owned GTK use one public pause and wait for actual same input-operation
+terminal plus window/process cleanup before restoring collection. Poller is
+`scan285-calibration-rehearsal-stage-20261022T1900Z/readiness_rehearsal_poller.py`,
+SHA959fbbcb0cbd6e4e72175d3d937cb9a01edb7ad57fc95982507b5e727d5ae374,
+Sol READY. Next nominal scan due20:06:09; record actual proof overrun rather than
+interrupting a running owned proof or claiming cadence. Native/input/live readiness
+remain unproven at this boundary. Do not restart the daemon gratuitously.
 
 **Pre-scan recovery chronology (19:39 UTC):** Canonical recover89 SUCCEEDED with the
 reviewed helper585b005b. It verified exact `/reload` before Return, crossed an

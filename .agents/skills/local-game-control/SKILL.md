@@ -148,6 +148,9 @@ within existing authorization; respect any current movement limits.
   On a synthetic calibration timeout, retain the exact predicate rejection
   alongside that text before cleanup discards it. Window/process polling
   supplies lifecycle context; it cannot identify the rejected input event.
+  A diagnostic's partial final block can already have yielded a semantic event.
+  Replay its exact raw blocks plus partial tail through the production parser
+  before attributing missing transitions to producer buffering.
   Use XI2's CARD32 time domain consistently in runtime and calibration consumers;
   test queued raw/primary interleaving as well as direct pairing helpers.
   An advertised XTEST device does not prove source attribution. Require an
@@ -207,6 +210,9 @@ within existing authorization; respect any current movement limits.
   Planner and argv-builder tests do not establish executor behavior. Exercise
   the actual key/camera driver entrypoint and ordered observer completion;
   model the external process/events rather than replacing the ownership gate.
+  Keep required calibration keyboard operations aligned with the current runtime
+  vocabulary. An unused calibration-only chord can introduce native modifier
+  transitions that no runtime action needs; verify exact vocabulary coverage.
   For diagnostic format changes, pass actual persisted producer receipts through
   the public evaluator with bindings derived independently from known fixture
   files before the run. Separate synthetic evaluator tests and bindings copied
