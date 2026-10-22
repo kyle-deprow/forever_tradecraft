@@ -540,6 +540,7 @@ class LifecycleBackend(X11Backend):
                 "generatedAt": self.current["wallTime"],
                 "ackedScans": [self.uid],
                 "scanPlan": load_catalog().scan_plan(),
+                "referenceItemIDs": sorted(item.item_id for item in load_catalog().items),
                 "shoppingLists": [],
             }
             (self.root / "Data.lua").write_text(render_assignment("CROWLEY_DATA", data, "fixture"))
@@ -949,6 +950,7 @@ class LifecycleBackend(X11Backend):
                     "generatedAt": self.current["wallTime"],
                     "ackedScans": [],
                     "scanPlan": load_catalog().scan_plan(),
+                    "referenceItemIDs": sorted(item.item_id for item in load_catalog().items),
                     "shoppingLists": [],
                 }
                 (self.root / "Data.lua").write_text(
@@ -992,6 +994,7 @@ class LifecycleBackend(X11Backend):
                 "generatedAt": self.current["wallTime"],
                 "ackedScans": [self.uid],
                 "scanPlan": load_catalog().scan_plan(),
+                "referenceItemIDs": sorted(item.item_id for item in load_catalog().items),
                 "shoppingLists": [],
             }
             (self.root / "Data.lua").write_text(render_assignment("CROWLEY_DATA", data, "fixture"))
@@ -2306,6 +2309,7 @@ def test_runtime_reconcile_ready_scanner_is_idle_with_pending_saved_uid(tmp_path
                 "generatedAt": 103,
                 "ackedScans": [uid],
                 "scanPlan": load_catalog().scan_plan(),
+                "referenceItemIDs": sorted(item.item_id for item in load_catalog().items),
                 "shoppingLists": [],
             },
             "runtime pending UID",
@@ -2367,6 +2371,7 @@ def test_runtime_uncertain_no_agent_never_recovers_login_or_input(tmp_path: Path
                         "generatedAt": 103,
                         "ackedScans": [uid],
                         "scanPlan": load_catalog().scan_plan(),
+                        "referenceItemIDs": sorted(item.item_id for item in load_catalog().items),
                         "shoppingLists": [],
                     },
                     "runtime unsettled queue",

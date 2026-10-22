@@ -1344,13 +1344,15 @@ def test_runtime_durable_empty_scan_facts_reject_without_format2_proof(
         render_assignment("CrowleyDB", {"scans": {}, "sweeps": {}}, "empty scan"), encoding="utf-8"
     )
     config.companion_state.write_text('{"uploaded": {}, "probes": []}\n', encoding="utf-8")
+    catalog = load_catalog()
     config.data_lua.write_text(
         render_assignment(
             "CROWLEY_DATA",
             {
                 "generatedAt": 1000,
                 "ackedScans": [],
-                "scanPlan": load_catalog().scan_plan(),
+                "scanPlan": catalog.scan_plan(),
+                "referenceItemIDs": sorted(item.item_id for item in catalog.items),
                 "shoppingLists": [],
             },
             "empty scan",

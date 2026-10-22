@@ -247,6 +247,10 @@ within existing authorization; respect any current movement limits.
   A buffer staged before a long wait is not current dispatch evidence. Immediately
   before Return, verify fresh addon `chatEdit` is active, focused and contains the
   exact command; then require the actual boot/file transition for a reload.
+  Keep idle-scene admission separate from the owned chat phases: a guard requiring
+  a closed editor cannot admit the expected focused empty editor after opening
+  chat. Exercise adapted guards on retained phase snapshots before live input,
+  including every context field the helper summary must retain.
   Chat borders and insertion cursors can become OCR letters even in an empty
   editor. Retain original full frames and verify production cropping/OCR against
   empty buffers and every fixed command, including short commands; preserve
