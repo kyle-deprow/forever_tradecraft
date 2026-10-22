@@ -11,6 +11,10 @@ local HELP = {
   "/crowley probe - record which AH APIs this client has",
   "/crowley reference - capture item metadata and AH deposits",
   "/crowley account - capture and summarize account state",
+  "/crowley queue - show the loaded trade queue and execution results",
+  "/crowley arm <queueId> - arm the loaded queue for this session",
+  "/crowley disarm - clear the session arm",
+  "/crowley skip - skip the current trade action",
 }
 -- Reserved for the local repeating-session controller.  It is intentionally
 -- absent from help and accepts no arguments; the controller must prove this
@@ -225,6 +229,14 @@ SlashCmdList.CROWLEY = function(msg)
     if not ok then ns.Print("reference refused: " .. tostring(reason)) end
   elseif cmd == "account" and not args[2] then
     ns.Print(ns.Account.Summary())
+  elseif cmd == "queue" and not args[2] and ns.Executor then
+    ns.Executor.QueueCommand()
+  elseif cmd == "arm" and args[2] and not args[3] and ns.Executor then
+    ns.Executor.Arm(args[2])
+  elseif cmd == "disarm" and not args[2] and ns.Executor then
+    ns.Executor.Disarm()
+  elseif cmd == "skip" and not args[2] and ns.Executor then
+    ns.Executor.Skip()
   else
     for _, line in ipairs(HELP) do ns.Print(line) end
   end

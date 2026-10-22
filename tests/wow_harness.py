@@ -222,6 +222,10 @@ function CreateFrame(_, name, parent, template)
   function frame:GetText() return self.text end
   function frame:SetEnabled(value) self.enabled = value == true end
   function frame:IsEnabled() return self.enabled ~= false end
+  function frame:SetMovable(value) self.movable = value == true end
+  function frame:RegisterForDrag(button) self.dragButton = button end
+  function frame:StartMoving() self.moving = true end
+  function frame:StopMovingOrSizing() self.moving = false end
   function frame:Click()
     if self.enabled ~= false and self.shown == true and self.onClick then self.onClick(self) end
   end
@@ -278,21 +282,50 @@ function hooksecurefunc(target, name, callback)
   end
 end
 
-local function recordTradeCall(name)
+local function callArgs(...)
+  local args = {}
+  for index = 1, select("#", ...) do args[index] = select(index, ...) end
+  return args, select("#", ...)
+end
+
+local function recordTradeCall(name, ...)
   harness.tradeCalls = harness.tradeCalls or {}
   table.insert(harness.tradeCalls, name)
+  harness.tradeCallRecords = harness.tradeCallRecords or {}
+  local args, argc = callArgs(...)
+  table.insert(harness.tradeCallRecords, { name = name, argc = argc, args = args })
+end
+
+local function recordProtectedCall(name, ...)
+  recordTradeCall(name, ...)
+  harness.protectedCalls = harness.protectedCalls or {}
+  table.insert(harness.protectedCalls, name)
+  harness.protectedCallRecords = harness.protectedCallRecords or {}
+  local args, argc = callArgs(...)
+  table.insert(harness.protectedCallRecords, { name = name, argc = argc, args = args })
+end
+
+local function isProtectedCall(name)
+  return name == "C_AuctionHouse.StartCommoditiesPurchase" or
+    name == "C_AuctionHouse.ConfirmCommoditiesPurchase" or
+    name == "C_AuctionHouse.CancelCommoditiesPurchase" or
+    name == "C_AuctionHouse.PostCommodity" or name == "C_AuctionHouse.CancelAuction" or
+    name == "C_Container.UseContainerItem" or name == "BuyMerchantItem" or
+    name == "AutoLootMailItem" or name == "C_TradeSkillUI.CraftRecipe"
 end
 
 local function installTradeNamespace(name, functions)
   _G[name] = {}
   for _, functionName in ipairs(functions) do
     _G[name][functionName] = function(...)
-      recordTradeCall(name .. "." .. functionName)
+      local fullName = name .. "." .. functionName
+      if isProtectedCall(fullName) then recordProtectedCall(fullName, ...) else recordTradeCall(fullName, ...) end
     end
   end
 end
 
 local tradeNamespaces = harness.tradeNamespaces or {}
+local tradeGlobals = harness.tradeGlobals or {}
 if tradeNamespaces.C_Timer == false then
   C_Timer = nil
 elseif tradeNamespaces.C_Timer ~= nil then
@@ -345,7 +378,7 @@ end
 for name, present in pairs(harness.tradeGlobals or {}) do
   if present then
     _G[name] = function(...)
-      recordTradeCall(name)
+      if isProtectedCall(name) then recordProtectedCall(name, ...) else recordTradeCall(name, ...) end
     end
   end
 end
@@ -692,6 +725,42 @@ C_AuctionHouse = {
       bidAmount = a.bid > 0 and a.bid or nil, buyoutAmount = a.buyout > 0 and a.buyout or nil }
   end,
   GetTimeLeftBandInfo = function(band) return band * 3600, band * 3600 + 3600 end,
+  StartCommoditiesPurchase = function(...)
+    local itemID, quantity = ...
+    recordProtectedCall("C_AuctionHouse.StartCommoditiesPurchase", ...)
+    harness.commodityPurchase = { itemID = itemID, quantity = quantity }
+  end,
+  ConfirmCommoditiesPurchase = function(...)
+    local itemID, quantity = ...
+    recordProtectedCall("C_AuctionHouse.ConfirmCommoditiesPurchase", ...)
+    harness.commodityConfirmation = { itemID = itemID, quantity = quantity }
+  end,
+  CancelCommoditiesPurchase = function(...)
+    local itemID = ...
+    recordProtectedCall("C_AuctionHouse.CancelCommoditiesPurchase", ...)
+    harness.commodityCancellation = { itemID = itemID }
+  end,
+  IsSellItemValid = function(location)
+    return harness.sellItemValid ~= false and type(location) == "table"
+  end,
+  PostCommodity = function(...)
+    local location, duration, quantity, unitPrice = ...
+    recordProtectedCall("C_AuctionHouse.PostCommodity", ...)
+    harness.postedCommodity = { location = location, duration = duration, quantity = quantity, unitPrice = unitPrice }
+  end,
+  CanCancelAuction = function(auctionID)
+    return not (harness.uncancellable and harness.uncancellable[auctionID])
+  end,
+  GetCancelCost = function(auctionID)
+    harness.cancelCostCalls = harness.cancelCostCalls or {}
+    table.insert(harness.cancelCostCalls, auctionID)
+    return harness.cancelCost or 0
+  end,
+  CancelAuction = function(...)
+    local auctionID = ...
+    recordProtectedCall("C_AuctionHouse.CancelAuction", ...)
+    harness.cancelledAuction = auctionID
+  end,
   CalculateCommodityDeposit = function(itemID, duration, quantity)
     harness.depositCalls = harness.depositCalls or {}
     table.insert(harness.depositCalls, { itemID = itemID, duration = duration, quantity = quantity })
@@ -707,6 +776,111 @@ C_AuctionHouse = {
     return (auction.sellPrice or 1) * duration * quantity
   end,
 }
+
+ItemLocation = {}
+function ItemLocation:CreateFromBagAndSlot(bag, slot) return { bag = bag, slot = slot } end
+
+local function addBagItems(itemID, quantity)
+  if harness.autoPostconditions == false then return end
+  harness.bags = harness.bags or {}
+  local bag = harness.bags[0]
+  if not bag then bag = {}; harness.bags[0] = bag end
+  for slot = 1, #bag do
+    local info = bag[slot]
+    if info and info.itemID == itemID then
+      info.stackCount = (info.stackCount or info.quantity or info.count or 0) + quantity
+      return
+    end
+  end
+  bag[#bag + 1] = { itemID = itemID, stackCount = quantity }
+end
+
+if tradeNamespaces.C_Container == nil then
+  C_Container = {
+    GetContainerNumSlots = function(bag)
+      local slots = harness.bags and harness.bags[bag]
+      return slots and #slots or 0
+    end,
+    GetContainerItemInfo = function(bag, slot)
+      local slots = harness.bags and harness.bags[bag]
+      return slots and slots[slot] or nil
+    end,
+    UseContainerItem = function(...)
+      local bag, slot = ...
+      recordProtectedCall("C_Container.UseContainerItem", ...)
+      harness.usedContainerItems = harness.usedContainerItems or {}
+      table.insert(harness.usedContainerItems, { bag = bag, slot = slot })
+      if harness.autoPostconditions ~= false and harness.bags and harness.bags[bag] then harness.bags[bag][slot] = {} end
+    end,
+  }
+end
+
+if tradeGlobals.GetMerchantNumItems == nil then
+  function GetMerchantNumItems() return harness.merchantItems and #harness.merchantItems or 0 end
+end
+if tradeGlobals.GetMerchantItemID == nil then
+  function GetMerchantItemID(index)
+    local item = harness.merchantItems and harness.merchantItems[index]
+    return item and item.itemID or nil
+  end
+end
+if tradeGlobals.BuyMerchantItem == nil then
+  function BuyMerchantItem(...)
+    local index, quantity = ...
+    recordProtectedCall("BuyMerchantItem", ...)
+    harness.merchantPurchase = { index = index, quantity = quantity }
+    local item = harness.merchantItems and harness.merchantItems[index]
+    if item and item.itemID then addBagItems(item.itemID, quantity) end
+  end
+end
+
+if tradeGlobals.GetInboxNumItems == nil then
+  function GetInboxNumItems()
+    if harness.mailItemsConfigured then return harness.mailItems and #harness.mailItems or 0 end
+    return harness.mailCount or 0
+  end
+end
+if tradeGlobals.GetInboxHeaderInfo == nil then
+  function GetInboxHeaderInfo(index)
+    if not harness.mailItemsConfigured then return nil end
+    local item = harness.mailItems and harness.mailItems[index]
+    if not item then return nil end
+    local money = item.money or 0
+    local hasItem = item.hasItem == true or (item.itemCount or 0) > 0
+    return nil, nil, item.sender or "Sender", item.subject or "Subject", money, item.codAmount or 0, 0, hasItem
+  end
+end
+if tradeGlobals.AutoLootMailItem == nil then
+  function AutoLootMailItem(...)
+    local index = ...
+    recordProtectedCall("AutoLootMailItem", ...)
+    harness.lootedMail = harness.lootedMail or {}
+    table.insert(harness.lootedMail, index)
+    if harness.autoPostconditions ~= false then
+      if harness.mailItemsConfigured and harness.mailItems and harness.mailItems[index] then
+        local item = harness.mailItems[index]
+        item.money, item.itemCount, item.hasItem, item.empty = 0, 0, false, true
+      else
+        harness.mailCount = math.max(0, (harness.mailCount or 0) - 1)
+      end
+    end
+  end
+end
+
+if tradeNamespaces.C_TradeSkillUI == nil then
+  C_TradeSkillUI = {
+    IsTradeSkillReady = function() return harness.tradeSkillReady == true end,
+    GetRecipeInfo = function(recipeID) return harness.recipes and harness.recipes[recipeID] or nil end,
+    GetCraftableCount = function(recipeID) return harness.craftableCounts and harness.craftableCounts[recipeID] or 0 end,
+    CraftRecipe = function(...)
+      local recipeID, times = ...
+      recordProtectedCall("C_TradeSkillUI.CraftRecipe", ...)
+      harness.craftedRecipe = { recipeID = recipeID, times = times }
+      local recipe = harness.recipes and harness.recipes[recipeID]
+      addBagItems(recipe and (recipe.resultItemID or recipe.itemID) or recipeID, times)
+    end,
+  }
+end
 
 function _serialize(name, value)
   local out = {}
@@ -822,6 +996,17 @@ class WowClient:
     trade_namespaces: dict[str, list[str] | bool] = field(default_factory=dict)
     trade_globals: dict[str, bool] = field(default_factory=dict)
     trade_frames: dict[str, bool] = field(default_factory=dict)
+    queue: dict | bool | None = None
+    bags: dict[int, list[dict]] = field(default_factory=dict)
+    merchant_items: list[dict] = field(default_factory=list)
+    mail_count: int = 0
+    mail_items: list[dict] = field(default_factory=list)
+    trade_skill_ready: bool = False
+    recipes: dict[int, dict] = field(default_factory=dict)
+    craftable_counts: dict[int, int] = field(default_factory=dict)
+    sell_item_valid: bool = True
+    cancel_cost: int = 0
+    auto_postconditions: bool = True
     presentation_width: int = 1920
     presentation_height: int = 1080
     root_ui_scale: float = 1.0
@@ -898,6 +1083,20 @@ class WowClient:
                 "tradeGlobals": self._to_lua(self.trade_globals),
                 "tradeFrames": self._to_lua(self.trade_frames),
                 "tradeCalls": self.lua.table(),
+                "protectedCalls": self.lua.table(),
+                "tradeCallRecords": self.lua.table(),
+                "protectedCallRecords": self.lua.table(),
+                "bags": self._to_lua(self.bags),
+                "merchantItems": self._to_lua(self.merchant_items),
+                "mailCount": self.mail_count,
+                "mailItems": self._to_lua(self.mail_items),
+                "mailItemsConfigured": bool(self.mail_items),
+                "tradeSkillReady": self.trade_skill_ready,
+                "recipes": self._to_lua(self.recipes),
+                "craftableCounts": self._to_lua(self.craftable_counts),
+                "sellItemValid": self.sell_item_valid,
+                "cancelCost": self.cancel_cost,
+                "autoPostconditions": self.auto_postconditions,
                 "rootWidth": self.root_width,
                 "rootHeight": self.root_height,
                 "rootEffectiveScale": self.root_effective_scale,
@@ -1030,6 +1229,9 @@ class WowClient:
     def _load_addon(self) -> None:
         # Load order mirrors the client: dependency Crowley_Data first, then Crowley's TOC.
         self.run_file(ADDONS / "Crowley_Data" / "Data.lua")
+        self.run_file(ADDONS / "Crowley_Data" / "Queue.lua")
+        if self.queue is not None:
+            self.lua.globals().CROWLEY_QUEUE = self._to_lua(self.queue)
         for line in (ADDONS / "Crowley" / "Crowley.toc").read_text().splitlines():
             if line.endswith(".lua"):
                 self.run_file(ADDONS / "Crowley" / line)
@@ -1209,6 +1411,78 @@ class WowClient:
     @property
     def trade_calls(self) -> list[str]:
         return list(self.state.tradeCalls.values())
+
+    @property
+    def protected_calls(self) -> list[str]:
+        return list(self.state.protectedCalls.values())
+
+    @property
+    def protected_call_records(self) -> list[dict]:
+        return [self._json_table(entry) for entry in self.state.protectedCallRecords.values()]
+
+    @property
+    def executor_button(self):
+        return self.lua.globals().CrowleyTradeExecutorButton
+
+    def click_executor(self, *, force: bool = False) -> None:
+        button = self.executor_button
+        if button is None:
+            raise AssertionError("trade executor button is unavailable")
+        if force:
+            self.ns.Executor.Click()
+        else:
+            button.Click(button)
+
+    def set_bags(self, bags: dict[int, list[dict]]) -> None:
+        self.state.bags = self._to_lua(bags)
+
+    def set_merchant_items(self, items: list[dict]) -> None:
+        self.state.merchantItems = self._to_lua(items)
+
+    def set_mail_count(self, count: int) -> None:
+        self.state.mailCount = count
+
+    def set_mail_items(self, items: list[dict]) -> None:
+        self.state.mailItems = self._to_lua(items)
+        self.state.mailItemsConfigured = bool(items)
+
+    def set_auto_postconditions(self, enabled: bool) -> None:
+        self.state.autoPostconditions = enabled
+
+    def set_cancel_cost(self, cost: int) -> None:
+        self.state.cancelCost = cost
+
+    def set_trade_skill(
+        self,
+        *,
+        ready: bool,
+        recipes: dict[int, dict] | None = None,
+        craftable_counts: dict[int, int] | None = None,
+    ) -> None:
+        self.state.tradeSkillReady = ready
+        if recipes is not None:
+            self.state.recipes = self._to_lua(recipes)
+        if craftable_counts is not None:
+            self.state.craftableCounts = self._to_lua(craftable_counts)
+
+    def set_frame_open(self, frame: str, opened: bool = True) -> None:
+        events = {
+            "ah": ("AUCTION_HOUSE_SHOW", "AUCTION_HOUSE_CLOSED"),
+            "merchant": ("MERCHANT_SHOW", "MERCHANT_CLOSED"),
+            "mailbox": ("MAIL_SHOW", "MAIL_CLOSED"),
+            "profession": ("TRADE_SKILL_SHOW", "TRADE_SKILL_CLOSE"),
+        }
+        if frame not in events:
+            raise ValueError(f"unknown frame: {frame}")
+        self.fire(events[frame][0 if opened else 1])
+
+    def execution(self, queue_id: str | None = None) -> dict | None:
+        executions = self.lua.globals().CrowleyDB.executions
+        if executions is None:
+            return None
+        if queue_id is None:
+            queue_id = self.lua.globals().CROWLEY_QUEUE.queueId
+        return self._json_table(executions[queue_id])
 
     def _json_table(self, value) -> dict | None:
         if value is None:
