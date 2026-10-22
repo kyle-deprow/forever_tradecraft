@@ -49,6 +49,16 @@ def terminal_result(client: WowClient) -> dict:
     raise AssertionError("no terminal result")
 
 
+def bag_state(items: list[dict]) -> dict:
+    return {
+        0: {
+            "numSlots": len(items),
+            "freeSlots": sum(1 for item in items if not item),
+            "slots": {index: item for index, item in enumerate(items, start=1)},
+        }
+    }
+
+
 def test_executor_is_inert_without_a_queue():
     client = WowClient()
     assert client.executor_button is None
@@ -140,7 +150,7 @@ def test_post_and_cancel_record_native_details():
         {"kind": "post_commodity", "itemID": 2589, "quantity": 2, "unitPrice": 30, "durationHours": 12},
         armed=True,
     )
-    post.set_bags({0: [{"itemID": 2589, "stackCount": 5}]})
+    post.set_bags(bag_state([{"itemID": 2589, "stackCount": 5}]))
     post.set_auctions([Auction(2589, "Linen", 1, 100, isCommodity=True)])
     open_frame(post, "ah")
     arm(post)
@@ -161,7 +171,7 @@ def test_post_and_cancel_record_native_details():
 
 def test_vendor_stack_mismatch_and_missing_merchant_are_refused():
     sell = load({"kind": "vendor_sell", "itemID": 2589, "quantity": 5}, armed=True)
-    sell.set_bags({0: [{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 4}]})
+    sell.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 4}]))
     open_frame(sell, "merchant")
     sell.click_executor()
     assert result(sell)["detail"] == "stack_mismatch"
@@ -174,19 +184,23 @@ def test_vendor_stack_mismatch_and_missing_merchant_are_refused():
 
 def test_missing_bag_stack_recipe_identity_and_frame_identity_failures():
     missing = load({"kind": "vendor_sell", "itemID": 2589, "quantity": 5}, armed=True)
-    missing.set_bags({0: [{"itemID": 2589, "stackCount": 2}]})
+    missing.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}]))
     open_frame(missing, "merchant")
     missing.click_executor()
     assert result(missing)["detail"] == "missing_bag_stack"
 
     not_learned = load({"kind": "craft", "recipeID": 2963, "times": 1}, armed=True)
-    not_learned.set_trade_skill(ready=True, recipes={2963: {"learned": False}}, craftable_counts={2963: 1})
+    not_learned.set_trade_skill(
+        ready=True, recipe_ids=[2963], recipe_infos={2963: {"learned": False}}, craftable_counts={2963: 1}
+    )
     open_frame(not_learned, "profession")
     not_learned.click_executor()
     assert result(not_learned)["detail"] == "recipe_not_learned"
 
     short = load({"kind": "craft", "recipeID": 2963, "times": 2}, armed=True)
-    short.set_trade_skill(ready=True, recipes={2963: {"learned": True}}, craftable_counts={2963: 1})
+    short.set_trade_skill(
+        ready=True, recipe_ids=[2963], recipe_infos={2963: {"learned": True}}, craftable_counts={2963: 1}
+    )
     open_frame(short, "profession")
     short.click_executor()
     assert result(short)["detail"] == "craftable_count_short"
@@ -206,7 +220,9 @@ def test_missing_bag_stack_recipe_identity_and_frame_identity_failures():
 
 def test_craft_and_mail_use_one_click_per_work_unit():
     craft = load({"kind": "craft", "recipeID": 2963, "times": 1}, armed=True)
-    craft.set_trade_skill(ready=True, recipes={2963: {"learned": True}}, craftable_counts={2963: 1})
+    craft.set_trade_skill(
+        ready=True, recipe_ids=[2963], recipe_infos={2963: {"learned": True}}, craftable_counts={2963: 1}
+    )
     open_frame(craft, "profession")
     arm(craft)
     craft.click_executor()
@@ -268,18 +284,21 @@ def test_slash_commands_and_session_arm_are_local():
         (
             "post_commodity",
             lambda c: (
-                c.set_bags({0: [{"itemID": 2589, "stackCount": 5}]}),
+                c.set_bags(bag_state([{"itemID": 2589, "stackCount": 5}])),
                 c.set_auctions([Auction(2589, "Linen", 1, 100, isCommodity=True)]),
             ),
             "ah",
         ),
         ("cancel_auction", lambda c: None, "ah"),
-        ("vendor_sell", lambda c: c.set_bags({0: [{"itemID": 2589, "stackCount": 2}]}), "merchant"),
+        ("vendor_sell", lambda c: c.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}])), "merchant"),
         ("vendor_buy", lambda c: c.set_merchant_items([{"itemID": 3371}]), "merchant"),
         (
             "craft",
             lambda c: c.set_trade_skill(
-                ready=True, recipes={2963: {"learned": True}}, craftable_counts={2963: 1}
+                ready=True,
+                recipe_ids=[2963],
+                recipe_infos={2963: {"learned": True}},
+                craftable_counts={2963: 1},
             ),
             "profession",
         ),
@@ -417,7 +436,7 @@ def test_disarm_is_rechecked_before_confirmation_and_continuation_calls():
     assert buy.execution()["results"][-1]["detail"]["reason"] == "not_armed"
 
     sell = load({"kind": "vendor_sell", "itemID": 2589, "quantity": 5}, armed=True)
-    sell.set_bags({0: [{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]})
+    sell.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]))
     open_frame(sell, "merchant")
     arm(sell)
     sell.click_executor()
@@ -441,7 +460,7 @@ def test_disarm_is_rechecked_before_confirmation_and_continuation_calls():
 def test_in_flight_refusal_latches_before_the_next_work_unit(kind):
     if kind == "vendor_sell":
         client = load({"kind": kind, "itemID": 2589, "quantity": 5}, armed=True)
-        client.set_bags({0: [{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]})
+        client.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]))
         frame = "merchant"
     else:
         client = load({"kind": kind, "maxMessages": 2}, armed=True)
@@ -498,11 +517,11 @@ def test_in_flight_skip_cannot_abandon_a_started_purchase():
 
 def test_vendor_revalidates_every_slot_before_selling():
     client = load({"kind": "vendor_sell", "itemID": 2589, "quantity": 5}, armed=True)
-    client.set_bags({0: [{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]})
+    client.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]))
     open_frame(client, "merchant")
     arm(client)
     client.click_executor()
-    client.set_bags({0: [{}, {"itemID": 999, "stackCount": 3}]})
+    client.set_bags(bag_state([{}, {"itemID": 999, "stackCount": 3}]))
     client.advance(1)
     client.click_executor(force=True)
     assert client.protected_calls == ["C_Container.UseContainerItem"]
@@ -573,7 +592,7 @@ def test_every_protected_call_captures_its_exact_arguments():
         {"kind": "post_commodity", "itemID": 2589, "quantity": 2, "unitPrice": 30, "durationHours": 24},
         armed=True,
     )
-    post.set_bags({0: [{"itemID": 2589, "stackCount": 5}]})
+    post.set_bags(bag_state([{"itemID": 2589, "stackCount": 5}]))
     post.set_auctions([Auction(2589, "Linen", 1, 100, isCommodity=True)])
     open_frame(post, "ah")
     arm(post)
@@ -585,7 +604,7 @@ def test_every_protected_call_captures_its_exact_arguments():
     }
 
     sell = load({"kind": "vendor_sell", "itemID": 2589, "quantity": 2}, armed=True)
-    sell.set_bags({0: [{"itemID": 2589, "stackCount": 2}]})
+    sell.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}]))
     open_frame(sell, "merchant")
     arm(sell)
     sell.click_executor()
@@ -603,7 +622,9 @@ def test_every_protected_call_captures_its_exact_arguments():
     assert buy.protected_call_records[-1] == {"name": "BuyMerchantItem", "argc": 2, "args": [1, 5]}
 
     craft = load({"kind": "craft", "recipeID": 2963, "times": 2}, armed=True)
-    craft.set_trade_skill(ready=True, recipes={2963: {"learned": True}}, craftable_counts={2963: 2})
+    craft.set_trade_skill(
+        ready=True, recipe_ids=[2963], recipe_infos={2963: {"learned": True}}, craftable_counts={2963: 2}
+    )
     open_frame(craft, "profession")
     arm(craft)
     craft.click_executor()
@@ -639,7 +660,9 @@ def test_postcondition_actions_remain_in_flight_and_ui_errors_fail_them(kind):
         frame = "merchant"
     elif kind == "craft":
         client = load({"kind": kind, "recipeID": 2963, "times": 2}, armed=True)
-        client.set_trade_skill(ready=True, recipes={2963: {"learned": True}}, craftable_counts={2963: 2})
+        client.set_trade_skill(
+            ready=True, recipe_ids=[2963], recipe_infos={2963: {"learned": True}}, craftable_counts={2963: 2}
+        )
         frame = "profession"
     else:
         client = load({"kind": kind, "maxMessages": 1}, armed=True)
@@ -897,7 +920,7 @@ def test_blocked_started_history_is_ambiguous_after_reload_and_cannot_be_skipped
 
 def test_partial_vendor_and_mail_actions_cannot_be_skipped():
     sell = load({"kind": "vendor_sell", "itemID": 2589, "quantity": 5}, armed=True)
-    sell.set_bags({0: [{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]})
+    sell.set_bags(bag_state([{"itemID": 2589, "stackCount": 2}, {"itemID": 2589, "stackCount": 3}]))
     open_frame(sell, "merchant")
     arm(sell)
     sell.click_executor()

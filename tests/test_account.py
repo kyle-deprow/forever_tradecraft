@@ -116,7 +116,7 @@ def test_account_triggers_update_only_their_sections_and_debounce_bags() -> None
     client.set_trade_skill(
         ready=True,
         skill_line_id=171,
-        recipes=[11, 12],
+        recipe_ids=[11, 12],
         recipe_infos={11: {"learned": True}, 12: {"learned": False}},
         cooldowns={11: {"startTime": 1, "duration": 2}},
     )
@@ -130,7 +130,7 @@ def test_account_triggers_update_only_their_sections_and_debounce_bags() -> None
     client.set_trade_skill(
         ready=True,
         skill_line_id=164,
-        recipes=[21],
+        recipe_ids=[21],
         recipe_infos={21: {"learned": True}},
         cooldowns={21: {"startTime": 3, "duration": 4}},
     )
@@ -142,7 +142,7 @@ def test_account_triggers_update_only_their_sections_and_debounce_bags() -> None
     client.set_trade_skill(
         ready=True,
         skill_line_id=171,
-        recipes=[11],
+        recipe_ids=[11],
         recipe_infos={11: {"learned": True}},
         cooldowns={11: {"startTime": 10, "duration": 0}},
     )
@@ -196,7 +196,7 @@ def test_account_native_exceptions_are_section_errors_and_recover_cleanly() -> N
     client.set_trade_skill(
         ready=True,
         skill_line_id=171,
-        recipes=[11],
+        recipe_ids=[11],
         recipe_infos={11: {"learned": True}},
         cooldowns={11: {"startTime": 4, "duration": 5}},
     )

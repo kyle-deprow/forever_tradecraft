@@ -65,18 +65,6 @@ if harness.accountFakes then
     if not info then return nil end
     return info.name, nil, info.level, info.maxLevel, nil, nil, info.skillLineID
   end
-  function GetInboxNumItems() return harness.mail and #harness.mail or 0 end
-  function GetInboxHeaderInfo(index)
-    local message = harness.mail and harness.mail[index]
-    if not message then return nil end
-    return nil, nil, message.sender, message.subject, message.money, 0, message.daysLeft, message.hasItem
-  end
-  function GetInboxItem(index, attachment)
-    local message = harness.mail and harness.mail[index]
-    local item = message and message.items and message.items[attachment]
-    if not item then return nil end
-    return nil, item.itemID, nil, item.count, item.quality or 1, true
-  end
 end
 
 -- Native movement telemetry APIs.  These return the same value shapes the
@@ -333,36 +321,10 @@ elseif tradeNamespaces.C_Timer ~= nil then
 else
   C_Timer = { After = function(delay, fn) table.insert(_timers, { at = _now + delay, fn = fn }) end }
 end
-if harness.accountFakes and tradeNamespaces.C_Container == nil then
-  C_Container = {
-    GetContainerNumSlots = function(bag)
-      local value = harness.bags and harness.bags[bag]
-      return value and value.numSlots or 0
-    end,
-    GetContainerNumFreeSlots = function(bag)
-      local value = harness.bags and harness.bags[bag]
-      return value and value.freeSlots or 0
-    end,
-    GetContainerItemInfo = function(bag, slot)
-      local value = harness.bags and harness.bags[bag]
-      return value and value.slots and value.slots[slot] or nil
-    end,
-  }
-end
-if harness.accountFakes and tradeNamespaces.C_TradeSkillUI == nil then
-  C_TradeSkillUI = {
-    IsTradeSkillReady = function() return harness.tradeReady end,
-    GetBaseProfessionInfo = function() return harness.tradeBase end,
-    GetAllRecipeIDs = function() return harness.recipeIDs or {} end,
-    GetRecipeInfo = function(recipeID)
-      return harness.recipeInfos and harness.recipeInfos[recipeID]
-    end,
-  }
-end
 if harness.accountFakes and tradeNamespaces.C_Spell == nil then
   C_Spell = {
     GetSpellCooldown = function(spellID)
-      return harness.cooldowns and harness.cooldowns[spellID]
+      return harness.tradeSkill and harness.tradeSkill.cooldowns and harness.tradeSkill.cooldowns[spellID]
     end,
   }
 end
@@ -784,33 +746,56 @@ local function addBagItems(itemID, quantity)
   if harness.autoPostconditions == false then return end
   harness.bags = harness.bags or {}
   local bag = harness.bags[0]
-  if not bag then bag = {}; harness.bags[0] = bag end
-  for slot = 1, #bag do
-    local info = bag[slot]
+  if not bag then
+    bag = { numSlots = 0, freeSlots = 0, slots = {} }
+    harness.bags[0] = bag
+  end
+  bag.slots = bag.slots or {}
+  local emptySlot
+  for slot = 1, (bag.numSlots or 0) do
+    local info = bag.slots[slot]
     if info and info.itemID == itemID then
       info.stackCount = (info.stackCount or info.quantity or info.count or 0) + quantity
       return
     end
+    if not info and not emptySlot then emptySlot = slot end
   end
-  bag[#bag + 1] = { itemID = itemID, stackCount = quantity }
+  local slot = emptySlot
+  if not slot then
+    slot = (bag.numSlots or 0) + 1
+    bag.numSlots = slot
+  end
+  bag.slots[slot] = { itemID = itemID, stackCount = quantity }
+  if bag.freeSlots and bag.freeSlots > 0 then bag.freeSlots = bag.freeSlots - 1 end
 end
 
 if tradeNamespaces.C_Container == nil then
   C_Container = {
     GetContainerNumSlots = function(bag)
-      local slots = harness.bags and harness.bags[bag]
-      return slots and #slots or 0
+      local value = harness.bags and harness.bags[bag]
+      return value and value.numSlots or 0
+    end,
+    GetContainerNumFreeSlots = function(bag)
+      local value = harness.bags and harness.bags[bag]
+      return value and value.freeSlots or 0
     end,
     GetContainerItemInfo = function(bag, slot)
-      local slots = harness.bags and harness.bags[bag]
-      return slots and slots[slot] or nil
+      local value = harness.bags and harness.bags[bag]
+      return value and value.slots and value.slots[slot] or nil
     end,
     UseContainerItem = function(...)
       local bag, slot = ...
       recordProtectedCall("C_Container.UseContainerItem", ...)
       harness.usedContainerItems = harness.usedContainerItems or {}
       table.insert(harness.usedContainerItems, { bag = bag, slot = slot })
-      if harness.autoPostconditions ~= false and harness.bags and harness.bags[bag] then harness.bags[bag][slot] = {} end
+      if harness.autoPostconditions ~= false and harness.bags and harness.bags[bag] then
+        local value = harness.bags[bag]
+        local previous = value.slots and value.slots[slot]
+        if previous and (value.freeSlots or 0) < (value.numSlots or 0) then
+          value.freeSlots = (value.freeSlots or 0) + 1
+        end
+        value.slots[slot] = {}
+      end
     end,
   }
 end
@@ -835,19 +820,26 @@ if tradeGlobals.BuyMerchantItem == nil then
 end
 
 if tradeGlobals.GetInboxNumItems == nil then
-  function GetInboxNumItems()
-    if harness.mailItemsConfigured then return harness.mailItems and #harness.mailItems or 0 end
-    return harness.mailCount or 0
-  end
+  function GetInboxNumItems() return harness.mail and #harness.mail or 0 end
 end
 if tradeGlobals.GetInboxHeaderInfo == nil then
   function GetInboxHeaderInfo(index)
-    if not harness.mailItemsConfigured then return nil end
-    local item = harness.mailItems and harness.mailItems[index]
+    local message = harness.mail and harness.mail[index]
+    if not message then return nil end
+    if message.headerAvailable == false then return nil end
+    local items = message.items or {}
+    local hasItem = message.hasItem
+    if hasItem == nil then hasItem = #items > 0 end
+    return nil, nil, message.sender, message.subject, message.money or 0, message.codAmount or 0,
+      message.daysLeft or 0, hasItem == true
+  end
+end
+if tradeGlobals.GetInboxItem == nil then
+  function GetInboxItem(index, attachment)
+    local message = harness.mail and harness.mail[index]
+    local item = message and message.items and message.items[attachment]
     if not item then return nil end
-    local money = item.money or 0
-    local hasItem = item.hasItem == true or (item.itemCount or 0) > 0
-    return nil, nil, item.sender or "Sender", item.subject or "Subject", money, item.codAmount or 0, 0, hasItem
+    return nil, item.itemID, nil, item.count or item.stackCount or item.itemCount, item.quality or 1, true
   end
 end
 if tradeGlobals.AutoLootMailItem == nil then
@@ -857,11 +849,15 @@ if tradeGlobals.AutoLootMailItem == nil then
     harness.lootedMail = harness.lootedMail or {}
     table.insert(harness.lootedMail, index)
     if harness.autoPostconditions ~= false then
-      if harness.mailItemsConfigured and harness.mailItems and harness.mailItems[index] then
-        local item = harness.mailItems[index]
-        item.money, item.itemCount, item.hasItem, item.empty = 0, 0, false, true
+      local message = harness.mail and harness.mail[index]
+      if message and message.removeOnLoot then
+        table.remove(harness.mail, index)
+      elseif message then
+        message.money, message.hasItem, message.items, message.empty = 0, false, {}, true
       else
-        harness.mailCount = math.max(0, (harness.mailCount or 0) - 1)
+        -- A count-only fixture is represented by synthetic messages, so this
+        -- branch is only reachable when a native implementation mutates the
+        -- inbox behind the harness.
       end
     end
   end
@@ -869,14 +865,23 @@ end
 
 if tradeNamespaces.C_TradeSkillUI == nil then
   C_TradeSkillUI = {
-    IsTradeSkillReady = function() return harness.tradeSkillReady == true end,
-    GetRecipeInfo = function(recipeID) return harness.recipes and harness.recipes[recipeID] or nil end,
-    GetCraftableCount = function(recipeID) return harness.craftableCounts and harness.craftableCounts[recipeID] or 0 end,
+    IsTradeSkillReady = function() return harness.tradeSkill and harness.tradeSkill.ready == true end,
+    GetBaseProfessionInfo = function()
+      return harness.tradeSkill and { skillLineID = harness.tradeSkill.skillLineID } or nil
+    end,
+    GetAllRecipeIDs = function() return harness.tradeSkill and harness.tradeSkill.recipeIDs or {} end,
+    GetRecipeInfo = function(recipeID)
+      return harness.tradeSkill and harness.tradeSkill.recipeInfos and harness.tradeSkill.recipeInfos[recipeID] or nil
+    end,
+    GetCraftableCount = function(recipeID)
+      return harness.tradeSkill and harness.tradeSkill.craftableCounts and
+        harness.tradeSkill.craftableCounts[recipeID] or 0
+    end,
     CraftRecipe = function(...)
       local recipeID, times = ...
       recordProtectedCall("C_TradeSkillUI.CraftRecipe", ...)
       harness.craftedRecipe = { recipeID = recipeID, times = times }
-      local recipe = harness.recipes and harness.recipes[recipeID]
+      local recipe = harness.tradeSkill and harness.tradeSkill.recipeInfos and harness.tradeSkill.recipeInfos[recipeID]
       addBagItems(recipe and (recipe.resultItemID or recipe.itemID) or recipeID, times)
     end,
   }
@@ -997,13 +1002,8 @@ class WowClient:
     trade_globals: dict[str, bool] = field(default_factory=dict)
     trade_frames: dict[str, bool] = field(default_factory=dict)
     queue: dict | bool | None = None
-    bags: dict[int, list[dict]] = field(default_factory=dict)
+    bags: dict[int, dict] = field(default_factory=dict)
     merchant_items: list[dict] = field(default_factory=list)
-    mail_count: int = 0
-    mail_items: list[dict] = field(default_factory=list)
-    trade_skill_ready: bool = False
-    recipes: dict[int, dict] = field(default_factory=dict)
-    craftable_counts: dict[int, int] = field(default_factory=dict)
     sell_item_valid: bool = True
     cancel_cost: int = 0
     auto_postconditions: bool = True
@@ -1043,7 +1043,6 @@ class WowClient:
         }
     )
     money: int = 12345
-    bags: dict[int, dict] = field(default_factory=dict)
     professions: list[dict] = field(default_factory=list)
     trade_ready: bool = False
     trade_skill_line_id: int = 171
@@ -1088,12 +1087,6 @@ class WowClient:
                 "protectedCallRecords": self.lua.table(),
                 "bags": self._to_lua(self.bags),
                 "merchantItems": self._to_lua(self.merchant_items),
-                "mailCount": self.mail_count,
-                "mailItems": self._to_lua(self.mail_items),
-                "mailItemsConfigured": bool(self.mail_items),
-                "tradeSkillReady": self.trade_skill_ready,
-                "recipes": self._to_lua(self.recipes),
-                "craftableCounts": self._to_lua(self.craftable_counts),
                 "sellItemValid": self.sell_item_valid,
                 "cancelCost": self.cancel_cost,
                 "autoPostconditions": self.auto_postconditions,
@@ -1120,18 +1113,22 @@ class WowClient:
                 "deadOrGhost": self.dead_or_ghost,
                 "bindings": self.lua.table(),
                 "money": self.money,
-                "bags": self._to_lua(self.bags),
                 "professionIndices": self._to_lua(
                     {index: index for index in range(1, len(self.professions) + 1)}
                 ),
                 "professions": self._to_lua(
                     {index: profession for index, profession in enumerate(self.professions, start=1)}
                 ),
-                "tradeReady": self.trade_ready,
-                "tradeBase": self._to_lua({"skillLineID": self.trade_skill_line_id}),
-                "recipeIDs": self._to_lua(self.recipe_ids),
-                "recipeInfos": self._to_lua(self.recipe_infos),
-                "cooldowns": self._to_lua(self.cooldowns),
+                "tradeSkill": self._to_lua(
+                    {
+                        "ready": self.trade_ready,
+                        "skillLineID": self.trade_skill_line_id,
+                        "recipeIDs": self.recipe_ids,
+                        "recipeInfos": self.recipe_infos,
+                        "cooldowns": self.cooldowns,
+                        "craftableCounts": {},
+                    }
+                ),
                 "mailOpen": self.mail_open,
                 "mail": self._to_lua(self.mail),
                 "accountFakes": self.account_fakes,
@@ -1272,15 +1269,18 @@ class WowClient:
         *,
         ready: bool,
         skill_line_id: int = 171,
-        recipes: list[int] | None = None,
+        recipe_ids: list[int] | None = None,
         recipe_infos: dict[int, dict] | None = None,
         cooldowns: dict[int, dict] | None = None,
+        craftable_counts: dict[int, int] | None = None,
     ) -> None:
-        self.state.tradeReady = ready
-        self.state.tradeBase = self._to_lua({"skillLineID": skill_line_id})
-        self.state.recipeIDs = self._to_lua(recipes or [])
-        self.state.recipeInfos = self._to_lua(recipe_infos or {})
-        self.state.cooldowns = self._to_lua(cooldowns or {})
+        trade = self.state.tradeSkill
+        trade.ready = ready
+        trade.skillLineID = skill_line_id
+        trade.recipeIDs = self._to_lua(recipe_ids or [])
+        trade.recipeInfos = self._to_lua(recipe_infos or {})
+        trade.cooldowns = self._to_lua(cooldowns or {})
+        trade.craftableCounts = self._to_lua(craftable_counts or {})
 
     def set_mail(self, *, open: bool, messages: list[dict] | None = None) -> None:
         self.state.mailOpen = open
@@ -1433,37 +1433,43 @@ class WowClient:
         else:
             button.Click(button)
 
-    def set_bags(self, bags: dict[int, list[dict]]) -> None:
-        self.state.bags = self._to_lua(bags)
-
     def set_merchant_items(self, items: list[dict]) -> None:
         self.state.merchantItems = self._to_lua(items)
 
     def set_mail_count(self, count: int) -> None:
-        self.state.mailCount = count
+        self.state.mail = self._to_lua(
+            [
+                {
+                    "money": 0,
+                    "daysLeft": 0,
+                    "hasItem": False,
+                    "items": [],
+                    "headerAvailable": False,
+                    "removeOnLoot": True,
+                }
+                for _ in range(count)
+            ]
+        )
 
     def set_mail_items(self, items: list[dict]) -> None:
-        self.state.mailItems = self._to_lua(items)
-        self.state.mailItemsConfigured = bool(items)
+        self.state.mail = self._to_lua(
+            [
+                {
+                    **item,
+                    "daysLeft": item.get("daysLeft", 0),
+                    "hasItem": item.get("hasItem", (item.get("itemCount", 0) or 0) > 0),
+                    "items": item.get("items", []),
+                    "removeOnLoot": False,
+                }
+                for item in items
+            ]
+        )
 
     def set_auto_postconditions(self, enabled: bool) -> None:
         self.state.autoPostconditions = enabled
 
     def set_cancel_cost(self, cost: int) -> None:
         self.state.cancelCost = cost
-
-    def set_trade_skill(
-        self,
-        *,
-        ready: bool,
-        recipes: dict[int, dict] | None = None,
-        craftable_counts: dict[int, int] | None = None,
-    ) -> None:
-        self.state.tradeSkillReady = ready
-        if recipes is not None:
-            self.state.recipes = self._to_lua(recipes)
-        if craftable_counts is not None:
-            self.state.craftableCounts = self._to_lua(craftable_counts)
 
     def set_frame_open(self, frame: str, opened: bool = True) -> None:
         events = {
