@@ -13,15 +13,21 @@ changes it alone. Money is integer copper; items are numeric item IDs (never nam
   additionally refuses a click that arrives less than 1.0 s after the previous executor click (`too_fast`).
 - Any mismatch fails closed: the action is refused with a reason code and the executor stops at it until skipped or
   the queue is replaced. A `too_fast` click is a refusal like any other (it stops the action).
+- A refusal while the action is **in flight** (after its first protected call, before a terminal result) records a
+  nonterminal `blocked` event and **latches** the action: no further protected call for it is allowed, except the single
+  `CancelCommoditiesPurchase` click of a started commodity purchase (phase `must_cancel`). A latched action ends only by a
+  terminal result (e.g. the cancel completing → `refused`) or by replacing the queue.
 - Both arms are re-checked immediately before **every** protected call, including later clicks of a multi-click action
   (confirmation, further vendor stacks, further mail messages). Disarming mid-action stops it.
 - Calls whose protection status is unknown are treated as protected: they get their own click.
 - AH actions are refused (`scanner_active`) while a Crowley sweep is in progress; if the scanner's state cannot be read,
   they are refused as well.
 - `/crowley skip` is refused while an action is in flight (between a started call and its terminal result).
-- After a reload, results already persisted for the same `queueId` are reconciled before anything runs: a seq with a
-  terminal `succeeded` result is not repeated; any seq whose last result is `started` blocks the whole queue
-  (`ambiguous_history`) until it is replaced; `dry_run` results do not count as completed.
+- After a reload, results already persisted for the same `queueId` are reconciled **across all seqs** before anything runs:
+  a seq that has any `started` result with no later terminal result for that seq (`succeeded`, `failed`, `refused`,
+  `skipped`; `blocked` events are not terminal) is ambiguous, and any ambiguous seq anywhere in the queue blocks the whole
+  queue (`ambiguous_history`) until it is replaced; a seq with a terminal `succeeded` is not repeated; `dry_run` results do
+  not count as completed.
 
 ## Queue file
 The companion writes `Interface/AddOns/Crowley_Data/Queue.lua`, loaded by `Crowley_Data.toc` after `Data.lua`,
@@ -70,7 +76,7 @@ behaviour is not). Every assumption is confirmed live in dry run first, then one
 
 ## Results
 The addon appends to `CrowleyDB.executions[queueId] = { queueId, house, character, results = { ... } }`, one result per
-attempted action: `{ seq, kind, status, at, detail }` with `status` ∈ {`dry_run`, `started`, `succeeded`, `failed`,
-`refused`, `skipped`} and `detail` holding observed values (unitPrice/totalPrice for buys, deposit for posts, cancel cost,
+attempted action: `{ seq, kind, status, at, detail }` with `status` ∈ {`dry_run`, `started`, `blocked`, `succeeded`,
+`failed`, `refused`, `skipped`} (`blocked` is a nonterminal event with a `reason`) and `detail` holding observed values (unitPrice/totalPrice for buys, deposit for posts, cancel cost,
 bag/slot used, merchant index, error event text). The companion uploads each queue's execution record once it changes;
 the server stores it and reconciles it against the queue.
