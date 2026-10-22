@@ -2566,6 +2566,107 @@ def test_probe_records_absent_optional_namespaces_as_false():
     assert probe["namespaces"]["C_GameRules"] is False
 
 
+def test_probe_records_trade_api_surface_without_calling_trade_apis():
+    namespace_functions = {
+        "C_Container": ["GetContainerItemInfo", "UseContainerItem"],
+        "C_TradeSkillUI": ["GetRecipeInfo"],
+        "C_Spell": [],
+        "C_Mail": False,
+        "C_MerchantFrame": ["GetBuybackItemInfo"],
+        "C_Bank": False,
+        "C_PlayerInfo": ["GetPlayerMythicPlusRatingSummary"],
+        "C_CurrencyInfo": [],
+        "C_Timer": ["After"],
+        "C_SpellBook": False,
+        "C_Professions": ["GetProfessionInfo"],
+    }
+    trade_global_names = [
+        "GetMoney",
+        "GetCoinTextureString",
+        "GetContainerNumSlots",
+        "GetContainerItemInfo",
+        "GetContainerItemLink",
+        "UseContainerItem",
+        "PickupContainerItem",
+        "GetInboxNumItems",
+        "GetInboxHeaderInfo",
+        "GetInboxItem",
+        "GetInboxItemLink",
+        "TakeInboxItem",
+        "TakeInboxMoney",
+        "AutoLootMailItem",
+        "CheckInbox",
+        "GetNumSkillLines",
+        "GetSkillLineInfo",
+        "GetProfessions",
+        "GetProfessionInfo",
+        "GetTradeSkillLine",
+        "GetNumTradeSkills",
+        "GetTradeSkillInfo",
+        "GetTradeSkillNumReagents",
+        "GetTradeSkillReagentInfo",
+        "GetTradeSkillCooldown",
+        "DoTradeSkill",
+        "CloseTradeSkill",
+        "GetSpellCooldown",
+        "GetMerchantNumItems",
+        "GetMerchantItemInfo",
+        "GetMerchantItemID",
+        "BuyMerchantItem",
+        "CanMerchantRepair",
+        "GetNumTrainerServices",
+        "GetTrainerServiceInfo",
+        "GetTrainerServiceSkillReq",
+        "GetTrainerServiceCost",
+        "BuyTrainerService",
+        "IsUsableSpell",
+        "InCombatLockdown",
+    ]
+    trade_globals = {
+        name: name in {"GetMoney", "GetContainerItemInfo", "BuyMerchantItem"} for name in trade_global_names
+    }
+    frame_names = [
+        "AuctionHouseFrame",
+        "MerchantFrame",
+        "MailFrame",
+        "TradeSkillFrame",
+        "ClassTrainerFrame",
+        "ProfessionsFrame",
+    ]
+    trade_frames = {name: name in {"AuctionHouseFrame", "MailFrame"} for name in frame_names}
+
+    client = WowClient(
+        trade_namespaces=namespace_functions,
+        trade_globals=trade_globals,
+        trade_frames=trade_frames,
+    )
+    client.login()
+    calls_before_probe = client.trade_calls
+    probe = client.probe()
+
+    assert set(probe["namespaces"]) >= {
+        "C_Container",
+        "C_TradeSkillUI",
+        "C_Spell",
+        "C_Mail",
+        "C_MerchantFrame",
+        "C_Bank",
+        "C_PlayerInfo",
+        "C_CurrencyInfo",
+        "C_Timer",
+        "C_SpellBook",
+        "C_Professions",
+    }
+    for name, functions in namespace_functions.items():
+        assert probe["namespaces"][name] == (sorted(functions) if functions is not False else False)
+    assert probe["tradeGlobals"] == trade_globals
+    assert probe["tradeFrames"] == trade_frames
+    assert probe["region"] == 1
+    assert probe["realmName"] == "Normal"
+    assert probe["motion"]["apiPresence"]["GetBindingKey"] is True
+    assert client.trade_calls == calls_before_probe
+
+
 def test_faction_override_bypasses_unsupported_native_faction_and_full_sweep_is_strict():
     client = WowClient(current_region=1, realm="Normal", faction="Unrecognized")
     raw = run_sweep(client, settings={"faction": "alliance"})

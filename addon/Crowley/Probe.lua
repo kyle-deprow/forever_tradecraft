@@ -8,6 +8,69 @@ local NAMESPACES = {
   "C_GameRules",
   "C_Item",
   "C_RealmInfo",
+  "C_Container",
+  "C_TradeSkillUI",
+  "C_Spell",
+  "C_Mail",
+  "C_MerchantFrame",
+  "C_Bank",
+  "C_PlayerInfo",
+  "C_CurrencyInfo",
+  "C_Timer",
+  "C_SpellBook",
+  "C_Professions",
+}
+
+local TRADE_GLOBALS = {
+  "GetMoney",
+  "GetCoinTextureString",
+  "GetContainerNumSlots",
+  "GetContainerItemInfo",
+  "GetContainerItemLink",
+  "UseContainerItem",
+  "PickupContainerItem",
+  "GetInboxNumItems",
+  "GetInboxHeaderInfo",
+  "GetInboxItem",
+  "GetInboxItemLink",
+  "TakeInboxItem",
+  "TakeInboxMoney",
+  "AutoLootMailItem",
+  "CheckInbox",
+  "GetNumSkillLines",
+  "GetSkillLineInfo",
+  "GetProfessions",
+  "GetProfessionInfo",
+  "GetTradeSkillLine",
+  "GetNumTradeSkills",
+  "GetTradeSkillInfo",
+  "GetTradeSkillNumReagents",
+  "GetTradeSkillReagentInfo",
+  "GetTradeSkillCooldown",
+  "DoTradeSkill",
+  "CloseTradeSkill",
+  "GetSpellCooldown",
+  "GetMerchantNumItems",
+  "GetMerchantItemInfo",
+  "GetMerchantItemID",
+  "BuyMerchantItem",
+  "CanMerchantRepair",
+  "GetNumTrainerServices",
+  "GetTrainerServiceInfo",
+  "GetTrainerServiceSkillReq",
+  "GetTrainerServiceCost",
+  "BuyTrainerService",
+  "IsUsableSpell",
+  "InCombatLockdown",
+}
+
+local TRADE_FRAMES = {
+  "AuctionHouseFrame",
+  "MerchantFrame",
+  "MailFrame",
+  "TradeSkillFrame",
+  "ClassTrainerFrame",
+  "ProfessionsFrame",
 }
 
 local MOTION_APIS = {
@@ -51,6 +114,8 @@ function ns.Probe()
     regionName = regionName,
     realmName = realmName,
     namespaces = {},
+    tradeGlobals = {},
+    tradeFrames = {},
     -- Presence is diagnostic only.  The Agent samples and validates the
     -- actual native values; Probe must not invent values or alter the scan
     -- Context.Snapshot envelope.
@@ -70,6 +135,12 @@ function ns.Probe()
 
   for _, name in ipairs(NAMESPACES) do
     result.namespaces[name] = _G[name] and functionNames(_G[name]) or false
+  end
+  for _, name in ipairs(TRADE_GLOBALS) do
+    result.tradeGlobals[name] = type(_G[name]) == "function"
+  end
+  for _, name in ipairs(TRADE_FRAMES) do
+    result.tradeFrames[name] = _G[name] ~= nil
   end
   for _, name in ipairs(MOTION_APIS) do
     result.motion.apiPresence[name] = type(_G[name]) == "function"

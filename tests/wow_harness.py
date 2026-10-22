@@ -254,7 +254,43 @@ function hooksecurefunc(target, name, callback)
   end
 end
 
-C_Timer = { After = function(delay, fn) table.insert(_timers, { at = _now + delay, fn = fn }) end }
+local function recordTradeCall(name)
+  harness.tradeCalls = harness.tradeCalls or {}
+  table.insert(harness.tradeCalls, name)
+end
+
+local function installTradeNamespace(name, functions)
+  _G[name] = {}
+  for _, functionName in ipairs(functions) do
+    _G[name][functionName] = function(...)
+      recordTradeCall(name .. "." .. functionName)
+    end
+  end
+end
+
+local tradeNamespaces = harness.tradeNamespaces or {}
+if tradeNamespaces.C_Timer == false then
+  C_Timer = nil
+elseif tradeNamespaces.C_Timer ~= nil then
+  installTradeNamespace("C_Timer", tradeNamespaces.C_Timer)
+else
+  C_Timer = { After = function(delay, fn) table.insert(_timers, { at = _now + delay, fn = fn }) end }
+end
+for name, functions in pairs(tradeNamespaces) do
+  if name ~= "C_Timer" and functions ~= false then installTradeNamespace(name, functions) end
+end
+
+for name, present in pairs(harness.tradeGlobals or {}) do
+  if present then
+    _G[name] = function(...)
+      recordTradeCall(name)
+    end
+  end
+end
+
+for name, present in pairs(harness.tradeFrames or {}) do
+  if present then _G[name] = {} end
+end
 
 function _nextTimerAt()
   local earliest
@@ -721,6 +757,9 @@ class WowClient:
     current_region_name: str | None = "US"
     realm_info: bool = False
     game_rules: bool = True
+    trade_namespaces: dict[str, list[str] | bool] = field(default_factory=dict)
+    trade_globals: dict[str, bool] = field(default_factory=dict)
+    trade_frames: dict[str, bool] = field(default_factory=dict)
     presentation_width: int = 1920
     presentation_height: int = 1080
     root_ui_scale: float = 1.0
@@ -780,6 +819,10 @@ class WowClient:
                 "regionName": self.current_region_name,
                 "realmInfo": self.realm_info,
                 "gameRules": self.game_rules,
+                "tradeNamespaces": self._to_lua(self.trade_namespaces),
+                "tradeGlobals": self._to_lua(self.trade_globals),
+                "tradeFrames": self._to_lua(self.trade_frames),
+                "tradeCalls": self.lua.table(),
                 "rootWidth": self.root_width,
                 "rootHeight": self.root_height,
                 "rootEffectiveScale": self.root_effective_scale,
@@ -1038,6 +1081,10 @@ class WowClient:
     @property
     def ignored_commodity_sell_queries(self) -> int:
         return self.state.ignoredCommoditySellQueries
+
+    @property
+    def trade_calls(self) -> list[str]:
+        return list(self.state.tradeCalls.values())
 
     def _json_table(self, value) -> dict | None:
         if value is None:
