@@ -143,3 +143,13 @@ takes more than 600 seconds prints a warning.
 
 The supplied `deploy/crowley-paper-trading.service` and `.timer` run this step every fifteen minutes. They are
 not installed automatically.
+
+## Live execution path
+
+Strategies never touch the game directly. A queue (house, character, expiry, at most 50 actions) is published to the
+server (`python -m crowley.trading queue publish|from-paper`), the companion writes it to `Crowley_Data/Queue.lua`, and
+the addon executor performs one protected call per human click under [the executor contract](EXECUTOR_CONTRACT.md).
+Results land in `CrowleyDB.executions`, are uploaded append-only, and `queue reconcile` checks them. Queues are dry runs
+unless armed twice: an armed queue published with its full queueId as confirmation (`queue preview --armed --out` then
+`queue publish --armed --confirm-real-trades <queueId>`), and `/crowley arm <queueId>` typed in the current game
+session. Paper-derived queues are always unarmed. The step-by-step test plan is [LIVE_TRADING_TEST.md](LIVE_TRADING_TEST.md).
