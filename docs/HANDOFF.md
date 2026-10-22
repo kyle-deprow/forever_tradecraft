@@ -1,20 +1,96 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 04:43 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 14:13 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**Latest user instruction:** Game is idle and the user is AWAY. Keep Luna's
-assisted collection running until the user returns. Finish offline code work;
-do not start a live calibration window or timed human prompt during this absence.
+**Latest user instruction:** The user returned and requested calibration after the
+next scan. That supersedes the previous AWAY hold. Luna remains the sole GUI
+owner; root must not capture or input concurrently. The attempted human stage
+has not reached readiness. Restore assisted collection while diagnosing its
+concrete pre-human failure; never ask for human events before actual readiness.
+
+Scan274 completed13:38:05 UTC: UID`beta-normal-alliance-1792675804-Arthur-7101`,
+428/428 attempted, zero failures,1471 rows. Read-only DB confirms428 observations/
+1471 rows received13:38:37.077966 UTC (32.08s after finish). Luna preserved original
+SavedVariables and verified exact loaded ACK/pending0/AHclosed. Parent independently
+decoded the retained screenshot and matched the DB counts; private proof:
+`assisted-collection-luna-20261021/832-scan274-postprocess/scan274-save-upload-ack-20261022T133820858870Z/parent-scan274-loaded-ack-verification.json`.
+
+Fresh Sol compatibility review accepted MAIN82857ee. Mandatory control-preflight
+at PAUSED72 succeeded and recovered ordinarily. Resume73/full native measurement
+succeeded13:44:07 UTC, native=true/input=false. Construction growth14,422,016B
+met128MiB target; update growth57,204,736B exceeded16MiB target. This is a recorded
+resource-target failure, not a waived calibration guard. Pause74/canonical recovery
+succeeded; journal `nativeConstruction` key was ABSENT before input admission.
+
+Resume75/input-calibrate failed before readiness at13:45:47 UTC:
+`calibration pointer origin is outside the owned target`, stage=synthetic,
+readinessPublished=false. User input was never requested. Bounded private diagnostic:
+`~/.local/state/crowley/input-calibration-diagnostics/latest-pre-human-failure.json`
+(SHA256`ddd9cfe7420cd81cc678e812810214b1a0118629ce5bae0585b7a3a3dc0391f1`).
+It records target geometry[1440,71,480,240] and certified owned ancestry, but lacks
+the actual rejected pointer-query tuple; do not invent it. Immutable copy:
+`calibration-resume-20261021/input75-origin-failure/pre-human-failure.json`.
+The exact historical failing conjunct remains unknown.
+
+**Reviewed origin repair installed; one fresh retry authorized.** The producer
+incorrectly required an exact top-level hit XID while its ticket/seal permits
+the certified target, descendants and managed frame. It now uses the ticket's
+exact set while retaining measured client bounds, endpoint equality, nonzero
+motion, ownership/focus/Guardian/cadence. Failure evidence retains actual queried
+origin/post coordinates, hit XID and each predicate through daemon JSON persistence.
+No GTK placement assumption was changed. Luna178 tests passed before a test-only
+persistence correction; corrected diagnostics9 passed. Parent independently
+reproduced8 producer regressions,9 diagnostics and1 real producer/Guardian test;
+installed MAIN8+9 tests also passed. Ruff/format/diff checks passed. Sol READY,
+no outstanding findings, reviewed diffSHA
+`45532ff721eedf40212b813417e4ba7eba00a7df2c6a575ef8f9d9086ed07bf8`.
+Private review/install/restart proofs:
+`calibration-resume-20261021/input-pointer-origin-implementation/`.
+
+At the safe boundary no scan275 had started: AHclosed/noactive/pending0,
+ordinary native phase; temporary CTRL-F12 was set session-only, never saved.
+Root promoted the four exact reviewed files and restarted the service once;
+PID2931936, fresh public PAUSED77/nativefalse/inputfalse/operationidle,
+checkpoint keyABSENT verified14:02:03 UTC. User freshly confirmed connected and
+available. GUI owner is authorized to repeat the full guarded preflight/native/
+recovery/input sequence using actual generations, immediately alert root at
+matching readiness plus visible GTK. Never fabricate human input. On failure
+preserve the new diagnostic, restore ordinary collection, and report the exact
+new tuple/predicate before further repair. Do not blindly repeat.
+
+**Retry result: native78 PASS, input80 refused on proven geometry.** Mandatory
+preflight77 and full native78 passed; canonical pause79/recovery79 restored
+ordinary state/keyABSENT. Input80 failed before readiness14:10:08 UTC. Actual
+origin(1809,43), hitXID73400323 was certified, but GTK client was
+[1440,71,480,240]: `certifiedHitWindow=true`, `insideTargetGeometry=false`,
+`nonzeroDisplacement=true`. The origin repair worked; the pointer sat above
+the client area and the bounds guard correctly refused. No human prompt occurred.
+Immutable diagnostic and independent parent predicate verification:
+`calibration-retry-20261022-1402/input80-origin-failure/`.
+
+Public pause returned PAUSED81/native=true/input=false, checkpoint keyABSENT;
+fresh14:11:46 scene was ordinary, AHclosed/noactive/pending0/speed0 and GTKgone.
+No scan275 began. GUI owner holds safely during bounded owned-target placement
+repair/review under `../.archive/PLAN-input-target-placement-20261022.md`.
+Luna owns offline implementation; Sol reviews. No further live retry is approved
+until that review passes. Current user is connected/available; resume collection
+if the user leaves or repair is delayed. Input and autonomous qualification remain
+pending. Native78 resource update growth60,243,968B also exceeded16MiB target.
+
+The following scan237–241 details describe the earlier collection restart;
+Luna continued assisted scans overnight through274. These are not autonomous
+qualification: three new unattended900s cycles remain unproven.
 
 The user resumed game operation at 02:46 UTC on 2026-10-22 and confirmed RDP
 availability then. `/root/luna_assisted_scanner` was woken with a follow-up task
 and verified running. It is the sole GUI owner; root must not capture or input
-concurrently. Reconfirm human availability before any timed calibration prompt.
+concurrently. The user has now returned for calibration; reconfirm availability
+if the repair outlasts this session before starting a new timed human prompt.
 
 **Collection continues under Luna supervision.** Scan241 began04:41:18 UTC
 (startedAt1792644078),nextdue04:56:18 UTC (1792644978),pending0 and prior exact
@@ -84,7 +160,7 @@ The addon symlinks to MAIN's `addon/Crowley`. Current client is PID1532084,
 start44691603, Arthur/Ironforge, build70450/version1.60.1/interface16001. Re-resolve
 identity before input; do not reuse old PID2792826 or earlier fingerprint evidence.
 
-**Gesture repair installed; live calibration held for user return.** Shared
+**Gesture repair installed; current live retry described above.** Shared
 seeded curved Fitts-timed movement, submovements, endpoint scatter/receipts and a
 fixed crash-safe >=1.0s click gate now cover native bootstrap/parking and runtime
 X11 actions. Raw click branches refuse before input. Existing Guardian, one-use
@@ -92,10 +168,13 @@ anchors, five-second click evidence, ten-second constructor, owned cleanup and
 native103 protocol remain enforced. Rate timestamps are conservative post-click
 ACK times, not hardware-down timestamps.
 
-Luna implementation in `~/.cache/crowley/worktrees/native-human-click-20261022`
-passed final Sol code review and was promoted byte-for-byte. Final production SHA:
+Luna's original gesture implementation in
+`~/.cache/crowley/worktrees/native-human-click-20261022` passed final Sol code review
+and was promoted byte-for-byte. The origin repair above supersedes its driver
+and calibration pins. Current production SHA:
 
-- driver.py: `6520bf8bb37a1cba2db54275136684d9356482a66cc4174591e3c74cb7929a96`
+- driver.py: `35677b166b153f2349fb7abbce7c482d7537cad874cdae5b903abaa99b99a9a5`
+- calibration.py: `2d2577fb44b4d6c8b4c1d7b5f22669b05c6c0897b27a8424bd36f166d600ab8d`
 - pointer_execution.py: `a116142fcd04c319681c957df9891f83bcda126a9ee338047444d1b5da408b30`
 - native_calibration_operator.py: `807d7d80614a9410b372674abc311706bbfe3b5d907e1ecd8ed7df42136bad30`
 
@@ -113,11 +192,9 @@ Plan: `../.archive/PLAN-native-human-click-20261022.md`, including runtime test-
 isolation addendum. The prior provisional driver020950a4 approval is superseded.
 
 No live native attempt or human prompt was started during the user's absence.
-Native/input remain false and **zero autonomous cycles are qualified**. On return,
-coordinate after a completed scan, re-resolve identity/state/generation72 (or later),
-then run fresh native preflight, native100, public pause/checkpoint-dependent ordinary
-recovery and genuine owned-GTK input. Require actual matching input readiness and
-visible owned prompt before asking for human events. Final acceptance is three
+The user-return attempts and current generations are recorded above;
+**zero autonomous cycles are qualified**. Require actual matching input readiness
+and visible owned prompt before asking for human events. Final acceptance is three
 consecutive unattended900s full save/upload/exact loaded-ACK/reopen cycles.
 
 Shared data-agent coordination: `../.archive/trade-api-probe/LIVE-DRIVER-STATUS.md`.

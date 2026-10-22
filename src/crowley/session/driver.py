@@ -1742,6 +1742,9 @@ class X11Backend:
         # carried into the calibration seal; it is deliberately absent until
         # a complete, successful producer action has finished.
         self._last_synthetic_motion_query: tuple[Any, ...] | None = None
+        # Failure-only query context is copied into the private pre-human
+        # diagnostic.  It never qualifies calibration or grants input.
+        self._last_synthetic_pointer_diagnostic: dict[str, Any] | None = None
         self.last_region_receipt: TelemetryRegionReceipt | None = None
         self.last_region_attempt: dict[str, float | str | None] = {}
         self.resolver_kind = "reference-test"
@@ -4044,6 +4047,8 @@ class X11Backend:
     ) -> None:
         if calibration_ticket is None:
             raise DriverError("synthetic calibration requires an exact calibration ticket")
+        self._last_synthetic_motion_query = None
+        self._last_synthetic_pointer_diagnostic = None
         try:
             target_xid = int(window_id, 0)
         except (TypeError, ValueError) as exc:
@@ -4056,7 +4061,6 @@ class X11Backend:
         left, top, width, height = geometry
         if not (left <= x < left + width and top <= y < top + height):
             raise DriverError("calibration point is outside the measured owned target geometry")
-        self._last_synthetic_motion_query = None
         self._run(
             ["xdotool", "windowactivate", "--sync", window_id],
             calibration_ticket=calibration_ticket,
@@ -4068,11 +4072,25 @@ class X11Backend:
         # use a bootstrap warp to manufacture an origin for the proof.
         requested = (int(x), int(y))
         origin_x, origin_y, origin_window = self.pointer_position()
-        if origin_window != target_xid or not (
-            left <= origin_x < left + width and top <= origin_y < top + height
-        ):
+        origin_inside_geometry = left <= origin_x < left + width and top <= origin_y < top + height
+        origin_certified_window = calibration_ticket.contains(origin_window)
+        origin_nonzero_displacement = (origin_x, origin_y) != requested
+        pointer_diagnostic: dict[str, Any] = {
+            "producer": "X11Backend.synthetic_calibration",
+            "targetXid": target_xid,
+            "targetGeometry": [left, top, width, height],
+            "requested": [requested[0], requested[1]],
+            "origin": {"x": origin_x, "y": origin_y, "windowXid": origin_window},
+            "originPredicates": {
+                "certifiedHitWindow": origin_certified_window,
+                "insideTargetGeometry": origin_inside_geometry,
+                "nonzeroDisplacement": origin_nonzero_displacement,
+            },
+        }
+        self._last_synthetic_pointer_diagnostic = pointer_diagnostic
+        if not origin_certified_window or not origin_inside_geometry:
             raise DriverError("calibration pointer origin is outside the owned target")
-        if (origin_x, origin_y) == requested:
+        if not origin_nonzero_displacement:
             raise DriverError("calibration move must produce a nonzero measured displacement")
         self._calibration_focus_ticket = calibration_ticket
         self._run(
@@ -4085,7 +4103,16 @@ class X11Backend:
             calibration_ticket=calibration_ticket,
         )
         post_x, post_y, post_window = self.pointer_position()
-        if (post_x, post_y) != requested or post_window != target_xid:
+        post_matches_requested = (post_x, post_y) == requested
+        post_inside_geometry = left <= post_x < left + width and top <= post_y < top + height
+        post_certified_window = calibration_ticket.contains(post_window)
+        pointer_diagnostic["post"] = {"x": post_x, "y": post_y, "windowXid": post_window}
+        pointer_diagnostic["postPredicates"] = {
+            "matchesRequested": post_matches_requested,
+            "insideTargetGeometry": post_inside_geometry,
+            "certifiedHitWindow": post_certified_window,
+        }
+        if not post_matches_requested or not post_inside_geometry or not post_certified_window:
             raise DriverError("calibration pointer postcondition changed")
         self._last_synthetic_motion_query = (
             origin_x,

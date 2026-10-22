@@ -3237,6 +3237,17 @@ class InputCalibrationWorkflow:
             and observer_snapshot.get("observerAlive") is False
         )
         observer_truncated = bool(observer_snapshot and observer_snapshot.get("rawTruncated"))
+        synthetic_pointer_diagnostic = None
+        try:
+            backend = getattr(self.driver, "backend", None)
+            pointer_diagnostic = getattr(backend, "_last_synthetic_pointer_diagnostic", None)
+            if isinstance(pointer_diagnostic, dict):
+                # This is a bounded, producer-owned primitive payload. Copy
+                # the top-level mapping so cleanup cannot replace it while the
+                # workflow assembles the failure record.
+                synthetic_pointer_diagnostic = dict(pointer_diagnostic)
+        except Exception:
+            synthetic_pointer_diagnostic = None
         complete_binding = bool(
             self._target_certificate
             and self._game_identity
@@ -3269,6 +3280,7 @@ class InputCalibrationWorkflow:
                 "inputToolDigest": tool_digest,
             },
             "syntheticPredicate": dict(self._predicate_reasons),
+            "syntheticPointer": synthetic_pointer_diagnostic,
             "observer": observer_snapshot,
             "replayable": bool(observer_complete and complete_binding and not observer_truncated),
         }
@@ -3351,6 +3363,9 @@ class InputCalibrationWorkflow:
 
         from .driver import X11Backend
 
+        backend = getattr(self.driver, "backend", None)
+        if isinstance(backend, X11Backend):
+            backend._last_synthetic_pointer_diagnostic = None
         target = self.window_factory()
         self._target = target
         # Open the calibration epoch before any owned helper is created.  The

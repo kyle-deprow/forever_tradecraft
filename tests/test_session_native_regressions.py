@@ -56,6 +56,7 @@ from crowley.session.daemon import SessionDaemon
 from crowley.session.decoder import PixelDecoder
 from crowley.session.driver import (
     _EXEC_ADMISSION_WRAPPER,
+    CalibrationTicket,
     DesktopDriver,
     DriverError,
     DriverProfile,
@@ -73,6 +74,8 @@ from tests.test_session_input_tool import fixture_input_tool
 
 TARGET = 0x600119
 FOREIGN = 0x1A00011
+TARGET_DESCENDANT = 0x60011A
+TARGET_FRAME = 0x60011B
 AUTHENTIC_CODEX_PATH = "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
 
 
@@ -768,7 +771,25 @@ def test_owned_calibration_click_uses_owned_geometry_plus_local_offset(tmp_path:
         driver.close()
 
 
-def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: Path) -> None:
+def _synthetic_calibration_ticket() -> CalibrationTicket:
+    return CalibrationTicket(
+        epoch=1,
+        target_pid=os.getpid(),
+        target_xid=TARGET,
+        target_xids=frozenset({TARGET, TARGET_DESCENDANT, TARGET_FRAME}),
+        title="CROWLEY INPUT CALIBRATION ONLY",
+        geometry=(40, 60, 240, 160),
+    )
+
+
+@pytest.mark.parametrize(
+    "hit_xid",
+    [TARGET, TARGET_DESCENDANT, TARGET_FRAME],
+    ids=("target", "certified-descendant", "certified-frame-over-client-area"),
+)
+def test_synthetic_calibration_accepts_only_certified_origin_and_post_hits(
+    tmp_path: Path, hit_xid: int
+) -> None:
     """The native producer must query ownership before and after its move."""
 
     profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
@@ -776,9 +797,10 @@ def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: 
     backend.profile = profile
     backend.xauthority = profile.xauthority
     backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
     backend._calibration_focus_ticket = None
     calls: list[list[str]] = []
-    pointer_reads = iter(((100, 100, TARGET), (120, 120, TARGET)))
+    pointer_reads = iter(((100, 100, hit_xid), (120, 120, hit_xid)))
 
     def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(list(args))
@@ -796,9 +818,27 @@ def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: 
         hex(TARGET),
         120,
         120,
-        calibration_ticket=SimpleNamespace(epoch=1),
+        calibration_ticket=_synthetic_calibration_ticket(),
     )
-    assert backend._last_synthetic_motion_query == (100, 100, TARGET, 120, 120, 120, 120, TARGET)
+    assert backend._last_synthetic_motion_query == (100, 100, hit_xid, 120, 120, 120, 120, hit_xid)
+    assert backend._last_synthetic_pointer_diagnostic == {
+        "producer": "X11Backend.synthetic_calibration",
+        "targetXid": TARGET,
+        "targetGeometry": [40, 60, 240, 160],
+        "requested": [120, 120],
+        "origin": {"x": 100, "y": 100, "windowXid": hit_xid},
+        "originPredicates": {
+            "certifiedHitWindow": True,
+            "insideTargetGeometry": True,
+            "nonzeroDisplacement": True,
+        },
+        "post": {"x": 120, "y": 120, "windowXid": hit_xid},
+        "postPredicates": {
+            "matchesRequested": True,
+            "insideTargetGeometry": True,
+            "certifiedHitWindow": True,
+        },
+    }
     assert [args[1] for args in calls if len(args) > 1] == [
         "getwindowgeometry",
         "windowactivate",
@@ -809,12 +849,27 @@ def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: 
     ]
 
 
-def test_synthetic_calibration_refuses_outside_origin_before_motion(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("origin", "certified", "inside"),
+    [
+        ((100, 100, FOREIGN), False, True),
+        ((100, 100, 0x374), False, True),
+        ((39, 100, TARGET_FRAME), True, False),
+    ],
+    ids=("unrelated-in-bounds", "root-in-bounds", "certified-frame-outside-client"),
+)
+def test_synthetic_calibration_refuses_uncertified_or_outside_origin_before_motion(
+    tmp_path: Path,
+    origin: tuple[int, int, int],
+    certified: bool,
+    inside: bool,
+) -> None:
     profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
     backend = object.__new__(X11Backend)
     backend.profile = profile
     backend.xauthority = profile.xauthority
     backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
     backend._calibration_focus_ticket = None
     calls: list[list[str]] = []
 
@@ -829,15 +884,27 @@ def test_synthetic_calibration_refuses_outside_origin_before_motion(tmp_path: Pa
         return subprocess.CompletedProcess(args, 0, "", "")
 
     backend._run = run  # type: ignore[method-assign]
-    backend.pointer_position = lambda **_kwargs: (100, 100, 0x700101)  # type: ignore[method-assign]
+    backend.pointer_position = lambda **_kwargs: origin  # type: ignore[method-assign]
     with pytest.raises(DriverError, match="origin is outside"):
         backend.synthetic_calibration(
             hex(TARGET),
             120,
             120,
-            calibration_ticket=SimpleNamespace(epoch=1),
+            calibration_ticket=_synthetic_calibration_ticket(),
         )
     assert all(args[1] not in {"key", "mousemove", "click"} for args in calls if len(args) > 1)
+    assert backend._last_synthetic_pointer_diagnostic is not None
+    assert backend._last_synthetic_pointer_diagnostic["origin"] == {
+        "x": origin[0],
+        "y": origin[1],
+        "windowXid": origin[2],
+    }
+    assert backend._last_synthetic_pointer_diagnostic["originPredicates"] == {
+        "certifiedHitWindow": certified,
+        "insideTargetGeometry": inside,
+        "nonzeroDisplacement": True,
+    }
+    assert "post" not in backend._last_synthetic_pointer_diagnostic
 
 
 def test_synthetic_calibration_refuses_zero_displacement_before_f13_or_move(tmp_path: Path) -> None:
@@ -846,6 +913,7 @@ def test_synthetic_calibration_refuses_zero_displacement_before_f13_or_move(tmp_
     backend.profile = profile
     backend.xauthority = profile.xauthority
     backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
     calls: list[list[str]] = []
 
     def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -865,9 +933,62 @@ def test_synthetic_calibration_refuses_zero_displacement_before_f13_or_move(tmp_
             hex(TARGET),
             120,
             120,
-            calibration_ticket=SimpleNamespace(epoch=1),
+            calibration_ticket=_synthetic_calibration_ticket(),
         )
     assert all(args[1] not in {"key", "mousemove", "click"} for args in calls if len(args) > 1)
+    assert backend._last_synthetic_pointer_diagnostic is not None
+    assert backend._last_synthetic_pointer_diagnostic["originPredicates"]["nonzeroDisplacement"] is False
+
+
+def test_synthetic_calibration_retains_post_failure_before_click(tmp_path: Path) -> None:
+    profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
+    backend = object.__new__(X11Backend)
+    backend.profile = profile
+    backend.xauthority = profile.xauthority
+    backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
+    backend._calibration_focus_ticket = None
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        if args[:2] == ["xdotool", "getwindowgeometry"]:
+            return subprocess.CompletedProcess(
+                args, 0, "WINDOW=0x600119\nX=40\nY=60\nWIDTH=240\nHEIGHT=160\nSCREEN=0\n", ""
+            )
+        if args == ["xdotool", "getwindowfocus"]:
+            return subprocess.CompletedProcess(args, 0, "6291737\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    backend._run = run  # type: ignore[method-assign]
+    pointer_reads = iter(((100, 100, TARGET), (120, 120, FOREIGN)))
+    backend.pointer_position = lambda **_kwargs: next(pointer_reads)  # type: ignore[method-assign]
+    with pytest.raises(DriverError, match="postcondition changed"):
+        backend.synthetic_calibration(
+            hex(TARGET),
+            120,
+            120,
+            calibration_ticket=_synthetic_calibration_ticket(),
+        )
+    assert [args[1] for args in calls if len(args) > 1] == [
+        "getwindowgeometry",
+        "windowactivate",
+        "getwindowfocus",
+        "key",
+        "mousemove",
+    ]
+    assert backend._last_synthetic_motion_query is None
+    assert backend._last_synthetic_pointer_diagnostic is not None
+    assert backend._last_synthetic_pointer_diagnostic["post"] == {
+        "x": 120,
+        "y": 120,
+        "windowXid": FOREIGN,
+    }
+    assert backend._last_synthetic_pointer_diagnostic["postPredicates"] == {
+        "matchesRequested": True,
+        "insideTargetGeometry": True,
+        "certifiedHitWindow": False,
+    }
 
 
 def test_calibration_gate_health_is_rechecked_after_registration_ack(tmp_path: Path) -> None:

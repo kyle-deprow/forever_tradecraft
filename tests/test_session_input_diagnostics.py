@@ -15,10 +15,12 @@ import crowley.session.calibration as calibration_module
 from crowley.session.calibration import InputCalibrationWorkflow
 from crowley.session.controller import ControllerState
 from crowley.session.daemon import SessionDaemon
-from crowley.session.driver import DesktopDriver, DriverError, InputMonitor
+from crowley.session.driver import CalibrationTicket, DesktopDriver, DriverError, DriverProfile, InputMonitor
 from crowley.session.input_events import EventClass, parse_xi2_records
 from tests.test_session_native_regressions import (
+    FOREIGN,
     FULL_XI2_TRACE,
+    TARGET,
     _event,
     _render_events,
     _WorkflowDriver,
@@ -288,6 +290,131 @@ def test_workflow_failure_context_uses_real_monitor_parser_and_cleanup() -> None
     assert driver.real_monitor is not None
     assert driver.real_monitor.thread is not None
     assert not driver.real_monitor.thread.is_alive()
+
+
+def test_daemon_persists_actual_synthetic_origin_query(tmp_path: Path, monkeypatch) -> None:
+    """The real producer query survives workflow cleanup and daemon persistence."""
+
+    class OriginFailureDriver(_WorkflowDriver):
+        def __init__(self) -> None:
+            super().__init__(outside=False)
+            backend = self.backend
+            backend.profile = DriverProfile(display=":test", xauthority="Xauthority")
+            backend.xauthority = "Xauthority"
+            backend._calibration_focus_ticket = None
+            backend._last_synthetic_motion_query = None
+            backend._last_synthetic_pointer_diagnostic = None
+
+            def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+                if args[:2] == ["xdotool", "getwindowgeometry"]:
+                    return subprocess.CompletedProcess(
+                        args,
+                        0,
+                        "WINDOW=0x600119\nX=0\nY=0\nWIDTH=480\nHEIGHT=240\nSCREEN=0\n",
+                        "",
+                    )
+                if args == ["xdotool", "getwindowfocus"]:
+                    return subprocess.CompletedProcess(args, 0, str(TARGET), "")
+                return subprocess.CompletedProcess(args, 0, "", "")
+
+            backend._run = run  # type: ignore[method-assign]
+            backend.pointer_position = lambda **_kwargs: (100, 100, FOREIGN)  # type: ignore[method-assign]
+
+        def issue_calibration_ticket(self, window):
+            self.calibration_ticket = CalibrationTicket(
+                epoch=self.calibration_epoch,
+                target_pid=window.pid,
+                target_xid=window.xid,
+                target_xids=window.allowed_event_target_xids,
+                title=window.title,
+                geometry=window.geometry,
+                managed_frame_xid=window.managed_frame_xid or 0,
+                managed_frame_geometry=window.managed_frame_geometry,
+                target_executable=window.executable,
+                target_process_start=window.process_start,
+            )
+            return self.calibration_ticket
+
+        def synthetic_target_keyboard_profile(self, window, *, operations, calibration_ticket):
+            assert tuple(operations) == self._keyboard_operations
+            left, top, width, height = window.geometry
+            self.backend.synthetic_calibration(
+                hex(window.xid),
+                left + width // 2,
+                top + height // 2,
+                calibration_ticket=calibration_ticket,
+            )
+
+    driver = OriginFailureDriver()
+    target = _ResettingFailureTarget()
+    workflows: list[InputCalibrationWorkflow] = []
+
+    class FixtureWorkflow(InputCalibrationWorkflow):
+        def __init__(self, fixture_driver, *, display, on_ready):
+            super().__init__(
+                fixture_driver,
+                display=display,
+                window_factory=lambda: target,
+                on_ready=on_ready,
+            )
+            workflows.append(self)
+
+    monkeypatch.setattr(calibration_module, "InputCalibrationWorkflow", FixtureWorkflow)
+
+    class Lock:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon.driver = driver
+    daemon.config = SimpleNamespace(
+        profile=driver.profile,
+        journal=tmp_path / "state" / "journal.json",
+    )
+    daemon.controller = SimpleNamespace(
+        lock=Lock(),
+        status=lambda: SimpleNamespace(state=ControllerState.INPUT_CALIBRATION, generation=1),
+    )
+    daemon._begin_calibration = lambda *_args, **_kwargs: None
+    daemon._validate_runtime_paths = lambda: None
+    daemon._set_calibration_readiness = lambda _readiness: None
+    finished: dict[str, object] = {}
+    daemon._finish_calibration = lambda **kwargs: finished.update(kwargs)
+
+    with pytest.raises(DriverError, match="origin is outside the owned target"):
+        daemon.run_input_calibration()
+
+    artifact = tmp_path / "state" / "input-calibration-diagnostics" / "latest-pre-human-failure.json"
+    assert artifact.is_file()
+    assert stat_mode(artifact) == 0o600
+    persisted = json.loads(artifact.read_text())
+    assert persisted["phase"] == "pre_human"
+    assert persisted["stage"] == "synthetic"
+    assert persisted["readinessPublished"] is False
+    assert persisted["sourceBindings"]["driver.py"]
+    assert persisted["syntheticPointer"] == {
+        "producer": "X11Backend.synthetic_calibration",
+        "targetXid": TARGET,
+        "targetGeometry": [0, 0, 480, 240],
+        "requested": [240, 120],
+        "origin": {"x": 100, "y": 100, "windowXid": FOREIGN},
+        "originPredicates": {
+            "certifiedHitWindow": False,
+            "insideTargetGeometry": True,
+            "nonzeroDisplacement": True,
+        },
+    }
+    assert len(workflows) == 1
+    context = workflows[0].failure_context
+    assert context is not None
+    assert context["readinessPublished"] is False
+    assert context["syntheticPointer"] == persisted["syntheticPointer"]
+    assert driver.observer is not None
+    assert target.window is None
+    assert finished["state"] == "error"
 
 
 def test_daemon_failure_path_persists_actual_workflow_context(tmp_path: Path, monkeypatch) -> None:
