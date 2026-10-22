@@ -31,13 +31,19 @@ class State:
     uploaded: dict[str, int] = field(default_factory=dict)  # scan id -> upload time
     probes: list[int] = field(default_factory=list)
     references: list[str] = field(default_factory=list)
+    accounts: list[str] = field(default_factory=list)
 
     @classmethod
     def load(cls, path: Path) -> State:
         if not path.exists():  # first run
             return cls()
         data = json.loads(path.read_text())
-        return cls(uploaded=data["uploaded"], probes=data["probes"], references=data.get("references", []))
+        return cls(
+            uploaded=data["uploaded"],
+            probes=data["probes"],
+            references=data.get("references", []),
+            accounts=data.get("accounts", []),
+        )
 
     def save(self, path: Path) -> None:
         # Uploaded ids only matter while the scan may still be in SavedVariables.
@@ -45,10 +51,18 @@ class State:
         self.uploaded = {k: v for k, v in self.uploaded.items() if v >= cutoff}
         self.probes = self.probes[-50:]
         self.references = self.references[-50:]
+        self.accounts = self.accounts[-50:]
         path.parent.mkdir(parents=True, exist_ok=True)
         atomic_write(
             path,
-            json.dumps({"uploaded": self.uploaded, "probes": self.probes, "references": self.references}),
+            json.dumps(
+                {
+                    "uploaded": self.uploaded,
+                    "probes": self.probes,
+                    "references": self.references,
+                    "accounts": self.accounts,
+                }
+            ),
         )
 
 
@@ -110,6 +124,11 @@ class Companion:
             self.upload_reference(reference)
             uploaded += 1
 
+        account = db.get("account")
+        if account and account["id"] not in self.state.accounts:
+            self.upload_account(account)
+            uploaded += 1
+
         # Only present after /crowley probe has been run.
         probe = db.get("probe")
         if probe and probe["at"] not in self.state.probes:
@@ -145,6 +164,22 @@ class Companion:
             result.get("items", "unknown"),
         )
         self.state.references.append(capture_id)
+
+    def upload_account(self, account: dict[str, Any]) -> None:
+        capture_id = account["id"]
+        response = self.client.post("/v1/account-state", json=account)
+        if not response.is_success:
+            raise RuntimeError(
+                f"server rejected account state {capture_id}: {response.status_code} {response.text}"
+            )
+        result = response.json()
+        log.info(
+            "account state %s -> %s (%s items)",
+            capture_id,
+            result.get("status", "ok"),
+            result.get("items", "unknown"),
+        )
+        self.state.accounts.append(capture_id)
 
     # -- writing back into the game -----------------------------------------------------
 

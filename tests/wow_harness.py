@@ -54,6 +54,30 @@ function GetSubZoneText() return harness.subzone end
 function GetCurrentRegionName() return harness.regionName end
 function GetCurrentRegion() return harness.region end
 function GetLocale() return "enUS" end
+if harness.accountFakes then
+  function GetMoney() return harness.money end
+  function GetProfessions()
+    local values = harness.professionIndices or {}
+    return values[1], values[2], values[3], values[4], values[5]
+  end
+  function GetProfessionInfo(index)
+    local info = harness.professions and harness.professions[index]
+    if not info then return nil end
+    return info.name, nil, info.level, info.maxLevel, nil, nil, info.skillLineID
+  end
+  function GetInboxNumItems() return harness.mail and #harness.mail or 0 end
+  function GetInboxHeaderInfo(index)
+    local message = harness.mail and harness.mail[index]
+    if not message then return nil end
+    return nil, nil, message.sender, message.subject, message.money, 0, message.daysLeft, message.hasItem
+  end
+  function GetInboxItem(index, attachment)
+    local message = harness.mail and harness.mail[index]
+    local item = message and message.items and message.items[attachment]
+    if not item then return nil end
+    return nil, item.itemID, nil, item.count, item.quality or 1, true
+  end
+end
 
 -- Native movement telemetry APIs.  These return the same value shapes the
 -- installed client exposes; Agent.lua is responsible for rejecting absent or
@@ -276,6 +300,44 @@ elseif tradeNamespaces.C_Timer ~= nil then
 else
   C_Timer = { After = function(delay, fn) table.insert(_timers, { at = _now + delay, fn = fn }) end }
 end
+if harness.accountFakes and tradeNamespaces.C_Container == nil then
+  C_Container = {
+    GetContainerNumSlots = function(bag)
+      local value = harness.bags and harness.bags[bag]
+      return value and value.numSlots or 0
+    end,
+    GetContainerNumFreeSlots = function(bag)
+      local value = harness.bags and harness.bags[bag]
+      return value and value.freeSlots or 0
+    end,
+    GetContainerItemInfo = function(bag, slot)
+      local value = harness.bags and harness.bags[bag]
+      return value and value.slots and value.slots[slot] or nil
+    end,
+  }
+end
+if harness.accountFakes and tradeNamespaces.C_TradeSkillUI == nil then
+  C_TradeSkillUI = {
+    IsTradeSkillReady = function() return harness.tradeReady end,
+    GetBaseProfessionInfo = function() return harness.tradeBase end,
+    GetAllRecipeIDs = function() return harness.recipeIDs or {} end,
+    GetRecipeInfo = function(recipeID)
+      return harness.recipeInfos and harness.recipeInfos[recipeID]
+    end,
+  }
+end
+if harness.accountFakes and tradeNamespaces.C_Spell == nil then
+  C_Spell = {
+    GetSpellCooldown = function(spellID)
+      return harness.cooldowns and harness.cooldowns[spellID]
+    end,
+  }
+end
+if harness.accountFakes or (harness.tradeFrames and harness.tradeFrames.MailFrame) then
+  MailFrame = {
+    IsShown = function() return harness.mailOpen == true end,
+  }
+end
 for name, functions in pairs(tradeNamespaces) do
   if name ~= "C_Timer" and functions ~= false then installTradeNamespace(name, functions) end
 end
@@ -289,7 +351,7 @@ for name, present in pairs(harness.tradeGlobals or {}) do
 end
 
 for name, present in pairs(harness.tradeFrames or {}) do
-  if present then _G[name] = {} end
+  if present and name ~= "MailFrame" then _G[name] = {} end
 end
 
 function _nextTimerAt()
@@ -795,6 +857,17 @@ class WowClient:
             "TURNLEFT": "Q",
         }
     )
+    money: int = 12345
+    bags: dict[int, dict] = field(default_factory=dict)
+    professions: list[dict] = field(default_factory=list)
+    trade_ready: bool = False
+    trade_skill_line_id: int = 171
+    recipe_ids: list[int] = field(default_factory=list)
+    recipe_infos: dict[int, dict] = field(default_factory=dict)
+    cooldowns: dict[int, dict] = field(default_factory=dict)
+    mail_open: bool = False
+    mail: list[dict] = field(default_factory=list)
+    account_fakes: bool | None = None
     initial_savedvars: dict | None = None
 
     def __post_init__(self) -> None:
@@ -802,6 +875,8 @@ class WowClient:
             raise ValueError("the harness models only the pinned 1920x1080 presentation")
         if self.root_ui_scale <= 0:
             raise ValueError("root_ui_scale must be positive")
+        if self.account_fakes is None:
+            self.account_fakes = not self.trade_globals and not self.trade_namespaces
         if self.root_effective_scale is None:
             self.root_effective_scale = self.root_ui_scale
         if self.root_height is None:
@@ -845,6 +920,22 @@ class WowClient:
                 "combat": self.combat,
                 "deadOrGhost": self.dead_or_ghost,
                 "bindings": self.lua.table(),
+                "money": self.money,
+                "bags": self._to_lua(self.bags),
+                "professionIndices": self._to_lua(
+                    {index: index for index in range(1, len(self.professions) + 1)}
+                ),
+                "professions": self._to_lua(
+                    {index: profession for index, profession in enumerate(self.professions, start=1)}
+                ),
+                "tradeReady": self.trade_ready,
+                "tradeBase": self._to_lua({"skillLineID": self.trade_skill_line_id}),
+                "recipeIDs": self._to_lua(self.recipe_ids),
+                "recipeInfos": self._to_lua(self.recipe_infos),
+                "cooldowns": self._to_lua(self.cooldowns),
+                "mailOpen": self.mail_open,
+                "mail": self._to_lua(self.mail),
+                "accountFakes": self.account_fakes,
                 "requested": self.lua.table(),
                 "itemInfo": self.lua.table(),
                 "referenceInfoPending": self.lua.table(),
@@ -959,6 +1050,39 @@ class WowClient:
         for i, auction in enumerate(auctions, start=1):
             table[i] = self._to_lua(auction.__dict__)
         self.state.auctions = table
+
+    def set_money(self, copper: int) -> None:
+        self.state.money = copper
+
+    def set_bags(self, bags: dict[int, dict]) -> None:
+        self.state.bags = self._to_lua(bags)
+
+    def set_professions(self, professions: list[dict]) -> None:
+        self.state.professionIndices = self._to_lua(
+            {index: index for index in range(1, len(professions) + 1)}
+        )
+        self.state.professions = self._to_lua(
+            {index: profession for index, profession in enumerate(professions, start=1)}
+        )
+
+    def set_trade_skill(
+        self,
+        *,
+        ready: bool,
+        skill_line_id: int = 171,
+        recipes: list[int] | None = None,
+        recipe_infos: dict[int, dict] | None = None,
+        cooldowns: dict[int, dict] | None = None,
+    ) -> None:
+        self.state.tradeReady = ready
+        self.state.tradeBase = self._to_lua({"skillLineID": skill_line_id})
+        self.state.recipeIDs = self._to_lua(recipes or [])
+        self.state.recipeInfos = self._to_lua(recipe_infos or {})
+        self.state.cooldowns = self._to_lua(cooldowns or {})
+
+    def set_mail(self, *, open: bool, messages: list[dict] | None = None) -> None:
+        self.state.mailOpen = open
+        self.state.mail = self._to_lua(messages or [])
 
     def set_source_incomplete(self, incomplete: bool = True) -> None:
         self.state.forceIncomplete = incomplete
@@ -1470,6 +1594,7 @@ class WowClient:
 
     def login(self) -> None:
         self.fire("ADDON_LOADED", "Crowley")
+        self.fire("PLAYER_LOGIN")
         self.fire("PLAYER_ENTERING_WORLD")
 
     @property

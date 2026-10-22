@@ -8,6 +8,7 @@
 
 Core.lua
 Context.lua
+Account.lua
 Probe.lua
 Reference.lua
 Scanner.lua

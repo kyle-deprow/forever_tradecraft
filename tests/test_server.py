@@ -9,6 +9,7 @@ import uuid
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 
 import psycopg
@@ -441,6 +442,88 @@ def test_item_reference_ingest_is_typed_idempotent_and_exposed_in_latest_view(cl
     assert latest.json()["items"][0]["item_id"] == 2589
     addon_data = client.post("/v1/addon-data", json={"scan_ids": []}).json()
     assert addon_data["referenceItemIDs"] == sorted(item.item_id for item in load_catalog().items)
+
+
+def test_account_state_ingest_is_typed_idempotent_and_exposed_in_latest_view(client):
+    from crowley.core import savedvars
+
+    from .wow_harness import WowClient
+
+    addon = WowClient(
+        money=9876,
+        bags={
+            0: {
+                "numSlots": 1,
+                "freeSlots": 0,
+                "slots": {1: {"itemID": 2589, "stackCount": 4, "isBound": True, "quality": 1}},
+            }
+        },
+        professions=[{"name": "Alchemy", "skillLineID": 171, "level": 50, "maxLevel": 300}],
+        trade_ready=True,
+        recipe_ids=[11],
+        recipe_infos={11: {"learned": True}},
+        cooldowns={11: {"startTime": 100, "duration": 30}},
+        mail_open=True,
+        mail=[{"money": 20, "daysLeft": 2, "hasItem": True, "items": [{"itemID": 100, "count": 2}]}],
+    )
+    addon.login()
+    raw = savedvars.loads(addon.saved_variables())["CrowleyDB"]["account"]
+    first = client.post("/v1/account-state", json=raw)
+    assert first.status_code == 200, first.text
+    assert first.json()["status"] == "created"
+    duplicate = client.post("/v1/account-state", json=raw)
+    assert duplicate.status_code == 200
+    assert duplicate.json()["status"] == "duplicate"
+
+    with psycopg.connect(DB_URL) as conn:
+        capture_id = conn.execute(
+            "SELECT id FROM account_captures WHERE capture_uid=%s", (raw["id"],)
+        ).fetchone()[0]
+        assert (
+            conn.execute("SELECT gold FROM account_captures WHERE id=%s", (capture_id,)).fetchone()[0] == 9876
+        )
+        assert conn.execute(
+            "SELECT location, container, slot, item_id, count, bound "
+            "FROM account_items WHERE capture_id=%s ORDER BY location, container, slot",
+            (capture_id,),
+        ).fetchall() == [
+            ("bag", "0", 1, 2589, 4, True),
+            ("mail", "1", 1, 100, 2, None),
+        ]
+        assert conn.execute(
+            "SELECT skill_line_id, name, level, max_level FROM account_professions WHERE capture_id=%s",
+            (capture_id,),
+        ).fetchall() == [(171, "Alchemy", 50, 300)]
+        assert conn.execute(
+            "SELECT skill_line_id, spell_id FROM account_recipes WHERE capture_id=%s",
+            (capture_id,),
+        ).fetchall() == [(171, 11)]
+        assert conn.execute(
+            "SELECT spell_id, start_seconds, duration_seconds FROM account_cooldowns WHERE capture_id=%s",
+            (capture_id,),
+        ).fetchall() == [(11, Decimal("100"), Decimal("30"))]
+
+    newer = deepcopy(raw)
+    newer["capturedAt"] += 1
+    newer["id"] = f"{newer['house']['key']}-{newer['context']['character']}-{newer['capturedAt']}-9999"
+    newer["gold"] = 12_345
+    second = client.post("/v1/account-state", json=newer)
+    assert second.status_code == 200, second.text
+    assert second.json()["status"] == "created"
+
+    latest = client.get("/v1/houses/us-normal-horde/account-state/latest?character=Tester")
+    assert latest.status_code == 200
+    assert latest.json()["capture"]["raw"]["gold"] == 12_345
+    assert latest.json()["capture"]["capture_uid"] == newer["id"]
+
+    changed = dict(raw, gold=9877)
+    assert client.post("/v1/account-state", json=changed).status_code == 409
+    malformed = dict(raw, gold=-1)
+    assert client.post("/v1/account-state", json=malformed).status_code == 422
+    assert (
+        client.post("/v1/account-state", json=raw, headers={"Authorization": "Bearer wrong"}).status_code
+        == 401
+    )
 
 
 def test_item_reference_auth_storage_limits_and_latest_selection(client):

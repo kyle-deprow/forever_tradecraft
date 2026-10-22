@@ -10,6 +10,7 @@ local HELP = {
   "/crowley lists - push Crowley shopping lists into Auctionator",
   "/crowley probe - record which AH APIs this client has",
   "/crowley reference - capture item metadata and AH deposits",
+  "/crowley account - capture and summarize account state",
 }
 -- Reserved for the local repeating-session controller.  It is intentionally
 -- absent from help and accepts no arguments; the controller must prove this
@@ -222,6 +223,8 @@ SlashCmdList.CROWLEY = function(msg)
   elseif cmd == "reference" and not args[2] then
     local ok, reason = ns.Reference.Start()
     if not ok then ns.Print("reference refused: " .. tostring(reason)) end
+  elseif cmd == "account" and not args[2] then
+    ns.Print(ns.Account.Summary())
   else
     for _, line in ipairs(HELP) do ns.Print(line) end
   end

@@ -11,16 +11,19 @@ from crowley.core.luawriter import render_assignment
 from crowley.core.watchlist import load_catalog
 
 from .test_core import raw_scan
+from .wow_harness import WowClient
 
 FIXTURE = Path(__file__).parent / "fixtures/native-construction-unknown-savedvars.lua"
 
 
-def write_savedvars(path, scans, probe=None, reference=None):
+def write_savedvars(path, scans, probe=None, reference=None, account=None):
     db = {"scans": {scan["id"]: scan for scan in scans}}
     if probe is not None:
         db["probe"] = probe
     if reference is not None:
         db["reference"] = reference
+    if account is not None:
+        db["account"] = account
     path.write_text(render_assignment("CrowleyDB", db, header="test"))
 
 
@@ -241,7 +244,63 @@ def test_item_reference_upload_is_remembered_and_retried_on_error(companion):
     instance.once()
     assert successful_calls == [new_reference["id"]]
     assert State.load(instance.state_file).references == [reference["id"], new_reference["id"]]
-
     # once() reprocesses the file unconditionally, so only the remembered id prevents a second upload.
     instance.once()
     assert successful_calls == [new_reference["id"]]
+
+
+def test_account_upload_is_remembered_and_retried_on_error(companion):
+    instance, saved = companion
+    wow = WowClient(money=321)
+    wow.login()
+    account = savedvars.loads(wow.saved_variables())["CrowleyDB"]["account"]
+    write_savedvars(saved, [], account=account)
+    attempts = []
+    failed = False
+
+    def respond(request):
+        nonlocal failed
+        if request.url.path == "/v1/account-state":
+            attempts.append(json.loads(request.content)["id"])
+            if not failed:
+                failed = True
+                raise httpx.ConnectError("temporary outage", request=request)
+            return httpx.Response(200, json={"status": "created", "items": 0})
+        return httpx.Response(200, json={"generatedAt": 1, "ackedScans": [], "shoppingLists": []})
+
+    instance.client = httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond))
+    with pytest.raises(httpx.ConnectError):
+        instance.once()
+    assert State.load(instance.state_file).accounts == []
+
+    instance.once()
+    instance.once()
+    assert attempts == [account["id"], account["id"]]
+    assert State.load(instance.state_file).accounts == [account["id"]]
+
+
+def test_account_upload_rejects_non_2xx_and_retries(companion):
+    instance, saved = companion
+    wow = WowClient(money=654)
+    wow.login()
+    account = savedvars.loads(wow.saved_variables())["CrowleyDB"]["account"]
+    write_savedvars(saved, [], account=account)
+    attempts = 0
+
+    def respond(request):
+        nonlocal attempts
+        if request.url.path == "/v1/account-state":
+            attempts += 1
+            if attempts == 1:
+                return httpx.Response(422, text="malformed account")
+            return httpx.Response(200, json={"status": "created", "items": 0})
+        return httpx.Response(200, json={"generatedAt": 1, "ackedScans": [], "shoppingLists": []})
+
+    instance.client = httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond))
+    with pytest.raises(RuntimeError, match="server rejected account state"):
+        instance.once()
+    assert State.load(instance.state_file).accounts == []
+
+    instance.once()
+    assert attempts == 2
+    assert State.load(instance.state_file).accounts == [account["id"]]
