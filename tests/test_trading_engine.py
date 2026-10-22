@@ -7,7 +7,8 @@ import pytest
 
 from crowley.analysis.books import Book, Group
 from crowley.analysis.metrics import compute_metrics
-from crowley.trading.accounts import Account
+from crowley.trading.__main__ import _select_sweeps, _sweep_step_times
+from crowley.trading.accounts import Account, Mail
 from crowley.trading.api import (
     Buy,
     Cancel,
@@ -16,11 +17,14 @@ from crowley.trading.api import (
     Post,
     Recipe,
     VendorBuy,
+    VendorSell,
 )
-from crowley.trading.data import precompute_statistics, validate_recipes
-from crowley.trading.engine import run_backtest
+from crowley.trading.data import load_facts, precompute_statistics, validate_recipes
+from crowley.trading.engine import _mark_equity, run_backtest
 from crowley.trading.execution import (
     CLICK_BUDGET,
+    CRAFT_SECONDS,
+    TIME_BUDGET,
     ExecutionContext,
     _consume_lots,
     deposit,
@@ -28,7 +32,7 @@ from crowley.trading.execution import (
     obtainable_units,
 )
 from crowley.trading.market import Market
-from crowley.trading.report import build_report
+from crowley.trading.report import build_report, text_summary
 from crowley.trading.strategies.vendor_arb import VendorArbStrategy
 
 ITEM = 7
@@ -82,7 +86,16 @@ class Script:
         return self.actions.get(market.sweep_index, ())
 
 
-def run(books, strategies, facts_value=None, recipes=(), capital=10_000, statistics=None):
+def run(
+    books,
+    strategies,
+    facts_value=None,
+    recipes=(),
+    capital=10_000,
+    statistics=None,
+    **kwargs,
+):
+    kwargs.setdefault("wind_down_hours", 0)
     return run_backtest(
         books,
         {} if statistics is None else statistics,
@@ -91,6 +104,7 @@ def run(books, strategies, facts_value=None, recipes=(), capital=10_000, statist
         strategies,
         None,
         capital,
+        **kwargs,
     )
 
 
@@ -290,7 +304,16 @@ def test_vendor_bundle_rounds_up_and_vendor_arb_sells_one_step_later():
     assert account.inventory_balance[ITEM] == 3
     assert account.cash_balance == 93
 
-    result = run_backtest(books, {}, facts(sell=100), (), [VendorArbStrategy()], None, 1_000)
+    result = run_backtest(
+        books,
+        {},
+        facts(sell=100),
+        (),
+        [VendorArbStrategy()],
+        None,
+        1_000,
+        wind_down_hours=0,
+    )
     account = result.accounts["vendor_arb"]
     assert account.cash_balance == 1_150
     assert account.counts["units_bought"] == 3
@@ -352,16 +375,43 @@ def test_click_budget_rotation_and_one_step_per_recorded_sweep():
     assert first.views[0][2][ITEM].t == 100
     assert first.views[0][2][8].t == 200
 
+    invocation_order = []
+
     class Ordering(Script):
+        def __init__(self, name):
+            super().__init__(name)
+
         def decide(self, market, account):
+            invocation_order.append((market.sweep_index, self.name))
             self.views.append((market.t, market.sweep_index, dict(market.items())))
             return ()
 
     a, b = Ordering("a"), Ordering("b")
-    books = {ITEM: [book(0, [("a", 1, 1)], sweep_id=1), book(900, [("a", 1, 1)], sweep_id=2)]}
+    books = {
+        ITEM: [
+            book(0, [("a", 1, 1)], sweep_id=1),
+            book(900, [("a", 1, 1)], sweep_id=2),
+            book(1_800, [("a", 1, 1)], sweep_id=3),
+        ]
+    }
     run(books, [a, b], facts_value=facts(), capital=100)
-    assert [entry[0] for entry in a.views] == [0, 900]
-    assert [entry[0] for entry in b.views] == [0, 900]
+    assert invocation_order == [(0, "a"), (0, "b"), (1, "b"), (1, "a"), (2, "a"), (2, "b")]
+
+    budget_first = Script("budget_first", {0: [VendorBuy(ITEM, 1)] * (TIME_BUDGET // 2)})
+    budget_second = Script("budget_second", {0: [VendorBuy(ITEM, 1)]})
+    budget_result = run(
+        {
+            ITEM: [
+                book(0, [("a", 1, 1)], sweep_id=1),
+                book(900, [("a", 1, 1)], sweep_id=2),
+            ]
+        },
+        [budget_first, budget_second],
+        facts_value=facts(bundle_size=1, bundle_price=1),
+        capital=1_000,
+    )
+    assert budget_result.accounts["budget_first"].clicks == TIME_BUDGET
+    assert budget_result.accounts["budget_second"].rejections["time_budget"] == 1
 
 
 def test_marks_equity_attribution_and_no_lookahead():
@@ -377,7 +427,9 @@ def test_marks_equity_attribution_and_no_lookahead():
     result = run(two_sweeps([("a", 10, 1)]), [buyer, idle], facts_value=facts(), capital=200)
     assert result.accounts["buyer"].cash_balance == 90
     assert result.accounts["idle"].cash_balance == 100
-    assert result.total_equity_curve[0][1] == Fraction(399, 2)
+    # Demand is not observable at the first step, so the purchased unit is
+    # marked at its zero vendor value rather than the old unconditional book mark.
+    assert result.total_equity_curve[0][1] == Fraction(190)
 
 
 def test_fractional_prices_and_summary_statistics_fail_loudly():
@@ -389,6 +441,341 @@ def test_fractional_prices_and_summary_statistics_fail_loudly():
     summary = compute_metrics(two_sweeps([("a", 10, 1)]))
     with pytest.raises(ValueError, match="indexed"):
         run_backtest(two_sweeps([("a", 10, 1)]), summary, facts(), (), [Script("x")], None, 100)
+
+
+def test_sweep_selection_uses_step_times_and_keeps_exclusion_counts_consistent():
+    rows = [
+        (1, 1_000, "1.0", "a"),
+        (2, 2_000, "1.0", "a"),
+        (3, 3_000, "1.0", "b"),
+        (4, 1_500, "1.0", "a"),
+    ]
+
+    class Connection:
+        def execute(self, _query, _params):
+            return self
+
+        def fetchall(self):
+            return rows
+
+    books = {
+        ITEM: [
+            book(3_000, [("a", 10, 1)], sweep_id=1),
+            book(1_000, [("a", 10, 1)], sweep_id=2),
+            book(2_000, [("a", 10, 1)], sweep_id=3),
+        ]
+    }
+    all_sweeps, window, selected, client_build, without_books = _select_sweeps(
+        Connection(), "house", 1_500, 2_500, None, books
+    )
+    assert [row[0] for row in all_sweeps] == [1, 2, 3, 4]
+    assert [row[0] for row in window] == [3]
+    assert [row[0] for row in selected] == [3]
+    assert client_build == "1.0.b"
+    assert without_books == 1
+    assert len(all_sweeps) - without_books - len(window) == 2
+    assert len(window) - len(selected) == 0
+
+    _, window, selected, client_build, without_books = _select_sweeps(
+        Connection(), "house", None, None, "1.0.a", books
+    )
+    assert [row[0] for row in window] == [1, 2, 3]
+    assert [row[0] for row in selected] == [1, 2]
+    assert client_build == "1.0.a"
+    assert without_books == 1
+    assert (4 - without_books) - len(window) == 0
+    assert len(window) - len(selected) == 1
+
+
+def test_non_integral_sweep_time_is_refused():
+    with pytest.raises(ValueError, match="whole seconds"):
+        _sweep_step_times({ITEM: [book(0.5, [("a", 10, 1)], sweep_id=1)]})
+
+
+def test_fact_loading_filters_status_and_rejects_null_required_facts():
+    class Connection:
+        def __init__(self, rows):
+            self.rows = rows
+            self.queries = []
+
+        def execute(self, query, _params):
+            self.queries.append(query)
+            return self
+
+        def fetchone(self):
+            return (1, "build")
+
+        def fetchall(self):
+            return self.rows
+
+    good_connection = Connection([(ITEM, 100, None, None, 20, 0)])
+    loaded = load_facts(good_connection, "house", "build")
+    assert loaded[ITEM].sell_price == 100
+    assert "status = 'ok'" in good_connection.queries[-1]
+
+    null_connection = Connection([(ITEM, None, None, None, 20, 0)])
+    with pytest.raises(ValueError, match="status ok but missing facts"):
+        load_facts(null_connection, "house", "build")
+
+
+def test_text_summary_uses_fixed_precision_and_lists_each_strategy():
+    report = {
+        "total": {
+            "start_capital": 12_345,
+            "equity": 23_456,
+            "realized": 3_456,
+            "return_pct": Fraction(123, 10),
+            "clicks": 7,
+            "max_held_over_capacity": Fraction(3, 2),
+        },
+        "strategies": {
+            "alpha": {
+                "start_capital": 10_000,
+                "equity": 10_001,
+                "realized": 123,
+                "return_pct": Fraction(1, 10),
+                "clicks": 1,
+                "max_held_over_capacity": Fraction(1, 2),
+            },
+            "beta": {
+                "start_capital": 20_000,
+                "equity": 20_100,
+                "realized": 99,
+                "return_pct": Fraction(1, 2),
+                "clicks": 2,
+                "max_held_over_capacity": Fraction(2, 1),
+            },
+        },
+    }
+    assert text_summary(report).splitlines() == [
+        "total: start=1.23g, equity=2.35g, realized=0.35g, return=12.3%, clicks=7, "
+        "max_held_over_capacity=1.50",
+        "alpha: start=1.00g, equity=1.00g, realized=0.01g, return=0.1%, clicks=1, "
+        "max_held_over_capacity=0.50",
+        "beta: start=2.00g, equity=2.01g, realized=0.01g, return=0.5%, clicks=2, max_held_over_capacity=2.00",
+    ]
+
+
+def test_account_view_counts_mail_as_in_transit_until_the_arrival_boundary():
+    account = Account("x", frozenset(), 0, 0)
+    account.mail.append(Mail(100, items={ITEM: 2}))
+    assert account.account_view(99).in_transit() == {ITEM: 2}
+    account.release_mail(99)
+    assert account.account_view(99).inventory() == {}
+    account.release_mail(100)
+    assert account.account_view(100).in_transit() == {}
+    assert account.account_view(100).inventory() == {ITEM: 2}
+
+
+def test_liquidity_aware_mark_uses_purchase_net_and_vendor_for_excess():
+    books = {ITEM: [book(0, [("cheap", 30, 15), ("a", 60, 20)], sweep_id=1)]}
+    statistics = {
+        ITEM: [
+            {
+                "fair": {"value": 100, "band": {"p25": 90, "p75": 110}, "n": 20},
+                "demand": {"purchased_units_per_day": 10},
+                "risk": {},
+            }
+        ]
+    }
+    market = Market(books, statistics, facts(sell=10), ())
+    market.set_step(0, 0, {(ITEM, "cheap"): 15})
+    account = Account("x", frozenset(), 0, 0)
+    account.add_inventory(ITEM, 8)
+    # The strategy-facing book has only the 60-copper level left: five units are
+    # liquid at 60 * 95%, and the remaining three use the vendor value.
+    assert _mark_equity(account, market, 0, 0) == Fraction(315)
+
+
+def test_craft_time_truncates_and_then_rejects_when_no_time_fits():
+    reagent, output = 8, 9
+    recipes = (Recipe(22, frozenset({"alchemy"}), ((reagent, 1),), ((output, 1),), None, 0, "x"),)
+    books = two_sweeps([("a", 10, 1)])
+    recipe_facts = {
+        ITEM: ItemFacts(ITEM, 0, None, None, 20, 0),
+        reagent: ItemFacts(reagent, 0, 1, 1, 20, 0),
+        output: ItemFacts(output, 0, None, None, 20, 0),
+    }
+    market = Market(books, {}, recipe_facts, recipes)
+    market.set_step(0, 0, {})
+    account = Account("x", frozenset({"alchemy"}), 10_000, 10_000)
+    context = ExecutionContext(market, [account], 0, 0, {})
+    assert execute_intent(context, account, VendorBuy(reagent, TIME_BUDGET))
+    assert execute_intent(context, account, Craft(22, TIME_BUDGET))
+    assert not execute_intent(context, account, Craft(22, 1))
+    assert context.time_used == TIME_BUDGET - 2
+    assert account.counts["crafted"] == (TIME_BUDGET - 4) // CRAFT_SECONDS
+    assert account.counts["craft_truncated"] == 1
+    assert account.rejections["time_budget"] == 1
+
+
+def test_craft_rejects_wrong_profession_and_insufficient_reagent():
+    reagent, output = 8, 9
+    recipes = (Recipe(22, frozenset({"alchemy"}), ((reagent, 2),), ((output, 1),), None, 0, "x"),)
+    recipe_facts = {
+        ITEM: ItemFacts(ITEM, 0, None, None, 20, 0),
+        reagent: ItemFacts(reagent, 0, None, None, 20, 0),
+        output: ItemFacts(output, 0, None, None, 20, 0),
+    }
+    market = Market(two_sweeps([("a", 10, 1)]), {}, recipe_facts, recipes)
+    market.set_step(0, 0, {})
+    wrong_profession = Account("wrong", frozenset(), 100, 100)
+    wrong_profession.add_inventory(reagent, 2)
+    missing_reagent = Account("missing", frozenset({"alchemy"}), 100, 100)
+    context = ExecutionContext(market, [wrong_profession, missing_reagent], 0, 0, {})
+    assert not execute_intent(context, wrong_profession, Craft(22, 1))
+    assert wrong_profession.rejections["profession"] == 1
+    assert not execute_intent(context, missing_reagent, Craft(22, 1))
+    assert missing_reagent.rejections["reagent"] == 1
+
+
+def test_wind_down_rejects_acquisitions_but_allows_vendor_sell_and_reports_checkpoints():
+    books = {
+        ITEM: [
+            book(0, [("a", 10, 1)], sweep_id=1),
+            book(900, [("a", 10, 1)], sweep_id=2),
+            book(3_600, [("a", 10, 1)], sweep_id=3),
+            book(4_500, [("a", 10, 1)], sweep_id=4),
+        ]
+    }
+    strategy = Script(
+        "wind_down",
+        {
+            0: [VendorBuy(ITEM, 1)],
+            1: [VendorBuy(ITEM, 1), VendorSell(ITEM, 1)],
+        },
+    )
+    result = run(
+        books,
+        [strategy],
+        facts_value=facts(sell=100, bundle_size=1, bundle_price=1, stack=1),
+        capital=100,
+        wind_down_hours=1,
+    )
+    account = result.accounts["wind_down"]
+    report = build_report(result)["strategies"]["wind_down"]
+    assert account.rejections["wind_down"] == 1
+    assert account.counts["units_vendor_bought"] == 1
+    assert account.counts["units_vendored"] == 1
+    assert report["realized_at_wind_down_start"] == -1
+    assert report["realized"] == 99
+    assert report["equity_at_wind_down_start"] == 199
+    assert report["equity"] == 199
+
+
+def test_wind_down_rejection_does_not_consume_time_budget():
+    books = two_sweeps([("a", 10, 1)])
+    market = Market(books, {}, facts(bundle_size=1, bundle_price=1), ())
+    market.set_step(0, 0, {})
+    account = Account("x", frozenset(), 100, 100)
+    context = ExecutionContext(market, [account], 0, 0, {}, wind_down=True)
+    assert not execute_intent(context, account, VendorBuy(ITEM, 1))
+    assert context.time_used == 0
+    assert context.clicks_used == 0
+    assert account.clicks == 0
+    assert account.rejections == {"wind_down": 1}
+
+
+def test_demand_share_caps_multiple_own_listings_exactly():
+    books = {
+        ITEM: [
+            book(0, [("a", 10, 4)], sweep_id=1),
+            book(900, [("a", 10, 4)], sweep_id=2),
+            book(1_800, [], sweep_id=3),
+        ]
+    }
+    strategy = Script(
+        "shared_demand",
+        {0: [VendorBuy(ITEM, 6), Post(ITEM, 5, 3, 12), Post(ITEM, 6, 3, 12)]},
+    )
+    result = run(
+        books,
+        [strategy],
+        facts_value=facts(sell=100, bundle_size=1, bundle_price=1, stack=1),
+        capital=1_000,
+        demand_share=Fraction(1, 2),
+    )
+    account = result.accounts["shared_demand"]
+    assert account.counts["units_sold"] == 2
+    assert {listing.unit_price: listing.quantity for listing in account.listings_by_id.values()} == {
+        5: 1,
+        6: 3,
+    }
+
+
+def test_capacity_diagnostic_excludes_vendor_only_items_without_a_snapshot():
+    reagent = 8
+    books = two_sweeps([("a", 10, 1)])
+    strategy = Script("diagnostic", {0: [VendorBuy(reagent, 1)]})
+    result = run(
+        books,
+        [strategy],
+        facts_value={
+            ITEM: ItemFacts(ITEM, 0, None, None, 20, 0),
+            reagent: ItemFacts(reagent, 0, 1, 1, 20, 0),
+        },
+        capital=100,
+    )
+    observations = result.capacity_observations["diagnostic"]
+    assert observations
+    assert {observation["item_id"] for observation in observations} == {ITEM}
+    report = build_report(result)["strategies"]["diagnostic"]
+    assert all(item["item_id"] != reagent for item in report["capacity_top_items"])
+
+
+def test_capacity_diagnostic_excludes_vendor_supply_with_a_snapshot():
+    vendor_item = 8
+    books = {
+        ITEM: [
+            book(0, [("a", 10, 1)], sweep_id=1),
+            book(900, [("a", 10, 1)], sweep_id=2),
+        ],
+        vendor_item: [
+            book(0, [("a", 10, 1)], item_id=vendor_item, sweep_id=1),
+            book(900, [("a", 10, 1)], item_id=vendor_item, sweep_id=2),
+        ],
+    }
+    result = run(
+        books,
+        [Script("diagnostic_with_book", {0: [VendorBuy(vendor_item, 1)]})],
+        facts_value={
+            ITEM: ItemFacts(ITEM, 0, None, None, 20, 0),
+            vendor_item: ItemFacts(vendor_item, 0, 1, 1, 20, 0),
+        },
+        capital=100,
+    )
+    assert {
+        observation["item_id"] for observation in result.capacity_observations["diagnostic_with_book"]
+    } == {ITEM}
+
+
+def test_reached_ceiling_interval_does_not_allocate_own_fills():
+    # Post at step 0; the listing is first eligible for the interval starting at step 1. Between
+    # steps 1 and 2 the walk consumes the last in-scope group of a bounded book (reached ceiling),
+    # so demand above our price is unobservable and must not fill us. The unbounded control proves
+    # the same interval would otherwise fill the listing.
+    def scenario(ceiling):
+        books = {
+            ITEM: [
+                book(0, [("a", 10, 3)], sweep_id=1, ceiling=ceiling),
+                book(900, [("a", 10, 3)], sweep_id=2, ceiling=ceiling),
+                book(1800, [], sweep_id=3, ceiling=ceiling),
+            ]
+        }
+        seller = Script("ceiling", {0: [VendorBuy(ITEM, 3), Post(ITEM, 5, 3, 12)]})
+        result = run(
+            books,
+            [seller],
+            facts_value=facts(sell=100, bundle_size=1, bundle_price=1, stack=1),
+            capital=1_000,
+        )
+        return result.accounts["ceiling"]
+
+    bounded = scenario(10)
+    assert bounded.counts.get("units_sold", 0) == 0
+    assert next(iter(bounded.listings_by_id.values())).quantity == 3
+    unbounded = scenario(None)
+    assert unbounded.counts.get("units_sold", 0) == 3
 
 
 def test_fifo_profit_uses_exact_cost_and_net_proceeds():

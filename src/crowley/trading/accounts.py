@@ -132,6 +132,11 @@ class Account:
                 result[item_id] = result.get(item_id, 0) + quantity
         return result
 
+    def in_transit(self) -> Mapping[int, int]:
+        """Return item units still waiting in the mail."""
+
+        return self.pending_items()
+
     def listed_units(self) -> dict[int, int]:
         result: dict[int, int] = {}
         for listing in self.listings_by_id.values():
@@ -174,6 +179,9 @@ class _AccountView:
 
     def inventory(self) -> Mapping[int, int]:
         return dict(self._account.inventory_balance)
+
+    def in_transit(self) -> Mapping[int, int]:
+        return dict(self._account.in_transit())
 
     def listings(self) -> Sequence[ListingView]:
         return tuple(

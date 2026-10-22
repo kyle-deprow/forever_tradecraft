@@ -19,7 +19,7 @@ from crowley.trading.api import (
     VendorBuy,
     VendorSell,
 )
-from crowley.trading.strategies import crafting, dip_reversion, snipe_flip
+from crowley.trading.strategies import common, crafting, dip_reversion, snipe_flip
 
 
 def snapshot(
@@ -94,6 +94,7 @@ class FakeAccount(AccountView):
     name: str = "test"
     professions: frozenset[str] = frozenset()
     pending: int = 0
+    transit_map: dict[int, int] = field(default_factory=dict)
 
     def cash(self) -> int:
         return self.cash_value
@@ -103,6 +104,9 @@ class FakeAccount(AccountView):
 
     def inventory(self):
         return self.inventory_map
+
+    def in_transit(self):
+        return self.transit_map
 
     def listings(self):
         return self.listing_list
@@ -179,6 +183,24 @@ def test_snipe_spend_capacity_margin_and_deposit_caps():
     unaffordable_post = market_for()
     unaffordable_post.deposits[1] = 2
     assert snipe_flip.build().decide(unaffordable_post, FakeAccount(cash_value=0, inventory_map={1: 4})) == []
+
+
+def test_snipe_counts_returning_mail_against_capacity():
+    market = market_for(levels=(Level(50, 100),), demand=Fraction(20))
+    account = FakeAccount(cash_value=100_000, transit_map={1: 5})
+    assert snipe_flip.build().decide(market, account) == []
+
+
+def test_held_quantity_requires_the_account_view_transit_contract():
+    class MissingTransit:
+        def inventory(self):
+            return {}
+
+        def listings(self):
+            return []
+
+    with pytest.raises(AttributeError):
+        common.held_quantity(MissingTransit(), 1)
 
 
 def test_snipe_reprices_only_when_repost_deposit_is_reserved_and_sells_one_stack_intent():
@@ -431,6 +453,15 @@ def test_crafting_enforces_held_output_capacity_separately():
         )
         == []
     )
+
+
+def test_crafting_keeps_output_at_capacity_when_the_previous_batch_returns_in_mail():
+    market = crafting_market((recipe(1, 2, 1),))
+    market.snapshots[2] = snapshot(2, demand=Fraction(4), levels=(Level(50, 10),))
+    strategy = crafting.build({"professions": ["alchemy"]})
+    assert strategy.decide(market, FakeAccount(inventory_map={1: 1})) == []
+    account = FakeAccount(inventory_map={1: 1}, transit_map={2: 1})
+    assert strategy.decide(market, account) == []
 
 
 def test_crafting_posts_all_outputs_with_cash_projection():

@@ -18,13 +18,17 @@ from .market import Market
 MAIL_DELAY_SECONDS = 3600
 TIE_SHARE = Fraction(0)
 PLANNED_CADENCE_SECONDS = 900
-CLICK_BUDGET = math.floor(0.5 * PLANNED_CADENCE_SECONDS)
+TIME_BUDGET = math.floor(0.5 * PLANNED_CADENCE_SECONDS)
+# Kept as a compatibility name for callers that imported the old constant.  It
+# now denotes the shared seconds budget, not a count of free clicks.
+CLICK_BUDGET = TIME_BUDGET
 BUY_CLICKS = 3
 POST_CLICKS = 3
 CANCEL_CLICKS = 2
 VENDOR_SELL_CLICKS_PER_STACK = 1
 VENDOR_BUY_CLICKS = 2
 CRAFT_CLICKS = 2
+CRAFT_SECONDS = 3
 DEPOSIT_RATE = Fraction(15, 100)
 
 
@@ -37,6 +41,9 @@ class ExecutionContext:
     purchased: dict[tuple[int, Any], int] = field(default_factory=dict)
     clicks_used: int = 0
     next_listing_id: int = 1
+    time_used: int = 0
+    wind_down: bool = False
+    demand_share: Fraction = Fraction(1)
 
     def account_index(self, account: Account) -> int:
         for index, candidate in enumerate(self.accounts):
@@ -48,10 +55,11 @@ class ExecutionContext:
         account.reject(reason, self.t, intent=type(intent).__name__ if intent is not None else None)
 
     def charge_clicks(self, account: Account, amount: int, intent: Intent) -> bool:
-        if self.clicks_used + amount > CLICK_BUDGET:
-            self.reject(account, "click_budget", intent)
+        if self.time_used + amount > TIME_BUDGET:
+            self.reject(account, "time_budget", intent)
             return False
         self.clicks_used += amount
+        self.time_used += amount
         account.clicks += amount
         return True
 
@@ -206,7 +214,8 @@ def settle_fills(context: ExecutionContext) -> None:
             if common_ceiling is not None and listing.unit_price > common_ceiling:
                 continue
             demand = sum(quantity for unit, quantity in demand_by_price if unit > listing.unit_price)
-            fill = min(listing.quantity, max(0, demand - filled_before))
+            demand_capacity = math.floor(context.demand_share * demand)
+            fill = min(listing.quantity, max(0, demand_capacity - filled_before))
             if fill <= 0:
                 continue
             listing.quantity -= fill
@@ -494,16 +503,33 @@ def _execute_craft(context: ExecutionContext, account: Account, intent: Craft) -
     if recipe.cooldown_group and recipe.cooldown_seconds > 0 and intent.times > 1:
         context.reject(account, "cooldown", intent)
         return False
+    craft_times = intent.times
+    remaining_time = TIME_BUDGET - context.time_used
+    fit = (remaining_time - CRAFT_CLICKS) // CRAFT_SECONDS
+    if fit <= 0:
+        context.reject(account, "time_budget", intent)
+        return False
+    if craft_times > fit:
+        craft_times = fit
     for item_id, quantity in recipe.reagents:
-        if account.inventory_balance.get(item_id, 0) < quantity * intent.times:
+        if account.inventory_balance.get(item_id, 0) < quantity * craft_times:
             context.reject(account, "reagent", intent)
             return False
+    if craft_times < intent.times:
+        account.add_count("craft_truncated")
+        account.ledger.append(
+            LedgerEvent(
+                context.t,
+                "craft_truncated",
+                details={"spell_id": intent.spell_id, "requested": intent.times, "times": craft_times},
+            )
+        )
     clicks = CRAFT_CLICKS
     if not context.charge_clicks(account, clicks, intent):
         return False
     reagent_cost = 0
     for item_id, quantity in recipe.reagents:
-        required = quantity * intent.times
+        required = quantity * craft_times
         lots = account.lots.get(item_id, [])
         remaining = required
         for lot in lots:
@@ -513,14 +539,15 @@ def _execute_craft(context: ExecutionContext, account: Account, intent: Craft) -
                 break
         account.remove_inventory(item_id, required)
         _remove_lots(account, item_id, required)
-    output_units = sum(quantity for _, quantity in recipe.outputs) * intent.times
+    output_units = sum(quantity for _, quantity in recipe.outputs) * craft_times
     output_cost = reagent_cost / output_units if output_units else Fraction(0)
     for item_id, quantity in recipe.outputs:
-        account.add_inventory(item_id, quantity * intent.times, unit_cost=output_cost, t=context.t)
+        account.add_inventory(item_id, quantity * craft_times, unit_cost=output_cost, t=context.t)
     if recipe.cooldown_group:
         account.cooldowns[recipe.cooldown_group] = context.t + recipe.cooldown_seconds
     account.add_count("crafted", output_units)
-    account.add_count("crafts", intent.times)
+    account.add_count("crafts", craft_times)
+    context.time_used += craft_times * CRAFT_SECONDS
     account.ledger.append(
         LedgerEvent(context.t, "craft", quantity=output_units, details={"spell_id": intent.spell_id})
     )
@@ -541,6 +568,9 @@ def _remove_lots(account: Account, item_id: int, quantity: int) -> None:
 
 
 def execute_intent(context: ExecutionContext, account: Account, intent: Intent) -> bool:
+    if context.wind_down and isinstance(intent, (Buy, VendorBuy, Craft)):
+        context.reject(account, "wind_down", intent)
+        return False
     if isinstance(intent, Buy):
         return _execute_buy(context, account, intent)
     if isinstance(intent, Post):
@@ -563,11 +593,13 @@ __all__ = [
     "CANCEL_CLICKS",
     "CLICK_BUDGET",
     "CRAFT_CLICKS",
+    "CRAFT_SECONDS",
     "DEPOSIT_RATE",
     "ExecutionContext",
     "MAIL_DELAY_SECONDS",
     "POST_CLICKS",
     "TIE_SHARE",
+    "TIME_BUDGET",
     "VENDOR_BUY_CLICKS",
     "deposit",
     "execute_intent",

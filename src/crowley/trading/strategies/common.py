@@ -52,13 +52,14 @@ def trustworthy_fair(
 
 
 def held_quantity(account: AccountView, item_id: int) -> int:
-    """Units held by the account, including units already listed."""
+    """Units held by the account, including listings and delayed mail."""
 
     inventory = max(0, int(account.inventory().get(item_id, 0)))
     listed = sum(
         max(0, listing.quantity_remaining) for listing in account.listings() if listing.item_id == item_id
     )
-    return inventory + listed
+    transit = max(0, int(account.in_transit().get(item_id, 0)))
+    return inventory + listed + transit
 
 
 def capacity_limit(

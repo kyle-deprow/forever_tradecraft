@@ -214,6 +214,7 @@ class CraftingStrategy:
 
     def _craft_previous(
         self,
+        market: MarketView,
         account: AccountView,
         recipes: Mapping[int, Recipe],
         inventory: dict[int, int],
@@ -236,6 +237,15 @@ class CraftingStrategy:
                 available = 0
             else:
                 available = min(available, 1)
+        for item_id, quantity in recipe.outputs:
+            snapshot = market.items().get(item_id)
+            if snapshot is None or snapshot.demand_units_per_day is None:
+                available = 0
+                break
+            available = min(
+                available,
+                _projected_capacity(snapshot, held, self.params["capacity_share"]) // quantity,
+            )
         times = min(planned_times, available)
         if times <= 0:
             return [], set()
@@ -277,9 +287,9 @@ class CraftingStrategy:
         inventory = {item_id: item_inventory(account.inventory(), item_id) for item_id in account.inventory()}
         held = {item_id: held_quantity(account, item_id) for item_id in account.inventory()}
         for recipe in recipes.values():
-            for item_id, _quantity in recipe.outputs:
+            for item_id, _quantity in (*recipe.reagents, *recipe.outputs):
                 held.setdefault(item_id, held_quantity(account, item_id))
-        intents, crafted_groups = self._craft_previous(account, recipes, inventory, held)
+        intents, crafted_groups = self._craft_previous(market, account, recipes, inventory, held)
         projected_cash = max(0, int(account.cash()))
 
         output_ids = sorted(
