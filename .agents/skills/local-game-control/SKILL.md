@@ -15,6 +15,8 @@ within existing authorization; respect any current movement limits.
 - Reused workers can retain an earlier worktree as their working directory.
   Bind live diagnostics and source references to the current absolute repository
   path and accepted hashes before using their conclusions.
+  Reuse production identity/capture helpers. Keep standalone Python helper names
+  distinct from imported standard-library modules, such as `inspect`.
 - Check processes and map window IDs to PIDs before launching anything. A running
   game behind its launcher needs activation, not another click on Play. Match exact
   process comm/Windows argv0 and PID/start; broad command-text searches can match
@@ -47,6 +49,8 @@ within existing authorization; respect any current movement limits.
   Keep Wine identity channels distinct: `/proc/<pid>/exe` can identify the Linux
   loader while `comm`/status `Name` identify the Windows program. Verify the
   Windows command line and prefix separately; do not loosen one check to fit another.
+  Windows argv0 uses Windows path semantics; POSIX `Path.name` does not extract
+  its basename. Prefer the production resolver over another local parser.
 - Focus alone may leave a Wine window covered or minimized. Raise/activate the
   verified game window, then inspect a fresh screenshot before entering input.
   Launcher news, trailers, and broadcasts are not evidence of game state.
@@ -66,6 +70,8 @@ within existing authorization; respect any current movement limits.
   Obtain `DISPLAY` and `XAUTHORITY` from the verified game or graphical session
   and pass them to capture/query tools and fresh owner launches. Verify that a
   replacement owner inherits them or binds the exact authority path in its profile.
+  Pass the production input environment to watchdog and emitter children too;
+  configuring only the parent capture path does not configure those subprocesses.
   Do not dump the full process environment
   or treat a missing shell variable as evidence that the desktop is unavailable.
 - Persistent desktop notifications are historical evidence. Before attributing a
@@ -156,6 +162,8 @@ within existing authorization; respect any current movement limits.
   Verify the property, process and structure; that metadata helper must never
   become an allowed input target.
 - Verify native process dispatch with a harmless real command before GUI input.
+  Standalone helpers using the multiprocessing watchdog must put startup and all
+  input under a guarded `main`; spawned children import the entrypoint again.
   A fake `Popen` misses exec-handshake deadlocks. Never wait for parent admission
   or apply simulated input effects inside `Popen` construction; effects belong
   after the real admission gate of an owned harmless child.
@@ -343,6 +351,9 @@ within existing authorization; respect any current movement limits.
   On cached reconnect, inspect the full scene between phases. A ruleset, realm or
   character chooser requires the already-authorized selection before world HUD
   polling can succeed; use bounded waits for actual loading transitions.
+  A retained no-realms dialog describes an earlier connection attempt. After an
+  agreed backoff, one authorized cached retry establishes current availability;
+  a fresh screenshot of the old dialog does not renew the network observation.
   Correlate fresh launch logs with process/window lifetime. Token refresh or an
   automatically completed challenge is not evidence that user login is needed;
   establish that from the current visible login form or an explicit failure.

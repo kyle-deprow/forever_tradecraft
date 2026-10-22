@@ -1,13 +1,54 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-21 17:08 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 03:10 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Latest calibration appointment update (supersedes historical live state)
 
-**CURRENT USER HOLD (after the 4 PM return check):** User reports the game is
+**CURRENT RESUME:** At02:46 UTC on2026-10-22 the user explicitly resumed Luna
+and requested calibration; the user also confirmed connected/available through RDP.
+`/root/luna_assisted_scanner` was woken with a follow-up task and verified running.
+It is the sole GUI owner. Root must not capture/input concurrently. The current
+Forever client is a new process; re-resolve its identity rather than reusing old
+PID2792826 or the old fingerprint. Fresh02:58:43Z production HUD confirms Arthur
+in Ironforge, build70450/version1.60.1/interface16001, AHclosed/speed0/pending0,
+scannerready/no active sweep. CurrentPID1532084/start44691603 has a fresh identity.
+The new HUD has empty loaded.ackedIds; prior cycle236's historical exact ACK is
+preserved evidence, not a fresh loaded-ACK claim.
+
+Before any new sweep, root restarted `crowley-session.service` at02:54:19 UTC:
+oldPID3087152 -> newPID1821334. Runtime initialized PAUSED **generation71**,
+native/input false, operation idle. Fresh generations must be read before commands.
+This loads committed format3 support (`347ab56`); parent focused format2/3 tests
+passed10/29deselected. The live addon symlinks to MAIN's `addon/Crowley`, whose
+scanner now emits format3. No native helper/session implementation files changed
+between the reviewed calibration helper and current MAIN2e48728.
+
+**P2 is now merged at05392bf.** Parent probe-focused tests passed9/244deselected.
+The driver was woken again for a keyboard-only probe and collection outcome:
+load the merged addon with one guarded reload (the world boot predates P2), run
+`/crowley probe`, then `/reload` and verify saved/uploaded expanded probe fields.
+Resume assisted428-item900-second cycles afterward, preserving original format3
+payloads and exact upload/ACK/reopen evidence. Never interrupt an active sweep.
+Coordination with the other data agent is recorded in
+`../.archive/trade-api-probe/LIVE-DRIVER-STATUS.md`.
+
+**Calibration method blocker:** Current-MAIN Sol review is NEEDS WORK. New
+CLAUDE.md requires curved/Fitts-timed seeded human click gestures and >=1.0second
+between automated clicks; FixedInput.click in the native helper still moves
+directly before button down/up. Runtime's armed driver cannot simply run before
+input calibration. Hold native control-preflight/measurement/human startup until
+the shared bootstrap gesture fix passes review. Keyboard-only assisted collection
+is independent of that click fix. Luna implementation is offline in isolated
+`~/.cache/crowley/worktrees/native-human-click-20261022`; root-owned plan:
+`../.archive/PLAN-native-human-click-20261022.md`. No unreviewed candidate is installed.
+The original state/recovery sequence remains required afterward: fresh preflight,
+native100, public pause/checkpoint-dependent ordinary recovery, genuine input.
+No autonomous cycles are yet qualified.
+
+**HISTORICAL USER HOLD (superseded by the resume above):** User reported the game was
 still not playable and will tell us when it is ready. Stop reconnect attempts,
 screen polling, game input and calibration until that update. The attempted
 stale-modal dismissal refused at its PID/start guard before capture or input;
