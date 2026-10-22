@@ -256,6 +256,9 @@ within existing authorization; respect any current movement limits.
   A buffer staged before a long wait is not current dispatch evidence. Immediately
   before Return, verify fresh addon `chatEdit` is active, focused and contains the
   exact command; then require the actual boot/file transition for a reload.
+  A post-Return capture can still contain the old boot. Arm one owned decoder
+  boot transition and test old-to-new through the real decoder; a no-op fake
+  decoder cannot verify reload polling.
   Keep idle-scene admission separate from the owned chat phases: a guard requiring
   a closed editor cannot admit the expected focused empty editor after opening
   chat. Exercise adapted guards on retained phase snapshots before live input,
@@ -332,6 +335,8 @@ within existing authorization; respect any current movement limits.
   GNOME's shared D-Bus screenshot service can return before file creation or PNG
   completion under competing requests. Verify a new fully decoded image, retain
   the original capture time, and serialize requests within the existing deadline.
+  Give every retained poll a unique image path so repeated phase tags cannot
+  overwrite evidence already bound to a receipt hash.
   Profile command, image completion and identity-query time separately before
   optimizing cadence. Screenshot UI effects can dominate even with zero delay;
   verify the installed implementation rather than guessing from total latency.
