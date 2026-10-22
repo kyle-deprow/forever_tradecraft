@@ -733,6 +733,11 @@ class CalibrationTicket:
     managed_frame_geometry: tuple[int, int, int, int] = ()
     target_executable: str = ""
     target_process_start: str = ""
+    target_layout_kind: str = "mutter-managed-frame-v1"
+    target_root_xid: int = 0
+    target_parent_xid: int = 0
+    target_descendant_xids: frozenset[int] = frozenset()
+    target_excluded_input_only_xids: frozenset[int] = frozenset()
 
     def contains(self, xid: int) -> bool:
         return xid in self.target_xids
@@ -5299,40 +5304,53 @@ class DesktopDriver:
         return unregister
 
     @staticmethod
-    def _calibration_target_certificate(target: Any) -> tuple[frozenset[int], int, tuple[int, int, int, int]]:
-        """Return the exact certified GTK/X11 event target set.
+    def _calibration_target_certificate(
+        target: Any,
+    ) -> tuple[
+        frozenset[int],
+        str,
+        int,
+        int,
+        int,
+        tuple[int, ...],
+        frozenset[int],
+        frozenset[int],
+    ]:
+        """Return the exact owned GTK layout and its event-capable XID set."""
 
-        The calibration owner certifies one managed frame and the GTK client
-        subtree.  The driver consumes that certificate as an exact set; it
-        never infers extra parents or accepts a root/sibling supplied by a
-        caller.
-        """
+        from .calibration import GTK_LAYOUT_MUTTER_FRAME, GTK_LAYOUT_ROOT_CHILD
 
         allowed = frozenset(target.allowed_event_target_xids)
         descendants = frozenset(target.descendant_xids)
         target_xid = target.xid
         frame_xid = target.managed_frame_xid
         frame_geometry = tuple(target.managed_frame_geometry)
+        layout_kind = getattr(target, "layout_kind", GTK_LAYOUT_MUTTER_FRAME)
+        root_xid = getattr(target, "root_xid", 0)
+        parent_xid = getattr(target, "parent_xid", 0)
+        excluded = frozenset(getattr(target, "excluded_input_only_xids", ()))
         target_executable = getattr(target, "executable", "")
         target_process_start = getattr(target, "process_start", "")
         if (
-            not allowed
+            layout_kind not in {GTK_LAYOUT_MUTTER_FRAME, GTK_LAYOUT_ROOT_CHILD}
+            or not allowed
             or not descendants
             or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in allowed)
             or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in descendants)
+            or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in excluded)
             or isinstance(target_xid, bool)
             or not isinstance(target_xid, int)
             or target_xid <= 0
             or target_xid not in descendants
-            or isinstance(frame_xid, bool)
-            or not isinstance(frame_xid, int)
-            or frame_xid <= 0
-            or frame_xid in descendants
-            or allowed != frozenset({frame_xid, *descendants})
-            or len(frame_geometry) != 4
-            or any(isinstance(value, bool) or not isinstance(value, int) for value in frame_geometry)
-            or frame_geometry[2] <= 0
-            or frame_geometry[3] <= 0
+            or isinstance(root_xid, bool)
+            or not isinstance(root_xid, int)
+            or root_xid < 0
+            or isinstance(parent_xid, bool)
+            or not isinstance(parent_xid, int)
+            or parent_xid < 0
+            or root_xid in allowed
+            or root_xid in excluded
+            or allowed & excluded
             or not isinstance(target_executable, str)
             or not target_executable
             or not os.path.isabs(target_executable)
@@ -5340,25 +5358,75 @@ class DesktopDriver:
             or not target_process_start
         ):
             raise DriverError("owned GTK target event-target certificate is incomplete or altered")
+        if layout_kind == GTK_LAYOUT_ROOT_CHILD:
+            if (
+                root_xid <= 0
+                or parent_xid != root_xid
+                or frame_xid not in (None, 0)
+                or frame_geometry
+                or target_xid in excluded
+                or len(excluded) != 1
+                or not excluded.issubset(descendants)
+                or root_xid in descendants
+                or descendants != {target_xid, *excluded}
+                or allowed != frozenset({target_xid})
+            ):
+                raise DriverError("owned GTK root-child certificate is incomplete or altered")
+        else:
+            if (
+                isinstance(frame_xid, bool)
+                or not isinstance(frame_xid, int)
+                or frame_xid <= 0
+                or frame_xid in descendants
+                or allowed != frozenset({frame_xid, *descendants})
+                or len(frame_geometry) != 4
+                or any(isinstance(value, bool) or not isinstance(value, int) for value in frame_geometry)
+                or frame_geometry[2] <= 0
+                or frame_geometry[3] <= 0
+                or (root_xid > 0 and parent_xid != frame_xid)
+                or (root_xid > 0 and root_xid in descendants)
+            ):
+                raise DriverError("owned GTK managed-frame certificate is incomplete or altered")
         target_geometry = tuple(target.geometry)
         if (
             len(target_geometry) != 4
             or any(isinstance(value, bool) or not isinstance(value, int) for value in target_geometry)
             or target_geometry[2] <= 0
             or target_geometry[3] <= 0
-            or not (
-                frame_geometry[0] <= target_geometry[0]
-                and frame_geometry[1] <= target_geometry[1]
-                and frame_geometry[0] + frame_geometry[2] >= target_geometry[0] + target_geometry[2]
-                and frame_geometry[1] + frame_geometry[3] >= target_geometry[1] + target_geometry[3]
+            or (
+                layout_kind == GTK_LAYOUT_MUTTER_FRAME
+                and not (
+                    frame_geometry[0] <= target_geometry[0]
+                    and frame_geometry[1] <= target_geometry[1]
+                    and frame_geometry[0] + frame_geometry[2] >= target_geometry[0] + target_geometry[2]
+                    and frame_geometry[1] + frame_geometry[3] >= target_geometry[1] + target_geometry[3]
+                )
             )
         ):
-            raise DriverError("owned GTK managed-frame geometry certificate is invalid")
-        return allowed, frame_xid, frame_geometry
+            raise DriverError("owned GTK target geometry certificate is invalid")
+        return (
+            allowed,
+            layout_kind,
+            root_xid,
+            parent_xid,
+            int(frame_xid or 0),
+            frame_geometry,
+            descendants,
+            excluded,
+        )
 
     @classmethod
     def _verify_calibration_target(cls, ticket: CalibrationTicket, target: Any) -> None:
-        allowed, frame_xid, frame_geometry = cls._calibration_target_certificate(target)
+        (
+            allowed,
+            layout_kind,
+            root_xid,
+            parent_xid,
+            frame_xid,
+            frame_geometry,
+            descendants,
+            excluded,
+        ) = cls._calibration_target_certificate(target)
         if (
             int(getattr(target, "pid", 0)) != ticket.target_pid
             or int(getattr(target, "xid", 0)) != ticket.target_xid
@@ -5369,6 +5437,11 @@ class DesktopDriver:
             or allowed != ticket.target_xids
             or frame_xid != ticket.managed_frame_xid
             or frame_geometry != ticket.managed_frame_geometry
+            or layout_kind != ticket.target_layout_kind
+            or root_xid != ticket.target_root_xid
+            or parent_xid != ticket.target_parent_xid
+            or descendants != ticket.target_descendant_xids
+            or excluded != ticket.target_excluded_input_only_xids
         ):
             raise DriverError("owned GTK calibration target changed after ticket issue")
 
@@ -5413,7 +5486,16 @@ class DesktopDriver:
 
         if not isinstance(target, OwnedWindow) or target.title != OwnedGtkCalibrationWindow.TITLE:
             raise DriverError("calibration target is not the owned GTK window")
-        target_xids, managed_frame_xid, managed_frame_geometry = self._calibration_target_certificate(target)
+        (
+            target_xids,
+            layout_kind,
+            root_xid,
+            parent_xid,
+            managed_frame_xid,
+            managed_frame_geometry,
+            descendants,
+            excluded,
+        ) = self._calibration_target_certificate(target)
         with self._calibration_action_lock:
             expected_epoch = self._calibration_epoch
             with self.guardian._lock:
@@ -5449,6 +5531,11 @@ class DesktopDriver:
                 managed_frame_geometry,
                 str(target.executable),
                 str(target.process_start),
+                layout_kind,
+                root_xid,
+                parent_xid,
+                descendants,
+                excluded,
             )
             try:
                 self.guardian.issue_calibration_ticket(ticket)

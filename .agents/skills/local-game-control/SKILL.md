@@ -34,6 +34,10 @@ within existing authorization; respect any current movement limits.
   settled. Retain startup ownership through bounded readiness of the exact
   process/window. Root is never its certified frame; diagnostic capture must
   not enumerate unrelated root children when the owned frame is still absent.
+  An undecorated GTK client can remain a direct root child with no frame extents.
+  Pin the observed layout explicitly through owner, ticket and sealed evidence;
+  never interpret failed framed verification as permission to switch layouts.
+  Exclude InputOnly metadata helpers from event targets in either layout.
   Distinguish the Wine outer window from its rendering child before forcing a
   display size. Compare both measured geometries with the existing production
   resolver and profile; a larger outer window can contain the exact desired
@@ -290,6 +294,9 @@ within existing authorization; respect any current movement limits.
   Exercise the helper's real entry path in a dry run as well as its pure guards;
   read-only preflight can pass while receipt initialization still prevents the
   first production command from being reached.
+  Replay extra guards against the complete typed snapshot before a live attempt;
+  summaries may omit context, and `context.clientBuild` is a string. When reusing
+  functions loaded from a script, bind their actual module globals in that test.
   Bound diagnostic slash commands to both client and telemetry readback limits.
   Derive emitter and acknowledgement bounds from the pinned tool's actual
   per-character timing and fixed command length; an instant recorder does not
@@ -402,8 +409,14 @@ require `resume`, with missing gates returning it to unarmed calibration; repeat
 `start` with a new generation cannot fix a state-specific command refusal.
 After native success, complete public pause/canonical ordinary recovery and prove
 checkpoint clear before human-input startup. Read the durable journal checkpoint
-when IPC status does not expose it; an absent field is not evidence of clearance. Inspect actual target geometry and
-pointer at the failed boundary; post-cleanup focus cannot establish its cause.
+when IPC status does not expose it; an absent field is not evidence of clearance.
+Inspect actual target geometry and pointer at the failed boundary; post-cleanup
+focus cannot establish its cause.
+
+`native_calibration_operator.py control-preflight` mutates the game through
+defer/construct/recovery; it is not a read-only gate check. When native proof is
+valid and the checkpoint is absent, input-only preparation uses ordinary
+identity/scene/held-input/status checks followed by resume and input-calibrate.
 A planned collection cutoff should stop new scans while allowing authorized save/logout
 cleanup. A user's explicit takeover or stop ends input immediately, including cleanup.
 

@@ -183,6 +183,65 @@ def _mutter_gtk_fixture_command(
     return command
 
 
+def _root_child_gtk_fixture_command(*, pid: int, target: int, helper: int):
+    """Build actual owner-verifier responses for the observed root-child layout."""
+
+    state: dict[str, object] = {
+        "user_time_window": f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(helper)}\n",
+        "children": (helper,),
+        "map_state": "IsViewable",
+        "identity_companions": True,
+    }
+    commands: list[tuple[str, ...]] = []
+
+    def command(args: list[str], **_kwargs: object) -> str:
+        commands.append(tuple(args))
+        if args == ["wmctrl", "-lp"]:
+            return f"{hex(target)} -1 {pid} host CROWLEY INPUT CALIBRATION ONLY\n"
+        if args == ["xprop", "-id", hex(target)]:
+            identity_properties = (
+                f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n_NET_WM_PID(CARDINAL) = {pid}\n'
+                if state["identity_companions"]
+                else ""
+            )
+            return (
+                identity_properties + "_MOTIF_WM_HINTS(_MOTIF_WM_HINTS) = 0x2, 0, 0, 0, 0\n"
+                "_NET_FRAME_EXTENTS:  not found.\n"
+                + str(state["user_time_window"] or "_NET_WM_USER_TIME_WINDOW:  not found.\n")
+            )
+        if args == ["xwininfo", "-id", hex(target), "-stats"]:
+            map_state = state["map_state"]
+            return (
+                f"xwininfo: Window id: {hex(target)}\n"
+                "Absolute upper-left X: 1440\nAbsolute upper-left Y: 32\n"
+                "Width: 480\nHeight: 240\nDepth: 24\nBorder width: 0\n"
+                "Class: InputOutput\n" + (f"Map State: {map_state}\n" if map_state is not None else "")
+            )
+        if args == ["xwininfo", "-id", hex(target), "-tree"]:
+            children = tuple(state["children"])
+            rows = "".join(
+                f"     {hex(child)} (has no name): ()  1x1+-1+-1  +1439+31\n" for child in children
+            )
+            count = len(children)
+            return (
+                f'xwininfo: Window id: {hex(target)} "CROWLEY INPUT CALIBRATION ONLY"\n\n'
+                "  Root window id: 0x374 (the root window) (has no name)\n"
+                "  Parent window id: 0x374 (the root window) (has no name)\n"
+                f"     {count} children:\n{rows}"
+            )
+        if len(args) == 4 and args[:2] == ["xwininfo", "-id"] and args[3] == "-stats":
+            child = int(args[2], 16)
+            return (
+                f"xwininfo: Window id: {hex(child)}\n"
+                "Absolute upper-left X: 1439\nAbsolute upper-left Y: 31\n"
+                "Relative upper-left X: -1\nRelative upper-left Y: -1\n"
+                "Width: 1\nHeight: 1\nDepth: 0\nBorder width: 0\nClass: InputOnly\n"
+            )
+        raise AssertionError(args)
+
+    return state, commands, command
+
+
 def _wait_for(predicate, *, timeout: float = 2.0) -> bool:
     deadline = time.monotonic() + timeout
     while time.monotonic() < deadline:
@@ -771,6 +830,74 @@ def test_owned_calibration_click_uses_owned_geometry_plus_local_offset(tmp_path:
         # The harmless calibration point is the owned GTK center: local
         # (240, 120), translated through the measured desktop geometry.
         assert calls == [(hex(TARGET), 281, 179)]
+    finally:
+        driver.close()
+
+
+def test_root_child_ticket_pins_layout_and_rejects_root_helper_and_sibling_targets(tmp_path: Path) -> None:
+    from crowley.session.calibration import GTK_LAYOUT_ROOT_CHILD
+
+    target_xid = 0x600119
+    helper_xid = 0x60011A
+    sibling_xid = 0x60011B
+    root_xid = 0x374
+    target = OwnedWindow(
+        os.getpid(),
+        target_xid,
+        OwnedGtkCalibrationWindow.TITLE,
+        (1440, 32, 480, 240),
+        SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+        frozenset({target_xid, helper_xid}),
+        "/usr/bin/python3",
+        "root-child-target-start",
+        None,
+        (),
+        frozenset({target_xid}),
+        GTK_LAYOUT_ROOT_CHILD,
+        root_xid,
+        root_xid,
+        frozenset({helper_xid}),
+    )
+    driver = DesktopDriver(
+        profile=DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority")),
+        backend=RecordingBackend(),
+        lease_path=tmp_path / "root-child-ticket.lock",
+    )
+    try:
+        driver.begin_calibration_operation()
+        ticket = driver.issue_calibration_ticket(target)
+        assert ticket.target_xids == {target_xid}
+        assert ticket.target_descendant_xids == {target_xid, helper_xid}
+        assert ticket.target_excluded_input_only_xids == {helper_xid}
+        assert ticket.target_root_xid == ticket.target_parent_xid == root_xid
+
+        forged_targets = (
+            replace(target, certified_event_target_xids=frozenset({target_xid, root_xid})),
+            replace(target, certified_event_target_xids=frozenset({target_xid, helper_xid})),
+            replace(
+                target,
+                descendant_xids=frozenset({target_xid, helper_xid, sibling_xid}),
+                certified_event_target_xids=frozenset({target_xid, sibling_xid}),
+            ),
+            replace(
+                target,
+                xid=helper_xid,
+                descendant_xids=frozenset({target_xid, helper_xid}),
+                excluded_input_only_xids=frozenset({helper_xid}),
+                certified_event_target_xids=frozenset({helper_xid}),
+            ),
+            replace(target, layout_kind="mutter-managed-frame-v1", managed_frame_xid=target_xid),
+        )
+        for forged in forged_targets:
+            with pytest.raises(DriverError, match="certificate|changed after ticket"):
+                driver._verify_calibration_target(ticket, forged)
+
+        with pytest.raises(DriverError, match="changed after ticket"):
+            driver._verify_calibration_target(replace(ticket, target_root_xid=root_xid + 1), target)
+        with pytest.raises(DriverError, match="changed after ticket"):
+            driver._verify_calibration_target(
+                replace(ticket, target_layout_kind="mutter-managed-frame-v1"), target
+            )
     finally:
         driver.close()
 
@@ -1431,6 +1558,8 @@ def test_gtk_create_real_verifier_replays_startup_states_and_command_budget(
 @pytest.mark.skipif(
     shutil.which("Xvfb") is None
     or shutil.which("xdotool") is None
+    or shutil.which("xprop") is None
+    or shutil.which("xwininfo") is None
     or not Path("/usr/bin/python3.13").is_file(),
     reason="private Xvfb/GTK fixture is unavailable",
 )
@@ -1521,132 +1650,57 @@ def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
         assert before_create[:2] == (1809, 43)
 
         facts: dict[str, int] = {}
-        root_xid = 0x374
-        frame_pid = os.getpid()
+        commands: list[tuple[str, ...]] = []
+        from crowley.session.driver import _parse_xwininfo_tree
 
-        def stats(
-            x: int,
-            y: int,
-            width: int,
-            height: int,
-            *,
-            map_state: str = "IsViewable",
-            relative_x: int | None = None,
-            relative_y: int | None = None,
-            depth: int = 24,
-            klass: str = "InputOutput",
-        ) -> str:
-            return (
-                f"xwininfo: Window id: 0x{facts['xid']:x}\n\n"
-                f"  Absolute upper-left X:  {x}\n"
-                f"  Absolute upper-left Y:  {y}\n"
-                f"  Relative upper-left X:  {x if relative_x is None else relative_x}\n"
-                f"  Relative upper-left Y:  {y if relative_y is None else relative_y}\n"
-                f"  Width: {width}\n"
-                f"  Height: {height}\n"
-                f"  Depth: {depth}\n"
-                "  Border width: 0\n"
-                f"  Class: {klass}\n"
-                f"  Map State: {map_state}\n"
-            )
-
-        def actual_client_stats(timeout: float) -> tuple[str, tuple[int, int, int, int]] | None:
-            if not facts:
-                return None
+        def command(argv: list[str], *, display: str, xauthority: str, timeout: float = 5.0) -> str:
+            commands.append(tuple(argv))
+            if argv == ["wmctrl", "-lp"]:
+                if not facts:
+                    return ""
+                return f"0x{facts['xid']:x} -1 {facts['pid']} localhost {OwnedGtkCalibrationWindow.TITLE}\n"
+            if argv[:2] == ["xprop", "-id"]:
+                if int(argv[2], 16) != facts["xid"]:
+                    raise AssertionError(f"unowned xprop target: {argv!r}")
+            elif argv[:2] == ["xwininfo", "-id"]:
+                query_xid = int(argv[2], 16)
+                if query_xid not in {facts["xid"], facts.get("helper", 0)}:
+                    raise AssertionError(f"unowned xwininfo target: {argv!r}")
+            else:
+                raise AssertionError(f"unexpected GTK verifier command: {argv!r}")
+            if argv[0] == "xwininfo" and len(argv) == 4 and argv[3] == "-tree":
+                if argv[2] != hex(facts["xid"]):
+                    raise AssertionError("root enumeration is forbidden in the root-child contract test")
             result = subprocess.run(
-                ["xwininfo", "-id", hex(facts["xid"]), "-stats"],
-                env=env,
+                argv,
+                env=env | {"DISPLAY": display, "XAUTHORITY": xauthority},
                 check=False,
                 capture_output=True,
                 text=True,
-                timeout=max(0.05, timeout),
+                timeout=max(0.001, timeout),
             )
-            if result.returncode != 0:
-                return None
-            geometry = calibration_module._parse_xwininfo_geometry(result.stdout)
-            return result.stdout, geometry
-
-        def command(argv: list[str], *, timeout: float, **_kwargs: object) -> str:
-            if argv == ["wmctrl", "-lp"]:
-                current = actual_client_stats(timeout)
-                if current is None or "Map State: IsViewable" not in current[0]:
-                    return ""
-                return f"0x{facts['xid']:x} -1 {facts['pid']} localhost {OwnedGtkCalibrationWindow.TITLE}\n"
-            if len(argv) == 3 and argv[:2] == ["xprop", "-id"]:
-                xid = int(argv[2], 16)
-                if xid == facts["xid"]:
-                    return (
-                        f'WM_NAME(STRING) = "{OwnedGtkCalibrationWindow.TITLE}"\n'
-                        f"_NET_WM_PID(CARDINAL) = {facts['pid']}\n"
-                        "_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0\n"
-                    )
-                if xid == facts.get("frame", 0):
-                    return (
-                        f"_MUTTER_FRAME_FOR(WINDOW): window id # {hex(facts['xid'])}\n"
-                        f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(facts['helper'])}\n"
-                        f"_NET_WM_PID(CARDINAL) = {frame_pid}\n"
-                        'WM_CLASS(STRING) = "mutter-x11-frames", "mutter-x11-frames"\n'
-                    )
-                if xid == facts.get("helper", 0):
-                    return "_NET_WM_USER_TIME(CARDINAL) = 1\n"
-            if len(argv) == 4 and argv[:2] == ["xwininfo", "-id"] and argv[3] == "-stats":
-                xid = int(argv[2], 16)
-                if xid == facts.get("xid", 0):
-                    current = actual_client_stats(timeout)
-                    if current is None:
-                        raise subprocess.CalledProcessError(1, argv, stderr="client is not mapped")
-                    return current[0]
-                current = actual_client_stats(timeout)
-                if current is None:
-                    raise subprocess.CalledProcessError(1, argv, stderr="client is not mapped")
-                x, y, width, height = current[1]
-                if xid == facts.get("frame", 0):
-                    facts["geometry_x"] = x
-                    facts["geometry_y"] = y
-                    return stats(x, y, width, height)
-                if xid == facts.get("helper", 0):
-                    return stats(
-                        x - 1,
-                        y - 1,
-                        1,
-                        1,
-                        relative_x=-1,
-                        relative_y=-1,
-                        depth=0,
-                        klass="InputOnly",
-                    )
-            if argv == ["xwininfo", "-root", "-tree"]:
-                current = actual_client_stats(timeout)
-                if current is None:
-                    raise subprocess.CalledProcessError(1, argv, stderr="client is not mapped")
-                x, y, width, height = current[1]
-                frame = facts.setdefault("frame", facts["xid"] + 0x100000)
-                helper = facts.setdefault("helper", facts["xid"] + 0x100001)
-                return (
-                    f"xwininfo: Window id: {hex(root_xid)} (the root window)\n"
-                    f'  {hex(frame)} "CROWLEY INPUT CALIBRATION ONLY": '
-                    f'("mutter-x11-frames" "mutter-x11-frames") '
-                    f"{width}x{height}+{x}+{y}  +{x}+{y}\n"
-                    f'    {hex(facts["xid"])} "CROWLEY INPUT CALIBRATION ONLY": '
-                    f'("-c" "-c") {width}x{height}+0+0  +{x}+{y}\n'
-                    f"    {hex(helper)} (has no name): () 1x1+-1+-1  +{x - 1}+{y - 1}\n"
+            if result.returncode:
+                raise subprocess.CalledProcessError(
+                    result.returncode, argv, output=result.stdout, stderr=result.stderr
                 )
-            raise AssertionError(f"unexpected GTK verifier command: {argv!r}")
+            if argv == ["xwininfo", "-id", hex(facts["xid"]), "-tree"]:
+                _tree_root, parents, _geometry = _parse_xwininfo_tree(result.stdout)
+                if len(parents) != 1:
+                    raise AssertionError(f"unexpected GTK child tree: {parents!r}")
+                helper = next(iter(parents))
+                if "helper" not in facts:
+                    facts["helper"] = helper
+                elif helper != facts["helper"]:
+                    raise AssertionError(f"GTK child tree changed: {parents!r}")
+            return result.stdout
 
         target = OwnedGtkCalibrationWindow(
             display=display,
             xauthority=xauthority,
             python_executable="/usr/bin/python3.13",
             command=command,
+            layout_kind=OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD,
         )
-        original_process_identity = calibration_module._process_identity
-
-        def process_identity(pid: int) -> tuple[str, str, str]:
-            if pid == frame_pid:
-                return "/usr/libexec/mutter-x11-frames", "fixture-mutter-frame", "mutter-x11-fram"
-            return original_process_identity(pid)
-
-        monkeypatch.setattr(calibration_module, "_process_identity", process_identity)
         original_verify = target._verify
 
         def capture_identity(pid: int, xid: int, process, **kwargs):
@@ -1695,8 +1749,15 @@ def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
         inside = left <= after_focus[0] < left + width and top <= after_focus[1] < top + height
         assert window.title == OwnedGtkCalibrationWindow.TITLE
         assert window.geometry[2:] == (480, 240)
-        assert window.managed_frame_xid > 0
+        assert window.layout_kind == OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD
+        assert window.managed_frame_xid is None
+        assert window.root_xid > 0 and window.parent_xid == window.root_xid
+        assert window.descendant_xids == {window.xid, facts["helper"]}
+        assert window.allowed_event_target_xids == {window.xid}
+        assert window.excluded_input_only_xids == {facts["helper"]}
         assert window.contains_xid(window.xid)
+        assert not window.contains_xid(window.root_xid)
+        assert ("xwininfo", "-root", "-tree") not in commands
         assert before_create[:2] == after_map[:2] == after_focus[:2] == (1809, 43)
         assert inside is expected_inside, (after_focus, window.geometry)
         assert backend.events == [
@@ -1718,6 +1779,262 @@ def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
             os.close(read_fd)
         xvfb.terminate()
         xvfb.wait(timeout=3)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("observed", "wrong-parent", "extra-client-descendant", "second-input-only-helper"),
+)
+def test_root_child_verifier_replays_input87_tree_and_rejects_unobserved_subtrees(
+    mutation: str,
+) -> None:
+    """Replay the retained live client tree without admitting root or siblings."""
+
+    target_xid = 0x4800003
+    helper_xid = 0x4800004
+    root_xid = 0x374
+    extra_xid = 0x4800005
+    parent_xid = 0x123 if mutation == "wrong-parent" else root_xid
+    child_rows = [f"     {hex(helper_xid)} (has no name): ()  1x1+-1+-1  +1439+31"]
+    if mutation == "extra-client-descendant":
+        child_rows.append(f'     {hex(extra_xid)} "extra": ("fixture" "fixture")  10x10+0+0  +1440+32')
+    elif mutation == "second-input-only-helper":
+        child_rows.append(f"     {hex(extra_xid)} (has no name): ()  1x1+-1+-1  +1439+31")
+    tree = (
+        f'xwininfo: Window id: {hex(target_xid)} "CROWLEY INPUT CALIBRATION ONLY"\n\n'
+        f"  Root window id: {hex(root_xid)} (the root window) (has no name)\n"
+        f"  Parent window id: {hex(parent_xid)} (the root window) (has no name)\n"
+        f"     {len(child_rows)} children:\n" + "\n".join(child_rows) + "\n"
+    )
+    helper_stats = (
+        f"xwininfo: Window id: {hex(helper_xid)}\n\n"
+        "  Absolute upper-left X:  1439\n"
+        "  Absolute upper-left Y:  31\n"
+        "  Relative upper-left X:  -1\n"
+        "  Relative upper-left Y:  -1\n"
+        "  Width: 1\n"
+        "  Height: 1\n"
+        "  Depth: 0\n"
+        "  Border width: 0\n"
+        "  Class: InputOnly\n"
+    )
+    extra_stats = (
+        f"xwininfo: Window id: {hex(extra_xid)}\n\n"
+        "  Absolute upper-left X:  1440\n"
+        "  Absolute upper-left Y:  32\n"
+        "  Relative upper-left X:  0\n"
+        "  Relative upper-left Y:  0\n"
+        "  Width: 10\n"
+        "  Height: 10\n"
+        "  Depth: 24\n"
+        "  Border width: 0\n"
+        "  Class: InputOutput\n"
+    )
+    commands: list[tuple[str, ...]] = []
+
+    def command(argv: list[str]) -> str:
+        commands.append(tuple(argv))
+        if argv == ["xwininfo", "-id", hex(target_xid), "-tree"]:
+            return tree
+        if argv == ["xwininfo", "-id", hex(helper_xid), "-stats"]:
+            return helper_stats
+        if argv == ["xwininfo", "-id", hex(extra_xid), "-stats"]:
+            return (
+                extra_stats
+                if mutation == "extra-client-descendant"
+                else helper_stats.replace(hex(helper_xid), hex(extra_xid))
+            )
+
+        raise AssertionError(f"unexpected root-child query: {argv!r}")
+
+    target = OwnedGtkCalibrationWindow(
+        display=":input87-observer",
+        xauthority="/tmp/input87-observer.Xauthority",
+        layout_kind=OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD,
+        command=lambda argv, **_kwargs: command(argv),
+    )
+    if mutation == "observed":
+        window = target._verify_root_child_layout(
+            pid=569822,
+            xid=target_xid,
+            process=SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            executable="/usr/bin/python3",
+            process_start="50072661",
+            geometry=(1440, 32, 480, 240),
+            advertised_helper_xid=helper_xid,
+            startup_readiness=False,
+            run_command=command,
+        )
+        assert window.root_xid == window.parent_xid == root_xid
+        assert window.descendant_xids == {target_xid, helper_xid}
+        assert window.allowed_event_target_xids == {target_xid}
+        assert window.excluded_input_only_xids == {helper_xid}
+        assert root_xid not in window.allowed_event_target_xids
+        assert all(row[:3] != ("xwininfo", "-root", "-tree") for row in commands)
+    else:
+        with pytest.raises(
+            CalibrationError,
+            match="directly parented|unexpected client descendant|certificate|metadata helper",
+        ):
+            target._verify_root_child_layout(
+                pid=569822,
+                xid=target_xid,
+                process=SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+                executable="/usr/bin/python3",
+                process_start="50072661",
+                geometry=(1440, 32, 480, 240),
+                advertised_helper_xid=helper_xid,
+                startup_readiness=False,
+                run_command=command,
+            )
+
+
+def _verify_root_child_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pid: int,
+    target_xid: int = TARGET,
+    helper_xid: int = TARGET_DESCENDANT,
+) -> tuple[OwnedGtkCalibrationWindow, dict[str, object], list[tuple[str, ...]]]:
+    import crowley.session.calibration as calibration_module
+
+    state, commands, command = _root_child_gtk_fixture_command(pid=pid, target=target_xid, helper=helper_xid)
+
+    def process_identity(process_pid: int) -> tuple[str, str, str]:
+        if process_pid != pid:
+            raise AssertionError(process_pid)
+        return "/usr/bin/python3", "fixture-start", "python3"
+
+    monkeypatch.setattr(calibration_module, "_process_identity", process_identity)
+    target = OwnedGtkCalibrationWindow(
+        display=":root-child-verifier",
+        xauthority="private.Xauthority",
+        layout_kind=OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD,
+        command=command,
+    )
+    return target, state, commands
+
+
+def test_root_child_owner_binds_advertised_user_time_helper_to_certificate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pid = os.getpid()
+    target, _state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    window = target._verify(
+        pid,
+        TARGET,
+        SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+        startup_readiness=True,
+    )
+    assert window.excluded_input_only_xids == frozenset({TARGET_DESCENDANT})
+    assert window.allowed_event_target_xids == frozenset({TARGET})
+    assert window.descendant_xids == frozenset({TARGET, TARGET_DESCENDANT})
+    assert ("xwininfo", "-id", hex(TARGET_DESCENDANT), "-stats") in commands
+
+
+def test_root_child_missing_advertised_helper_waits_for_publication_then_verifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import crowley.session.calibration as calibration_module
+
+    pid = os.getpid()
+    target, state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = None
+    process = SimpleNamespace(poll=lambda: None)
+    with pytest.raises(calibration_module._GtkStartupPending, match="helper identity"):
+        target._verify(pid, TARGET, process, startup_readiness=True)  # type: ignore[arg-type]
+    assert not any(args[-1:] == ("-tree",) for args in commands)
+
+    state["user_time_window"] = f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(TARGET_DESCENDANT)}\n"
+    window = target._verify(pid, TARGET, process, startup_readiness=True)  # type: ignore[arg-type]
+    assert window.excluded_input_only_xids == frozenset({TARGET_DESCENDANT})
+
+
+def test_root_child_absent_helper_is_hard_failure_after_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pid = os.getpid()
+    target, state, _commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = None
+    with pytest.raises(CalibrationError, match="helper identity"):
+        target._verify(
+            pid,
+            TARGET,
+            SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            startup_readiness=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "publication",
+    (
+        "_NET_WM_USER_TIME_WINDOW(CARDINAL) = 123\n",
+        "_NET_WM_USER_TIME_WINDOW(WINDOW): window id # 0x60011a\n"
+        "_NET_WM_USER_TIME_WINDOW(WINDOW): window id # 0x60011a\n",
+    ),
+    ids=("wrong-property-type", "duplicate-property"),
+)
+def test_root_child_owner_rejects_malformed_or_duplicate_helper_publication(
+    monkeypatch: pytest.MonkeyPatch, publication: str
+) -> None:
+    pid = os.getpid()
+    target, state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = publication
+    state["identity_companions"] = False
+    with pytest.raises(CalibrationError, match="property|duplicated") as failure:
+        target._verify(
+            pid,
+            TARGET,
+            SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            startup_readiness=True,
+        )
+    import crowley.session.calibration as calibration_module
+
+    assert not isinstance(failure.value, calibration_module._GtkStartupPending)
+    assert not any(args[:2] == ("xwininfo", "-id") for args in commands)
+
+
+@pytest.mark.parametrize(
+    ("published_xid", "expected_query_count"),
+    ((TARGET, 0), (0x374, 1), (0x60011B, 1)),
+    ids=("client-self", "root", "wrong-helper"),
+)
+def test_root_child_owner_rejects_unbound_helper_xid_before_certificate(
+    monkeypatch: pytest.MonkeyPatch, published_xid: int, expected_query_count: int
+) -> None:
+    pid = os.getpid()
+    target, state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(published_xid)}\n"
+    state["map_state"] = None
+    with pytest.raises(CalibrationError, match="helper|identity|advertised") as failure:
+        target._verify(
+            pid,
+            TARGET,
+            SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            startup_readiness=True,
+        )
+    import crowley.session.calibration as calibration_module
+
+    assert not isinstance(failure.value, calibration_module._GtkStartupPending)
+    tree_queries = sum(args[-1:] == ("-tree",) for args in commands)
+    assert tree_queries == expected_query_count
+    assert ("xwininfo", "-id", hex(TARGET_DESCENDANT), "-stats") not in commands
+
+
+def test_root_child_missing_helper_subtree_is_pending_only_before_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import crowley.session.calibration as calibration_module
+
+    pid = os.getpid()
+    target, state, _commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["children"] = ()
+    process = SimpleNamespace(poll=lambda: None)
+    with pytest.raises(calibration_module._GtkStartupPending, match="subtree"):
+        target._verify(pid, TARGET, process, startup_readiness=True)  # type: ignore[arg-type]
+    with pytest.raises(CalibrationError, match="tree|helper") as failure:
+        target._verify(pid, TARGET, process, startup_readiness=False)  # type: ignore[arg-type]
+    assert not isinstance(failure.value, calibration_module._GtkStartupPending)
 
 
 def test_gtk_create_readiness_deadline_is_shrinking_and_reaps_pending_child(

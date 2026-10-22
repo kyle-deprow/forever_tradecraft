@@ -5758,6 +5758,67 @@ def test_owned_evidence_rejects_refingerprinted_transition_query_and_pairing_tam
             resign(event_proof=mutated_proof).verify_seal()
 
 
+def test_root_child_evidence_seal_rejects_recomputed_layout_forgeries(tmp_path: Path) -> None:
+    from crowley.session.calibration import GTK_LAYOUT_ROOT_CHILD
+
+    base = _evidence()
+    target = base.target_xid
+    helper = target + 1
+    root = 0x374
+
+    def resign(**changes: object) -> InputCalibrationEvidence:
+        candidate = replace(base, **changes, fingerprint="", evidence_hash="")
+        return replace(candidate, fingerprint=candidate.content_fingerprint()).with_hash()
+
+    evidence = resign(
+        target_layout_kind=GTK_LAYOUT_ROOT_CHILD,
+        target_root_xid=root,
+        target_parent_xid=root,
+        target_descendant_xids=(target, helper),
+        target_excluded_input_only_xids=(helper,),
+        target_event_xids=(target,),
+        managed_frame_xid=0,
+        managed_frame_geometry=(),
+    )
+    evidence.verify_seal()
+    guardian = InputGuardian(tmp_path / "root-child-evidence.lock", parent_pid=os.getppid())
+    try:
+        assert guardian.arm(evidence) == 1
+    finally:
+        guardian.close()
+
+    forged_layouts = (
+        {"target_event_xids": (target, root)},
+        {"target_event_xids": (target, helper)},
+        {"target_descendant_xids": (target, helper, target + 2)},
+        {
+            "target_descendant_xids": (target, root),
+            "target_excluded_input_only_xids": (root,),
+        },
+        {
+            "target_xid": helper,
+            "target_child_xid": helper,
+            "target_event_xids": (helper,),
+            "target_descendant_xids": (target, helper),
+            "target_excluded_input_only_xids": (target,),
+            "synthetic_motion_query": (1, 1, helper, 2, 2, 2, 2, helper),
+        },
+        {
+            "target_layout_kind": "mutter-managed-frame-v1",
+            "target_root_xid": root,
+            "target_parent_xid": root,
+            "target_event_xids": (root, target),
+            "target_descendant_xids": (target, helper),
+            "target_excluded_input_only_xids": (helper,),
+            "managed_frame_xid": target,
+            "managed_frame_geometry": (0, 0, 480, 240),
+        },
+    )
+    for changes in forged_layouts:
+        with pytest.raises(CalibrationError, match="target certificate|identity is incomplete"):
+            resign(**changes).verify_seal()
+
+
 @pytest.mark.parametrize(
     ("drift", "message"),
     (("invalid-ctm", "fresh XTEST input profile is invalid"), ("root-geometry", "profile changed")),
@@ -6641,26 +6702,52 @@ def test_guardian_accepts_actual_calibration_card32_wrap_echo_proof(tmp_path: Pa
         guardian.close()
 
 
-def test_workflow_built_native_evidence_arms_and_accepts_endpoint_echo(tmp_path: Path) -> None:
+@pytest.mark.parametrize("unframed", [False, True], ids=("managed-frame", "root-child"))
+def test_workflow_built_native_evidence_arms_and_accepts_endpoint_echo(
+    tmp_path: Path, unframed: bool
+) -> None:
     """Exercise the production evidence builder through arm and Guardian admission."""
 
-    from crowley.session.calibration import KeyboardProbeOperation, KeyboardProbeStep
+    from crowley.session.calibration import (
+        GTK_LAYOUT_ROOT_CHILD,
+        KeyboardProbeOperation,
+        KeyboardProbeStep,
+    )
     from crowley.session.input_events import XI2Event
 
     base = _evidence()
-    window = OwnedWindow(
-        os.getpid(),
-        0x600119,
-        "CROWLEY INPUT CALIBRATION ONLY",
-        (0, 0, 480, 240),
-        object(),  # type: ignore[arg-type]
-        frozenset({0x600119}),
-        "/usr/bin/python3",
-        "target-start",
-        0x600118,
-        (0, 0, 500, 260),
-        frozenset({0x600118, 0x600119}),
-    )
+    if unframed:
+        window = OwnedWindow(
+            os.getpid(),
+            0x600119,
+            "CROWLEY INPUT CALIBRATION ONLY",
+            (0, 0, 480, 240),
+            object(),  # type: ignore[arg-type]
+            frozenset({0x600119, 0x60011A}),
+            "/usr/bin/python3",
+            "target-start",
+            None,
+            (),
+            frozenset({0x600119}),
+            GTK_LAYOUT_ROOT_CHILD,
+            0x374,
+            0x374,
+            frozenset({0x60011A}),
+        )
+    else:
+        window = OwnedWindow(
+            os.getpid(),
+            0x600119,
+            "CROWLEY INPUT CALIBRATION ONLY",
+            (0, 0, 480, 240),
+            object(),  # type: ignore[arg-type]
+            frozenset({0x600119}),
+            "/usr/bin/python3",
+            "target-start",
+            0x600118,
+            (0, 0, 500, 260),
+            frozenset({0x600118, 0x600119}),
+        )
     hierarchy = base.xinput_hierarchy
 
     def from_proof(record: tuple[object, ...]) -> XI2Event:
@@ -6787,6 +6874,13 @@ def test_workflow_built_native_evidence_arms_and_accepts_endpoint_echo(tmp_path:
             build(prefix_records=zero_prefix)
         evidence = build()
         evidence.verify_seal()
+        if unframed:
+            assert evidence.target_layout_kind == GTK_LAYOUT_ROOT_CHILD
+            assert evidence.target_root_xid == evidence.target_parent_xid == 0x374
+            assert evidence.target_event_xids == (window.xid,)
+            assert evidence.target_excluded_input_only_xids == (0x60011A,)
+        else:
+            assert evidence.target_layout_kind == "mutter-managed-frame-v1"
         generation = driver.arm(evidence)
         action = driver.guardian.begin_action(
             generation,

@@ -1,11 +1,103 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 14:43 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 18:25 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
+
+**Current deployment (2026-10-22 18:25 UTC):** The GTK root-child repair is
+installed and Sol READY at scoped diffSHA
+`a2e697d7308f2ffa2950aef0c7567bbda0cdf0532b1e14636407ea35903ffd0c`.
+Root restarted crowley-session once: PID3787948->1812097; fresh initialized
+PAUSED89/native=false/input=false/operationidle/journal `nativeConstruction`
+keyABSENT. Installed calibration.py is
+`31d421b232ef4b84378fcc43f9856e59c8391f6782f0b69432984ea70ec98ebf`;
+driver.py is`0600af7a484fac896a16fdcef034f1731fed7c7d386bbb3d67f233d1893440cd`.
+Exact installation/restart proofs, review and independent parent checks are in
+private `calibration-resume-20261021/gtk-unframed-implementation/`.
+No native89 measurement or new input attempt has started. No human readiness or
+completed input calibration has ever occurred; zero autonomous cycles qualify.
+
+**Latest user instruction:** User confirmed the intervening Arthur movement was
+intentional, then said: "nvm Im stepping away, just make sure the calibration
+works when I get back, keep scanning". User is AWAY. Sole GUI owner
+`/root/luna_assisted_scanner` owns the complete ACK/native/readiness/collection
+outcome; root must not capture or input concurrently. Do not request genuine
+human samples until the user returns. Keep repeating assisted900s collection;
+do not stop after one/three cycles. Honor a new takeover immediately.
+
+**Last collection:**284 started18:03:08 UTC (`startedAt=1792692188`), finished
+18:12:43 (`finishedAt=1792692763`), UID
+`beta-normal-alliance-1792692188-Arthur-8390`,428 attempts,2 failures,1195 rows.
+Original251877-byte SavedVariables copy is preserved; companion uploaded exact
+UID18:13:20 UTC and Data.lua contains its ACK. Loaded-HUD ACK remains pending:
+user movement interrupted the first ACK reload, then private wrappers had
+avoidable globals/type/receipt defects. Only one subsequent Return was emitted;
+retained observation confirms focused empty chat, stationary Arthur/AHclosed/
+noactive/no held keys or buttons. GUI owner is replaying the corrected helper's
+actual entry offline, with a small independent Sol audit, before continuing from
+that observed chat phase. No285 started. Private collection artifacts:
+`assisted-collection-luna-20261021/scan284-postprocess-stage-20261022T1806Z/`.
+Do not equate Data.lua ACK with exact loaded-HUD acknowledgement.
+
+**Authorized next chain:** Finish284 loaded ACK/pending0, then fresh idle/identity/
+held/source gates, mandatory mutating control-preflight, resume/full100-update/
+103-call native measurement, pause/canonical recovery and checkpoint keyABSENT.
+While user is away, run ONE explicitly readiness-only live input rehearsal:
+stage public-status polling before input-calibrate; retain matching running input
+readiness plus visible owned GTK, then public-pause/revoke without genuine input
+and wait for actual terminal cleanup (human wait may retain its existing120s
+bound). Never claim that rehearsal as input qualification. On pre-readiness
+failure preserve the exact diagnostic; no unchanged retries. Restore ordinary
+assisted collection. Root installed while284 was already terminal, saved/uploaded
+and AHclosed/noactive; loaded ACK need not block paused source installation but
+must precede the mutating native chain.
+
+**Confirmed repaired assumption:** Input87 failed17:40:41 UTC before readiness.
+Alive-window observations showed an owned focused/viewable480x240 GTK client at
+1440,32, direct parent==root0x374, no frame extents, Motif decorations0, and one
+advertised1x1 InputOnly helper. The old verifier wrongly required a reparented
+frame. Production now explicitly selects that root-child contract and binds the
+advertised helper identity; only the client is an event target. Root/helper/
+siblings remain excluded. Missing helper publication is startup-pending within
+the existing10s budget; present-invalid facts or post-ready loss fail hard.
+Final frozen-source suite243 PASS in316.34s, implementer21 focused checks and
+parent20 focused+54 diagnostics/driver checks PASS; Ruff check/format and diff
+check PASS. Real private Xvfb proof exercises GTK construction/verifier/ticket/
+focus with an unchanged pointer, but does not establish live target-hit or human
+acceptance. Plan: [GTK repair](../.archive/PLAN-gtk-unframed-calibration-20261022.md).
+Retained live evidence: `calibration-retry-20261022/input87-observed-failure-20261022T1740Z/`.
+
+The following paragraphs retain earlier chronology; the current state above
+supersedes their generations, availability holds, deployment and pending statements.
+
+**Latest live handover (2026-10-22 17:29 UTC):** User moved Arthur to Stormwind
+and explicitly returned control with "i am in stormwind, lets calibrate".
+That supersedes the availability hold and movement takeover below. Sole GUI
+owner `/root/luna_assisted_scanner` was woken by follow-up and verified running.
+Fresh scene verifies stationary Arthur in Trade District, build70450, unchanged
+process/window identity, all keys/buttons released, AH/chat closed, pending0,
+scan283 exact ACK loaded. Native83 remains valid; do not restart gratuitously.
+
+The prior fresh connection attempt85 failed before readiness at17:19:41 UTC:
+final client xprop timed out with2.9ms left of the shared10s GTK startup deadline.
+It does not establish why earlier readiness polls remained pending. Diagnostic
+and post-cleanup observation are preserved under
+`calibration-retry-20261022/input-calibration-ready-20261022T1717Z-3/`.
+Public pause returned PAUSED86/native=true/input=false, checkpoint keyABSENT.
+W was held intentionally during the user's movement; never release user-owned
+keys or misclassify that movement as a stuck input.
+
+Scan283 completed428 attempts/zero failures/1546 rows and exact loaded ACK;
+no284 began. User is currently connected/available. Owner is authorized for ONE
+observed input attempt with a bounded read-only sampler staged BEFORE startup
+to retain owned GTK properties/geometry while alive, using actual generations.
+No source/config/deadline changes or blind retries. Alert user only at matching
+running input readiness AND visible owned prompt. Preserve failure facts if it
+fails; do not infer startup cause from post-cleanup BadWindow. The state below
+is earlier chronology and is superseded by this handover.
 
 **Latest user instruction:** The user returned and requested calibration after the
 next scan. That supersedes the previous AWAY hold. Luna remains the sole GUI
