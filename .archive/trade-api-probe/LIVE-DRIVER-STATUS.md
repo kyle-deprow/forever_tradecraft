@@ -1,6 +1,6 @@
 # Live driver coordination
 
-Updated 2026-10-22 03:10 UTC by the main game-driver session.
+Updated 2026-10-22 after the live 03:22 UTC probe by the main game-driver session.
 
 - `/root/luna_assisted_scanner` was resumed by follow-up task on the user's latest
   instruction and is running. The old user hold in HANDOFF is superseded.
@@ -9,10 +9,17 @@ Updated 2026-10-22 03:10 UTC by the main game-driver session.
   MAIN includes format3 validator commit347ab56; focused format2/3 tests passed10.
   Companion was left alone. First new format3 sweep is not yet verified.
 - Live addon is a symlink to `/home/dev/repos/pegasus/addon/Crowley` on MAIN.
-- P2 merged at05392bf; parent probe tests passed9/244deselected. Arthur's world boot
-  predates the merge, so the live driver is loading the addon with a guarded
-  reload before `/crowley probe` and the saving `/reload`. Actual capture/upload
-  remains pending; source merge alone is not live API evidence.
+- P2 merged at05392bf; parent probe tests passed9/244deselected. Luna loaded it
+  with a guarded reload, submitted `/crowley probe` once, then saved with a second
+  verified reload. Probe1792639338 (2026-10-22 03:22:18 UTC) is in client_probes.
+  Parent independently compared the entire database probe JSON against the
+  immutable saved CrowleyDB.probe: exactly equal, including40 boolean globals,
+  six boolean frame checks and expanded namespace function inventories.
+  SavedVariables SHA256:
+  `b3e9a362d06f6813b29b5c3d62323b9e6547706cc33e5b757f587e88066fa0b7`.
+  Private proof: `assisted-collection-luna-20261021/530-saving-reload-probe-check/parent-probe-verification.json`.
+  Presence does not prove usable return contracts; absent load-on-demand frames
+  do not establish unavailable APIs. No trade actions were performed.
 - Arthur is in Ironforge on build70450, AHclosed/pending0/speed0, PAUSED71 with
   checkpoint absent. Do not independently capture or operate the game. Luna is
   the sole GUI owner for keyboard-only probe and assisted scanning.
@@ -20,9 +27,6 @@ Updated 2026-10-22 03:10 UTC by the main game-driver session.
   implemented offline in the isolated native-human-click worktree. This does not
   block the keyboard-only collection path.
 
-P2 merge owner: record the resulting MAIN commit below (or relay it to this
-session) once ready. The driver will then verify current source/loaded addon,
-execute the probe/reload, and retain the actual probe upload evidence.
-
 P2 merged MAIN commit: 05392bf
-Live expanded-probe capture: pending
+Live expanded-probe capture: saved and uploaded; independently verified against DB.
+First resumed sweep: pending; Luna is restoring the keyboard-only AH route.

@@ -1,11 +1,21 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 03:10 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 03:27 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Latest calibration appointment update (supersedes historical live state)
+
+**Expanded API probe completed:** After loading P2, Luna submitted `/crowley probe`
+once and saved it with a verified reload. Probe1792639338 (03:22:18 UTC on
+2026-10-22) is uploaded. Parent independently compared the complete JSON from
+`client_probes` against the immutable SavedVariables: exactly equal, including
+40 boolean globals, six boolean frame checks and expanded namespace inventories.
+Private evidence: `assisted-collection-luna-20261021/530-saving-reload-probe-check/parent-probe-verification.json`.
+The shared data-agent status below is updated. First resumed format3 sweep is
+still pending; Luna is restoring the keyboard-only AH interaction. Calibration
+click repair remains offline and has design READY, not implementation approval.
 
 **CURRENT RESUME:** At02:46 UTC on2026-10-22 the user explicitly resumed Luna
 and requested calibration; the user also confirmed connected/available through RDP.
@@ -27,11 +37,9 @@ scanner now emits format3. No native helper/session implementation files changed
 between the reviewed calibration helper and current MAIN2e48728.
 
 **P2 is now merged at05392bf.** Parent probe-focused tests passed9/244deselected.
-The driver was woken again for a keyboard-only probe and collection outcome:
-load the merged addon with one guarded reload (the world boot predates P2), run
-`/crowley probe`, then `/reload` and verify saved/uploaded expanded probe fields.
-Resume assisted428-item900-second cycles afterward, preserving original format3
-payloads and exact upload/ACK/reopen evidence. Never interrupt an active sweep.
+The driver completed the keyboard-only probe lifecycle above and is restoring
+assisted428-item900-second cycles, preserving original format3 payloads and exact
+upload/ACK/reopen evidence. Never interrupt an active sweep.
 Coordination with the other data agent is recorded in
 `../.archive/trade-api-probe/LIVE-DRIVER-STATUS.md`.
 

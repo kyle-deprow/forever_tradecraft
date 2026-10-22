@@ -235,6 +235,8 @@ within existing authorization; respect any current movement limits.
   that `--paste-once` can break XWayland clients that make multiple requests;
   one GUI paste does not imply one protocol request. Restore prior clipboard bytes
   before reaping only the obsolete owned provider.
+  Clipboard providers need the Wayland session environment (`WAYLAND_DISPLAY`
+  and `XDG_RUNTIME_DIR`); an X11-only input environment is insufficient for them.
   Poll new selection readiness rather than checking immediately after startup.
   Use `wl-paste --no-newline` for exact bytes; default output appends a newline
   and cannot establish byte-identical clipboard preservation.
