@@ -1,50 +1,84 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 19:32 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 19:52 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**Current blocker (19:32 UTC):**285 is completed, saved/uploaded and exact loaded
-ACK/pending0 verified (parent independent PNG decode/original-byte check). It
-finished19:05:02 UTC, UID`beta-normal-alliance-1792695375-Arthur-9733`,428 attempts,
-zero failures,793 rows; original230873 bytes SHA
+**Current collection19:51 UTC:** Assisted286 started19:51:09 UTC,
+`startedAt=1792698669`, due20:06:09 (`1792699569`). Parent independently decoded
+its original retained start PNG: AHopen/item1/planned428/speed0/pending0/exact285
+loaded ACK. Physical Control_L+F12 interaction succeeded once; both keys released
+and final keymap clear. Proof:
+`assisted-collection-luna-20261021/scan286-interaction-20261022T1949Z/parent-start-verification.json`.
+The folder label is not the actual start time. Actual285->286 start gap3294s
+(54m54); assisted collection is restored but900s cadence is NOT qualified.
+Game refresh banner had reached8seconds at interaction. GUI owner monitors the
+active sweep, preserves partial/original data if interrupted, and owns normal
+cached reconnect/re-entry and continuing collection. No source/config/binding
+cleanup or competing GUI capture during the active sweep. Native89/input are still
+invalid; after terminal/save/upload/exactACK and stable realm, complete native and
+one readiness-only rehearsal while user AWAY. Zero autonomous cycles qualify.
+
+**Pre-scan recovery chronology (19:39 UTC):** Canonical recover89 SUCCEEDED with the
+reviewed helper585b005b. It verified exact `/reload` before Return, crossed an
+ordinary reload boundary and committed recovery. Parent independently checked its
+receipt and durable journal: PAUSED89/native=false/input=false/opidle,
+`nativeConstruction` keyABSENT, lastAction native_construction_recovery_commit.
+Receipt: `native-calibration-operator/native-calibration-recover-20261022T193913274925Z-3877195-ecb63434/receipt.json`;
+parent proof: `calibration-resume-20261021/closed-chat-world-implementation/parent-recovery89-verification.json`.
+Do not repeat recovery or restart the daemon. GUI owner is restoring286 first;
+no start confirmed19:46. Fresh stationary Stormwind scene/pending0/loaded285 ACK
+verified, Jaxon reselected via exact guarded `/targetexact Auctioneer Jaxon`.
+One adapted range helper refused before input on obsolete hardcoded pins; corrected
+helper then succeeded19:45:45: literal interaction flags1/2/3/4 all true,
+Jaxon target visible, chat/AHclosed/speed0/pending0. Game displayed "World refresh
+in 5 Minutes"; preserve interrupted partial data if maintenance cuts the new sweep
+short, then normal cached reconnect/re-entry is authorized. Conditional binding and
+one interaction are next. Update remaining helper dependencies from accepted pin
+receipts offline before dispatch rather than discovering one stale pin per action.
+
+**Last completed sweep:**285 finished19:05:02 UTC, UID
+`beta-normal-alliance-1792695375-Arthur-9733`,428 attempts/zero failures/793 rows.
+Original230873-byte SavedVariables SHA
 `20193ccfc3c0743093f817b9382a64589860fb71c1f21cb1f74d450f9b33a6a2`.
 Companion upload timestamp1792695987=19:06:27 UTC,85s after finish; later observation
-time is separate. Proof is in `scan285-postprocess-stage/scan285-save-upload-ack-20261022T190607790164Z/`.
-No286. Control-preflight89 and canonical recover89 refused at the first closed-editor
-capture before input (`chat_readback_refused`). The valid preflight89
-`nativeConstruction` recovery_required checkpoint remains, B0`1792696010-225323`;
-public PAUSED89/native=false/input=false/opidle, same daemon PID1812097.
-Do not restart or discard that checkpoint. Canonical recovery must precede collection.
+time is separate. Exact loaded ACK/pending0 verified independently from retained
+PNG and original bytes. Proof in
+`scan285-postprocess-stage/scan285-save-upload-ack-20261022T190607790164Z/`.
+Cadence is interrupted; zero autonomous cycles qualified.
 
-The closed-editor fix is now Sol READY and installed19:26 UTC, helper SHA
-`585b005baa608ec01c2ba4e8a548854ef998da090383302ba13b8f10fbbeba0a`.
-It measures transparent editor chrome contrast instead of absolute world-background
-luminance; active-state refusal and exact typed-command OCR/Return ordering remain.
-Both actual failed crops replay through guarded `_chat`. Final focused checks:
-21 PASS/106 deselected; source/test/fixture hashes and exact private review are in
-`calibration-resume-20261021/closed-chat-world-implementation/`. Full module run completed126 PASS/1 FAIL in848.40s: the sole failure was
-the pre-existing RGB-versus-L fixture assertion collected before its correction.
-Final focused21 PASS includes that corrected test and its actual OCR regression;
-no second full run was needed for this test-only correction. Ruff/diff checks PASS.
-Production helper pin is receipt-only, so reviewed promotion preserved the daemon
-and checkpoint without a restart. Plan:
-[closed-editor repair](../.archive/PLAN-closed-chat-world-background-20261022.md).
+**Closed-editor repair installed and pushed9df2091:** Sol READY, helper SHA
+`585b005baa608ec01c2ba4e8a548854ef998da090383302ba13b8f10fbbeba0a`, installed19:26.
+Transparent editor chrome contrast replaces absolute world-background luminance;
+active-state refusal and exact typed-command OCR/Return ordering remain. Both actual
+failed crops replay through guarded `_chat`. Full module:126 PASS/1 FAIL in848.40s,
+sole failure the pre-existing RGB-versus-L assertion collected before correction.
+Final focused21 PASS/106 deselected includes that corrected assertion and actual OCR;
+Ruff/diff checks PASS. No second full run for the test-only correction.
+Private exact review/report and source/test/fixture hashes are in
+`calibration-resume-20261021/closed-chat-world-implementation/`. Helper pin is
+receipt-only; promotion preserved daemon PID1812097 and valid checkpoint89 without
+restart. Plan: [closed-editor repair](../.archive/PLAN-closed-chat-world-background-20261022.md).
 
-Fresh owner scene19:27 UTC verifies correct game identity, stationary Arthur,
-scan285 loaded ACK/pending0, AHclosed/noactive and all keys/buttons up, but the
-in-game Game Menu and empty focused Say editor are open. One verified-focus XTEST
-Escape19:30 had no observed effect. Sole GUI owner is diagnosing delivery/UI state
-before further input; no unchanged Escape/recovery retry. Root inspected only the
-retained full scene. After safe UI recovery: canonical recover exact89, checkpoint
-keyABSENT/ordinary/held clear, then restore collection first. Native/readiness
-rehearsal follows in an interscan window. Final poller/actual-entry fixture audit
-is Sol READY at poller959fbbcb, harness48a93bf6, receipt3e251590 using retained
-input87 stats/tree/xprop and actual daemon readiness serialization. No live
-readiness/human qualification is claimed.
+**Resolved UI obstruction:** Fresh19:27 scene showed in-game Game Menu plus empty
+focused Say editor. Raw XTEST Escape19:30 had no immediate observed effect; later
+fresh frame showed chat inactive but menu remained. Exact XGetInputFocus and
+_NET_ACTIVE_WINDOW agreed with the verified game. One owned FixedInput.key_escape
+with production graphical environment19:38 dismissed the menu, with two advancing
+frames and controls UP verified. Receipt:
+`closed-chat-world-implementation/recover89-owned-escape-20261022T193809Z/receipt.json`.
+Do not infer the earlier cause solely from an unset worker shell environment.
+An offline audit found full-module tests use private Xvfb/D-Bus and recorder tools;
+no actual host-game XTEST/uinput path was found.
+
+After286 scan/save/upload/exact ACK, native/readiness rehearsal follows in an
+interscan window. Final poller/actual-entry fixture audit is Sol READY at
+poller959fbbcb, harness48a93bf6, receipt3e251590 using retained input87
+stats/tree/xprop and actual daemon readiness serialization. No live readiness or
+human qualification is claimed; user remains AWAY.
 
 **Current collection (2026-10-22 18:59 UTC):** Assisted285 actually started
 18:56:15 UTC (`startedAt=1792695375`), due19:11:15 (`dueAt=1792696275`).
