@@ -7,6 +7,7 @@ Polling also works on Wine prefixes and network mounts where inotify is unreliab
 
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
@@ -20,10 +21,16 @@ import httpx
 
 from crowley.core import savedvars
 from crowley.core.luawriter import render_assignment
+from crowley.core.queue import render_queue_lua
 
 from .config import CompanionSettings, state_path
 
 log = logging.getLogger(__name__)
+
+
+def _json_digest(value: Any) -> str:
+    text = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 @dataclass
@@ -32,6 +39,7 @@ class State:
     probes: list[int] = field(default_factory=list)
     references: list[str] = field(default_factory=list)
     accounts: list[str] = field(default_factory=list)
+    executions: dict[str, str] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path) -> State:
@@ -43,6 +51,7 @@ class State:
             probes=data["probes"],
             references=data.get("references", []),
             accounts=data.get("accounts", []),
+            executions=data.get("executions", {}),
         )
 
     def save(self, path: Path) -> None:
@@ -61,6 +70,7 @@ class State:
                     "probes": self.probes,
                     "references": self.references,
                     "accounts": self.accounts,
+                    "executions": self.executions,
                 }
             ),
         )
@@ -91,6 +101,7 @@ class Companion:
         self._pending: dict[Path, tuple[float, int]] = {}
         self._present_ids: dict[Path, list[str]] = {}
         self._last_data_write = 0.0
+        self._queue_warning_logged = False
 
     # -- reading the game's files -------------------------------------------------------
 
@@ -128,6 +139,20 @@ class Companion:
         if account and account["id"] not in self.state.accounts:
             self.upload_account(account)
             uploaded += 1
+
+        executions = db.get("executions", {})
+        if executions == []:
+            executions = {}
+        if not isinstance(executions, dict):
+            raise RuntimeError("CrowleyDB.executions must be an object")
+        for queue_id, execution in executions.items():
+            if not isinstance(execution, dict):
+                raise RuntimeError(f"CrowleyDB.executions[{queue_id!r}] must be an object")
+            digest = _json_digest(execution)
+            if self.state.executions.get(queue_id) != digest:
+                self.upload_execution(queue_id, execution)
+                self.state.executions[queue_id] = digest
+                uploaded += 1
 
         # Only present after /crowley probe has been run.
         probe = db.get("probe")
@@ -181,9 +206,22 @@ class Companion:
         )
         self.state.accounts.append(capture_id)
 
+    def upload_execution(self, queue_id: str, execution: dict[str, Any]) -> None:
+        response = self.client.post("/v1/executions", json=execution)
+        if not response.is_success:
+            raise RuntimeError(
+                f"server rejected execution {queue_id}: {response.status_code} {response.text}"
+            )
+        log.info("uploaded execution %s (%s results)", queue_id, len(execution.get("results", [])))
+
     # -- writing back into the game -----------------------------------------------------
 
     def write_addon_data(self) -> None:
+        # A missing queue identity is a local, deterministic no-queue state.  Publish it
+        # before contacting the server so an outage cannot leave an old Queue.lua armed.
+        configured = bool(self.settings.house_key and self.settings.character)
+        if not configured:
+            self.write_queue()
         scan_ids = sorted({sid for ids in self._present_ids.values() for sid in ids})
         response = self.client.post("/v1/addon-data", json={"scan_ids": scan_ids})
         response.raise_for_status()
@@ -203,6 +241,31 @@ class Companion:
             len(data["ackedScans"]),
             len(data["shoppingLists"]),
         )
+        if configured:
+            self.write_queue()
+
+    def write_queue(self) -> None:
+        queue_id = "none"
+        queue: dict[str, Any] | None = None
+        if self.settings.house_key and self.settings.character:
+            response = self.client.get(
+                f"/v1/houses/{self.settings.house_key}/queue/active",
+                params={"character": self.settings.character},
+            )
+            response.raise_for_status()
+            queue = response.json()
+            if queue is not None:
+                queue_id = queue["queueId"]
+        else:
+            if not self._queue_warning_logged:
+                log.warning("queue settings unset; writing Queue.lua with no queue")
+                self._queue_warning_logged = True
+        text = render_queue_lua(queue)
+        target = self.settings.queue_lua
+        current = target.read_text(encoding="utf-8") if target.exists() else None
+        if current != text:
+            atomic_write(target, text)
+            log.info("wrote Queue.lua (%s)", queue_id)
 
     # -- loop ---------------------------------------------------------------------------
 

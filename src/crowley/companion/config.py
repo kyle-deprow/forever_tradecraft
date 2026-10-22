@@ -36,6 +36,10 @@ class CompanionSettings(BaseSettings):
     poll_seconds: float = 3.0
     # Re-write Crowley_Data even without new scans so strategy updates reach the game.
     refresh_minutes: float = 5.0
+    # Queue identity is explicit: the companion never guesses a house or character
+    # from whichever SavedVariables file happens to be present.
+    house_key: str | None = None
+    character: str | None = None
 
     @classmethod
     def settings_customise_sources(
@@ -60,6 +64,10 @@ class CompanionSettings(BaseSettings):
     @property
     def data_lua(self) -> Path:
         return self.addons_dir / "Crowley_Data" / "Data.lua"
+
+    @property
+    def queue_lua(self) -> Path:
+        return self.addons_dir / "Crowley_Data" / "Queue.lua"
 
     def saved_variables_files(self) -> list[Path]:
         return sorted((self.wow_path / "WTF" / "Account").glob("*/SavedVariables/Crowley.lua"))

@@ -17,6 +17,7 @@ import pytest
 from fastapi.testclient import TestClient
 from psycopg.types.json import Jsonb
 
+from crowley.core.queue import build_queue
 from crowley.core.scanformat import decode_json_payload, encode_json_payload, validate_envelope
 
 DB_URL = os.environ.get("CROWLEY_TEST_DATABASE_URL")
@@ -391,6 +392,90 @@ def test_houses_are_kept_separate(client):
     houses = {h["key"]: h for h in client.get("/v1/houses").json()}
     assert set(houses) == {"us-normal-horde", "us-normal-alliance", "us-pvp-neutral"}
     assert houses["us-normal-horde"]["sweeps"] == 1
+
+
+def test_trade_queue_publish_supersede_active_and_execution_append_only(client):
+    assert client.get("/v1/houses/us-normal-alliance/queue/active?character=Tester").json() is None
+    body = {
+        "house": "us-normal-alliance",
+        "character": "Tester",
+        "expiresAt": int(time.time()) + 600,
+        "actions": [{"seq": 1, "kind": "buy_commodity", "itemID": 2589, "quantity": 2, "maxUnitPrice": 25}],
+    }
+    assert client.post("/v1/queues", json=dict(body, armed="false")).status_code == 422
+    assert client.post("/v1/queues", json={**body, "confirmRealTrades": "anything"}).status_code == 422
+    assert client.post("/v1/queues", json={**body, "confirmRealTrades": None}).status_code == 422
+    first = client.post("/v1/queues", json=body)
+    assert first.status_code == 200, first.text
+    queue = first.json()
+    assert client.get("/v1/houses/us-normal-alliance/queue/active?character=Tester").json() == queue
+
+    second = client.post("/v1/queues", json=body)
+    assert second.status_code == 200, second.text
+    replacement = second.json()
+    assert replacement["queueId"] != queue["queueId"]
+    assert client.get("/v1/houses/us-normal-alliance/queue/active?character=Tester").json() == replacement
+
+    now = int(time.time())
+    record = {
+        "queueId": replacement["queueId"],
+        "house": replacement["house"],
+        "character": replacement["character"],
+        "results": [
+            {"seq": 1, "kind": "buy_commodity", "status": "started", "at": now, "detail": {}},
+        ],
+    }
+    assert client.post("/v1/executions", json=record).status_code == 200
+    assert client.post("/v1/executions", json=record).json()["status"] == "duplicate"
+    superset = dict(
+        record,
+        results=record["results"]
+        + [
+            {
+                "seq": 1,
+                "kind": "buy_commodity",
+                "status": "succeeded",
+                "at": now + 1,
+                "detail": {"unitPrice": 20, "totalPrice": 40},
+            }
+        ],
+    )
+    assert client.post("/v1/executions", json=superset).json()["status"] == "appended"
+    changed = dict(
+        superset,
+        results=[dict(superset["results"][0], detail={"reason": "changed"})] + superset["results"][1:],
+    )
+    assert client.post("/v1/executions", json=changed).status_code == 409
+
+
+def test_trade_queue_armed_requires_full_queue_id_confirmation(client):
+    now = int(time.time())
+    queue = build_queue(
+        {
+            "house": "us-normal-alliance",
+            "character": "ArmedTester",
+            "generatedAt": now,
+            "expiresAt": now + 600,
+            "armed": True,
+            "actions": [{"seq": 1, "kind": "vendor_buy", "itemID": 1, "quantity": 1}],
+        }
+    )
+    assert client.post("/v1/queues", json=queue).status_code == 422
+    assert (
+        client.post("/v1/queues", json={**queue, "confirmRealTrades": queue["queueId"][:8]}).status_code
+        == 422
+    )
+    assert (
+        client.post("/v1/queues", json={**queue, "confirmRealTrades": "wrong-full-queue-id"}).status_code
+        == 422
+    )
+    published = client.post("/v1/queues", json={**queue, "confirmRealTrades": queue["queueId"]})
+    assert published.status_code == 200, published.text
+    assert published.json()["armed"] is True
+    assert (
+        client.get("/v1/houses/us-normal-alliance/queue/active?character=ArmedTester").json()
+        == published.json()
+    )
 
 
 def test_uploads_are_idempotent_and_acked(client):

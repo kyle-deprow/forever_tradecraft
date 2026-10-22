@@ -8,6 +8,7 @@ from crowley.companion.config import CompanionSettings
 from crowley.companion.sync import Companion, State
 from crowley.core import savedvars
 from crowley.core.luawriter import render_assignment
+from crowley.core.queue import build_queue, render_queue_lua
 from crowley.core.watchlist import load_catalog
 
 from .test_core import raw_scan
@@ -16,7 +17,7 @@ from .wow_harness import WowClient
 FIXTURE = Path(__file__).parent / "fixtures/native-construction-unknown-savedvars.lua"
 
 
-def write_savedvars(path, scans, probe=None, reference=None, account=None):
+def write_savedvars(path, scans, probe=None, reference=None, account=None, executions=None):
     db = {"scans": {scan["id"]: scan for scan in scans}}
     if probe is not None:
         db["probe"] = probe
@@ -24,6 +25,8 @@ def write_savedvars(path, scans, probe=None, reference=None, account=None):
         db["reference"] = reference
     if account is not None:
         db["account"] = account
+    if executions is not None:
+        db["executions"] = executions
     path.write_text(render_assignment("CrowleyDB", db, header="test"))
 
 
@@ -304,3 +307,97 @@ def test_account_upload_rejects_non_2xx_and_retries(companion):
     instance.once()
     assert attempts == 2
     assert State.load(instance.state_file).accounts == [account["id"]]
+
+
+def test_queue_lua_is_written_only_when_content_changes(companion, monkeypatch):
+    instance, _ = companion
+    instance.settings.house_key = "us-normal-alliance"
+    instance.settings.character = "Tester"
+    queue = build_queue(
+        {
+            "house": "us-normal-alliance",
+            "character": "Tester",
+            "generatedAt": 1_700_000_000,
+            "expiresAt": 1_700_000_600,
+            "actions": [{"seq": 1, "kind": "vendor_buy", "itemID": 1, "quantity": 1}],
+        }
+    )
+    writes = []
+
+    def record_write(path, text):
+        writes.append((path, text))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+
+    monkeypatch.setattr("crowley.companion.sync.atomic_write", record_write)
+    instance.client = httpx.Client(
+        base_url="http://test",
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=queue)),
+    )
+    instance.write_queue()
+    instance.write_queue()
+    assert len(writes) == 1
+    assert savedvars.load_file(instance.settings.queue_lua)["CROWLEY_QUEUE"] == queue
+
+
+def test_unconfigured_queue_is_cleared_even_when_addon_data_fails(companion):
+    instance, saved = companion
+    write_savedvars(saved, [])
+    stale = build_queue(
+        {
+            "house": "us-normal-alliance",
+            "character": "Tester",
+            "generatedAt": 1_700_000_000,
+            "expiresAt": 1_700_000_600,
+            "actions": [{"seq": 1, "kind": "vendor_buy", "itemID": 1, "quantity": 1}],
+        }
+    )
+    instance.settings.queue_lua.write_text(render_queue_lua(stale))
+
+    def respond(request):
+        if request.url.path == "/v1/addon-data":
+            raise httpx.ConnectError("temporary outage", request=request)
+        raise AssertionError(f"unexpected request {request.url}")
+
+    instance.client = httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond))
+    with pytest.raises(httpx.ConnectError):
+        instance.once()
+    assert savedvars.load_file(instance.settings.queue_lua) == {"CROWLEY_QUEUE": False}
+
+
+def test_execution_upload_retries_then_is_remembered(companion):
+    instance, saved = companion
+    queue = build_queue(
+        {
+            "house": "us-normal-alliance",
+            "character": "Tester",
+            "generatedAt": 1_700_000_000,
+            "expiresAt": 1_700_000_600,
+            "actions": [{"seq": 1, "kind": "vendor_buy", "itemID": 1, "quantity": 1}],
+        }
+    )
+    execution = {
+        "queueId": queue["queueId"],
+        "house": queue["house"],
+        "character": queue["character"],
+        "results": [],
+    }
+    write_savedvars(saved, [], executions={queue["queueId"]: execution})
+    attempts = 0
+
+    def respond(request):
+        nonlocal attempts
+        if request.url.path == "/v1/executions":
+            attempts += 1
+            if attempts == 1:
+                raise httpx.ConnectError("temporary outage", request=request)
+            return httpx.Response(200, json={"status": "created"})
+        return httpx.Response(200, json={"generatedAt": 1, "ackedScans": [], "shoppingLists": []})
+
+    instance.client = httpx.Client(base_url="http://test", transport=httpx.MockTransport(respond))
+    with pytest.raises(httpx.ConnectError):
+        instance.once()
+    instance.once()
+    instance.once()
+    assert attempts == 2
+    assert queue["queueId"] in State.load(instance.state_file).executions

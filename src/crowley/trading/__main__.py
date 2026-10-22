@@ -3,16 +3,31 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 from contextlib import nullcontext
 from decimal import Decimal
 from fractions import Fraction
+from pathlib import Path
 
+import httpx
 import psycopg
+
+from crowley.core.queue import QueueFormatError
 
 from .data import load_client_data, load_commodity_books, precompute_statistics
 from .engine import run_backtest
 from .paper import DEFAULT_STRATEGIES, PaperError, create_run, database_url, status_run, step_run
+from .queue_cli import (
+    QueueCLIError,
+    from_paper,
+    preview_spec,
+    publish_spec,
+    reconcile_from_database,
+)
+from .queue_cli import (
+    status as queue_status,
+)
 from .report import text_summary, write_report
 from .strategies import build
 
@@ -141,7 +156,83 @@ def main(argv: list[str] | None = None) -> int:
     paper_status.add_argument("--database-url")
     paper_status.add_argument("--name", required=True)
     paper_status.add_argument("--last-intents", type=int, default=20)
+    queue = subparsers.add_parser("queue", help="publish and reconcile executor queues")
+    queue_sub = queue.add_subparsers(dest="queue_command", required=True)
+    queue_publish = queue_sub.add_parser("publish")
+    queue_publish.add_argument("--spec", type=Path, required=True)
+    queue_publish.add_argument("--armed", action="store_true")
+    queue_publish.add_argument("--confirm-real-trades")
+    queue_publish.add_argument(
+        "--server-url", default=os.environ.get("CROWLEY_SERVER_URL", "http://127.0.0.1:8080")
+    )
+    queue_publish.add_argument("--api-token", default=os.environ.get("CROWLEY_API_TOKEN"))
+    queue_preview = queue_sub.add_parser("preview")
+    queue_preview.add_argument("--spec", type=Path, required=True)
+    queue_preview.add_argument("--armed", action="store_true")
+    queue_preview.add_argument("--out", type=Path, required=True)
+    queue_paper = queue_sub.add_parser("from-paper")
+    queue_paper.add_argument("--run", required=True)
+    queue_paper.add_argument("--character", required=True)
+    queue_paper.add_argument("--expires-minutes", type=int, default=30)
+    queue_paper.add_argument("--database-url", default=os.environ.get("CROWLEY_DATABASE_URL"))
+    queue_paper.add_argument(
+        "--server-url", default=os.environ.get("CROWLEY_SERVER_URL", "http://127.0.0.1:8080")
+    )
+    queue_paper.add_argument("--api-token", default=os.environ.get("CROWLEY_API_TOKEN"))
+    queue_status_parser = queue_sub.add_parser("status")
+    queue_status_parser.add_argument("--house", required=True)
+    queue_status_parser.add_argument("--character", required=True)
+    queue_status_parser.add_argument(
+        "--server-url", default=os.environ.get("CROWLEY_SERVER_URL", "http://127.0.0.1:8080")
+    )
+    queue_status_parser.add_argument("--api-token", default=os.environ.get("CROWLEY_API_TOKEN"))
+    queue_reconcile = queue_sub.add_parser("reconcile")
+    queue_reconcile.add_argument("--queue", dest="queue_id", required=True)
+    queue_reconcile.add_argument("--database-url", default=os.environ.get("CROWLEY_DATABASE_URL"))
     args = parser.parse_args(argv)
+    if args.command == "queue":
+        try:
+            if args.queue_command == "publish":
+                result = publish_spec(
+                    json.loads(args.spec.read_text(encoding="utf-8")),
+                    server_url=args.server_url,
+                    api_token=args.api_token,
+                    armed=args.armed,
+                    confirm_real_trades=args.confirm_real_trades,
+                )
+                print(json.dumps(result, indent=2, sort_keys=True))
+            elif args.queue_command == "preview":
+                preview_spec(
+                    json.loads(args.spec.read_text(encoding="utf-8")),
+                    args.out,
+                    armed=args.armed,
+                )
+            elif args.queue_command == "from-paper":
+                if not args.database_url:
+                    raise QueueCLIError("database URL is required (--database-url or CROWLEY_DATABASE_URL)")
+                _, _, result = from_paper(
+                    args.database_url,
+                    args.run,
+                    args.character,
+                    expires_minutes=args.expires_minutes,
+                    server_url=args.server_url,
+                    api_token=args.api_token,
+                )
+                print(json.dumps(result, indent=2, sort_keys=True))
+            elif args.queue_command == "status":
+                queue_status(
+                    args.house,
+                    args.character,
+                    server_url=args.server_url,
+                    api_token=args.api_token,
+                )
+            else:
+                if not args.database_url:
+                    raise QueueCLIError("database URL is required (--database-url or CROWLEY_DATABASE_URL)")
+                reconcile_from_database(args.database_url, args.queue_id)
+        except (QueueCLIError, QueueFormatError, ValueError, OSError, httpx.HTTPError, psycopg.Error) as exc:
+            parser.error(str(exc))
+        return 0
     if args.command == "paper-create":
         try:
             run_id = create_run(
