@@ -425,12 +425,16 @@ def _minimal_chat_ocr_operator(tmp_path: Path, closed: Path, typed: Path):
     instance._identity_guard = lambda deadline_monotonic: None
     instance._event = lambda name, **fields: None
     instance.input = FakeInput(None)
+    instance.capture_records = []
 
     def capture(label, **kwargs):
         source = closed if "chat-closed" in label else typed
         target = tmp_path / f"{label}.png"
         target.write_bytes(source.read_bytes())
         target.chmod(0o600)
+        instance.capture_records.append(
+            {"label": label, "sha256": hashlib.sha256(target.read_bytes()).hexdigest()}
+        )
         return target, None, None
 
     instance._capture = capture
@@ -480,7 +484,8 @@ def test_actual_failed_reload_crop_distinguishes_cursor_threshold_regression(tmp
         "269634eb9956eec19ab2ff63e19df4798db7c44ed9edd50381e4b57dc06189d6"
     )
     with Image.open(failed) as image:
-        assert image.mode == "L"
+        # The retained production crop is RGB; _ocr_file normalizes it to L.
+        assert image.mode == "RGB"
         assert image.size == operator.CHAT_CROP_SIZE
     # The retained production crop fails with the old probe: it erases the
     # antialiased slash column and Tesseract reports a leading ``l``.
@@ -500,6 +505,56 @@ def test_chat_editor_state_classifies_fresh_active_and_inactive_crops(tmp_path):
     assert operator.NativeCalibrationOperator._chat_editor_state(active) == operator.CHAT_EDITOR_ACTIVE
     assert operator.NativeCalibrationOperator._chat_editor_state(world) == operator.CHAT_EDITOR_INACTIVE
     assert operator.NativeCalibrationOperator._chat_editor_state(closed) == operator.CHAT_EDITOR_INACTIVE
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_sha256"),
+    [
+        (
+            "closed-stormwind-preflight-actual.png",
+            "60eeaff29a2b590e36aa1d91eebfe7b358a3d3285787226139631fbb5b3886a4",
+        ),
+        (
+            "closed-stormwind-recovery-actual.png",
+            "126a3fa37a1a60ca7dc546a87dd23c6cd8b1ca56ed4d4476d075417ba17d83ca",
+        ),
+    ],
+)
+def test_actual_stormwind_closed_crops_replay_through_guarded_chat(tmp_path, fixture_name, expected_sha256):
+    closed = Path(__file__).parent / "fixtures" / "native-chat-ocr" / fixture_name
+    typed = _write_chat_ocr_fixture(tmp_path, "reload-typed.png", _OCR_RELOAD_TYPED_CROP_B64)
+    assert hashlib.sha256(closed.read_bytes()).hexdigest() == expected_sha256
+    assert operator.NativeCalibrationOperator._chat_editor_state(closed) == operator.CHAT_EDITOR_INACTIVE
+
+    instance = _minimal_chat_ocr_operator(tmp_path, closed, typed)
+    sequence = []
+    instance._event = lambda name, **fields: sequence.append(("event", name, fields))
+    original_key_return = instance.input.key_return
+
+    def record_key_return(*, deadline_monotonic=None):
+        sequence.append(("input", "Return", {}))
+        original_key_return(deadline_monotonic=deadline_monotonic)
+
+    instance.input.key_return = record_key_return
+    instance._chat("/reload")
+
+    assert [record["sha256"] for record in instance.capture_records] == [
+        expected_sha256,
+        hashlib.sha256(typed.read_bytes()).hexdigest(),
+    ]
+    assert instance.input.calls == [
+        ("key", "Return"),
+        ("type", "/reload"),
+        ("key", "Return"),
+    ]
+    accepted = next(
+        index
+        for index, item in enumerate(sequence)
+        if item[0] == "event" and item[1] == "chat_readback" and item[2]["accepted"]
+    )
+    returns = [index for index, item in enumerate(sequence) if item[:2] == ("input", "Return")]
+    assert len(returns) == 2
+    assert returns[0] < accepted < returns[1]
 
 
 def test_chat_active_empty_refuses_before_ocr_or_input(tmp_path):

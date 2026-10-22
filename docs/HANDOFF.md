@@ -1,11 +1,50 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 18:59 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 19:32 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
+
+**Current blocker (19:32 UTC):**285 is completed, saved/uploaded and exact loaded
+ACK/pending0 verified (parent independent PNG decode/original-byte check). It
+finished19:05:02 UTC, UID`beta-normal-alliance-1792695375-Arthur-9733`,428 attempts,
+zero failures,793 rows; original230873 bytes SHA
+`20193ccfc3c0743093f817b9382a64589860fb71c1f21cb1f74d450f9b33a6a2`.
+Companion upload timestamp1792695987=19:06:27 UTC,85s after finish; later observation
+time is separate. Proof is in `scan285-postprocess-stage/scan285-save-upload-ack-20261022T190607790164Z/`.
+No286. Control-preflight89 and canonical recover89 refused at the first closed-editor
+capture before input (`chat_readback_refused`). The valid preflight89
+`nativeConstruction` recovery_required checkpoint remains, B0`1792696010-225323`;
+public PAUSED89/native=false/input=false/opidle, same daemon PID1812097.
+Do not restart or discard that checkpoint. Canonical recovery must precede collection.
+
+The closed-editor fix is now Sol READY and installed19:26 UTC, helper SHA
+`585b005baa608ec01c2ba4e8a548854ef998da090383302ba13b8f10fbbeba0a`.
+It measures transparent editor chrome contrast instead of absolute world-background
+luminance; active-state refusal and exact typed-command OCR/Return ordering remain.
+Both actual failed crops replay through guarded `_chat`. Final focused checks:
+21 PASS/106 deselected; source/test/fixture hashes and exact private review are in
+`calibration-resume-20261021/closed-chat-world-implementation/`. Full module run completed126 PASS/1 FAIL in848.40s: the sole failure was
+the pre-existing RGB-versus-L fixture assertion collected before its correction.
+Final focused21 PASS includes that corrected test and its actual OCR regression;
+no second full run was needed for this test-only correction. Ruff/diff checks PASS.
+Production helper pin is receipt-only, so reviewed promotion preserved the daemon
+and checkpoint without a restart. Plan:
+[closed-editor repair](../.archive/PLAN-closed-chat-world-background-20261022.md).
+
+Fresh owner scene19:27 UTC verifies correct game identity, stationary Arthur,
+scan285 loaded ACK/pending0, AHclosed/noactive and all keys/buttons up, but the
+in-game Game Menu and empty focused Say editor are open. One verified-focus XTEST
+Escape19:30 had no observed effect. Sole GUI owner is diagnosing delivery/UI state
+before further input; no unchanged Escape/recovery retry. Root inspected only the
+retained full scene. After safe UI recovery: canonical recover exact89, checkpoint
+keyABSENT/ordinary/held clear, then restore collection first. Native/readiness
+rehearsal follows in an interscan window. Final poller/actual-entry fixture audit
+is Sol READY at poller959fbbcb, harness48a93bf6, receipt3e251590 using retained
+input87 stats/tree/xprop and actual daemon readiness serialization. No live
+readiness/human qualification is claimed.
 
 **Current collection (2026-10-22 18:59 UTC):** Assisted285 actually started
 18:56:15 UTC (`startedAt=1792695375`), due19:11:15 (`dueAt=1792696275`).
