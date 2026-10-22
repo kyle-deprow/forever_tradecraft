@@ -12,7 +12,16 @@ changes it alone. Money is integer copper; items are numeric item IDs (never nam
 - Automated clicking (when it exists) is capped at one click per second by the session driver (CLAUDE.md); the addon
   additionally refuses a click that arrives less than 1.0 s after the previous executor click (`too_fast`).
 - Any mismatch fails closed: the action is refused with a reason code and the executor stops at it until skipped or
-  the queue is replaced.
+  the queue is replaced. A `too_fast` click is a refusal like any other (it stops the action).
+- Both arms are re-checked immediately before **every** protected call, including later clicks of a multi-click action
+  (confirmation, further vendor stacks, further mail messages). Disarming mid-action stops it.
+- Calls whose protection status is unknown are treated as protected: they get their own click.
+- AH actions are refused (`scanner_active`) while a Crowley sweep is in progress; if the scanner's state cannot be read,
+  they are refused as well.
+- `/crowley skip` is refused while an action is in flight (between a started call and its terminal result).
+- After a reload, results already persisted for the same `queueId` are reconciled before anything runs: a seq with a
+  terminal `succeeded` result is not repeated; any seq whose last result is `started` blocks the whole queue
+  (`ambiguous_history`) until it is replaced; `dry_run` results do not count as completed.
 
 ## Queue file
 The companion writes `Interface/AddOns/Crowley_Data/Queue.lua`, loaded by `Crowley_Data.toc` after `Data.lua`,
@@ -44,13 +53,17 @@ everywhere; `durationHours` ∈ {12, 24, 48}; at most 50 actions; `expiresAt > g
 ## Execution per kind (one hardware click each unless stated)
 | kind | requires open | click behaviour |
 |---|---|---|
-| buy_commodity | AH | click 1: `C_AuctionHouse.StartCommoditiesPurchase(itemID, quantity)`; on `COMMODITY_PRICE_UPDATED(unitPrice, totalPrice)` refuse (`price_above_max`, then `CancelCommoditiesPurchase`) if `unitPrice > maxUnitPrice`; click 2: `ConfirmCommoditiesPurchase(itemID, quantity)`; success on `COMMODITY_PURCHASE_SUCCEEDED`, failure on `COMMODITY_PURCHASE_FAILED` |
+| buy_commodity | AH | preflight: Start, Confirm and Cancel functions all exist. Click 1: `C_AuctionHouse.StartCommoditiesPurchase(itemID, quantity)` → phase `await_price` (no click accepted). On `COMMODITY_PRICE_UPDATED(unitPrice, totalPrice)` validate both as non-negative integers with `totalPrice == unitPrice × quantity` or ≥ it (record both): if `unitPrice > maxUnitPrice` → phase `must_cancel`, next click: `CancelCommoditiesPurchase(itemID)`, result `refused` (`price_above_max`); else phase `ready_to_confirm`, next click: `ConfirmCommoditiesPurchase(itemID, quantity)` → phase `await_purchase`; success only on `COMMODITY_PURCHASE_SUCCEEDED` in `await_purchase`, failure on `COMMODITY_PURCHASE_FAILED` |
 | post_commodity | AH | find a bag stack of `itemID` with ≥ quantity (`C_Container`), `ItemLocation:CreateFromBagAndSlot`, check `C_AuctionHouse.IsSellItemValid`, record `CalculateCommodityDeposit`; click: `C_AuctionHouse.PostCommodity(location, duration, quantity, unitPrice)` with duration 1/2/3 for 12/24/48 h; success on `AUCTION_HOUSE_AUCTION_CREATED` |
-| cancel_auction | AH | `C_AuctionHouse.CanCancelAuction(auctionID)` must be true; record `GetCancelCost`; click: `CancelAuction(auctionID)`; success on `AUCTION_CANCELED` |
-| vendor_sell | merchant | find bag slots holding `itemID` totalling ≥ quantity, exact stacks only (no splitting; refuse `stack_mismatch` otherwise); one click per stack: `C_Container.UseContainerItem(bag, slot)` |
+| cancel_auction | AH | `C_AuctionHouse.CanCancelAuction(auctionID)` must be true and `GetCancelCost(auctionID)` must exist and return a non-negative integer (recorded); click: `CancelAuction(auctionID)`; success on `AUCTION_CANCELED` for that auctionID |
+| vendor_sell | merchant | choose bag stacks of `itemID` summing exactly to quantity (no splitting; bounded search; refuse `stack_mismatch` otherwise); one click per stack: re-read the slot immediately before `C_Container.UseContainerItem(bag, slot)` and refuse (`slot_changed`) unless it still holds `itemID` with the planned count; a stack is sold when the slot no longer holds it |
 | vendor_buy | merchant | find merchant index with `GetMerchantItemID(i) == itemID`; click: `BuyMerchantItem(index, quantity)` |
 | craft | profession window (`C_TradeSkillUI.IsTradeSkillReady()`) | recipe learned (`C_TradeSkillUI.GetRecipeInfo(recipeID).learned`) and `GetCraftableCount(recipeID) >= times`; click: `C_TradeSkillUI.CraftRecipe(recipeID, times)` |
 | mail_collect | mailbox | one click per message: `AutoLootMailItem(index)` (money and items), up to `maxMessages` |
+
+Vendor buy, craft and mail actions stay in flight after their call until an observable postcondition (bag count
+increased by the bought/crafted quantity, message removed or emptied) or a `UI_ERROR_MESSAGE`; they never succeed
+synchronously.
 
 Assumption: these calls behave as their names suggest in the Forever client (presence verified by probe 1792639338;
 behaviour is not). Every assumption is confirmed live in dry run first, then one armed action at a time.
