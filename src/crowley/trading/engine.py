@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 from fractions import Fraction
 from typing import Any
 
@@ -42,6 +42,9 @@ class BacktestResult:
     metadata: dict[str, Any] = field(default_factory=dict)
     capacity_observations: dict[str, list[dict[str, Any]]] = field(default_factory=dict)
     wind_down_checkpoints: dict[str, dict[str, Fraction]] = field(default_factory=dict)
+    step_log: list[dict[str, Any]] = field(default_factory=list)
+    realized_curves: dict[str, list[tuple[float, Fraction]]] = field(default_factory=dict)
+    cash_curves: dict[str, list[tuple[float, int]]] = field(default_factory=dict)
 
     @property
     def strategies(self) -> dict[str, Account]:
@@ -102,6 +105,29 @@ def _strategy_capacity_share(strategy: Strategy) -> Fraction:
     params = getattr(strategy, "params", {})
     value = params.get("capacity_share", Fraction(1, 4)) if isinstance(params, Mapping) else Fraction(1, 4)
     return _as_fraction(value)
+
+
+def _serialize_intent(intent: Any) -> dict[str, Any]:
+    """Serialize one contract intent without losing its field order or type."""
+
+    if not is_dataclass(intent):
+        return {"type": type(intent).__name__}
+    return {"type": type(intent).__name__, **asdict(intent)}
+
+
+def _decision_entry(account: Account, intent: Any, before_counts: Mapping[str, int]) -> dict[str, Any]:
+    """Build a decision record from the execution path's ledger and counters."""
+
+    outcome = "executed"
+    if account.ledger and account.ledger[-1].kind == "rejection":
+        outcome = account.ledger[-1].reason or "rejected"
+    detail: dict[str, Any] = {}
+    if type_name := type(intent).__name__:
+        if type_name == "Buy":
+            detail["filled"] = account.counts.get("units_bought", 0) - before_counts.get("units_bought", 0)
+        elif type_name == "Craft":
+            detail["times"] = account.counts.get("crafts", 0) - before_counts.get("crafts", 0)
+    return {"intent": _serialize_intent(intent), "outcome": outcome, "detail": detail}
 
 
 def _held_units(account: Account) -> dict[int, int]:
@@ -225,6 +251,9 @@ def run_backtest(
             (),
             metadata,
             {name: [] for name in names},
+            step_log=[],
+            realized_curves={name: [] for name in names},
+            cash_curves={name: [] for name in names},
         )
     ordered_accounts = [accounts[name] for name in names]
     purchased: dict[tuple[int, Any], int] = {}
@@ -232,8 +261,12 @@ def run_backtest(
     total_curve: list[tuple[float, Fraction]] = []
     capacity_observations: dict[str, list[dict[str, Any]]] = {name: [] for name in names}
     wind_down_checkpoints: dict[str, dict[str, Fraction]] = {}
+    step_log: list[dict[str, Any]] = []
+    realized_curves: dict[str, list[tuple[float, Fraction]]] = {name: [] for name in names}
+    cash_curves: dict[str, list[tuple[float, int]]] = {name: [] for name in names}
     wind_down_start_t = Fraction(steps[-1][1]) - wind_down_hours * 3600
     metadata["wind_down_start_t"] = wind_down_start_t
+    wind_down_active = wind_down_hours > 0
     next_listing_id = 1
 
     for step, t in steps:
@@ -245,13 +278,13 @@ def run_backtest(
             step,
             purchased,
             next_listing_id=next_listing_id,
-            wind_down=Fraction(t) >= wind_down_start_t,
+            wind_down=wind_down_active and Fraction(t) >= wind_down_start_t,
             demand_share=demand_share,
         )
         settle_fills(context)
         settle_expiry(context)
         release_mail(context)
-        if not wind_down_checkpoints and Fraction(t) >= wind_down_start_t:
+        if wind_down_active and not wind_down_checkpoints and Fraction(t) >= wind_down_start_t:
             wind_down_checkpoints = {
                 name: {
                     "realized": Fraction(account.cash_balance + account.pending_cash())
@@ -263,6 +296,11 @@ def run_backtest(
         order = list(range(len(strategy_list)))
         rotation = step % len(order)
         order = order[rotation:] + order[:rotation]
+        step_decisions = {
+            "t": int(t),
+            "sweep_key": str(market.sweep_ids[step]),
+            "strategies": {name: [] for name in names},
+        }
         for strategy_index in order:
             strategy = strategy_list[strategy_index]
             account = ordered_accounts[strategy_index]
@@ -274,13 +312,22 @@ def run_backtest(
             for intent in intents:
                 from .execution import execute_intent
 
+                before_counts = dict(account.counts)
                 execute_intent(context, account, intent)
+                step_decisions["strategies"][strategy.name].append(
+                    _decision_entry(account, intent, before_counts)
+                )
                 next_listing_id = context.next_listing_id
                 market.set_step(t, step, purchased)
         for name, account in accounts.items():
             curves[name].append((t, _mark_equity(account, market, t, step)))
+            realized_curves[name].append(
+                (t, Fraction(account.cash_balance + account.pending_cash() - account.start_capital))
+            )
+            cash_curves[name].append((t, account.cash_balance))
         _record_capacity_observations(capacity_observations, strategy_list, ordered_accounts, market)
         total_curve.append((t, sum((curves[name][-1][1] for name in names), Fraction(0))))
+        step_log.append(step_decisions)
 
     return BacktestResult(
         capital_copper,
@@ -291,6 +338,9 @@ def run_backtest(
         metadata,
         capacity_observations=capacity_observations,
         wind_down_checkpoints=wind_down_checkpoints,
+        step_log=step_log,
+        realized_curves=realized_curves,
+        cash_curves=cash_curves,
     )
 
 

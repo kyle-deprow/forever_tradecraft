@@ -34,7 +34,7 @@ selected-window interval, buys, vendor buys, and crafts are rejected as
 intents do not consume the time budget. Reports include realized and equity
 values both at wind-down start and at the end.
 
-The CLI's `--demand-share` option defaults to 1 and must be in `(0, 1]`. It
+The backtest CLI's `--demand-share` option defaults to 1 and must be in `(0, 1]`. It
 scales the observed above-price demand available to this backtest's own
 listings: at price `p`, fills are capped at
 `floor(demand_share × D(p))` after earlier own fills in price order. The
@@ -108,3 +108,27 @@ fresh launch economy; recipe availability on Forever is not known from client da
 bottom-walk estimator (only ~6 % of it is explained by cancel-and-repost churn, but it is unvalidated against
 true sales); and the half-period runs are not comparable to the full run because each half carries its own
 24 h wind-down within a gappy ~2-day window.
+
+## Paper trading
+
+Paper runs are deterministic shadow ledgers over the immutable recorded sweeps. Create one with
+`python -m crowley.trading paper-create --name NAME --house HOUSE`; `--start now` begins with the next
+recorded sweep. The default portfolio is the seven profitable strategies listed above. Set
+`CROWLEY_DATABASE_URL` or pass `--database-url` on each command.
+
+Advance a run with `paper-step --name NAME`. Each invocation replays from the fixed start time, verifies all
+previously stored final equity and decision records, and writes only new final steps in one transaction. The newest
+step remains provisional until a later sweep arrives; `paper-status` labels its decision intents as pending because
+their next-sweep outcome is not final. It refuses a changed
+trading/analysis source digest or a client build change after the run start. Inspect the latest per-strategy equity,
+realized copper, and decisions with `paper-status --name NAME`.
+
+Paper runs default to `demand_share=0.5`; pass `--demand-share` to choose another value in `(0, 1]`.
+
+Each `paper-step` replays the whole run. On the parent’s machine, 174 steps for seven strategies took about 220
+seconds; replay cost is roughly linear in the number of 15-minute sweeps and exceeds the 15-minute cadence after
+roughly a week of continuous sweeps. A new paper run, or a future checkpointing feature, is the remedy. A step that
+takes more than 600 seconds prints a warning.
+
+The supplied `deploy/crowley-paper-trading.service` and `.timer` run this step every fifteen minutes. They are
+not installed automatically.

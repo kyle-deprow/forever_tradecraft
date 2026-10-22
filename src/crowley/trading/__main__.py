@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 from contextlib import nullcontext
 from decimal import Decimal
 from fractions import Fraction
@@ -11,6 +12,7 @@ import psycopg
 
 from .data import load_client_data, load_commodity_books, precompute_statistics
 from .engine import run_backtest
+from .paper import DEFAULT_STRATEGIES, PaperError, create_run, database_url, status_run, step_run
 from .report import text_summary, write_report
 from .strategies import build
 
@@ -111,7 +113,7 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Backtest concurrent auction-house strategies")
     subparsers = parser.add_subparsers(dest="command", required=True)
     backtest = subparsers.add_parser("backtest")
-    backtest.add_argument("--database-url", required=True)
+    backtest.add_argument("--database-url")
     backtest.add_argument("--house", required=True)
     backtest.add_argument("--capital-gold", type=Decimal, default=Decimal("20"))
     backtest.add_argument("--strategies", default="vendor_arb")
@@ -122,9 +124,59 @@ def main(argv: list[str] | None = None) -> int:
     backtest.add_argument("--demand-share", type=Fraction, default=Fraction(1))
     backtest.add_argument("--build", help="full client build, for example 1.60.1.70450")
     backtest.add_argument("--out", required=True)
+    paper_create = subparsers.add_parser("paper-create")
+    paper_create.add_argument("--database-url")
+    paper_create.add_argument("--name", required=True)
+    paper_create.add_argument("--house", required=True)
+    paper_create.add_argument("--start", default="now")
+    paper_create.add_argument("--capital-gold", type=Decimal, default=Decimal("20"))
+    paper_create.add_argument("--strategies", default=",".join(DEFAULT_STRATEGIES))
+    paper_create.add_argument("--weights")
+    paper_create.add_argument("--demand-share", type=Fraction, default=Fraction("0.5"))
+    paper_create.add_argument("--build", dest="client_build")
+    paper_step = subparsers.add_parser("paper-step")
+    paper_step.add_argument("--database-url")
+    paper_step.add_argument("--name", required=True)
+    paper_status = subparsers.add_parser("paper-status")
+    paper_status.add_argument("--database-url")
+    paper_status.add_argument("--name", required=True)
+    paper_status.add_argument("--last-intents", type=int, default=20)
     args = parser.parse_args(argv)
-    if args.command != "backtest":
-        parser.error(f"unsupported command: {args.command}")
+    if args.command == "paper-create":
+        try:
+            run_id = create_run(
+                args.database_url or os.environ.get("CROWLEY_DATABASE_URL"),
+                name=args.name,
+                house=args.house,
+                start=args.start,
+                capital_gold=args.capital_gold,
+                strategies=args.strategies,
+                weights=args.weights,
+                demand_share=args.demand_share,
+                client_build=args.client_build,
+            )
+        except (PaperError, RuntimeError, ValueError, psycopg.Error) as exc:
+            parser.error(str(exc))
+        print(f"paper_run_created={args.name} id={run_id}")
+        return 0
+    if args.command == "paper-step":
+        try:
+            output = step_run(args.database_url or os.environ.get("CROWLEY_DATABASE_URL"), args.name)
+        except (PaperError, RuntimeError, ValueError, psycopg.Error) as exc:
+            parser.error(str(exc))
+        print(output)
+        return 0
+    if args.command == "paper-status":
+        try:
+            output = status_run(
+                args.database_url or os.environ.get("CROWLEY_DATABASE_URL"),
+                args.name,
+                args.last_intents,
+            )
+        except (PaperError, RuntimeError, ValueError, psycopg.Error) as exc:
+            parser.error(str(exc))
+        print(output)
+        return 0
     names = [name.strip() for name in args.strategies.split(",")]
     if not names or any(not name for name in names):
         parser.error("--strategies must be a comma-separated list")
@@ -132,7 +184,7 @@ def main(argv: list[str] | None = None) -> int:
         strategies = [build(name) for name in names]
         weights = _weights(args.weights)
         capital = int(args.capital_gold * 10_000)
-        with psycopg.connect(args.database_url) as conn:
+        with psycopg.connect(database_url(args.database_url)) as conn:
             with conn.transaction():
                 conn.execute("SET TRANSACTION READ ONLY")
                 loader_connection = _ReadOnlyLoaderConnection(conn)
@@ -179,7 +231,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         write_report(result, args.out)
         print(text_summary(result.report()))
-    except (RuntimeError, ValueError) as exc:
+    except (PaperError, RuntimeError, ValueError, psycopg.Error) as exc:
         parser.error(str(exc))
     return 0
 

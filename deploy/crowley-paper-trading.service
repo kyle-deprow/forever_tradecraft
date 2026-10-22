@@ -1,0 +1,11 @@
+[Unit]
+Description=Crowley paper trading replay
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/repos/pegasus
+EnvironmentFile=%h/.config/crowley/paper.env
+ExecStart=%h/repos/pegasus/.venv/bin/python -m crowley.trading paper-step --name ${CROWLEY_PAPER_RUN}
+UMask=0077
+NoNewPrivileges=true
+TimeoutStartSec=14min
