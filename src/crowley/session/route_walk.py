@@ -20,6 +20,11 @@ from typing import Any, NamedTuple
 TAU = math.tau
 MIN_HUMAN_HOLD_SECONDS = 0.03
 TRACE_STEP_SECONDS = 0.005
+# Measured live on WoW client build 1.60.1.70450.  These are deliberately
+# constants rather than values fitted from the one-Hz recording stream.
+KEYBOARD_TURN_RATE = math.pi
+RUN_SPEED = 7.0
+KINEMATICS_PROVENANCE = "measured live on client build 70450"
 _EPS = 1e-9
 _KEYS = frozenset({"W", "Left", "Right", "space"})
 _CAPTURE_KEYS = frozenset(
@@ -27,10 +32,10 @@ _CAPTURE_KEYS = frozenset(
 )
 _GROUND_VALUES = frozenset({"grounded", "not_grounded"})
 _BOOL_TEXT = frozenset({"true", "false"})
-_TURN_KEYS = frozenset({"Left", "Right"})
 _STYLE_FIELDS = (
     "forward_hold",
     "forward_gap",
+    "key_gap",
     "turn_tap",
     "strafe_tap",
     "jump_press",
@@ -119,12 +124,14 @@ class Kinematics:
     turn_rate_left: float
     turn_rate_right: float
     jump_airtime: float
+    provenance: str = KINEMATICS_PROVENANCE
 
     def __post_init__(self) -> None:
         run_speed = _finite(self.run_speed, "run_speed")
         left = _finite(self.turn_rate_left, "turn_rate_left")
         right = _finite(self.turn_rate_right, "turn_rate_right")
         airtime = _finite(self.jump_airtime, "jump_airtime")
+        provenance = _text(self.provenance, "kinematics provenance")
         if run_speed <= 0 or airtime <= 0 or airtime > 10:
             raise ValueError("run_speed and jump_airtime must be positive; jump_airtime must be <= 10")
         if left == 0 or right == 0:
@@ -135,29 +142,38 @@ class Kinematics:
         object.__setattr__(self, "turn_rate_left", left)
         object.__setattr__(self, "turn_rate_right", right)
         object.__setattr__(self, "jump_airtime", airtime)
+        object.__setattr__(self, "provenance", provenance)
 
-    def to_dict(self) -> dict[str, float]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "run_speed": self.run_speed,
             "turn_rate_left": self.turn_rate_left,
             "turn_rate_right": self.turn_rate_right,
             "jump_airtime": self.jump_airtime,
+            "provenance": self.provenance,
         }
 
     @classmethod
     def from_dict(cls, value: Any) -> Kinematics:
         data = _strict_dict(
             value,
-            {"run_speed", "turn_rate_left", "turn_rate_right", "jump_airtime"},
+            {"run_speed", "turn_rate_left", "turn_rate_right", "jump_airtime", "provenance"},
             "kinematics",
         )
-        return cls(data["run_speed"], data["turn_rate_left"], data["turn_rate_right"], data["jump_airtime"])
+        return cls(
+            data["run_speed"],
+            data["turn_rate_left"],
+            data["turn_rate_right"],
+            data["jump_airtime"],
+            data["provenance"],
+        )
 
 
 @dataclass(frozen=True)
 class Style:
     forward_hold: tuple[float, ...]
     forward_gap: tuple[float, ...]
+    key_gap: tuple[float, ...]
     turn_tap: tuple[float, ...]
     strafe_tap: tuple[float, ...]
     jump_press: tuple[float, ...]
@@ -370,10 +386,16 @@ class WalkPlan:
             raise ValueError("walk plan events must be ordered")
         active: set[str] = set()
         down_times: dict[str, float] = {}
+        last_release: dict[str, float] = {}
         for event in events:
             if event.down:
                 if event.key in active:
                     raise ValueError(f"overlapping {event.key} press")
+                if (
+                    event.key in last_release
+                    and event.t - last_release[event.key] < MIN_HUMAN_HOLD_SECONDS - _EPS
+                ):
+                    raise ValueError(f"{event.key} release-to-press gap is shorter than human minimum")
                 active.add(event.key)
                 down_times[event.key] = event.t
             elif event.key not in active:
@@ -383,6 +405,7 @@ class WalkPlan:
                     raise ValueError(f"{event.key} hold is shorter than human minimum")
                 active.remove(event.key)
                 del down_times[event.key]
+                last_release[event.key] = event.t
         if active:
             raise ValueError("walk plan has unreleased keys")
         if not isinstance(self.final, Pose):
@@ -393,6 +416,56 @@ class WalkPlan:
     @property
     def duration(self) -> float:
         return self.events[-1].t if self.events else 0.0
+
+
+@dataclass(frozen=True)
+class Segment:
+    events: tuple[KeyEvent, ...]
+    expected: Pose
+    target_index: int
+    seed: int
+    final: bool = False
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.expected, Pose):
+            raise ValueError("segment expected value must be a Pose")
+        if type(self.target_index) is not int or self.target_index < 0:
+            raise ValueError("segment target_index must be a non-negative integer")
+        if type(self.seed) is not int:
+            raise ValueError("segment seed must be an integer")
+        if type(self.final) is not bool:
+            raise ValueError("segment final must be a boolean")
+        # WalkPlan owns the event ordering, key set, hold, and same-key gap
+        # validation.  A segment has no checkpoints, but otherwise has the
+        # same input contract.
+        checked = WalkPlan(self.events, (), self.expected, self.seed)
+        object.__setattr__(self, "events", checked.events)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "events": [[event.t, event.key, event.down] for event in self.events],
+            "expected": self.expected.to_dict(),
+            "target_index": self.target_index,
+            "seed": self.seed,
+            "final": self.final,
+        }
+
+
+@dataclass(frozen=True)
+class FixVerdict:
+    ok: bool
+    position_error: float
+    facing_error: float
+    corridor_distance: float
+
+    def __post_init__(self) -> None:
+        if type(self.ok) is not bool:
+            raise ValueError("fix verdict ok must be a boolean")
+        for name in ("position_error", "facing_error", "corridor_distance"):
+            value = _finite(getattr(self, name), name)
+            if value < 0:
+                raise ValueError(f"{name} must be non-negative")
+            object.__setattr__(self, name, value)
 
 
 @dataclass(frozen=True)
@@ -614,47 +687,6 @@ def _input_heading_error(recordings: Sequence[_Recording]) -> None:
         )
 
 
-def _turn_rates(recordings: Sequence[_Recording]) -> tuple[float, float]:
-    rates: dict[str, list[float]] = {"Left": [], "Right": []}
-    for recording in recordings:
-        intervals = _key_intervals(recording)
-        rows = recording.telemetry
-        for previous, current in zip(rows, rows[1:], strict=False):
-            dt = current.mono - previous.mono
-            if dt <= 0:
-                continue
-            overlaps = {
-                key: sum(
-                    _overlap(interval, previous.mono, current.mono) for interval in intervals.get(key, [])
-                )
-                for key in _TURN_KEYS
-            }
-            active = [key for key, seconds in overlaps.items() if seconds > _EPS]
-            if len(active) != 1:
-                continue
-            if any(
-                sum(_overlap(interval, previous.mono, current.mono) for interval in intervals.get(key, []))
-                > _EPS
-                for key in ("Q", "E")
-            ):
-                continue
-            held = overlaps[active[0]]
-            change = _angle_delta(current.facing - previous.facing)
-            if abs(change) < 0.005 or held <= 0:
-                continue
-            rates[active[0]].append(change / held)
-    if not rates["Left"] or not rates["Right"]:
-        raise ValueError("could not fit both Left and Right turn rates")
-    left = statistics.median(rates["Left"])
-    right = statistics.median(rates["Right"])
-    if left * right >= 0:
-        raise ValueError("Left and Right turn rates must have opposite signs")
-    ratio = abs(left) / abs(right)
-    if not 0.75 <= ratio <= 1.25:
-        raise ValueError("Left and Right turn rates differ by more than 25 percent")
-    return left, right
-
-
 def _press_pairs(recordings: Sequence[_Recording], key: str) -> list[tuple[float, float]]:
     pairs: list[tuple[float, float]] = []
     for recording in recordings:
@@ -755,15 +787,23 @@ def _style_from_recordings(
     turn_taps = [end - start for start, end in left_pairs + right_pairs]
     strafe_taps = [end - start for start, end in strafe_pairs]
     jump_presses = [end - start for start, end in jump_pairs]
+    key_gaps: list[float] = []
+    for recording in recordings:
+        for intervals in _key_intervals(recording).values():
+            for previous, current in zip(intervals, intervals[1:], strict=False):
+                gap = current[0] - previous[1]
+                if 0 <= gap <= 10:
+                    key_gaps.append(gap)
     excluded = {field: 0 for field in _STYLE_FIELDS}
     style = Style(
-        _style_samples(holds, "forward_hold", excluded),
-        _style_samples(gaps, "forward_gap", excluded),
-        _style_samples(turn_taps, "turn_tap", excluded),
-        _style_samples(strafe_taps, "strafe_tap", excluded),
-        _style_samples(jump_presses, "jump_press", excluded),
-        _style_samples(jump_intervals, "jump_interval", excluded),
-        _style_samples(arrive_pauses, "arrive_pause", excluded),
+        forward_hold=_style_samples(holds, "forward_hold", excluded),
+        forward_gap=_style_samples(gaps, "forward_gap", excluded),
+        key_gap=_style_samples(key_gaps, "key_gap", excluded),
+        turn_tap=_style_samples(turn_taps, "turn_tap", excluded),
+        strafe_tap=_style_samples(strafe_taps, "strafe_tap", excluded),
+        jump_press=_style_samples(jump_presses, "jump_press", excluded),
+        jump_interval=_style_samples(jump_intervals, "jump_interval", excluded),
+        arrive_pause=_style_samples(arrive_pauses, "arrive_pause", excluded),
     )
     return style, excluded
 
@@ -799,18 +839,6 @@ def _jump_airtime(recordings: Sequence[_Recording]) -> float:
     if not estimates:
         raise ValueError("no jump-press-to-grounded telemetry estimate in [0.4, 1.0] seconds")
     return statistics.median(estimates)
-
-
-def _moving_speed(recordings: Sequence[_Recording]) -> float:
-    values = [
-        row.speed
-        for recording in recordings
-        for row in recording.telemetry
-        if row.speed > 0 and row.ground == "grounded"
-    ]
-    if not values:
-        raise ValueError("recordings contain no moving grounded fixes")
-    return statistics.median(values)
 
 
 def _leg_spans(
@@ -975,11 +1003,16 @@ def build_route_file(
         )
     start_pose = _endpoint_pose(start_fixes, start_xy)
     end_pose = _endpoint_pose(end_fixes, end_xy)
-    left_rate, right_rate = _turn_rates(loaded)
     jump_airtime = _jump_airtime(loaded)
     arrive_pauses = _arrival_pause_samples(loaded, start_xy, end_xy, radius)
     style, excluded = _style_from_recordings(loaded, leg_windows, arrive_pauses)
-    kinematics = Kinematics(_moving_speed(loaded), left_rate, right_rate, jump_airtime)
+    kinematics = Kinematics(
+        RUN_SPEED,
+        KEYBOARD_TURN_RATE,
+        -KEYBOARD_TURN_RATE,
+        jump_airtime,
+        KINEMATICS_PROVENANCE,
+    )
     instance_values = [row.instance for recording in loaded for row in recording.telemetry]
     instance = int(statistics.median(instance_values))
     prefix = start_target.lower()
@@ -1059,9 +1092,12 @@ def _nearest_progress(position: tuple[float, float], waypoints: Sequence[tuple[f
         )
         candidate = (first[0] + fraction * vx, first[1] + fraction * vy)
         distance = math.dist(position, candidate)
-        if distance < best_distance:
+        candidate_progress = progress + fraction * math.sqrt(length2)
+        if distance < best_distance - _EPS or (
+            abs(distance - best_distance) <= _EPS and candidate_progress > best_progress + _EPS
+        ):
             best_distance = distance
-            best_progress = progress + fraction * math.sqrt(length2)
+            best_progress = candidate_progress
         progress += math.sqrt(length2)
     return best_progress
 
@@ -1270,186 +1306,321 @@ def _sample(rng: random.Random, values: tuple[float, ...]) -> float:
     return values[rng.randrange(len(values))]
 
 
-def _make_attempt(
-    route: Route, start: Pose, style: Style, kinematics: Kinematics, rng: random.Random
-) -> tuple[tuple[KeyEvent, ...], Pose]:
+def _chord_corridor_distance(
+    start: tuple[float, float], target: tuple[float, float], waypoints: Sequence[tuple[float, float]]
+) -> float:
+    # Distance to a closed polyline is 1-Lipschitz.  Every point on this chord
+    # is at most half a sample interval from one of these 257 samples, so the
+    # returned value is a conservative upper bound on the continuous maximum.
+    # The Lipschitz correction is essential at the corridor boundary.
+    sample_count = 256
+    best = 0.0
+    for index in range(sample_count + 1):
+        fraction = index / sample_count
+        x = start[0] + fraction * (target[0] - start[0])
+        y = start[1] + fraction * (target[1] - start[1])
+        best = max(best, _polyline_distance(x, y, waypoints))
+    return best + math.dist(start, target) / (2 * sample_count)
+
+
+def _route_arc_lengths(waypoints: Sequence[tuple[float, float]]) -> tuple[float, ...]:
+    distances = [0.0]
+    for first, second in zip(waypoints, waypoints[1:], strict=False):
+        distances.append(distances[-1] + math.dist(first, second))
+    return tuple(distances)
+
+
+def _target_index(route: Route, pose: Pose, max_distance: float) -> int:
+    waypoints = route.waypoints
+    arc = _route_arc_lengths(waypoints)
+    nearest = _nearest_progress((pose.x, pose.y), waypoints)
+    start_index = next((index for index, value in enumerate(arc) if value >= nearest - _EPS), len(arc) - 1)
+    segment_index = len(waypoints) - 2
+    for index, (first, second) in enumerate(zip(waypoints, waypoints[1:], strict=False)):
+        if math.dist(first, second) <= _EPS:
+            continue
+        segment_index = index
+        if nearest < arc[index + 1] - _EPS:
+            break
+    first = waypoints[segment_index]
+    second = waypoints[segment_index + 1]
+    heading_x = second[0] - first[0]
+    heading_y = second[1] - first[1]
+    forward_limit = len(waypoints) - 1
+    for index in range(segment_index + 1, len(waypoints) - 1):
+        next_first = waypoints[index]
+        next_second = waypoints[index + 1]
+        next_x = next_second[0] - next_first[0]
+        next_y = next_second[1] - next_first[1]
+        if math.dist(next_first, next_second) <= _EPS:
+            continue
+        if heading_x * next_x + heading_y * next_y < 0.0:
+            # Do not look past any segment that heads more than 90° away from
+            # the current segment.  This is deliberately cumulative: two 90°
+            # corners form a U-turn around an obstacle just like one sharp
+            # reversal, and a chord across it could cut through that obstacle.
+            # The corner itself remains a valid forward target, so this only
+            # shortens segments.
+            forward_limit = index
+            break
+    origin = (pose.x, pose.y)
+    for index in range(forward_limit, start_index - 1, -1):
+        target = waypoints[index]
+        if math.dist(origin, target) > max_distance:
+            continue
+        if _chord_corridor_distance(origin, target, waypoints) <= 0.75:
+            return index
+    raise ValueError("no forward route point satisfies the segment corridor and distance limits")
+
+
+def _turn_events(
+    start_time: float,
+    facing: float,
+    desired: float,
+    style: Style,
+    kinematics: Kinematics,
+    rng: random.Random,
+) -> tuple[list[KeyEvent], float, float]:
+    delta = _angle_delta(desired - facing)
+    if abs(delta) <= _EPS:
+        return [], start_time, facing
+    key = "Left" if delta * kinematics.turn_rate_left > 0 else "Right"
+    rate = abs(_turn_rate(key, kinematics))
+    if rate <= _EPS:
+        raise ValueError("turn rate must be non-zero")
+    maximum = max(style.turn_tap)
+    minimum = MIN_HUMAN_HOLD_SECONDS
+    sign = 1.0 if _turn_rate(key, kinematics) > 0 else -1.0
+    remaining = abs(delta)
+    current = start_time
     events: list[KeyEvent] = []
-    position = (start.x, start.y)
-    facing = start.facing
-    t = 0.0
-    active_w = False
-    w_end: float | None = None
-    next_w: float | None = 0.0
-    active_turn: str | None = None
-    turn_end: float | None = None
-    space_end: float | None = None
+    while remaining > _EPS:
+        duration = min(maximum, remaining / rate)
+        if duration < minimum:
+            duration = minimum
+        events.append(KeyEvent(current, key, True))
+        current += duration
+        events.append(KeyEvent(current, key, False))
+        facing += sign * rate * duration
+        remaining -= rate * duration
+        if remaining > _EPS:
+            current += _sample(rng, style.key_gap)
+    return events, current, _normal_angle(facing)
+
+
+def _forward_events(
+    start_time: float,
+    distance: float,
+    style: Style,
+    kinematics: Kinematics,
+    rng: random.Random,
+) -> tuple[list[KeyEvent], float, tuple[tuple[float, float], ...]]:
+    if distance <= _EPS:
+        return [], start_time, ()
+    duration = distance / kinematics.run_speed
+    count = max(1, math.ceil(duration / max(style.forward_hold)))
+    hold = duration / count
+    intervals: list[tuple[float, float]] = []
+    events: list[KeyEvent] = []
+    current = start_time
+    for index in range(count):
+        end = current + hold
+        events.extend((KeyEvent(current, "W", True), KeyEvent(end, "W", False)))
+        intervals.append((current, end))
+        current = end
+        if index + 1 < count:
+            current += _sample(rng, style.key_gap)
+    return events, current, tuple(intervals)
+
+
+def _insert_jump(
+    events: list[KeyEvent],
+    intervals: Sequence[tuple[float, float]],
+    distance: float,
+    target: tuple[float, float],
+    route: Route,
+    style: Style,
+    kinematics: Kinematics,
+    rng: random.Random,
+) -> None:
+    if distance < 3.0 - _EPS or math.dist(target, (route.end.x, route.end.y)) < 3.0 - _EPS:
+        return
+    if distance / kinematics.run_speed < kinematics.jump_airtime + MIN_HUMAN_HOLD_SECONDS:
+        return
+    jump_rate_per_yard = 1.0 / (kinematics.run_speed * statistics.mean(style.jump_interval))
+    if rng.random() >= min(1.0, distance * jump_rate_per_yard):
+        return
+    press = _sample(rng, style.jump_press)
+    chosen: tuple[float, float] | None = None
+    for interval_start, interval_end in intervals:
+        # The entire airborne interval must fit inside this one W hold.  A
+        # later hold cannot repair an earlier W release because the character
+        # keeps moving at locked jump speed while airborne.
+        jump_time = interval_end - kinematics.jump_airtime
+        if jump_time < interval_start - _EPS:
+            continue
+        duration = min(press, interval_end - jump_time)
+        if duration >= MIN_HUMAN_HOLD_SECONDS - _EPS:
+            chosen = (jump_time, duration)
+            break
+    if chosen is None or chosen[1] < MIN_HUMAN_HOLD_SECONDS - _EPS:
+        return
+    jump_time, duration = chosen
+    events.extend((KeyEvent(jump_time, "space", True), KeyEvent(jump_time + duration, "space", False)))
+
+
+def _horizontal_travel(events: Sequence[KeyEvent], kinematics: Kinematics) -> float:
+    """Measure locked-speed horizontal travel, including only real air time."""
+    active: set[str] = set()
     airborne_until = 0.0
-    airborne_heading = facing
     airborne_speed = 0.0
-    next_jump = _sample(rng, style.jump_interval)
-    arrived = False
-    next_control = 0.0
-    initial_alignment = True
+    current = 0.0
+    moving_time = 0.0
+    for event in events:
+        if event.t < current - _EPS:
+            raise ValueError("segment events must be ordered")
+        elapsed = event.t - current
+        airborne_time = min(elapsed, max(0.0, airborne_until - current))
+        ground_time = elapsed - airborne_time
+        if airborne_speed > 0:
+            moving_time += airborne_time
+        if "W" in active:
+            moving_time += ground_time
+        current = event.t
+        if event.down:
+            if event.key in active:
+                raise ValueError(f"overlapping {event.key} press")
+            active.add(event.key)
+            if event.key == "space" and current >= airborne_until - _EPS:
+                airborne_until = current + kinematics.jump_airtime
+                airborne_speed = kinematics.run_speed if "W" in active else 0.0
+        else:
+            if event.key not in active:
+                raise ValueError(f"unmatched {event.key} release")
+            active.remove(event.key)
+    if airborne_speed > 0 and airborne_until > current:
+        moving_time += airborne_until - current
+    return moving_time * kinematics.run_speed
 
-    def emit(key: str, down: bool) -> None:
-        events.append(KeyEvent(t, key, down))
 
-    def advance(target: float) -> None:
-        nonlocal position, facing, t
-        dt = target - t
-        position, facing = _integrate(
-            position,
-            facing,
-            dt,
-            moving=active_w,
-            turn_key=active_turn,
-            airborne=max(0.0, airborne_until - t),
-            airborne_heading=airborne_heading,
-            airborne_speed=airborne_speed,
-            kinematics=kinematics,
+def _segment_events(
+    route: Route,
+    pose: Pose,
+    target_index: int,
+    style: Style,
+    kinematics: Kinematics,
+    rng: random.Random,
+) -> tuple[tuple[KeyEvent, ...], Pose]:
+    target = route.waypoints[target_index]
+    desired = math.atan2(target[1] - pose.y, target[0] - pose.x)
+    turn, current, _ = _turn_events(0.0, pose.facing, desired, style, kinematics, rng)
+    if turn:
+        current += _sample(rng, style.key_gap)
+    distance = math.dist((pose.x, pose.y), target)
+    forward, _run_end, intervals = _forward_events(current, distance, style, kinematics, rng)
+    events = [*turn, *forward]
+    _insert_jump(
+        events,
+        intervals,
+        distance,
+        target,
+        route,
+        style,
+        kinematics,
+        rng,
+    )
+    events.sort(key=lambda event: (event.t, not event.down, event.key))
+    travel = _horizontal_travel(events, kinematics)
+    if travel > distance + _EPS:
+        raise ValueError("segment horizontal travel exceeds selected chord distance")
+    expected = simulate(events, pose, kinematics)[-1][1] if events else pose
+    return tuple(events), expected
+
+
+def _plan_segment_with_rng(
+    route: Route,
+    pose: Pose,
+    style: Style,
+    kinematics: Kinematics,
+    rng: random.Random,
+    seed: int,
+    *,
+    max_distance: float = 4.0,
+) -> Segment:
+    """Plan one settled, closed-loop route step.
+
+    The returned events are relative to the supplied pose.  A caller must wait
+    for the input settle/fix protocol before passing the actual pose into the
+    next call; no daemon or input code belongs in this pure module.
+    """
+    if not isinstance(route, Route) or not isinstance(pose, Pose):
+        raise ValueError("route and pose have invalid types")
+    if not isinstance(style, Style) or not isinstance(kinematics, Kinematics):
+        raise ValueError("style and kinematics have invalid types")
+    max_distance = _finite(max_distance, "max_distance")
+    if max_distance <= 0:
+        raise ValueError("max_distance must be positive")
+    end_xy = (route.end.x, route.end.y)
+    if math.dist((pose.x, pose.y), end_xy) <= 0.5:
+        events, _, facing = _turn_events(0.0, pose.facing, route.end.facing, style, kinematics, rng)
+        if abs(_angle_delta(facing - route.end.facing)) > 0.15 + _EPS:
+            raise ValueError("final turn cannot face the route end within 0.15 radians")
+        return Segment(tuple(events), Pose(pose.x, pose.y, facing), len(route.waypoints) - 1, seed, True)
+    target_index = _target_index(route, pose, max_distance)
+    if target_index >= len(route.waypoints):
+        raise ValueError("segment target index is outside route")
+    if math.dist((pose.x, pose.y), route.waypoints[target_index]) <= _EPS:
+        raise ValueError("non-final segment has zero-length target")
+    events, expected = _segment_events(route, pose, target_index, style, kinematics, rng)
+    return Segment(events, expected, target_index, seed, False)
+
+
+def plan_segment(
+    route: Route,
+    pose: Pose,
+    style: Style,
+    kinematics: Kinematics,
+    seed: int,
+    *,
+    max_distance: float = 4.0,
+) -> Segment:
+    """Plan one settled, closed-loop route step from an explicit seed.
+
+    The returned events are relative to the supplied pose.  A caller must wait
+    for the input settle/fix protocol before passing the actual pose into the
+    next call; no daemon or input code belongs in this pure module.
+    """
+    if type(seed) is not int:
+        raise ValueError("seed must be an integer")
+    return _plan_segment_with_rng(
+        route, pose, style, kinematics, random.Random(seed), seed, max_distance=max_distance
+    )
+
+
+def _make_attempt(
+    route: Route, start: Pose, style: Style, kinematics: Kinematics, seed: int
+) -> tuple[tuple[KeyEvent, ...], Pose]:
+    """Compose an offline open-loop attempt from segment-sized motions."""
+    all_events: list[KeyEvent] = []
+    current = start
+    offset = 0.0
+    maximum_segments, _ = walk_budget(route)
+    gap_rng = random.Random(seed)
+    for segment_number in range(maximum_segments):
+        segment_seed = seed + segment_number
+        segment = _plan_segment_with_rng(
+            route, current, style, kinematics, random.Random(segment_seed), segment_seed
         )
-        t = target
-
-    for _ in range(3000):
-        if t > 30.0:
-            break
-        candidates = [next_control]
-        if active_w and w_end is not None:
-            candidates.append(w_end)
-        if not active_w and next_w is not None:
-            candidates.append(next_w)
-        if active_turn and turn_end is not None:
-            candidates.append(turn_end)
-        if space_end is not None:
-            candidates.append(space_end)
-        if airborne_until > t + _EPS:
-            candidates.append(airborne_until)
-        target = min(value for value in candidates if value >= t - _EPS)
-        if target < t:
-            target = t
-        advance(target)
-        at_control = math.isclose(t, next_control, abs_tol=1e-8)
-        if active_w and w_end is not None and t >= w_end - _EPS:
-            emit("W", False)
-            active_w = False
-            w_end = None
-            if not arrived:
-                distance_after_release = math.dist(position, (route.end.x, route.end.y))
-                next_w = (
-                    t + _sample(rng, style.forward_gap)
-                    if distance_after_release > 2.0
-                    else t
-                    if distance_after_release > 0.45
-                    else None
-                )
-        if not active_w and next_w is not None and t >= next_w - _EPS and not arrived:
-            alignment_target = _lookahead(position, route.waypoints)
-            alignment_angle = _angle_delta(
-                math.atan2(alignment_target[1] - position[1], alignment_target[0] - position[0]) - facing
-            )
-            if math.dist(position, (route.end.x, route.end.y)) > 2.0 and not (
-                initial_alignment and abs(alignment_angle) > 0.25
-            ):
-                emit("W", True)
-                active_w = True
-                w_end = t + _sample(rng, style.forward_hold)
-                next_w = None
-            elif not initial_alignment:
-                next_w = None
-            else:
-                next_w = t + 0.05
-        if active_turn and turn_end is not None and t >= turn_end - _EPS:
-            emit(active_turn, False)
-            active_turn = None
-            turn_end = None
-        if space_end is not None and t >= space_end - _EPS:
-            emit("space", False)
-            space_end = None
-        distance_to_end = math.dist(position, (route.end.x, route.end.y))
-        if not arrived and distance_to_end <= 0.45 and t >= airborne_until - _EPS:
-            if active_w:
-                emit("W", False)
-                active_w = False
-                w_end = None
-            next_w = None
-            arrived = True
-        if at_control or active_turn is None or not active_w:
-            next_control = max(next_control + 0.05, t + 0.05)
-            target_point = (route.end.x, route.end.y) if arrived else _lookahead(position, route.waypoints)
-            desired = math.atan2(target_point[1] - position[1], target_point[0] - position[0])
-            angle = _angle_delta(desired - facing)
-            if initial_alignment and abs(angle) <= 0.25:
-                initial_alignment = False
-            if active_turn is None and t >= airborne_until - _EPS and abs(angle) > 0.07:
-                key = (
-                    "Left"
-                    if angle > 0
-                    and kinematics.turn_rate_left > 0
-                    or angle < 0
-                    and kinematics.turn_rate_left < 0
-                    else "Right"
-                )
-                required = abs(angle / _turn_rate(key, kinematics))
-                minimum = min(style.turn_tap)
-                maximum = max(style.turn_tap)
-                duration = max(minimum, min(maximum, required))
-                emit(key, True)
-                active_turn = key
-                turn_end = t + duration
-            elif arrived and active_turn is None and abs(angle) <= 0.07:
-                break
-            if (
-                not arrived
-                and active_w
-                and active_turn is None
-                and t >= airborne_until - _EPS
-                and distance_to_end > 3.0 + kinematics.run_speed * kinematics.jump_airtime
-                and t >= next_jump - _EPS
-                and space_end is None
-            ):
-                press = _sample(rng, style.jump_press)
-                emit("space", True)
-                space_end = t + press
-                airborne_until = t + kinematics.jump_airtime
-                airborne_heading = facing
-                airborne_speed = kinematics.run_speed
-                next_jump = t + _sample(rng, style.jump_interval)
-        if (
-            arrived
-            and not active_w
-            and active_turn is None
-            and space_end is None
-            and t >= airborne_until - _EPS
-        ):
-            target_angle = _angle_delta(route.end.facing - facing)
-            if abs(target_angle) <= 0.07:
-                break
-        if not candidates or (
-            target == t and not at_control and not active_w and not active_turn and next_w is None
-        ):
-            next_control = t + 0.05
-    if active_w:
-        emit("W", False)
-    if active_turn:
-        emit(active_turn, False)
-    if space_end is not None:
-        emit("space", False)
-    final = simulate(events, start, kinematics)[-1][1]
-    correction_time = events[-1].t if events else 0.0
-    for _ in range(128):
-        angle = _angle_delta(route.end.facing - final.facing)
-        if abs(angle) <= 0.15:
-            break
-        key = "Left" if angle * kinematics.turn_rate_left > 0 else "Right"
-        duration = max(
-            MIN_HUMAN_HOLD_SECONDS,
-            min(max(style.turn_tap), abs(angle / _turn_rate(key, kinematics))),
-        )
-        events.append(KeyEvent(correction_time, key, True))
-        correction_time += duration
-        events.append(KeyEvent(correction_time, key, False))
-        final = simulate(events, start, kinematics)[-1][1]
-    return tuple(events), final
+        if not segment.events and not segment.final:
+            raise ValueError("open-loop planner made no progress")
+        if segment.events:
+            if all_events:
+                offset = all_events[-1].t + _sample(gap_rng, style.key_gap)
+            all_events.extend(KeyEvent(event.t + offset, event.key, event.down) for event in segment.events)
+        current = segment.expected
+        if segment.final:
+            return tuple(all_events), current
+    raise ValueError("open-loop planner exceeded walk budget")
 
 
 def _checkpoints(events: Sequence[KeyEvent], start: Pose, kinematics: Kinematics) -> tuple[Checkpoint, ...]:
@@ -1478,27 +1649,60 @@ def _checkpoints(events: Sequence[KeyEvent], start: Pose, kinematics: Kinematics
     return tuple(checkpoints)
 
 
-def plan_walk(route: Route, start: Pose, style: Style, kinematics: Kinematics, seed: int) -> WalkPlan:
-    """Create a seeded human-style walk plan, retrying only derived seeds."""
+def check_fix(route: Route, expected: Pose, actual: Pose) -> FixVerdict:
+    """Compare a settled telemetry pose with the pose expected for a segment."""
+    if not isinstance(route, Route) or not isinstance(expected, Pose) or not isinstance(actual, Pose):
+        raise ValueError("route and poses have invalid types")
+    position_error = math.dist((expected.x, expected.y), (actual.x, actual.y))
+    facing_delta = actual.facing - expected.facing
+    facing_error = abs(math.atan2(math.sin(facing_delta), math.cos(facing_delta)))
+    corridor_distance = _polyline_distance(actual.x, actual.y, route.waypoints)
+    return FixVerdict(
+        position_error <= 1.0 and corridor_distance <= 1.0 and facing_error <= 0.35,
+        position_error,
+        facing_error,
+        corridor_distance,
+    )
+
+
+def walk_budget(route: Route) -> tuple[int, int]:
+    if not isinstance(route, Route):
+        raise ValueError("route must be a Route")
+    length = _route_arc_lengths(route.waypoints)[-1]
+    return math.ceil(length / 2.0) + 6, 60
+
+
+def plan_open_loop_walk(
+    route: Route, start: Pose, style: Style, kinematics: Kinematics, seed: int
+) -> WalkPlan:
+    """Create an open-loop whole-route plan for offline inspection only.
+
+    Live execution must use :func:`plan_segment` and a settled telemetry fix
+    after every segment.  This function intentionally composes the same
+    segment-sized motions without feeding actual poses back into the planner,
+    so it is useful for inspecting the accumulated error of an open-loop walk.
+    """
     if not isinstance(seed, int) or isinstance(seed, bool):
         raise ValueError("seed must be an integer")
-    for attempt in range(32):
-        rng = random.Random(seed * 1000 + attempt)
-        events, final = _make_attempt(route, start, style, kinematics, rng)
-        if not events:
-            continue
-        duration = events[-1].t
-        if duration > 30.0:
-            continue
-        trace = _trace(events, start, kinematics)
-        max_distance = max(_polyline_distance(pose.x, pose.y, route.waypoints) for _, pose in trace)
-        continuous_bound = max_distance + kinematics.run_speed * TRACE_STEP_SECONDS
-        final_distance = math.dist((final.x, final.y), (route.end.x, route.end.y))
-        final_angle = abs(_angle_delta(final.facing - route.end.facing))
-        if continuous_bound > 1.0 or final_distance > 0.5 or final_angle > 0.15:
-            continue
-        return WalkPlan(events, _checkpoints(events, start, kinematics), final, seed)
-    raise ValueError("could not produce a route-corridor plan in 32 attempts")
+    if not isinstance(route, Route) or not isinstance(start, Pose):
+        raise ValueError("route and start have invalid types")
+    all_events, _expected = _make_attempt(route, start, style, kinematics, seed)
+    if not all_events:
+        raise ValueError("open-loop planner produced no events")
+    final = simulate(all_events, start, kinematics)[-1][1]
+    duration = all_events[-1].t
+    if duration > 30.0:
+        raise ValueError("open-loop plan exceeds 30 seconds")
+    trace = _trace(all_events, start, kinematics)
+    continuous_bound = max(_polyline_distance(pose.x, pose.y, route.waypoints) for _, pose in trace)
+    continuous_bound += kinematics.run_speed * TRACE_STEP_SECONDS
+    if continuous_bound > 1.0:
+        raise ValueError("could not produce a route-corridor plan")
+    final_distance = math.dist((final.x, final.y), (route.end.x, route.end.y))
+    final_angle = abs(_angle_delta(final.facing - route.end.facing))
+    if final_distance > 0.5 or final_angle > 0.15:
+        raise ValueError("could not produce a final route pose")
+    return WalkPlan(all_events, _checkpoints(all_events, start, kinematics), final, seed)
 
 
 def _parse_xy(value: str) -> tuple[float, float]:
@@ -1538,6 +1742,10 @@ def _plan_json(plan: WalkPlan, route: Route, start: Pose, kinematics: Kinematics
     }
 
 
+def _segment_json(segment: Segment) -> dict[str, Any]:
+    return segment.to_dict()
+
+
 def _cli() -> int:
     parser = argparse.ArgumentParser(description="Build and plan offline WoW walking routes")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1554,6 +1762,11 @@ def _cli() -> int:
     plan.add_argument("--route", required=True)
     plan.add_argument("--from", dest="from_pose", type=_parse_pose, required=True)
     plan.add_argument("--seed", type=int, required=True)
+    segment = subparsers.add_parser("plan-segment")
+    segment.add_argument("--routes", type=Path, required=True)
+    segment.add_argument("--route", required=True)
+    segment.add_argument("--from", dest="from_pose", type=_parse_pose, required=True)
+    segment.add_argument("--seed", type=int, required=True)
     args = parser.parse_args()
     try:
         if args.command == "build":
@@ -1573,8 +1786,14 @@ def _cli() -> int:
         if args.route not in route_file.routes:
             parser.error(f"unknown route: {args.route}")
         route = route_file.routes[args.route]
-        walk = plan_walk(route, args.from_pose, route_file.style, route_file.kinematics, args.seed)
-        print(json.dumps(_plan_json(walk, route, args.from_pose, route_file.kinematics), sort_keys=True))
+        if args.command == "plan-segment":
+            segment = plan_segment(route, args.from_pose, route_file.style, route_file.kinematics, args.seed)
+            print(json.dumps(_segment_json(segment), sort_keys=True))
+        else:
+            walk = plan_open_loop_walk(
+                route, args.from_pose, route_file.style, route_file.kinematics, args.seed
+            )
+            print(json.dumps(_plan_json(walk, route, args.from_pose, route_file.kinematics), sort_keys=True))
         return 0
     except (OSError, ValueError) as exc:
         parser.error(str(exc))
