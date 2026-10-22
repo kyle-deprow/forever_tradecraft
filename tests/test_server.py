@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import UTC, datetime
@@ -13,6 +14,7 @@ from pathlib import Path
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from psycopg.types.json import Jsonb
 
 from crowley.core.scanformat import decode_json_payload, encode_json_payload, validate_envelope
 
@@ -895,3 +897,161 @@ def test_uid_path_is_content_addressed(client):
     archives = list(data_dir.glob("raw/format2/*/*.json.gz"))
     assert len(archives) == 1
     assert archives[0].resolve().is_relative_to(data_dir.resolve())
+
+
+def test_paper_run_api_and_dashboard(client):
+    suffix = uuid.uuid4().hex
+    house_key = f"paper-dashboard-{suffix}"
+    run_name = f"paper-dashboard-{suffix}"
+    with psycopg.connect(DB_URL) as conn:
+        with conn.transaction():
+            house_id = conn.execute(
+                """
+                INSERT INTO houses (key, region, ruleset, faction)
+                VALUES (%s, 'test', 'normal', %s)
+                RETURNING id
+                """,
+                (house_key, suffix),
+            ).fetchone()[0]
+            run_id = conn.execute(
+                """
+                INSERT INTO paper_runs
+                    (name, house_id, client_build, start_t, capital_copper, strategies,
+                     weights, demand_share, engine_digest)
+                VALUES (%s, %s, '1.60.1.70450', 100, 9007199254740993, %s, %s, '1/2', %s)
+                RETURNING id
+                """,
+                (
+                    run_name,
+                    house_id,
+                    Jsonb(["alpha", "beta"]),
+                    Jsonb(["1", "2"]),
+                    "0" * 64,
+                ),
+            ).fetchone()[0]
+            steps = [
+                (100, {"alpha": 40000, "beta": 60000, "total": 100000}),
+                (200, {"alpha": 50000, "beta": 70000, "total": 120000}),
+            ]
+            for step_t, equity in steps:
+                conn.execute(
+                    """
+                    INSERT INTO paper_steps (run_id, step_t, sweep_key, equity, realized, cash)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        run_id,
+                        step_t,
+                        f"sweep-{step_t}",
+                        Jsonb(equity),
+                        Jsonb({"alpha": step_t, "beta": step_t * 2, "total": step_t * 3}),
+                        Jsonb({"alpha": 39000, "beta": 59000, "total": 98000}),
+                    ),
+                )
+            for ordinal in range(205):
+                conn.execute(
+                    """
+                    INSERT INTO paper_intents
+                        (run_id, step_t, strategy, ordinal, intent, outcome, detail)
+                    VALUES (%s, 200, 'alpha', %s, %s, 'executed', %s)
+                    """,
+                    (
+                        run_id,
+                        ordinal,
+                        Jsonb({"type": "Buy", "item_id": 2319, "max_unit_price": 27000, "quantity": 24}),
+                        Jsonb({"filled": 24}),
+                    ),
+                )
+            conn.execute(
+                """
+                INSERT INTO paper_pending (run_id, step_t, sweep_key, intents)
+                VALUES (%s, 300, 'pending-sweep', %s)
+                """,
+                (
+                    run_id,
+                    Jsonb(
+                        {"beta": [{"type": "Buy", "item_id": 2319, "max_unit_price": 27000, "quantity": 3}]}
+                    ),
+                ),
+            )
+
+    try:
+        unauthorized = client.get("/v1/paper/runs", headers={"Authorization": ""})
+        assert unauthorized.status_code == 401
+        assert client.get(f"/v1/paper/runs/{run_name}", headers={"Authorization": ""}).status_code == 401
+
+        listing = client.get("/v1/paper/runs")
+        assert listing.status_code == 200, listing.text
+        summary = next(run for run in listing.json() if run["name"] == run_name)
+        assert summary["house"] == house_key
+        assert summary["capital_copper"] == "9007199254740993"
+        assert summary["latest_step_t"] == 200
+        assert summary["latest_total_equity"] == "120000"
+        assert summary["latest_total_realized"] == "600"
+        assert summary["pending_step_t"] == 300
+
+        detail_response = client.get(f"/v1/paper/runs/{run_name}")
+        assert detail_response.status_code == 200, detail_response.text
+        detail = detail_response.json()
+        assert detail["capital_copper"] == "9007199254740993"
+
+        # End to end: the API's raw JSON text goes through the page's own parsing, validation and
+        # performance model, so a lossy number anywhere on that path would break the exact shares.
+        from crowley.trading.engine import _allocate_capital
+
+        from .test_dashboard import _emit_script, _node
+
+        model = _node(
+            _emit_script(
+                f"""
+                const detail = JSON.parse({json.dumps(detail_response.text)});
+                validateRunDetail(detail);
+                emit(buildPerformanceModel(detail).rows.map((row) => row.start.numerator.toString()));
+                """
+            )
+        )
+        assert model == [str(share) for share in _allocate_capital(9007199254740993, detail["weights"])]
+        assert detail["curve"] == [
+            {
+                "t": 100,
+                "equity": {"alpha": "40000", "beta": "60000", "total": "100000"},
+                "realized": {"alpha": "100", "beta": "200", "total": "300"},
+                "cash": {"alpha": "39000", "beta": "59000", "total": "98000"},
+            },
+            {
+                "t": 200,
+                "equity": {"alpha": "50000", "beta": "70000", "total": "120000"},
+                "realized": {"alpha": "200", "beta": "400", "total": "600"},
+                "cash": {"alpha": "39000", "beta": "59000", "total": "98000"},
+            },
+        ]
+        assert len(detail["recent_intents"]) == 200
+        assert detail["recent_intents"][0]["t"] == 200
+        assert detail["recent_intents"][0]["ordinal"] == 204
+        assert detail["recent_intents"][0]["intent"]["max_unit_price"] == "27000"
+        assert detail["pending"] == {
+            "t": 300,
+            "sweep_key": "pending-sweep",
+            "intents": {"beta": [{"type": "Buy", "item_id": 2319, "max_unit_price": "27000", "quantity": 3}]},
+        }
+        assert client.get(f"/v1/paper/runs/{run_name}-missing").status_code == 404
+
+        dashboard_response = client.get("/dashboard", headers={"Authorization": ""})
+        assert dashboard_response.status_code == 200
+        assert dashboard_response.headers["content-security-policy"] == (
+            "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; connect-src 'self'"
+        )
+        assert dashboard_response.headers["x-content-type-options"] == "nosniff"
+        assert "http://" not in dashboard_response.text
+        assert "https://" not in dashboard_response.text
+
+        with psycopg.connect(DB_URL) as conn:
+            conn.execute("DELETE FROM paper_pending WHERE run_id = %s", (run_id,))
+            conn.commit()
+        assert client.get(f"/v1/paper/runs/{run_name}").json()["pending"] is None
+    finally:
+        with psycopg.connect(DB_URL) as conn:
+            with conn.transaction():
+                conn.execute("DELETE FROM paper_runs WHERE id = %s", (run_id,))
+                conn.execute("DELETE FROM houses WHERE id = %s", (house_id,))
