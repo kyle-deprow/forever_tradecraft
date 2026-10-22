@@ -176,6 +176,9 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   is not an observed start. Use actual finish time for upload latency.
 - Verify stages independently: addon loaded, house/plan correct, scan saved,
   original payload accepted, real retained prices stored, acknowledgement loaded.
+  Data.lua producer fields also affect the session's strict reader. Update that
+  reader and lifecycle fixtures together, then validate preserved actual producer
+  bytes; addon acceptance alone does not prove session ACK compatibility.
   A successful probe or zero-row ingestion proves only the stages it exercised.
   A typed `/reload` and logged Enter dispatch do not establish a reload: require
   its actual boot transition and stable SavedVariables containing the exact UID.

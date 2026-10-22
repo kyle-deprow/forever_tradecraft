@@ -1,80 +1,84 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 03:37 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 04:02 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
-## Latest calibration appointment update (supersedes historical live state)
+## Current collection and calibration state
 
-**First resumed sweep uploaded:** UID`beta-normal-alliance-1792640172-Arthur-4663`
-ran03:36:12–03:44:22 UTC,428 attempted/zero failures/1046 rows. Parent validated
-the immutable original format3 envelope and matched its logical digest, plan,
-observation/row counts against read-only DB:423 full/5 bounded,428ok. Server
-received it03:44:57.060933 UTC (35.06s after finish). Private evidence:
-`assisted-collection-luna-20261021/543-scan237-exact-ack-diagnostic/parent-format3-upload-verification.json`.
-Data.lua already contains its exact ACK. Loaded ACK is pending because the strict
-session reader expected four top-level fields, while the current producer also
-emits `referenceItemIDs`. Narrow Luna fix is now promoted to MAIN working tree
-after Sol READY and parent4test pass + exact retained-live-file acceptance.
-It requires the current five fields and validates canonical full-catalog reference
-IDs; unknown fields and malformed IDs still fail. Do not delete producer fields.
-New helper processes load the fix; the paused daemon still needs restart before
-future autonomous use (coordinate with native-helper integration).
-Original SavedVariables and Data.lua bytes are preserved. GUI owner is restoring
-AH with one pending uploaded UID below cap6 so this reader repair does not hold
-the next03:51:12 UTC scan. Never reload during an active sweep to load an ACK.
+The user resumed game operation at 02:46 UTC on 2026-10-22 and confirmed RDP
+availability then. `/root/luna_assisted_scanner` was woken with a follow-up task
+and verified running. It is the sole GUI owner; root must not capture or input
+concurrently. Reconfirm human availability before any timed calibration prompt.
 
-**Expanded API probe completed:** After loading P2, Luna submitted `/crowley probe`
-once and saved it with a verified reload. Probe1792639338 (03:22:18 UTC on
-2026-10-22) is uploaded. Parent independently compared the complete JSON from
-`client_probes` against the immutable SavedVariables: exactly equal, including
-40 boolean globals, six boolean frame checks and expanded namespace inventories.
-Private evidence: `assisted-collection-luna-20261021/530-saving-reload-probe-check/parent-probe-verification.json`.
-The shared data-agent status below is updated. First resumed sweep started at
-03:36:12 UTC (startedAt1792640172),428 planned, next due03:51:12 UTC. Parent
-independently decoded the retained opened-AH PNG to verify those timestamps and
-actual item phase/ordinal1. Save/upload/exact loaded ACK remain pending. Calibration
-click repair remains offline and has design READY, not implementation approval.
+**Collection is running under Luna supervision.** Scan238 began 03:54:27 UTC
+(startedAt1792641267), next due 04:09:27 UTC (1792642167), 428 items planned.
+Latest fresh 04:00:32 UTC watcher frame: item323/428, AH open, speed0, one pending
+uploaded UID (scan237). The preceding start interval was1095s, missing the desired
+900s by195s during recovery. Prepare the reusable restoration route before the
+next due time; carry actual startedAt+900 through reload even if addon dueAt resets.
 
-**CURRENT RESUME:** At02:46 UTC on2026-10-22 the user explicitly resumed Luna
-and requested calibration; the user also confirmed connected/available through RDP.
-`/root/luna_assisted_scanner` was woken with a follow-up task and verified running.
-It is the sole GUI owner. Root must not capture/input concurrently. The current
-Forever client is a new process; re-resolve its identity rather than reusing old
-PID2792826 or the old fingerprint. Fresh02:58:43Z production HUD confirms Arthur
-in Ironforge, build70450/version1.60.1/interface16001, AHclosed/speed0/pending0,
-scannerready/no active sweep. CurrentPID1532084/start44691603 has a fresh identity.
-The new HUD has empty loaded.ackedIds; prior cycle236's historical exact ACK is
-preserved evidence, not a fresh loaded-ACK claim.
+Scan237, UID `beta-normal-alliance-1792640172-Arthur-4663`, ran 03:36:12–03:44:22
+UTC: 428 attempted, zero failures, 1046 rows, 423 full/5 bounded, all428 reasons ok.
+Server receipt was 03:44:57.060933 UTC (35.06s after finish). Parent validated the
+original format3 envelope, matched logical digest/plan/counts to read-only DB,
+and compared all428 stored observation JSON records plus1046 captured-row
+JSON/quantity/unit-price columns: exactly equal, including26 stacked-item rows.
+Original SavedVariables SHA256:
+`0b54f4af1a83821ebc420a21177f4d7db3ec6845da2e7393f3bbd10dac00c31a`.
+Private proofs are under `assisted-collection-luna-20261021/543-scan237-exact-ack-diagnostic/`:
+`parent-format3-upload-verification.json` and `parent-stored-prices-verification.json`.
 
-Before any new sweep, root restarted `crowley-session.service` at02:54:19 UTC:
-oldPID3087152 -> newPID1821334. Runtime initialized PAUSED **generation71**,
-native/input false, operation idle. Fresh generations must be read before commands.
-This loads committed format3 support (`347ab56`); parent focused format2/3 tests
-passed10/29deselected. The live addon symlinks to MAIN's `addon/Crowley`, whose
-scanner now emits format3. No native helper/session implementation files changed
-between the reviewed calibration helper and current MAIN2e48728.
+Scan237's exact server ACK is present in Data.lua and strictly verified, but
+**loaded ACK is not yet proven**. Its normal scan238 save reload will load that
+prior ACK. Do not reload an active sweep for ACK. One uploaded pending UID remains
+below cap6. Never claim a completed cycle from upload or Data.lua publication alone.
+The old session reader rejected the producer's new `referenceItemIDs` field;
+Luna fix d78510b requires the current five-field schema and canonical full-catalog
+reference IDs, preserving strict unknown-field/ACK/plan validation. Sol READY;
+parent4 focused tests and retained actual Data.lua acceptance passed. Fixture
+closure e58d8f8 is also Sol READY; Luna5 targeted lifecycle/ACK/reconcile tests
+passed (80.13s), parent2 targeted integration tests passed. Both commits pushed.
 
-**P2 is now merged at05392bf.** Parent probe-focused tests passed9/244deselected.
-The driver completed the keyboard-only probe lifecycle above and is restoring
-assisted428-item900-second cycles, preserving original format3 payloads and exact
-upload/ACK/reopen evidence. Never interrupt an active sweep.
-Coordination with the other data agent is recorded in
-`../.archive/trade-api-probe/LIVE-DRIVER-STATUS.md`.
+**Expanded API probe completed.** P2 merged at05392bf (parent9 focused tests passed).
+Luna loaded it with a guarded preparatory reload, submitted `/crowley probe` once,
+then saved with a verified reload. Probe1792639338 (03:22:18 UTC) is in client_probes.
+Parent compared the complete saved JSON against DB: exactly equal, including40
+boolean globals, six boolean frame checks and namespace function inventories.
+Private proof: `assisted-collection-luna-20261021/530-saving-reload-probe-check/parent-probe-verification.json`.
+Presence does not prove usable return contracts; absent load-on-demand frames do
+not establish unavailable APIs. No trade actions were performed.
 
-**Calibration method blocker:** Current-MAIN Sol review is NEEDS WORK. New
-CLAUDE.md requires curved/Fitts-timed seeded human click gestures and >=1.0second
-between automated clicks; FixedInput.click in the native helper still moves
-directly before button down/up. Runtime's armed driver cannot simply run before
-input calibration. Hold native control-preflight/measurement/human startup until
-the shared bootstrap gesture fix passes review. Keyboard-only assisted collection
-is independent of that click fix. Luna implementation is offline in isolated
-`~/.cache/crowley/worktrees/native-human-click-20261022`; root-owned plan:
-`../.archive/PLAN-native-human-click-20261022.md`. No unreviewed candidate is installed.
-The original state/recovery sequence remains required afterward: fresh preflight,
-native100, public pause/checkpoint-dependent ordinary recovery, genuine input.
-No autonomous cycles are yet qualified.
+**Service and live identity.** Before any new sweep, root restarted
+`crowley-session.service` at02:54:19 UTC, PID3087152 ->1821334. It initialized
+PAUSED generation71, native/input false, operation idle, nativeConstruction key
+ABSENT. Read actual generations/checkpoint membership before acting. This loaded
+format3 support347ab56 (parent10 focused format2/3 tests passed). Running server
+also explicitly reports accepted formats[2,3]. The paused daemon still holds the
+pre-d78510b ACK-reader import: restart before future autonomous use, preferably
+with the reviewed native-helper integration. Fresh helper processes load the fix.
+The addon symlinks to MAIN's `addon/Crowley`. Current client is PID1532084,
+start44691603, Arthur/Ironforge, build70450/version1.60.1/interface16001. Re-resolve
+identity before input; do not reuse old PID2792826 or earlier fingerprint evidence.
+
+**Calibration remains blocked on code; no human prompt is active.** Current
+CLAUDE.md requires seeded/recorded curved Fitts-timed gestures with submovements,
+endpoint scatter and >=1.0s between automated clicks. The installed native helper
+still uses direct pointer movement before clicking. Runtime's armed driver cannot
+simply run before input calibration. Hold native preflight/measurement until the
+shared bootstrap fix passes final code review. Keyboard-only collection continues.
+Luna implements offline in `~/.cache/crowley/worktrees/native-human-click-20261022`;
+plan: `../.archive/PLAN-native-human-click-20261022.md`, Sol design READY R2.
+Implementation tests are resolving owned-emitter timeout overhead within existing
+5s click-evidence/10s constructor limits; no candidate is installed or code-approved.
+After approval, preserve the reviewed sequence: fresh native preflight, native100,
+public pause/checkpoint-dependent ordinary recovery, genuine owned-GTK input.
+Native/input remain false and **zero autonomous cycles are qualified**. Require
+three consecutive unattended900s full save/upload/exact loaded-ACK/reopen cycles.
+
+Shared data-agent coordination: `../.archive/trade-api-probe/LIVE-DRIVER-STATUS.md`.
+Everything below this point is historical and must not override the current state.
 
 **HISTORICAL USER HOLD (superseded by the resume above):** User reported the game was
 still not playable and will tell us when it is ready. Stop reconnect attempts,
