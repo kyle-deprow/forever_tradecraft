@@ -14,7 +14,9 @@ Driver changes require concrete justification to root before extending scope.
 1. Choose one deterministic owned GTK test surface that contains the current
    pointer in its actual client area (prefer undecorated/fullscreen). Resolve
    mapped/WM-settled actual geometry through existing certificate lifecycle,
-   before measuring keyboard or dispatching pointer input. Preserve target
+   before dispatching any synthetic keyboard or pointer input. Read-only device
+   hierarchy, keymap and operation-profile measurements may precede guarded
+   focus/placement; they do not supply a synthetic sample. Preserve target
    process/start/WM ancestry, exact tickets, focus/Guardian, source attribution,
    all pre-input bounds and nonzero-motion checks, private entry and prompt.
 2. Do not move/warp the pointer into a proof, widen bounds into decorations,

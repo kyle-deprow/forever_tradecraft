@@ -236,6 +236,7 @@ from gi.repository import Gtk, GLib, GdkX11
 
 window = Gtk.Window()
 window.set_title("CROWLEY INPUT CALIBRATION ONLY")
+window.set_decorated(False)
 window.set_default_size(480, 240)
 window.set_resizable(False)
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -3151,6 +3152,7 @@ class InputCalibrationWorkflow:
         self._keyboard_keymap: tuple[tuple[str, int], ...] = ()
         self._game_identity: Any | None = None
         self._predicate_reasons: dict[str, Any] = {"count": 0, "first": None, "last": None}
+        self._target_placement_diagnostic: dict[str, Any] | None = None
 
     @staticmethod
     def _bounded_error(value: Any, *, limit: int = 1024) -> str:
@@ -3248,6 +3250,9 @@ class InputCalibrationWorkflow:
                 synthetic_pointer_diagnostic = dict(pointer_diagnostic)
         except Exception:
             synthetic_pointer_diagnostic = None
+        target_placement_diagnostic = None
+        if isinstance(self._target_placement_diagnostic, dict):
+            target_placement_diagnostic = dict(self._target_placement_diagnostic)
         complete_binding = bool(
             self._target_certificate
             and self._game_identity
@@ -3281,6 +3286,7 @@ class InputCalibrationWorkflow:
             },
             "syntheticPredicate": dict(self._predicate_reasons),
             "syntheticPointer": synthetic_pointer_diagnostic,
+            "targetPlacement": target_placement_diagnostic,
             "observer": observer_snapshot,
             "replayable": bool(observer_complete and complete_binding and not observer_truncated),
         }
@@ -3470,6 +3476,47 @@ class InputCalibrationWorkflow:
             if not callable(focus_target):
                 raise CalibrationError("input calibration focus capability is not configured")
             focus_target(window, calibration_ticket=calibration_ticket)
+            if isinstance(getattr(self.driver, "backend", None), X11Backend):
+                self._stage = "target_pointer_preflight"
+                pointer_position = getattr(self.driver.backend, "pointer_position", None)
+                if not callable(pointer_position):
+                    self._target_placement_diagnostic = {
+                        "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+                        "targetXid": window.xid,
+                        "targetGeometry": list(window.geometry),
+                        "queryError": "native pointer position provider is unavailable",
+                    }
+                    raise CalibrationError(
+                        "owned GTK target pointer cannot be verified before synthetic input"
+                    )
+                try:
+                    pointer_x, pointer_y, pointer_xid = pointer_position()
+                except Exception as exc:
+                    self._target_placement_diagnostic = {
+                        "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+                        "targetXid": window.xid,
+                        "targetGeometry": list(window.geometry),
+                        "queryError": self._bounded_error(exc, limit=256),
+                    }
+                    raise CalibrationError(
+                        "owned GTK target pointer cannot be verified before synthetic input"
+                    ) from exc
+                left, top, width, height = window.geometry
+                pointer_certified = window.contains_xid(pointer_xid)
+                pointer_inside = left <= pointer_x < left + width and top <= pointer_y < top + height
+                self._target_placement_diagnostic = {
+                    "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+                    "targetXid": window.xid,
+                    "targetGeometry": [left, top, width, height],
+                    "origin": {"x": pointer_x, "y": pointer_y, "windowXid": pointer_xid},
+                    "predicates": {
+                        "certifiedHitWindow": pointer_certified,
+                        "insideTargetGeometry": pointer_inside,
+                    },
+                }
+                if not pointer_certified or not pointer_inside:
+                    raise CalibrationError("owned GTK target does not contain the current pointer")
+                self._stage = "synthetic"
             synthetic_input = getattr(self.driver, "synthetic_target_keyboard_profile", None)
             if not callable(synthetic_input):
                 raise CalibrationError("input calibration keyboard probe capability is not configured")

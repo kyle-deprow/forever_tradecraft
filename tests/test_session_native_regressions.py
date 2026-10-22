@@ -8,11 +8,15 @@ or a human input sample has passed calibration.
 from __future__ import annotations
 
 import copy
+import ctypes
+import ctypes.util
 import hashlib
 import io
 import json
 import os
 import re
+import select
+import shutil
 import socket
 import stat
 import subprocess
@@ -1422,6 +1426,298 @@ def test_gtk_create_real_verifier_replays_startup_states_and_command_budget(
     finally:
         target.close()
         processes[0].stdout.close()  # type: ignore[attr-defined]
+
+
+@pytest.mark.skipif(
+    shutil.which("Xvfb") is None
+    or shutil.which("xdotool") is None
+    or not Path("/usr/bin/python3.13").is_file(),
+    reason="private Xvfb/GTK fixture is unavailable",
+)
+@pytest.mark.parametrize(
+    ("mouse_position_enabled", "expected_inside"),
+    [(True, True), (False, False)],
+    ids=("settled-mouse-position-contains-origin", "ignored-mouse-position-is-refused"),
+)
+def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mouse_position_enabled: bool,
+    expected_inside: bool,
+) -> None:
+    """Measure real GTK placement around an unchanged private-Xvfb pointer."""
+
+    import crowley.session.calibration as calibration_module
+
+    read_fd, write_fd = os.pipe()
+    xvfb = subprocess.Popen(
+        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1920x1080x24", "-ac"],
+        pass_fds=(write_fd,),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    os.close(write_fd)
+    target: OwnedGtkCalibrationWindow | None = None
+    driver: DesktopDriver | None = None
+    xdisplay = None
+    display = ""
+    try:
+        ready, _, _ = select.select([read_fd], [], [], 5.0)
+        assert ready, "private Xvfb did not publish a display number"
+        display_number = os.read(read_fd, 32).decode("ascii").strip()
+        assert display_number.isdigit()
+        display = f":{display_number}"
+        os.close(read_fd)
+        read_fd = -1
+        env = os.environ.copy()
+        env["DISPLAY"] = display
+        env["GDK_BACKEND"] = "x11"
+        xauthority = str(tmp_path / "private-xauthority")
+        Path(xauthority).touch(mode=0o600)
+        if not mouse_position_enabled:
+            script = calibration_module._GTK_SCRIPT
+            placement = "window.set_position(Gtk.WindowPosition.MOUSE)\n"
+            assert placement in script
+            monkeypatch.setattr(calibration_module, "_GTK_SCRIPT", script.replace(placement, ""))
+
+        # Xvfb's xdotool mousemove path is inert without an XTEST pointer
+        # device. Set only the initial private test coordinate with XWarpPointer,
+        # then observe it unchanged across real GTK mapping and guarded focus.
+        x11 = ctypes.CDLL(ctypes.util.find_library("X11"))
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        xdisplay = x11.XOpenDisplay(display.encode("ascii"))
+        assert xdisplay
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        xroot = x11.XDefaultRootWindow(xdisplay)
+        x11.XWarpPointer.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        assert x11.XWarpPointer(xdisplay, 0, xroot, 0, 0, 0, 0, 1809, 43) == 1
+        x11.XSync(xdisplay, 0)
+
+        def pointer_position() -> tuple[int, int, int]:
+            output = subprocess.run(
+                ["xdotool", "getmouselocation", "--shell"],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            ).stdout
+            values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+            return int(values["X"]), int(values["Y"]), int(values["WINDOW"], 0)
+
+        before_create = pointer_position()
+        assert before_create[:2] == (1809, 43)
+
+        facts: dict[str, int] = {}
+        root_xid = 0x374
+        frame_pid = os.getpid()
+
+        def stats(
+            x: int,
+            y: int,
+            width: int,
+            height: int,
+            *,
+            map_state: str = "IsViewable",
+            relative_x: int | None = None,
+            relative_y: int | None = None,
+            depth: int = 24,
+            klass: str = "InputOutput",
+        ) -> str:
+            return (
+                f"xwininfo: Window id: 0x{facts['xid']:x}\n\n"
+                f"  Absolute upper-left X:  {x}\n"
+                f"  Absolute upper-left Y:  {y}\n"
+                f"  Relative upper-left X:  {x if relative_x is None else relative_x}\n"
+                f"  Relative upper-left Y:  {y if relative_y is None else relative_y}\n"
+                f"  Width: {width}\n"
+                f"  Height: {height}\n"
+                f"  Depth: {depth}\n"
+                "  Border width: 0\n"
+                f"  Class: {klass}\n"
+                f"  Map State: {map_state}\n"
+            )
+
+        def actual_client_stats(timeout: float) -> tuple[str, tuple[int, int, int, int]] | None:
+            if not facts:
+                return None
+            result = subprocess.run(
+                ["xwininfo", "-id", hex(facts["xid"]), "-stats"],
+                env=env,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=max(0.05, timeout),
+            )
+            if result.returncode != 0:
+                return None
+            geometry = calibration_module._parse_xwininfo_geometry(result.stdout)
+            return result.stdout, geometry
+
+        def command(argv: list[str], *, timeout: float, **_kwargs: object) -> str:
+            if argv == ["wmctrl", "-lp"]:
+                current = actual_client_stats(timeout)
+                if current is None or "Map State: IsViewable" not in current[0]:
+                    return ""
+                return f"0x{facts['xid']:x} -1 {facts['pid']} localhost {OwnedGtkCalibrationWindow.TITLE}\n"
+            if len(argv) == 3 and argv[:2] == ["xprop", "-id"]:
+                xid = int(argv[2], 16)
+                if xid == facts["xid"]:
+                    return (
+                        f'WM_NAME(STRING) = "{OwnedGtkCalibrationWindow.TITLE}"\n'
+                        f"_NET_WM_PID(CARDINAL) = {facts['pid']}\n"
+                        "_NET_FRAME_EXTENTS(CARDINAL) = 0, 0, 0, 0\n"
+                    )
+                if xid == facts.get("frame", 0):
+                    return (
+                        f"_MUTTER_FRAME_FOR(WINDOW): window id # {hex(facts['xid'])}\n"
+                        f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(facts['helper'])}\n"
+                        f"_NET_WM_PID(CARDINAL) = {frame_pid}\n"
+                        'WM_CLASS(STRING) = "mutter-x11-frames", "mutter-x11-frames"\n'
+                    )
+                if xid == facts.get("helper", 0):
+                    return "_NET_WM_USER_TIME(CARDINAL) = 1\n"
+            if len(argv) == 4 and argv[:2] == ["xwininfo", "-id"] and argv[3] == "-stats":
+                xid = int(argv[2], 16)
+                if xid == facts.get("xid", 0):
+                    current = actual_client_stats(timeout)
+                    if current is None:
+                        raise subprocess.CalledProcessError(1, argv, stderr="client is not mapped")
+                    return current[0]
+                current = actual_client_stats(timeout)
+                if current is None:
+                    raise subprocess.CalledProcessError(1, argv, stderr="client is not mapped")
+                x, y, width, height = current[1]
+                if xid == facts.get("frame", 0):
+                    facts["geometry_x"] = x
+                    facts["geometry_y"] = y
+                    return stats(x, y, width, height)
+                if xid == facts.get("helper", 0):
+                    return stats(
+                        x - 1,
+                        y - 1,
+                        1,
+                        1,
+                        relative_x=-1,
+                        relative_y=-1,
+                        depth=0,
+                        klass="InputOnly",
+                    )
+            if argv == ["xwininfo", "-root", "-tree"]:
+                current = actual_client_stats(timeout)
+                if current is None:
+                    raise subprocess.CalledProcessError(1, argv, stderr="client is not mapped")
+                x, y, width, height = current[1]
+                frame = facts.setdefault("frame", facts["xid"] + 0x100000)
+                helper = facts.setdefault("helper", facts["xid"] + 0x100001)
+                return (
+                    f"xwininfo: Window id: {hex(root_xid)} (the root window)\n"
+                    f'  {hex(frame)} "CROWLEY INPUT CALIBRATION ONLY": '
+                    f'("mutter-x11-frames" "mutter-x11-frames") '
+                    f"{width}x{height}+{x}+{y}  +{x}+{y}\n"
+                    f'    {hex(facts["xid"])} "CROWLEY INPUT CALIBRATION ONLY": '
+                    f'("-c" "-c") {width}x{height}+0+0  +{x}+{y}\n'
+                    f"    {hex(helper)} (has no name): () 1x1+-1+-1  +{x - 1}+{y - 1}\n"
+                )
+            raise AssertionError(f"unexpected GTK verifier command: {argv!r}")
+
+        target = OwnedGtkCalibrationWindow(
+            display=display,
+            xauthority=xauthority,
+            python_executable="/usr/bin/python3.13",
+            command=command,
+        )
+        original_process_identity = calibration_module._process_identity
+
+        def process_identity(pid: int) -> tuple[str, str, str]:
+            if pid == frame_pid:
+                return "/usr/libexec/mutter-x11-frames", "fixture-mutter-frame", "mutter-x11-fram"
+            return original_process_identity(pid)
+
+        monkeypatch.setattr(calibration_module, "_process_identity", process_identity)
+        original_verify = target._verify
+
+        def capture_identity(pid: int, xid: int, process, **kwargs):
+            facts.update(pid=pid, xid=xid)
+            return original_verify(pid, xid, process, **kwargs)
+
+        target._verify = capture_identity  # type: ignore[method-assign]
+        backend = RecordingBackend()
+
+        def guarded_private_focus(xid: int) -> None:
+            subprocess.run(
+                ["xdotool", "windowfocus", "--sync", hex(xid)],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            focused = subprocess.run(
+                ["xdotool", "getwindowfocus"],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            ).stdout.strip()
+            backend.events.append({"name": "private_guarded_focus", "xid": xid, "focused": focused})
+
+        backend.calibration_focus = guarded_private_focus
+        driver = DesktopDriver(
+            profile=DriverProfile(display=display, xauthority=xauthority),
+            backend=backend,
+            lease_path=tmp_path / "private-desktop.lock",
+        )
+        driver.begin_calibration_operation()
+        window = target.create(
+            timeout=3.0,
+            startup_admission=driver.admit_calibration_target_process,
+        )
+        process = window.process
+        after_map = pointer_position()
+        ticket = driver.issue_calibration_ticket(window)
+        driver.focus_calibration_target(window, calibration_ticket=ticket)
+        after_focus = pointer_position()
+        left, top, width, height = window.geometry
+        inside = left <= after_focus[0] < left + width and top <= after_focus[1] < top + height
+        assert window.title == OwnedGtkCalibrationWindow.TITLE
+        assert window.geometry[2:] == (480, 240)
+        assert window.managed_frame_xid > 0
+        assert window.contains_xid(window.xid)
+        assert before_create[:2] == after_map[:2] == after_focus[:2] == (1809, 43)
+        assert inside is expected_inside, (after_focus, window.geometry)
+        assert backend.events == [
+            {"name": "private_guarded_focus", "xid": window.xid, "focused": str(window.xid)}
+        ]
+        target.close()
+        assert process.poll() is not None
+        assert target.window is None
+    finally:
+        if target is not None and target.window is not None:
+            target.close()
+        if driver is not None:
+            driver.cancel_calibration_actions()
+            driver.close()
+        if xdisplay:
+            x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+            x11.XCloseDisplay(xdisplay)
+        if read_fd >= 0:
+            os.close(read_fd)
+        xvfb.terminate()
+        xvfb.wait(timeout=3)
 
 
 def test_gtk_create_readiness_deadline_is_shrinking_and_reaps_pending_child(
@@ -2899,6 +3195,8 @@ class _WorkflowDriver:
             596,
             TARGET,
         )
+        self.backend._last_synthetic_pointer_diagnostic = None
+        self.backend.pointer_position = lambda **_kwargs: (10, 10, TARGET)  # type: ignore[method-assign]
         self.observer: _WorkflowObserver | None = None
         self.revocations: list[str] = []
         self.queued_calibration_count = 0
@@ -3179,6 +3477,56 @@ def test_complete_owned_workflow_preserves_exact_human_and_synthetic_pairs() -> 
     ]
     assert not driver.queued_calibration_count
     assert driver.queue_seen_before_ready
+
+
+def test_workflow_refuses_pointer_above_measured_client_after_guarded_focus() -> None:
+    """A certified frame hit in its title area is refused before probe input."""
+
+    driver = _WorkflowDriver(outside=False)
+    order: list[str] = []
+    pointer = (1809, 43, TARGET_FRAME)
+    driver.focus_calibration_target = lambda *_args, **_kwargs: order.append("focus")
+    driver.backend.pointer_position = lambda **_kwargs: order.append("pointer_query") or pointer
+    synthetic_calls: list[str] = []
+
+    def unexpected_synthetic(*_args, **_kwargs) -> None:
+        synthetic_calls.append("called")
+
+    driver.synthetic_target_keyboard_profile = unexpected_synthetic
+
+    class OffscreenMeasuredTarget(_WorkflowTarget):
+        def __init__(self) -> None:
+            super().__init__()
+            self.window = replace(
+                self.window,
+                geometry=(1440, 71, 480, 240),
+                managed_frame_geometry=(1379, -23, 602, 401),
+                certified_event_target_xids=frozenset({TARGET, TARGET_DESCENDANT, TARGET_FRAME}),
+            )
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    target = OffscreenMeasuredTarget()
+    workflow = InputCalibrationWorkflow(driver, display=":test", window_factory=lambda: target)
+    with pytest.raises(CalibrationError, match="does not contain the current pointer"):
+        workflow.run(human_timeout=1)
+
+    assert order == ["focus", "pointer_query"]
+    assert synthetic_calls == []
+    assert target.closed
+    assert workflow.failure_context is not None
+    placement = workflow.failure_context["targetPlacement"]
+    assert placement == {
+        "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+        "targetXid": TARGET,
+        "targetGeometry": [1440, 71, 480, 240],
+        "origin": {"x": 1809, "y": 43, "windowXid": TARGET_FRAME},
+        "predicates": {"certifiedHitWindow": True, "insideTargetGeometry": False},
+    }
+    assert workflow.failure_context["readinessPublished"] is False
+    assert workflow.failure_context["stage"] == "target_pointer_preflight"
 
 
 def test_first_human_event_outside_owned_target_revokes_and_suppresses_due_action() -> None:

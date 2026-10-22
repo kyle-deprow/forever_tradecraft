@@ -38,6 +38,9 @@ within existing authorization; respect any current movement limits.
   display size. Compare both measured geometries with the existing production
   resolver and profile; a larger outer window can contain the exact desired
   child. Inspect WM_NORMAL_HINTS and allowed actions when fullscreen is ignored.
+  For owned pointer-probe windows, prove the observed pointer lies inside the
+  actual mapped client after focus. Placement/decoration hints alone do not
+  prove this; retain before/after queries without repositioning it for the proof.
   Rebind a measured supported outer profile rather than changing correct client
   dimensions or repeatedly requesting an unsupported window action.
   Validate published identity before treating missing companion facts as startup
@@ -164,6 +167,8 @@ within existing authorization; respect any current movement limits.
 - Verify native process dispatch with a harmless real command before GUI input.
   Standalone helpers using the multiprocessing watchdog must put startup and all
   input under a guarded `main`; spawned children import the entrypoint again.
+  Run them from an importable script file, rather than stdin or `-c`, so spawn
+  can reload that entrypoint.
   A fake `Popen` misses exec-handshake deadlocks. Never wait for parent admission
   or apply simulated input effects inside `Popen` construction; effects belong
   after the real admission gate of an owned harmless child.

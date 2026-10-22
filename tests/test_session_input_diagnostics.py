@@ -318,7 +318,8 @@ def test_daemon_persists_actual_synthetic_origin_query(tmp_path: Path, monkeypat
                 return subprocess.CompletedProcess(args, 0, "", "")
 
             backend._run = run  # type: ignore[method-assign]
-            backend.pointer_position = lambda **_kwargs: (100, 100, FOREIGN)  # type: ignore[method-assign]
+            pointer_reads = iter(((100, 100, TARGET), (100, 100, FOREIGN)))
+            backend.pointer_position = lambda **_kwargs: next(pointer_reads)  # type: ignore[method-assign]
 
         def issue_calibration_ticket(self, window):
             self.calibration_ticket = CalibrationTicket(
@@ -395,6 +396,13 @@ def test_daemon_persists_actual_synthetic_origin_query(tmp_path: Path, monkeypat
     assert persisted["stage"] == "synthetic"
     assert persisted["readinessPublished"] is False
     assert persisted["sourceBindings"]["driver.py"]
+    assert persisted["targetPlacement"] == {
+        "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+        "targetXid": TARGET,
+        "targetGeometry": [0, 0, 480, 240],
+        "origin": {"x": 100, "y": 100, "windowXid": TARGET},
+        "predicates": {"certifiedHitWindow": True, "insideTargetGeometry": True},
+    }
     assert persisted["syntheticPointer"] == {
         "producer": "X11Backend.synthetic_calibration",
         "targetXid": TARGET,

@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 14:13 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 14:40 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -9,9 +9,44 @@ by the current state below.
 
 **Latest user instruction:** The user returned and requested calibration after the
 next scan. That supersedes the previous AWAY hold. Luna remains the sole GUI
-owner; root must not capture or input concurrently. The attempted human stage
-has not reached readiness. Restore assisted collection while diagnosing its
-concrete pre-human failure; never ask for human events before actual readiness.
+owner; root must not capture or input concurrently. Human calibration has not
+reached readiness. Never ask for human events before actual readiness.
+
+**Current cutover (14:32 UTC):** Placement repair passed final Sol review at scoped
+diffSHA`0bc394c624c431e7101aeaaf9f4f0e0cf88be9e137c2dbe9963167275c866d67`.
+An undecorated GTK client now has a private actual-constructor/guarded-focus proof
+for unchanged(1809,43) inside measured[1440,0,480,240]; placement-disabled negative
+and historical out-of-client refusal remain covered. Private Xvfb geometry proof
+does not establish live Mutter/certified-hit acceptance. Production preflight
+requires actual certified hit AND measured client bounds before synthetic probes.
+Read-only keyboard/device profiles may precede this guard; input dispatch may not.
+Parent independently passed11 GTK/workflow/producer tests and9 diagnostic tests.
+The installed full native-regression/diagnostic/real-producer run subsequently
+passed181 tests in285.44s; Ruff check/format and diff-check also passed.
+Sol READY, no findings. Reviewed calibration.py is now
+`281ddffcb34ac928e5d144788a87652afe11d644c91d59ab8eb8377e8e115069`;
+driver35677b remains unchanged. Exact reviewed three-file promotion and restart
+proofs are in `calibration-resume-20261021/input-pointer-origin-implementation/`
+(`sol-placement-review.md`, `parent-placement-installation.json`,
+`parent-placement-service-restart.json`).
+
+Scan275 is preserved/uploaded/exact-loaded-ACK verified: UID
+`beta-normal-alliance-1792678774-Arthur-9084`,428/428,zero failures,1517 rows,
+finished14:27:33,received14:28:08.397681 UTC (35.40s). Parent read-only DB counts
+and independently decoded retained loaded-ACK PNG agree; private proof:
+`assisted-collection-luna-20261021/848-scan275-postprocess/scan275-save-upload-ack-20261022T142749711585Z/parent-scan275-loaded-ack-verification.json`.
+No276 started. GUI owner completed its scan task and was explicitly woken with a
+follow-up task after deployment; verified running. Service restart14:32:34:
+PID2931936->3787948, fresh public PAUSED82/nativefalse/inputfalse/opidle,
+journal checkpoint keyABSENT. Mandatory preflight82 passed; public resume83
+succeeded and full deferred native measurement83 is running. Owner may complete
+checkpoint-dependent ordinary recovery using actual generations. Fresh user-availability question
+is PENDING; **do not launch input-calibrate/timed human window until answered**.
+After ordinary native recovery, resume assisted collection if availability remains
+unconfirmed; keep the human question pending. Zero autonomous cycles qualified.
+
+The following paragraphs retain the two earlier attempts and repair evidence;
+the current cutover above supersedes their state/generation/hold statements.
 
 Scan274 completed13:38:05 UTC: UID`beta-normal-alliance-1792675804-Arthur-7101`,
 428/428 attempted, zero failures,1471 rows. Read-only DB confirms428 observations/
@@ -75,12 +110,17 @@ Immutable diagnostic and independent parent predicate verification:
 
 Public pause returned PAUSED81/native=true/input=false, checkpoint keyABSENT;
 fresh14:11:46 scene was ordinary, AHclosed/noactive/pending0/speed0 and GTKgone.
-No scan275 began. GUI owner holds safely during bounded owned-target placement
-repair/review under `../.archive/PLAN-input-target-placement-20261022.md`.
+No scan275 had begun at that failure boundary. Root subsequently resumed assisted
+collection during placement repair/review under
+`../.archive/PLAN-input-target-placement-20261022.md`. Scan275 started14:19:34 UTC
+(1792678774),due14:34:34 UTC (1792679674),428 planned,AHopen/pending0/speed0.
+The274→275 start interval is2970s (49m30s), including the calibration hold and
+repairs; this is not900s cadence qualification. GUI owner must finish/save/upload/
+exact-ACK275 before closing AH for deployment; never interrupt it.
 Luna owns offline implementation; Sol reviews. No further live retry is approved
-until that review passes. Current user is connected/available; resume collection
-if the user leaves or repair is delayed. Input and autonomous qualification remain
-pending. Native78 resource update growth60,243,968B also exceeded16MiB target.
+until that review passes. Current user is connected/available. Input and autonomous
+qualification remain pending. Native78 resource update growth60,243,968B also
+exceeded16MiB target.
 
 The following scan237–241 details describe the earlier collection restart;
 Luna continued assisted scans overnight through274. These are not autonomous
@@ -174,7 +214,7 @@ and was promoted byte-for-byte. The origin repair above supersedes its driver
 and calibration pins. Current production SHA:
 
 - driver.py: `35677b166b153f2349fb7abbce7c482d7537cad874cdae5b903abaa99b99a9a5`
-- calibration.py: `2d2577fb44b4d6c8b4c1d7b5f22669b05c6c0897b27a8424bd36f166d600ab8d`
+- calibration.py: `281ddffcb34ac928e5d144788a87652afe11d644c91d59ab8eb8377e8e115069`
 - pointer_execution.py: `a116142fcd04c319681c957df9891f83bcda126a9ee338047444d1b5da408b30`
 - native_calibration_operator.py: `807d7d80614a9410b372674abc311706bbfe3b5d907e1ecd8ed7df42136bad30`
 
