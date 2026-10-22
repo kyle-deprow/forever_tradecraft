@@ -251,6 +251,8 @@ within existing authorization; respect any current movement limits.
   a closed editor cannot admit the expected focused empty editor after opening
   chat. Exercise adapted guards on retained phase snapshots before live input,
   including every context field the helper summary must retain.
+  Load declared artifact pins from the verified machine-readable receipt and
+  compare the original file bytes; avoid hand-transcribing hashes into helpers.
   Chat borders and insertion cursors can become OCR letters even in an empty
   editor. Retain original full frames and verify production cropping/OCR against
   empty buffers and every fixed command, including short commands; preserve

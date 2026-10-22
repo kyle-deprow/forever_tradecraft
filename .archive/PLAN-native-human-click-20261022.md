@@ -23,6 +23,13 @@ Owned files (only change those actually needed):
 - `tests/test_native_calibration_operator.py`.
 - `tests/test_session_pointer_execution.py` (optional focused shared-path tests).
 
+Integration addendum (root-authorized 2026-10-22): also update
+`tests/test_session_runtime.py` to isolate the canonical rate-state provider for
+its simulated X11 backend, retaining the actual fixed gate. Compose that test
+with current MAIN's reviewed ACK reader d78510b and producer-shaped fixtures
+e58d8f8; those existing changes are dependencies, not new native production scope.
+The R2-reviewed gesture/admission design above is unchanged by this test scope.
+
 1. Derive a shared gesture execution path from existing executor plans and native
    emission primitives. Retain runtime Guardian/input-evidence checks. Bootstrap
    may use it only inside the existing native reservation, exclusive desktop

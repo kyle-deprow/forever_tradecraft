@@ -24,6 +24,8 @@ from typing import Any
 import pytest
 from PIL import Image, ImageOps
 
+from crowley.session import pointer_execution
+from crowley.session.executor import BindingMetadata, Point, PointerTarget, Rect
 from tools import template_matcher_runtime as matcher_runtime
 
 MODULE_PATH = Path(__file__).parents[1] / "tools" / "native_calibration_operator.py"
@@ -586,6 +588,48 @@ class Identity:
     target_event_xids: frozenset[int] = frozenset({1})
 
 
+def _movement_gesture(identity: Identity, *, start: tuple[int, int] = (20, 20), seed: int = 7):
+    geometry = identity.child_geometry
+    child_xid = next(iter(identity.target_event_xids))
+    binding = BindingMetadata(
+        identity.fingerprint,
+        f"movement-{seed}",
+        1,
+        1,
+        child_xid,
+        (child_xid,),
+        source="test-native-parking",
+    )
+    target = PointerTarget("parking", Rect(635, 355, 11, 11), binding, padding=2)
+    return pointer_execution.plan_human_pointer(
+        Point(*start),
+        target,
+        Rect(0, 0, geometry[2], geometry[3]),
+        seed=seed,
+        button=None,
+    )
+
+
+def _click_gesture(match: Any, identity: Identity, *, seed: int = 11):
+    geometry = identity.child_geometry
+    child_xid = next(iter(identity.target_event_xids))
+    binding = BindingMetadata(
+        identity.fingerprint,
+        match.capture_sha256,
+        1,
+        1,
+        child_xid,
+        (child_xid,),
+        source="test-native-click",
+    )
+    return pointer_execution.plan_human_pointer(
+        Point(20, 20),
+        PointerTarget("test-button", Rect(*match.box), binding, padding=1),
+        Rect(0, 0, geometry[2], geometry[3]),
+        seed=seed,
+    )
+
+
 class FakeScreen:
     def __init__(self, root: Path, construct: Path, restore: Path):
         self.root = root
@@ -639,8 +683,9 @@ class FakeInput:
         self.calls.append(("type", command))
         self.pending_command = command
 
-    def move_pointer(self, point, *, identity, before_press=None, deadline_monotonic=None):
+    def move_pointer(self, gesture, *, identity, before_press=None, deadline_monotonic=None):
         left, top, width, height = identity.child_geometry
+        point = (left + int(gesture.endpoint.x), top + int(gesture.endpoint.y))
         assert left <= point[0] < left + width
         assert top <= point[1] < top + height
         if before_press is not None:
@@ -648,13 +693,28 @@ class FakeInput:
         self.calls.append(("move", point))
         self.screen.last_point = (*point, 1)
 
-    def click(self, match, *, identity, before_press=None, deadline_monotonic=None):
+    def click(
+        self,
+        match,
+        *,
+        identity,
+        gesture,
+        rate_permit=None,
+        before_press=None,
+        deadline_monotonic=None,
+    ):
         self.calls.append(("click", match.role))
-        self.screen.last_point = (*match.click, 1)
+        left, top, _width, _height = identity.child_geometry
+        self.screen.last_point = (
+            left + int(gesture.endpoint.x),
+            top + int(gesture.endpoint.y),
+            1,
+        )
         if before_press is not None:
             before_press()
         if self.dispatch is not None:
             self.dispatch(match.role)
+        return None
 
     def close(self):
         self.closed = True
@@ -964,13 +1024,22 @@ def _production_main_owner_fixture(
             return identity
 
         def pointer_position(self, *, deadline_monotonic=None):
-            # This lifetime fixture exercises the guarded mousedown path.  It
-            # starts with a parked pointer so the control-capture tests do not
-            # require a second emitter before their ownership assertions.
+            # The private recorder applies every move from the owned
+            # xdotool chain. Before a gesture it remains at the initial point;
+            # after movement it reports the exact dispatched endpoint.
             self._pointer_calls += 1
             if self._pointer_calls == 1:
                 return (640, 360, 1)
-            return (1144, 24, 1)
+            recorder = Path(self.input_environment["CROWLEY_RECORDER"])
+            if recorder.is_file():
+                for line in reversed(recorder.read_text(encoding="utf-8").splitlines()):
+                    fields = line.split()
+                    try:
+                        move_index = max(index for index, value in enumerate(fields) if value == "mousemove")
+                        return (int(fields[move_index + 1]), int(fields[move_index + 2]), 1)
+                    except (ValueError, IndexError):
+                        continue
+            return (640, 360, 1)
 
         def close(self):
             self.tool.close()
@@ -984,7 +1053,10 @@ def _production_main_owner_fixture(
 
         def _reply(self):
             reservation = self.binding.record(self.generation)
-            reservation["expiresMonotonic"] = time.monotonic() + 8.0
+            # The helper's own constructor window remains capped at ten
+            # seconds from release; leave the fake reservation long enough
+            # to test that unchanged phase budget after setup overhead.
+            reservation["expiresMonotonic"] = time.monotonic() + 20.0
             return {
                 "ok": True,
                 "reservation": reservation,
@@ -1028,10 +1100,10 @@ def _production_main_owner_fixture(
     real_press = operator.OwnedEmitter.press
 
     def gated_press(emitter):
-        if emitter.action == ("mousedown", "1"):
+        if emitter.action[:2] == ("mousedown", "1"):
             Path(gate_marker).write_text("button-watchdog-armed", encoding="utf-8")
         result = real_press(emitter)
-        if emitter.action == ("mousedown", "1"):
+        if emitter.action[:2] == ("mousedown", "1"):
             while True:
                 time.sleep(0.1)
         return result
@@ -1244,13 +1316,18 @@ def make_recording_artifact(tmp_path: Path) -> Path:
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <unistd.h>
 int main(int argc, char **argv) {
     const char *path = getenv("CROWLEY_RECORDER");
     if (path == NULL || argc < 3) return 2;
     int fd = open(path, O_WRONLY | O_CREAT | O_APPEND, 0600);
     if (fd < 0) return 3;
-    dprintf(fd, "%s %s\\n", argv[1], argv[2]);
+    dprintf(fd, "%s %s", argv[1], argv[2]);
+    if (strcmp(argv[1], "sleep") == 0 || strcmp(argv[1], "mousemove") == 0) {
+        for (int i = 3; i < argc; i++) dprintf(fd, " %s", argv[i]);
+    }
+    dprintf(fd, "\\n");
     close(fd);
     return 0;
 }
@@ -1671,6 +1748,54 @@ def test_click_matcher_failure_refuses_before_fixed_input_or_action_log(
         matcher.close()
 
 
+@pytest.mark.parametrize("role", ["construct", "restore"])
+def test_click_refuses_fresh_template_outside_source_button_before_input(tmp_path: Path, role: str) -> None:
+    identity = Identity()
+    source_rect = operator.NativeCalibrationOperator._source_control_rect(identity, role)
+    assert source_rect is not None
+    source_x, source_y, _source_width, _source_height = source_rect
+    match = operator.TemplateMatch(
+        role,
+        True,
+        0.0,
+        (source_x - 1, source_y, 4, 4),
+        (source_x + 1, source_y + 2),
+        "c" * 64,
+    )
+    screen_calls: list[str] = []
+
+    class Screen:
+        def resolve_identity(self, *, require_foreground=True, deadline_monotonic=None):
+            assert require_foreground
+            return identity
+
+        def pointer_position(self, *, deadline_monotonic=None):
+            screen_calls.append("pointer")
+            raise AssertionError("source geometry refusal must precede pointer access")
+
+    class Input:
+        def click(self, *_args, **_kwargs):
+            raise AssertionError("source geometry refusal must precede click input")
+
+    candidate = object.__new__(operator.NativeCalibrationOperator)
+    candidate.mode = operator.MODE_CONTROL_PREFLIGHT
+    candidate._phase_deadlines = {}
+    candidate._release_dispatch = None
+    candidate.generation = 7
+    candidate.clock = time.monotonic
+    candidate.receipt = SimpleNamespace(event=lambda *_args, **_kwargs: None)
+    candidate.screen = Screen()
+    candidate.input = Input()
+    candidate._capture = lambda *_args, **_kwargs: (tmp_path / "fresh.png", identity, match)
+    candidate._identity_guard = lambda *_args, **_kwargs: identity
+    candidate._recheck = lambda *_args, **_kwargs: {}
+    candidate._deadline = lambda *_args, **_kwargs: time.monotonic() + 20.0
+
+    with pytest.raises(operator.OperatorError, match="outside its source-derived button"):
+        candidate._click(role)
+    assert screen_calls == []
+
+
 def test_control_capture_parks_hovered_pointer_before_real_matcher(tmp_path: Path):
     manifest, construct_scene, restore_scene = make_scenes(tmp_path)
     region = operator.NativeCalibrationOperator._control_region(Identity())
@@ -1740,13 +1865,17 @@ def test_control_capture_parks_hovered_pointer_before_real_matcher(tmp_path: Pat
             )
         dual_path, identity, dual_match = candidate._capture("post-reload-controls", require_dual=True)
         assert dual_match is not None and dual_match.accepted
-        assert screen.last_point[:2] == (640, 360)
+        parked = screen.last_point[:2]
+        assert not HoverScreen._contains_control(parked, region)
+        assert not HoverScreen._contains_control(parked, screen.agent_crop)
         screen.last_point = (1212, 23, 1)
         path, identity, match = candidate._capture("restore-control", require_exclusive="restore")
         assert identity is screen.identity
         assert match is not None and match.accepted
-        assert screen.last_point[:2] == (640, 360)
-        assert input_device.calls == [("move", (640, 360)), ("move", (640, 360))]
+        parked = screen.last_point[:2]
+        assert not HoverScreen._contains_control(parked, region)
+        assert not HoverScreen._contains_control(parked, screen.agent_crop)
+        assert len([point for kind, point in input_device.calls if kind == "move"]) == 2
         assert [name for name, _fields in events] == [
             "pointer_parked",
             "capture",
@@ -1821,9 +1950,11 @@ def test_pointer_parking_rejects_endpoint_target_drift_after_owned_move(tmp_path
     screen.last_point = (1212, 23, 1)
 
     class WrongTargetInput(FakeInput):
-        def move_pointer(self, point, *, identity, before_press=None, deadline_monotonic=None):
+        def move_pointer(self, gesture, *, identity, before_press=None, deadline_monotonic=None):
             if before_press is not None:
                 before_press()
+            left, top, _width, _height = identity.child_geometry
+            point = (left + int(gesture.endpoint.x), top + int(gesture.endpoint.y))
             self.calls.append(("move", point))
             self.screen.last_point = (*point, 999)
 
@@ -1836,7 +1967,7 @@ def test_pointer_parking_rejects_endpoint_target_drift_after_owned_move(tmp_path
     candidate._identity_guard = lambda *_args, **_kwargs: screen.identity
     with pytest.raises(operator.OperatorError, match="target"):
         candidate._park_pointer(screen.identity, deadline_monotonic=time.monotonic() + 20.0)
-    assert input_device.calls == [("move", (640, 360))]
+    assert len(input_device.calls) == 1 and input_device.calls[0][0] == "move"
 
 
 def test_fixed_input_move_pointer_uses_owned_watchdog_without_button(tmp_path: Path):
@@ -1867,7 +1998,8 @@ def test_fixed_input_move_pointer_uses_owned_watchdog_without_button(tmp_path: P
             events.append("abort")
 
     input_device = operator.FixedInput(Tool(), watchdog=watchdog, emitter_factory=lambda: Emitter())
-    input_device.move_pointer((640, 360), identity=Identity())
+    identity = Identity()
+    input_device.move_pointer(_movement_gesture(identity), identity=identity)
     assert events == ["start", "press", "release"]
     assert watchdog.states == [
         {"groups": {94}, "buttons": set(), "keys": set()},
@@ -1905,7 +2037,8 @@ def test_fixed_input_move_pointer_failure_cleans_owned_child_and_watchdog():
 
     input_device = operator.FixedInput(Tool(), watchdog=watchdog, emitter_factory=lambda: Emitter())
     with pytest.raises(operator.OperatorError, match="move dispatch failed"):
-        input_device.move_pointer((640, 360), identity=Identity())
+        identity = Identity()
+        input_device.move_pointer(_movement_gesture(identity), identity=identity)
     assert events == ["start", "press", "abort"]
     assert watchdog.states[-1] == {"groups": set(), "buttons": set(), "keys": set()}
 
@@ -1929,11 +2062,12 @@ def test_fixed_input_move_pointer_real_owned_process_has_watchdog_before_go(tmp_
     stop = threading.Event()
     ack_errors: list[BaseException] = []
 
-    def record_emitter(action, *, release_action=(), deadline_monotonic=None):
+    def record_emitter(action, *, release_action=(), deadline_monotonic=None, ready_timeout=2.0):
         emitter = original_new_emitter(
             action,
             release_action=release_action,
             deadline_monotonic=deadline_monotonic,
+            ready_timeout=ready_timeout,
         )
         created.append(emitter)
         return emitter
@@ -1980,14 +2114,18 @@ def test_fixed_input_move_pointer_real_owned_process_has_watchdog_before_go(tmp_
     acknowledger = threading.Thread(target=acknowledge_actions, daemon=True)
     acknowledger.start()
     try:
-        input_device.move_pointer((640, 360), identity=Identity())
+        identity = Identity()
+        input_device.move_pointer(_movement_gesture(identity), identity=identity)
         assert ack_errors == []
         assert len(ownership_before_go) == 1
         assert ownership_before_go[0]["emitter_alive"] is True
         assert created[0]._process is not None and not created[0]._process.is_alive()
         assert action_log.read_text(encoding="utf-8").splitlines()
         action_rows = [line.split("\t")[2:] for line in action_log.read_text().splitlines()]
-        assert action_rows == [["mousemove", "--sync", "640", "360"]]
+        assert len(action_rows) == 1
+        assert action_rows[0][0] == "sleep"
+        assert action_rows[0].count("mousemove") >= 2
+        assert "--sync" not in action_rows[0]
         assert all(row[0] not in {"mousedown", "mouseup", "keydown", "keyup"} for row in action_rows)
     finally:
         stop.set()
@@ -2007,11 +2145,12 @@ def test_fixed_input_move_pointer_real_owned_failure_reaps_after_dispatch(tmp_pa
     created: list[operator.OwnedEmitter] = []
     original_new_emitter = input_device._new_emitter
 
-    def record_emitter(action, *, release_action=(), deadline_monotonic=None):
+    def record_emitter(action, *, release_action=(), deadline_monotonic=None, ready_timeout=2.0):
         emitter = original_new_emitter(
             action,
             release_action=release_action,
             deadline_monotonic=deadline_monotonic,
+            ready_timeout=ready_timeout,
         )
         created.append(emitter)
         return emitter
@@ -2026,12 +2165,13 @@ def test_fixed_input_move_pointer_real_owned_failure_reaps_after_dispatch(tmp_pa
     monkeypatch.setattr(operator.OwnedEmitter, "press", fail_after_real_dispatch)
     try:
         with pytest.raises(operator.OperatorError, match="after owned pointer dispatch"):
-            input_device.move_pointer((640, 360), identity=Identity())
+            identity = Identity()
+            input_device.move_pointer(_movement_gesture(identity), identity=identity)
         assert created and created[0]._process is not None and not created[0]._process.is_alive()
-        assert action_log.read_text(encoding="utf-8").splitlines() == ["mousemove --sync"]
-        assert all(
-            token not in {"mousedown", "mouseup", "keydown", "keyup"}
-            for token in action_log.read_text(encoding="utf-8").split()
+        action_text = action_log.read_text(encoding="utf-8").splitlines()
+        assert len(action_text) == 1 and action_text[0].startswith("sleep ")
+        assert not any(
+            token in action_text[0].split() for token in {"mousedown", "mouseup", "keydown", "keyup"}
         )
         assert input_device.cleanup_failures == []
     finally:
@@ -2063,11 +2203,12 @@ def test_pointer_parking_rechecks_admission_after_watchdog_before_owned_go(
     published = threading.Event()
     clear_calls: list[bool] = []
 
-    def record_emitter(action, *, release_action=(), deadline_monotonic=None):
+    def record_emitter(action, *, release_action=(), deadline_monotonic=None, ready_timeout=2.0):
         emitter = original_new_emitter(
             action,
             release_action=release_action,
             deadline_monotonic=deadline_monotonic,
+            ready_timeout=ready_timeout,
         )
         created.append(emitter)
         return emitter
@@ -2246,7 +2387,11 @@ def test_receipt_is_private_atomic_and_rejects_forbidden_fields(tmp_path):
     assert not (writer.attempt / ".receipt.json.tmp").exists()
 
 
-def test_fixed_input_publishes_before_press_and_clears_after_release():
+def test_fixed_input_publishes_before_press_and_clears_after_release(tmp_path: Path, monkeypatch):
+    rate_directory = tmp_path / "rate-state"
+    rate_directory.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_execution, "_session_state_directory", lambda: rate_directory)
+
     class Tool:
         proc_path = "/proc/self/fd/5"
 
@@ -2280,15 +2425,87 @@ def test_fixed_input_publishes_before_press_and_clears_after_release():
     input_device = operator.FixedInput(Tool(), watchdog=watchdog, run=run, emitter_factory=lambda: Emitter())
     identity = Identity()
     match = operator.TemplateMatch("construct", True, 0.0, (5, 5, 4, 4), (7, 7), "c" * 64)
-    input_device.click(match, identity=identity)
+    gesture = _click_gesture(match, identity)
+    result = input_device.click(match, identity=identity, gesture=gesture)
     assert calls == []
     assert emitter_events == ["start", "press", "release", "start", "press", "release"]
+    assert result["motionCompletedMonotonicNs"] >= result["motionStartedMonotonicNs"]
+    assert result["clickReleaseAckMonotonicNs"] >= result["clickActionCompletedMonotonicNs"]
     assert watchdog.states == [
         {"groups": {77}, "buttons": set(), "keys": set()},
         {"groups": set(), "buttons": set(), "keys": set()},
         {"groups": {77}, "buttons": {1}, "keys": set()},
         {"groups": set(), "buttons": set(), "keys": set()},
     ]
+
+
+def test_fixed_input_real_owned_click_uses_gesture_gate_and_exact_button_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    artifact = make_gated_recording_artifact(tmp_path)
+    action_log = tmp_path / "owned-click-actions.log"
+    action_ack = tmp_path / "owned-click-action-acks"
+    action_ack.mkdir(mode=0o700)
+    environment = {
+        "CROWLEY_ACTION_LOG": str(action_log),
+        "CROWLEY_ACTION_ACK_DIR": str(action_ack),
+    }
+    rate_directory = tmp_path / "rate-state"
+    rate_directory.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_execution, "_session_state_directory", lambda: rate_directory)
+    tool = operator.PinnedInputTool.from_root(artifact)
+    watchdog = operator.Watchdog(tool, interval=0.02, environment=environment)
+    input_device = operator.FixedInput(tool, watchdog=watchdog, environment=environment)
+    stop = threading.Event()
+    errors: list[BaseException] = []
+
+    def acknowledge() -> None:
+        pending = b""
+        offset = 0
+        try:
+            while not stop.is_set():
+                if action_log.exists():
+                    with action_log.open("rb") as stream:
+                        stream.seek(offset)
+                        chunk = stream.read(4096)
+                        offset = stream.tell()
+                    if chunk:
+                        pending = _consume_action_records(
+                            pending,
+                            chunk,
+                            on_record=lambda pid, _arguments: (action_ack / str(pid)).touch(
+                                mode=0o600, exist_ok=True
+                            ),
+                        )
+                time.sleep(0.002)
+        except BaseException as exc:
+            errors.append(exc)
+
+    acknowledger = threading.Thread(target=acknowledge, daemon=True)
+    acknowledger.start()
+    identity = Identity()
+    match = operator.TemplateMatch("construct", True, 0.0, (1142, 22, 4, 4), (1144, 24), "d" * 64)
+    gesture = _click_gesture(match, identity, seed=31)
+    try:
+        result = input_device.click(match, identity=identity, gesture=gesture)
+        assert errors == []
+        assert result["clickPrecommitMonotonicNs"] > 0
+        assert result["rateRecordMonotonicNs"] >= result["clickActionCompletedMonotonicNs"]
+        rows = [line.split("\t")[2:] for line in action_log.read_text(encoding="utf-8").splitlines()]
+        assert len(rows) == 2
+        assert rows[0][0] == "sleep" and rows[0].count("mousemove") >= 2
+        assert "--sync" not in rows[0]
+        assert rows[1][:3] == ["mousedown", "1", "sleep"]
+        assert rows[1][-2:] == ["mouseup", "1"]
+        state = pointer_execution._read_state(rate_directory)
+        assert state is not None
+        assert state["lastPressMonotonicNs"] == result["rateRecordMonotonicNs"]
+        assert state["nextAllowedMonotonicNs"] == result["rateRecordMonotonicNs"] + 1_000_000_000
+    finally:
+        stop.set()
+        acknowledger.join(timeout=2.0)
+        input_device.close()
+        tool.close()
 
 
 def test_fixed_input_type_publishes_exact_nonempty_keysyms_and_long_budget():
@@ -2329,7 +2546,71 @@ def test_fixed_input_type_publishes_exact_nonempty_keysyms_and_long_budget():
         operator._action_timeout(("type", "--delay", "130", "/not-fixed"))
 
 
-def test_fixed_input_refusal_before_go_clears_ownership_without_release():
+def test_pointer_click_timeout_includes_bounded_owned_ack_overhead():
+    dwell = 0.123456
+    action = ("mousedown", "1", "sleep", f"{dwell:.6f}", "mouseup", "1")
+    assert operator._action_timeout(action) == pytest.approx(
+        dwell + operator._POINTER_CLICK_ACK_RESERVE_SECONDS
+    )
+    with pytest.raises(operator.OperatorError, match="cannot fit"):
+        operator._action_timeout(action, deadline=time.monotonic() + 0.01)
+
+
+def test_click_complete_deadline_refuses_before_pointer_motion(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    rate_directory = tmp_path / "rate-state"
+    rate_directory.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_execution, "_session_state_directory", lambda: rate_directory)
+
+    class Tool:
+        proc_path = "/proc/self/fd/5"
+
+        class Image:
+            fd = 5
+
+        image = Image()
+
+    events: list[str] = []
+
+    class Emitter:
+        pgid = 94
+
+        def start(self):
+            events.append("start")
+
+        def press(self):
+            events.append("press")
+
+        def release(self):
+            events.append("release")
+
+        def abort(self):
+            events.append("abort")
+
+    watchdog = FakeWatchdog()
+    input_device = operator.FixedInput(Tool(), watchdog=watchdog, emitter_factory=lambda: Emitter())
+    identity = Identity()
+    match = operator.TemplateMatch("construct", True, 0.0, (5, 5, 4, 4), (7, 7), "c" * 64)
+    gesture = _click_gesture(match, identity, seed=53)
+    with pointer_execution.acquire_click_rate_permit() as permit:
+        with pytest.raises(operator.OperatorError, match="complete click gesture cannot fit"):
+            input_device.click(
+                match,
+                identity=identity,
+                gesture=gesture,
+                rate_permit=permit,
+                deadline_monotonic=time.monotonic() + 1.0,
+            )
+    assert events == []
+    assert watchdog.states == []
+
+
+def test_fixed_input_refusal_before_go_clears_ownership_without_release(tmp_path: Path, monkeypatch):
+    rate_directory = tmp_path / "rate-state"
+    rate_directory.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_execution, "_session_state_directory", lambda: rate_directory)
+
     class Tool:
         proc_path = "/proc/self/fd/5"
 
@@ -2359,13 +2640,14 @@ def test_fixed_input_refusal_before_go_clears_ownership_without_release():
     input_device = operator.FixedInput(Tool(), watchdog=watchdog, emitter_factory=lambda: Emitter())
     match = operator.TemplateMatch("construct", True, 0.0, (5, 5, 4, 4), (7, 7), "c" * 64)
     identity = Identity()
+    gesture = _click_gesture(match, identity)
 
     def refuse_before_press():
         raise operator.OperatorError("identity drift")
 
     with pytest.raises(operator.OperatorError, match="identity drift"):
-        input_device.click(match, identity=identity, before_press=refuse_before_press)
-    assert events == ["start", "press", "release", "start", "abort", "abort"]
+        input_device.click(match, identity=identity, gesture=gesture, before_press=refuse_before_press)
+    assert events == ["start", "press", "release", "start", "abort"]
     assert watchdog.states[-1] == {"groups": set(), "buttons": set(), "keys": set()}
 
 
@@ -4142,7 +4424,17 @@ int main(int argc, char **argv) {
     }
     if (argc > 1 && marker) {
         int fd = open(marker, O_WRONLY | O_CREAT | O_APPEND, 0600);
-        if (fd >= 0) { write(fd, argv[1], strlen(argv[1])); write(fd, "\\n", 1); close(fd); }
+        if (fd >= 0) {
+            write(fd, argv[1], strlen(argv[1]));
+            if (strcmp(argv[1], "sleep") == 0) {
+                for (int i = 2; i < argc; i++) {
+                    write(fd, " ", 1);
+                    write(fd, argv[i], strlen(argv[i]));
+                }
+            }
+            write(fd, "\\n", 1);
+            close(fd);
+        }
     }
     return 0;
 }
@@ -5309,12 +5601,14 @@ def test_control_preflight_operator_uses_actual_daemon_admissions(tmp_path: Path
     # place the construct role inside that exact region.
     full_construct = Image.new("RGB", (1920, 1080), (0, 0, 0))
     with Image.open(manifest.construct.path) as template:
-        full_construct.paste(template, (1680, 28))
+        # Source-derived Commands.lua geometry at 1920x1080 is construct
+        # (1684, 32, 100, 28), restore (1788, 32, 100, 28).
+        full_construct.paste(template, (1684, 32))
     full_construct_path = tmp_path / "scene-construct-full.png"
     full_construct.save(full_construct_path, format="PNG")
     full_restore = Image.new("RGB", (1920, 1080), (0, 0, 0))
     with Image.open(manifest.restore.path) as template:
-        full_restore.paste(template, (1770, 28))
+        full_restore.paste(template, (1788, 32))
     full_restore_path = tmp_path / "scene-restore-full.png"
     full_restore.save(full_restore_path, format="PNG")
     construct_scene, restore_scene = full_construct_path, full_restore_path
@@ -6015,6 +6309,13 @@ int main(void) {
     )
     initial_desktop = full_desktop(initial_agent_image)
     gated_tool_root = make_gated_recording_artifact(tmp_path)
+    pointer_rate_directory = tmp_path / "pointer-rate-state"
+    pointer_rate_directory.mkdir(mode=0o700)
+    monkeypatch.setattr(
+        pointer_execution,
+        "_session_state_directory",
+        lambda: pointer_rate_directory,
+    )
     action_log = tmp_path / "owned-actions.log"
     artifact_sources["action-history.json"] = tmp_path / "action-history.json"
     artifact_sources["owned-actions.log"] = action_log
@@ -6245,10 +6546,15 @@ int main(void) {
             command = args[0] if args else kwargs.get("args")
             is_native_producer = (
                 isinstance(command, (list, tuple))
-                and len(command) >= 5
+                and len(command) >= 8
                 and command[0] == sys.executable
                 and tuple(command[1:4]) == ("-I", "-S", "-c")
                 and command[4] == session_driver._EXEC_ADMISSION_WRAPPER
+                # The same positive wrapper also admits xdotool commands.
+                # The telemetry capability is the sealed memfd, so identify
+                # it by its closed telemetry-region argv prefix rather than
+                # comparing the wrapper target path.
+                and command[7] == "--telemetry-region"
             )
             if not is_native_producer:
                 return original_popen(*args, **kwargs)
@@ -7108,7 +7414,33 @@ int main(void) {
                         assert_actual_publication(107)
                         return False
                     return False
-                elif arguments[0] == "mousemove" and len(arguments) >= 4:
+                elif arguments[0] == "sleep":
+                    # Native gestures are one positive xdotool command chain
+                    # (sleep, mousemove, sleep, ...), so apply the complete
+                    # sequence before acknowledging the owned emitter.
+                    moved = False
+                    index = 0
+                    while index < len(arguments):
+                        if arguments[index] == "sleep" and index + 1 < len(arguments):
+                            index += 2
+                        elif arguments[index] == "mousemove" and index + 2 < len(arguments):
+                            pointer[:] = [
+                                int(arguments[index + 1]),
+                                int(arguments[index + 2]),
+                                identity.xid,
+                            ]
+                            moved = True
+                            index += 3
+                        else:
+                            raise AssertionError(f"unknown native gesture command: {arguments[index]!r}")
+                    if not moved:
+                        raise AssertionError("native pointer gesture had no mousemove command")
+                    pointer_state_path.write_text(
+                        f"{pointer[0]} {pointer[1]} {pointer[2]}\n", encoding="ascii"
+                    )
+                    pointer_state_path.chmod(0o600)
+                    return False
+                elif arguments[0] == "mousemove" and len(arguments) >= 3:
                     pointer[:] = [int(arguments[-2]), int(arguments[-1]), identity.xid]
                     pointer_state_path.write_text(
                         f"{pointer[0]} {pointer[1]} {pointer[2]}\n", encoding="ascii"

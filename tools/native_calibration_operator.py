@@ -43,8 +43,18 @@ from crowley.session.cli import _socket_request
 from crowley.session.config import load_config
 from crowley.session.decoder import PixelDecoder
 from crowley.session.driver import DriverError, X11Backend, _proc_start
+from crowley.session.executor import BindingMetadata, MotionProfile, Point, PointerButton, PointerTarget, Rect
 from crowley.session.guardian import _watchdog_entry
 from crowley.session.input_tool import NativeReleaseSpec, PinnedInputTool
+from crowley.session.pointer_execution import (
+    ClickRatePermit,
+    HumanPointerPlan,
+    PointerExecutionError,
+    acquire_click_rate_permit,
+    native_pointer_motion_action,
+    plan_human_pointer,
+    pointer_action_timeout,
+)
 from tools.template_matcher_runtime import MatcherError, TemplateMatcherRuntime
 
 MODE_CONTROL_PREFLIGHT = "control-preflight"
@@ -63,6 +73,8 @@ FIXED_COMMANDS = (
     "/reload",
 )
 FIXED_COMMAND_SET = frozenset(FIXED_COMMANDS)
+_NATIVE_POINTER_PROFILE = MotionProfile(min_duration=0.1, sample_hz=30.0)
+_POINTER_CLICK_ACK_RESERVE_SECONDS = 1.5
 # The production profile captures this fixed chat editor rectangle from the
 # 1920x1080 client.  In the measured crop the Say label spans x17..39, the
 # command body begins at x45, and the right border is at x440.  The body box
@@ -1263,12 +1275,36 @@ def _bounded_process_join(process: multiprocessing.Process, timeout: float) -> b
 def _action_timeout(action: Sequence[str], *, deadline: float | None = None) -> float:
     """Bound one fixed input action using its vendored timing contract."""
 
+    action = tuple(action)
     timeout = 2.0
     if len(action) == 4 and tuple(action[:3]) == ("type", "--delay", "130"):
         command = action[3]
         if not isinstance(command, str) or command not in FIXED_COMMAND_SET:
             raise OperatorError("typed input action is not fixed and allowlisted")
         timeout = min(8.0, 0.130 * len(command) + 1.0)
+    elif action and action[0] == "sleep":
+        try:
+            timeout = pointer_action_timeout(tuple(action))
+        except PointerExecutionError as exc:
+            raise OperatorError(f"pointer motion action is not bounded: {exc}") from exc
+    elif (
+        len(action) == 6
+        and action[0:2] == ("mousedown", "1")
+        and action[2] == "sleep"
+        and action[4:] == ("mouseup", "1")
+    ):
+        try:
+            dwell = float(action[3])
+        except (TypeError, ValueError) as exc:
+            raise OperatorError("pointer click dwell is malformed") from exc
+        if not math.isfinite(dwell) or not 0.05 <= dwell <= 0.35:
+            raise OperatorError("pointer click dwell is outside its human gesture bound")
+        # The pinned tool waits through the planned dwell, then reports
+        # completion to the owned parent after the desktop has accepted the
+        # button sequence. Reserve bounded subprocess/desktop ACK overhead in
+        # addition to dwell; the complete plan is checked against the
+        # constructor/evidence deadline before any pointer motion begins.
+        timeout = dwell + _POINTER_CLICK_ACK_RESERVE_SECONDS
     if deadline is not None:
         remaining = float(deadline) - time.monotonic()
         if remaining < timeout:
@@ -1360,6 +1396,7 @@ class OwnedEmitter:
         release_action: Sequence[str] = ("mouseup", "1"),
         environment: Mapping[str, str] | None = None,
         deadline_monotonic: float | None = None,
+        ready_timeout: float = 2.0,
     ):
         self.tool = tool
         self._context = context
@@ -1368,6 +1405,7 @@ class OwnedEmitter:
         self.environment = dict(environment or {})
         self._deadline_monotonic = deadline_monotonic
         self._action_timeout = _action_timeout(self.action, deadline=deadline_monotonic)
+        self._ready_timeout = min(2.0, max(0.1, float(ready_timeout)))
         self._gate_read = self._gate_write = self._status_read = self._status_write = -1
         try:
             self._gate_read, self._gate_write = os.pipe()
@@ -1412,7 +1450,9 @@ class OwnedEmitter:
             raise
         try:
             ready = _read_bounded(
-                self._status_read, 64, timeout=_bounded_timeout(self._deadline_monotonic, 2.0)
+                self._status_read,
+                64,
+                timeout=_bounded_timeout(self._deadline_monotonic, self._ready_timeout),
             )
         except (OSError, TimeoutError, EOFError) as exc:
             self.abort()
@@ -1521,6 +1561,7 @@ class FixedInput:
         *,
         release_action: Sequence[str] = (),
         deadline_monotonic: float | None = None,
+        ready_timeout: float = 2.0,
     ) -> OwnedEmitter:
         if self._emitter_factory is not None:
             emitter = self._emitter_factory()
@@ -1535,6 +1576,7 @@ class FixedInput:
             release_action=release_action,
             environment=self.environment,
             deadline_monotonic=deadline_monotonic,
+            ready_timeout=ready_timeout,
         )
 
     def _emit_keyboard(self, key: str, *, deadline_monotonic: float | None = None) -> None:
@@ -1623,38 +1665,40 @@ class FixedInput:
                 self.cleanup_failures.append("text.abort")
             raise primary.with_traceback(primary.__traceback__) from None
 
-    def move_pointer(
+    def _emit_pointer_motion(
         self,
-        point: tuple[int, int],
+        gesture: HumanPointerPlan,
         *,
         identity: Any,
-        before_press: Callable[[], None] | None = None,
-        deadline_monotonic: float | None = None,
-    ) -> None:
-        if (
-            not isinstance(point, tuple)
-            or len(point) != 2
-            or any(isinstance(value, bool) or not isinstance(value, int) for value in point)
-        ):
-            raise OperatorError("pointer parking point is malformed")
-        left, top, width, height = getattr(identity, "child_geometry", (None,) * 4)
-        if not (
-            all(
-                isinstance(value, int) and not isinstance(value, bool) for value in (left, top, width, height)
-            )
-            and width > 0
-            and height > 0
-            and left <= point[0] < left + width
-            and top <= point[1] < top + height
-        ):
-            raise OperatorError("pointer parking point is outside the verified client")
-        action = ("mousemove", "--sync", str(point[0]), str(point[1]))
-        emitter = self._new_emitter(action, deadline_monotonic=deadline_monotonic)
-        go_attempted = False
+        before_dispatch: Callable[[], None] | None,
+        deadline_monotonic: float | None,
+        label: str,
+    ) -> dict[str, int]:
+        geometry = getattr(identity, "child_geometry", None)
+        try:
+            action = native_pointer_motion_action(gesture.trajectory, geometry)
+            action_timeout = pointer_action_timeout(action)
+        except (PointerExecutionError, TypeError) as exc:
+            raise OperatorError(f"{label} path is not a bounded gesture: {exc}") from exc
+        if deadline_monotonic is not None:
+            remaining = float(deadline_monotonic) - time.monotonic()
+            # The child command has one plan-derived execution timeout, plus
+            # its READY bound and a bounded ownership/ack margin. Do not
+            # charge the same command timeout twice: press() already waits
+            # for that command's completion acknowledgement.
+            required = 0.75 + action_timeout + 0.25
+            if remaining < required:
+                raise OperatorError(f"{label} gesture cannot fit before its deadline")
+        emitter = self._new_emitter(
+            action,
+            deadline_monotonic=deadline_monotonic,
+            ready_timeout=0.75,
+        )
+        started_ns = time.monotonic_ns()
         try:
             emitter.start()
             if emitter.pgid is None:
-                raise OperatorError("native pointer emitter has no process group")
+                raise OperatorError(f"{label} emitter has no process group")
             _publish_watchdog(
                 self.watchdog,
                 groups={emitter.pgid},
@@ -1662,85 +1706,130 @@ class FixedInput:
                 keys=set(),
                 deadline_monotonic=deadline_monotonic,
             )
-            if before_press is not None:
-                before_press()
+            if before_dispatch is not None:
+                before_dispatch()
             _action_timeout(action, deadline=deadline_monotonic)
-            go_attempted = True
             emitter.press()
+            motion_completed_ns = time.monotonic_ns()
             emitter.release()
+            released_ns = time.monotonic_ns()
             self.watchdog.clear()
+            return {
+                "motionStartedMonotonicNs": started_ns,
+                "motionCompletedMonotonicNs": motion_completed_ns,
+                "motionReleaseAckMonotonicNs": released_ns,
+            }
         except BaseException as primary:
-            release = getattr(self.watchdog, "release_now", None)
-            if go_attempted and callable(release):
-                try:
-                    release()
-                except BaseException:
-                    self.cleanup_failures.append("pointer_park.release_now")
-            elif go_attempted:
-                try:
-                    self.watchdog.clear()
-                except BaseException:
-                    self.cleanup_failures.append("pointer_park.clear_after_go")
-            else:
-                try:
-                    self.watchdog.clear()
-                except BaseException:
-                    self.cleanup_failures.append("pointer_park.clear_before_go")
             try:
                 emitter.abort()
             except BaseException:
-                self.cleanup_failures.append("pointer_park.abort")
+                self.cleanup_failures.append(f"{label}.abort")
+            try:
+                self.watchdog.clear()
+            except BaseException:
+                self.cleanup_failures.append(f"{label}.clear")
             raise primary.with_traceback(primary.__traceback__) from None
+
+    def move_pointer(
+        self,
+        gesture: HumanPointerPlan,
+        *,
+        identity: Any,
+        before_press: Callable[[], None] | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> dict[str, int]:
+        if not isinstance(gesture, HumanPointerPlan) or gesture.click is not None:
+            raise OperatorError("pointer parking requires a bounded movement-only gesture")
+        return self._emit_pointer_motion(
+            gesture,
+            identity=identity,
+            before_dispatch=before_press,
+            deadline_monotonic=deadline_monotonic,
+            label="pointer_park",
+        )
 
     def click(
         self,
         match: TemplateMatch,
         *,
         identity: Any,
+        gesture: HumanPointerPlan,
+        rate_permit: ClickRatePermit | None = None,
         before_press: Callable[[], None] | None = None,
         deadline_monotonic: float | None = None,
-    ) -> None:
+    ) -> dict[str, int]:
         if match.role not in {"construct", "restore"} or not match.accepted:
             raise OperatorError("click requires an accepted fresh template match")
-        point = match.click
+        if not isinstance(gesture, HumanPointerPlan) or gesture.click is None:
+            raise OperatorError("click requires a bounded seeded pointer gesture")
+        if rate_permit is None:
+            try:
+                with acquire_click_rate_permit(deadline_monotonic=deadline_monotonic) as permit:
+                    return self.click(
+                        match,
+                        identity=identity,
+                        gesture=gesture,
+                        rate_permit=permit,
+                        before_press=before_press,
+                        deadline_monotonic=deadline_monotonic,
+                    )
+            except PointerExecutionError as exc:
+                raise OperatorError(f"click rate admission failed: {exc}") from exc
+        if not isinstance(rate_permit, ClickRatePermit) or not rate_permit.is_open:
+            raise OperatorError("click has no open canonical session rate permit")
         left, top, width, height = identity.child_geometry
-        if not (left <= point[0] < left + width and top <= point[1] < top + height):
-            raise OperatorError("template click is outside the verified client")
-        move = self._new_emitter(
-            ("mousemove", "--sync", str(point[0]), str(point[1])),
+        endpoint = (left + int(gesture.endpoint.x), top + int(gesture.endpoint.y))
+        box_x, box_y, box_width, box_height = match.box
+        if not (
+            left <= endpoint[0] < left + width
+            and top <= endpoint[1] < top + height
+            and box_x + 1 <= gesture.endpoint.x < box_x + box_width - 1
+            and box_y + 1 <= gesture.endpoint.y < box_y + box_height - 1
+        ):
+            raise OperatorError("frozen gesture endpoint is outside the safe matched control")
+        try:
+            motion_action = native_pointer_motion_action(gesture.trajectory, identity.child_geometry)
+            motion_timeout = pointer_action_timeout(motion_action)
+        except (PointerExecutionError, TypeError) as exc:
+            raise OperatorError(f"click motion is not a bounded gesture: {exc}") from exc
+        click_action = (
+            "mousedown",
+            "1",
+            "sleep",
+            f"{gesture.click.dwell:.6f}",
+            "mouseup",
+            "1",
+        )
+        click_timeout = _action_timeout(click_action)
+        ready_timeout = 0.75
+        if deadline_monotonic is not None:
+            remaining = float(deadline_monotonic) - time.monotonic()
+            # Reserve both emitter READY waits, each plan-derived action
+            # timeout, and one bounded watchdog/release margin. The click
+            # action timeout already includes its dwell.
+            required = 2 * ready_timeout + motion_timeout + click_timeout + 1.0
+            if remaining < required:
+                raise OperatorError("complete click gesture cannot fit before its deadline")
+        motion_timing = self._emit_pointer_motion(
+            gesture,
+            identity=identity,
+            before_dispatch=None,
             deadline_monotonic=deadline_monotonic,
+            label="pointer_motion",
+        )
+        emitter = self._new_emitter(
+            click_action,
+            release_action=(),
+            deadline_monotonic=deadline_monotonic,
+            ready_timeout=ready_timeout,
         )
         go_attempted = False
+        click_started_ns = time.monotonic_ns()
+        precommit_ns: int | None = None
         try:
-            move.start()
-            if move.pgid is None:
-                raise OperatorError("native pointer emitter has no process group")
-            _publish_watchdog(
-                self.watchdog,
-                groups={move.pgid},
-                buttons=set(),
-                keys=set(),
-                deadline_monotonic=deadline_monotonic,
-            )
-            _action_timeout(
-                ("mousemove", "--sync", str(point[0]), str(point[1])),
-                deadline=deadline_monotonic,
-            )
-            go_attempted = True
-            move.press()
-            move.release()
-            self.watchdog.clear()
-            # The pointer move has no button ownership.  Only the following
-            # mousedown GO may authorize a physical release on refusal.
-            go_attempted = False
-            emitter = self._new_emitter(
-                ("mousedown", "1"),
-                release_action=("mouseup", "1"),
-                deadline_monotonic=deadline_monotonic,
-            )
             emitter.start()
             if emitter.pgid is None:
-                raise OperatorError("native input emitter has no process group")
+                raise OperatorError("native pointer emitter has no process group")
             _publish_watchdog(
                 self.watchdog,
                 groups={emitter.pgid},
@@ -1750,10 +1839,18 @@ class FixedInput:
             )
             if before_press is not None:
                 before_press()
-            _action_timeout(("mousedown", "1"), deadline=deadline_monotonic)
+            if deadline_monotonic is not None:
+                remaining = float(deadline_monotonic) - time.monotonic()
+                if remaining < ready_timeout + click_timeout + 0.5:
+                    raise OperatorError("click press and exact release cannot fit before its deadline")
+            _action_timeout(click_action, deadline=deadline_monotonic)
+            precommit_ns = rate_permit.precommit()
             go_attempted = True
             emitter.press()
+            click_completed_ns = time.monotonic_ns()
+            recorded_press_ns = rate_permit.record_press()
             emitter.release()
+            release_ack_ns = time.monotonic_ns()
         except BaseException as primary:
             # The watchdog releases exact button 1 after terminating the
             # emitter group; ownership is cleared only after that release.
@@ -1777,6 +1874,14 @@ class FixedInput:
             raise primary.with_traceback(primary.__traceback__) from None
         else:
             self.watchdog.clear()
+            return {
+                **motion_timing,
+                "clickEmitterStartedMonotonicNs": click_started_ns,
+                "clickPrecommitMonotonicNs": int(precommit_ns or 0),
+                "clickActionCompletedMonotonicNs": click_completed_ns,
+                "rateRecordMonotonicNs": recorded_press_ns,
+                "clickReleaseAckMonotonicNs": release_ack_ns,
+            }
 
     def close(self) -> None:
         if self._closed:
@@ -3159,7 +3264,7 @@ class NativeCalibrationOperator:
         self._old_handlers.clear()
 
     def _check_not_aborted(self) -> None:
-        if self._aborted:
+        if getattr(self, "_aborted", False):
             raise OperatorInterrupted("helper operation interrupted")
 
     def _reservation_from_reply(self, reply: Mapping[str, Any]) -> ReservationBinding:
@@ -3665,6 +3770,32 @@ class NativeCalibrationOperator:
         return (width - inset - panel_width, inset, panel_width, panel_height)
 
     @staticmethod
+    def _source_control_rect(identity: Any, role: str) -> tuple[int, int, int, int] | None:
+        geometry = getattr(identity, "child_geometry", None)
+        if role not in {"construct", "restore"} or not (
+            isinstance(geometry, tuple)
+            and len(geometry) == 4
+            and all(isinstance(value, int) and not isinstance(value, bool) for value in geometry)
+        ):
+            return None
+        left, top, width, height = geometry
+        if (left, top) != (0, 0) or width < 1280 or height < 720:
+            return None
+        scale_x = width / 1920.0
+        scale_y = height / 1080.0
+        if not math.isfinite(scale_x) or not math.isfinite(scale_y) or abs(scale_x - scale_y) > 0.01:
+            return None
+        panel_x = width - round(24 * scale_x) - round(220 * scale_x)
+        panel_y = round(24 * scale_y)
+        offset_x = 8 if role == "construct" else 112
+        return (
+            panel_x + round(offset_x * scale_x),
+            panel_y + round(8 * scale_y),
+            round(100 * scale_x),
+            round(28 * scale_y),
+        )
+
+    @staticmethod
     def _contains_point(rect: tuple[int, int, int, int], point: tuple[int, int]) -> bool:
         left, top, width, height = rect
         return left <= point[0] < left + width and top <= point[1] < top + height
@@ -3741,22 +3872,66 @@ class NativeCalibrationOperator:
             client_top + margin,
             client_top + client_height - margin - 1,
         )
+        parking_rect: tuple[int, int, int, int] | None = None
         parking_point: tuple[int, int] | None = None
         for y in y_values:
             for x in x_values:
                 candidate = (x, y)
-                if not self._contains_point(region, candidate) and not self._contains_point(
-                    canvas_rect, candidate
+                proposed = (x - 5, y - 5, 11, 11)
+                if (
+                    client_left <= proposed[0]
+                    and client_top <= proposed[1]
+                    and proposed[0] + proposed[2] <= client_left + client_width
+                    and proposed[1] + proposed[3] <= client_top + client_height
+                    and not _rectangles_intersect(proposed, region)
+                    and not _rectangles_intersect(proposed, canvas_rect)
                 ):
                     parking_point = candidate
+                    parking_rect = proposed
                     break
             if parking_point is not None:
                 break
-        if parking_point is None:
+        if parking_point is None or parking_rect is None:
             raise OperatorError("no safe pointer parking point is available")
         move_pointer = getattr(self.input, "move_pointer", None)
         if not callable(move_pointer):
             raise OperatorError("owned pointer parking is unavailable")
+
+        sequence = int(getattr(self, "_gesture_sequence", 0)) + 1
+        self._gesture_sequence = sequence
+        target_xids = getattr(identity, "target_event_xids", frozenset())
+        child_xid = getattr(identity, "child_xid", next(iter(target_xids), 0))
+        if not isinstance(child_xid, int) or child_xid <= 0:
+            raise OperatorError("pointer parking identity has no child window")
+        binding = BindingMetadata(
+            str(getattr(identity, "fingerprint", "native-parking")),
+            f"parking-{sequence}",
+            sequence,
+            max(1, int(getattr(self, "generation", 1))),
+            child_xid,
+            (child_xid,),
+            source="native-parking",
+        )
+        try:
+            gesture = plan_human_pointer(
+                Point(pointer[0] - client_left, pointer[1] - client_top),
+                PointerTarget(
+                    "native-pointer-parking",
+                    Rect(
+                        parking_rect[0] - client_left,
+                        parking_rect[1] - client_top,
+                        parking_rect[2],
+                        parking_rect[3],
+                    ),
+                    binding,
+                    padding=2,
+                ),
+                Rect(0, 0, client_width, client_height),
+                button=None,
+                profile=_NATIVE_POINTER_PROFILE,
+            )
+        except (PointerExecutionError, ValueError) as exc:
+            raise OperatorError(f"pointer parking gesture cannot be planned: {exc}") from exc
 
         def before_press() -> None:
             # This is the final admission boundary: the emitter is already
@@ -3770,8 +3945,8 @@ class NativeCalibrationOperator:
             if getattr(fresh, "child_geometry", None) != geometry:
                 raise OperatorError("client geometry changed before pointer parking dispatch")
 
-        move_pointer(
-            parking_point,
+        timing = move_pointer(
+            gesture,
             identity=identity,
             before_press=before_press,
             deadline_monotonic=deadline,
@@ -3780,12 +3955,30 @@ class NativeCalibrationOperator:
         if getattr(parked_identity, "fingerprint", None) != getattr(identity, "fingerprint", None):
             raise OperatorError("game identity changed after pointer parking")
         endpoint = self.screen.pointer_position(deadline_monotonic=deadline)
-        if endpoint[:2] != parking_point:
+        expected_endpoint = (
+            client_left + int(gesture.endpoint.x),
+            client_top + int(gesture.endpoint.y),
+        )
+        if endpoint[:2] != expected_endpoint:
             raise OperatorError("pointer parking endpoint changed")
         target_xids = getattr(parked_identity, "target_event_xids", frozenset())
         if target_xids and endpoint[2] not in target_xids:
             raise OperatorError("pointer parking target changed")
-        self._event("pointer_parked", x=parking_point[0], y=parking_point[1])
+        path_digest = hashlib.sha256(
+            repr(
+                tuple((sample.at, sample.point.x, sample.point.y) for sample in gesture.trajectory.samples)
+            ).encode("ascii")
+        ).hexdigest()
+        self._event(
+            "pointer_parked",
+            x=expected_endpoint[0],
+            y=expected_endpoint[1],
+            seed=gesture.seed,
+            movementDuration=gesture.movement_duration,
+            submovementCount=len(gesture.waypoints),
+            pathSha256=path_digest,
+            **(timing or {}),
+        )
         return parked_identity
 
     def _post_reload_controls(self) -> None:
@@ -3928,7 +4121,13 @@ class NativeCalibrationOperator:
         if target_state is not None:
             self._await_state(target_state, min_history_index=self._history_before_action)
 
-    def _click(self, role: str, *, expected_state: str | None = None) -> None:
+    def _click(
+        self,
+        role: str,
+        *,
+        expected_state: str | None = None,
+        _rate_permit: ClickRatePermit | None = None,
+    ) -> None:
         if role == "construct" and self.mode == MODE_MEASURE_DEFERRED:
             if "constructor" not in self._phase_deadlines:
                 raise OperatorError("native constructor click deadline is unavailable")
@@ -3938,14 +4137,90 @@ class NativeCalibrationOperator:
             self._phase_deadlines["constructor"] = click_deadline
             if click_deadline <= self.clock():
                 raise OperatorError("native constructor click deadline expired")
+        click_phase = "constructor" if role == "construct" else None
+        dispatch_deadline = self._deadline(click_phase)
+        if dispatch_deadline is None:
+            raise OperatorError("click deadline is unavailable")
+        if isinstance(self.input, FixedInput) and _rate_permit is None:
+            try:
+                with acquire_click_rate_permit(
+                    deadline_monotonic=dispatch_deadline,
+                    cancellation_check=self._check_not_aborted,
+                ) as permit:
+                    self._click(role, expected_state=expected_state, _rate_permit=permit)
+            except PointerExecutionError as exc:
+                raise OperatorError(f"click rate admission failed: {exc}") from exc
+            return
+
         self._recheck(expected_state)
-        path, identity, match = self._capture(f"{role}-control", require_exclusive=role)
+        _path, identity, match = self._capture(f"{role}-control", require_exclusive=role)
         if match is None:
             raise OperatorError("click has no fresh template match")
         current = self.screen.resolve_identity(require_foreground=True, deadline_monotonic=self._deadline())
         if getattr(current, "fingerprint", None) != getattr(identity, "fingerprint", None):
             raise OperatorError("identity changed before click")
         self._recheck(expected_state)
+
+        source_rect = self._source_control_rect(identity, role)
+        if source_rect is None:
+            raise OperatorError("source-derived click control geometry is unavailable")
+        match_x, match_y, match_width, match_height = match.box
+        source_x, source_y, source_width, source_height = source_rect
+        if not (
+            match_width > 2
+            and match_height > 2
+            and source_x <= match_x
+            and source_y <= match_y
+            and match_x + match_width <= source_x + source_width
+            and match_y + match_height <= source_y + source_height
+        ):
+            raise OperatorError("fresh template match is outside its source-derived button")
+        geometry = getattr(current, "child_geometry", None)
+        if not (
+            isinstance(geometry, tuple)
+            and len(geometry) == 4
+            and all(isinstance(value, int) and not isinstance(value, bool) for value in geometry)
+        ):
+            raise OperatorError("click identity geometry is malformed")
+        client_left, client_top, client_width, client_height = geometry
+        pointer_before = self.screen.pointer_position(deadline_monotonic=dispatch_deadline)
+        if (
+            not isinstance(pointer_before, tuple)
+            or len(pointer_before) != 3
+            or any(isinstance(value, bool) or not isinstance(value, int) for value in pointer_before)
+        ):
+            raise OperatorError("pointer start is unavailable for the bounded click gesture")
+        target_xids = getattr(current, "target_event_xids", frozenset())
+        child_xid = getattr(current, "child_xid", next(iter(target_xids), 0))
+        if not isinstance(child_xid, int) or child_xid <= 0:
+            raise OperatorError("click identity has no target child window")
+        sequence = int(getattr(self, "_gesture_sequence", 0)) + 1
+        self._gesture_sequence = sequence
+        binding = BindingMetadata(
+            str(getattr(current, "fingerprint", "native-template")),
+            match.capture_sha256,
+            sequence,
+            max(1, int(self.generation)),
+            child_xid,
+            (child_xid,),
+            source="native-template-control",
+        )
+        try:
+            gesture = plan_human_pointer(
+                Point(pointer_before[0] - client_left, pointer_before[1] - client_top),
+                PointerTarget(
+                    f"native-{role}", Rect(match_x, match_y, match_width, match_height), binding, padding=1
+                ),
+                Rect(0, 0, client_width, client_height),
+                button=PointerButton.LEFT,
+                profile=_NATIVE_POINTER_PROFILE,
+            )
+        except (PointerExecutionError, ValueError) as exc:
+            raise OperatorError(f"bounded click gesture cannot be planned: {exc}") from exc
+        expected_endpoint = (
+            client_left + int(gesture.endpoint.x),
+            client_top + int(gesture.endpoint.y),
+        )
 
         def before_press() -> None:
             if self._last_capture_completed is None or self.clock() - self._last_capture_completed > 5.0:
@@ -3955,32 +4230,46 @@ class NativeCalibrationOperator:
             if getattr(fresh, "fingerprint", None) != getattr(identity, "fingerprint", None):
                 raise OperatorError("identity changed after reposition")
             endpoint = self.screen.pointer_position(deadline_monotonic=self._deadline())
-            if endpoint[:2] != match.click:
+            if endpoint[:2] != expected_endpoint:
                 raise OperatorError("pointer moved before guarded press")
             target = getattr(fresh, "target_event_xids", frozenset())
             if target and endpoint[2] not in target:
                 raise OperatorError("pointer target changed before guarded press")
 
-        click_phase = "constructor" if role == "construct" else None
-        dispatch_deadline = self._deadline(click_phase)
-        if dispatch_deadline is None:
-            raise OperatorError("click deadline is unavailable")
-        required = _action_timeout(("mousemove", "--sync", str(match.click[0]), str(match.click[1])))
-        required += _action_timeout(("mousedown", "1"))
-        if dispatch_deadline - time.monotonic() < required:
-            raise OperatorError("click cannot fit before its deadline")
-        self._event("click", role=role, box=match.box, score=match.score)
-        self.input.click(
+        path_digest = hashlib.sha256(
+            repr(
+                tuple((sample.at, sample.point.x, sample.point.y) for sample in gesture.trajectory.samples)
+            ).encode("ascii")
+        ).hexdigest()
+        self._event(
+            "click",
+            role=role,
+            box=match.box,
+            score=match.score,
+            sourceControlRect=source_rect,
+            matchCaptureSha256=match.capture_sha256,
+            seed=gesture.seed,
+            frozenEndpoint=(int(gesture.endpoint.x), int(gesture.endpoint.y)),
+            movementDuration=gesture.movement_duration,
+            dwell=gesture.dwell,
+            submovementCount=len(gesture.waypoints),
+            pathSha256=path_digest,
+            rateGate="canonical-user-session",
+        )
+        timing = self.input.click(
             match,
             identity=current,
+            gesture=gesture,
+            rate_permit=_rate_permit,
             before_press=before_press,
             deadline_monotonic=dispatch_deadline,
         )
+        if isinstance(timing, Mapping):
+            self._event("click_gesture_completed", role=role, seed=gesture.seed, **dict(timing))
         pointer = self.screen.pointer_position(deadline_monotonic=self._deadline())
-        target_xids = getattr(current, "target_event_xids", frozenset())
         if target_xids and pointer[2] not in target_xids:
             raise OperatorError("pointer target is outside the verified client")
-        if pointer[:2] != match.click:
+        if pointer[:2] != expected_endpoint:
             raise OperatorError("pointer endpoint changed after guarded click")
         if role == "construct" and self.mode == MODE_MEASURE_DEFERRED:
             self._phase_deadlines.pop("constructor", None)

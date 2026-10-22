@@ -1,23 +1,44 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 04:02 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 04:43 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
+**Latest user instruction:** Game is idle and the user is AWAY. Keep Luna's
+assisted collection running until the user returns. Finish offline code work;
+do not start a live calibration window or timed human prompt during this absence.
+
 The user resumed game operation at 02:46 UTC on 2026-10-22 and confirmed RDP
 availability then. `/root/luna_assisted_scanner` was woken with a follow-up task
 and verified running. It is the sole GUI owner; root must not capture or input
 concurrently. Reconfirm human availability before any timed calibration prompt.
 
-**Collection is running under Luna supervision.** Scan238 began 03:54:27 UTC
-(startedAt1792641267), next due 04:09:27 UTC (1792642167), 428 items planned.
-Latest fresh 04:00:32 UTC watcher frame: item323/428, AH open, speed0, one pending
-uploaded UID (scan237). The preceding start interval was1095s, missing the desired
-900s by195s during recovery. Prepare the reusable restoration route before the
-next due time; carry actual startedAt+900 through reload even if addon dueAt resets.
+**Collection continues under Luna supervision.** Scan241 began04:41:18 UTC
+(startedAt1792644078),nextdue04:56:18 UTC (1792644978),pending0 and prior exact
+scan240 ACK loaded. It started19s late; the preceding scan240 started13s late.
+These remain assisted cycles, not autonomous qualification.
+
+Four resumed sweeps237–240 are stored in DB:1712 attempted items,4201 rows total.
+Rows per sweep:1046/1039/1047/1069. Only scan238 had a failure: one queried item6361
+with query_timeout; all other attempts were ok. All four uploads arrived within
+60s of actual finish. Parent independently verified original format3/digest/plan/
+counts and retained HUD loaded ACKs for237–239; Luna verified scan240's original
+save/upload/exact loaded ACK and parent confirmed its DB428 observations/1069 rows.
+Last stored UID`beta-normal-alliance-1792643159-Arthur-5376` ran04:25:59–04:34:01 UTC,
+received04:34:50.391049 UTC. Its ACK receipt is
+`assisted-collection-luna-20261021/569-scan240-postprocess/scan240-save-upload-ack-20261022T043431968606Z/receipt.json`.
+The initial recovery intervals were1095s/979s; subsequent intervals improved to
+913s/919s. Carry actual startedAt+900 through reload even if addon dueAt resets.
+
+Parent verification for scan238 and both237/238 loaded ACKs:
+`assisted-collection-luna-20261021/553-scan238-postprocess/scan238-save-upload-ack-20261022T040332496592Z/parent-two-sweeps-loaded-ack-verification.json`.
+Scan239's zero-failure original and exact loaded ACK:
+`assisted-collection-luna-20261021/562-scan239-postprocess/scan239-save-upload-ack-20261022T041901912534Z/parent-third-sweep-verification.json`.
+Never interrupt an active sweep for ACK or calibration. Continue collecting until
+explicit user takeover/stop or a real blocker; completing three cycles is no stop rule.
 
 Scan237, UID `beta-normal-alliance-1792640172-Arthur-4663`, ran 03:36:12–03:44:22
 UTC: 428 attempted, zero failures, 1046 rows, 423 full/5 bounded, all428 reasons ok.
@@ -30,10 +51,9 @@ Original SavedVariables SHA256:
 Private proofs are under `assisted-collection-luna-20261021/543-scan237-exact-ack-diagnostic/`:
 `parent-format3-upload-verification.json` and `parent-stored-prices-verification.json`.
 
-Scan237's exact server ACK is present in Data.lua and strictly verified, but
-**loaded ACK is not yet proven**. Its normal scan238 save reload will load that
-prior ACK. Do not reload an active sweep for ACK. One uploaded pending UID remains
-below cap6. Never claim a completed cycle from upload or Data.lua publication alone.
+The exact237/238 server ACKs were independently proven loaded as described above.
+Do not reload an active sweep for ACK. Never claim a completed cycle from upload
+or Data.lua publication alone; the client must consume the exact UID.
 The old session reader rejected the producer's new `referenceItemIDs` field;
 Luna fix d78510b requires the current five-field schema and canonical full-catalog
 reference IDs, preserving strict unknown-field/ACK/plan validation. Sol READY;
@@ -55,27 +75,50 @@ not establish unavailable APIs. No trade actions were performed.
 PAUSED generation71, native/input false, operation idle, nativeConstruction key
 ABSENT. Read actual generations/checkpoint membership before acting. This loaded
 format3 support347ab56 (parent10 focused format2/3 tests passed). Running server
-also explicitly reports accepted formats[2,3]. The paused daemon still holds the
-pre-d78510b ACK-reader import: restart before future autonomous use, preferably
-with the reviewed native-helper integration. Fresh helper processes load the fix.
+also explicitly reports accepted formats[2,3]. After the reviewed gesture
+integration, root restarted again: PID1821334 ->676938,
+PAUSED **generation72**, native/input false, operation idle, nativeConstruction key
+ABSENT, lastAction restart_invalidate_calibration. This process loads the strict
+ACK reader and reviewed gesture code. Read fresh actual generations before commands.
 The addon symlinks to MAIN's `addon/Crowley`. Current client is PID1532084,
 start44691603, Arthur/Ironforge, build70450/version1.60.1/interface16001. Re-resolve
 identity before input; do not reuse old PID2792826 or earlier fingerprint evidence.
 
-**Calibration remains blocked on code; no human prompt is active.** Current
-CLAUDE.md requires seeded/recorded curved Fitts-timed gestures with submovements,
-endpoint scatter and >=1.0s between automated clicks. The installed native helper
-still uses direct pointer movement before clicking. Runtime's armed driver cannot
-simply run before input calibration. Hold native preflight/measurement until the
-shared bootstrap fix passes final code review. Keyboard-only collection continues.
-Luna implements offline in `~/.cache/crowley/worktrees/native-human-click-20261022`;
-plan: `../.archive/PLAN-native-human-click-20261022.md`, Sol design READY R2.
-Implementation tests are resolving owned-emitter timeout overhead within existing
-5s click-evidence/10s constructor limits; no candidate is installed or code-approved.
-After approval, preserve the reviewed sequence: fresh native preflight, native100,
-public pause/checkpoint-dependent ordinary recovery, genuine owned-GTK input.
-Native/input remain false and **zero autonomous cycles are qualified**. Require
-three consecutive unattended900s full save/upload/exact loaded-ACK/reopen cycles.
+**Gesture repair installed; live calibration held for user return.** Shared
+seeded curved Fitts-timed movement, submovements, endpoint scatter/receipts and a
+fixed crash-safe >=1.0s click gate now cover native bootstrap/parking and runtime
+X11 actions. Raw click branches refuse before input. Existing Guardian, one-use
+anchors, five-second click evidence, ten-second constructor, owned cleanup and
+native103 protocol remain enforced. Rate timestamps are conservative post-click
+ACK times, not hardware-down timestamps.
+
+Luna implementation in `~/.cache/crowley/worktrees/native-human-click-20261022`
+passed final Sol code review and was promoted byte-for-byte. Final production SHA:
+
+- driver.py: `6520bf8bb37a1cba2db54275136684d9356482a66cc4174591e3c74cb7929a96`
+- pointer_execution.py: `a116142fcd04c319681c957df9891f83bcda126a9ee338047444d1b5da408b30`
+- native_calibration_operator.py: `807d7d80614a9410b372674abc311706bbfe3b5d907e1ecd8ed7df42136bad30`
+
+Verification: worker full scoped175 passed/one pre-existing RGB-vs-L retained-crop
+assertion failure independently reproduced on clean2e48728. After the final X11
+adapter planning fix, pointer/driver51 passed, strict-current-ACK three-cycle real
+socket lifecycle passed (68.54s), actual native103 success passed (148.30s).
+Parent independently passed30 executor/shared-pointer tests and45 driver tests;
+installed MAIN51 focused driver/ACK/reconciliation tests passed (9.91s), Ruff/check
+format and diff-check passed. All seven installed files match Sol's final hashes.
+Private closure: `calibration-resume-20261021/parent-human-gesture-installation-closure.json`
+(SHA`d221ebe57b2bb4f62c172f5f51cef5623982cac1e3aa5ba1a385baddb4ce21e6`).
+Final review: `calibration-resume-20261021/sol-native-human-click-final-code-review.md`.
+Plan: `../.archive/PLAN-native-human-click-20261022.md`, including runtime test-state
+isolation addendum. The prior provisional driver020950a4 approval is superseded.
+
+No live native attempt or human prompt was started during the user's absence.
+Native/input remain false and **zero autonomous cycles are qualified**. On return,
+coordinate after a completed scan, re-resolve identity/state/generation72 (or later),
+then run fresh native preflight, native100, public pause/checkpoint-dependent ordinary
+recovery and genuine owned-GTK input. Require actual matching input readiness and
+visible owned prompt before asking for human events. Final acceptance is three
+consecutive unattended900s full save/upload/exact loaded-ACK/reopen cycles.
 
 Shared data-agent coordination: `../.archive/trade-api-probe/LIVE-DRIVER-STATUS.md`.
 Everything below this point is historical and must not override the current state.

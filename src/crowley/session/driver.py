@@ -44,7 +44,6 @@ from .executor import (
     PointerTrajectory,
     Rect,
     plan_pointer_curve,
-    plan_single_click,
 )
 from .guardian import GuardianError, InputGuardian
 from .input_events import (
@@ -56,6 +55,16 @@ from .input_events import (
     source_ids,
 )
 from .input_tool import InputToolError, PinnedInputTool, verify_artifact
+from .pointer_execution import (
+    ClickRatePermit,
+    HumanPointerPlan,
+    PointerExecutionError,
+    acquire_click_rate_permit,
+    plan_human_pointer,
+)
+from .pointer_execution import (
+    build_pointer_motion_chain as _shared_pointer_motion_chain,
+)
 from .process_admission import ADMISSION_WRAPPER, AdmissionGate
 
 _F_ADD_SEALS = getattr(fcntl, "F_ADD_SEALS", 1033)
@@ -660,41 +669,11 @@ def build_pointer_motion_chain(
     the gesture.
     """
 
-    if not isinstance(trajectory, PointerTrajectory):
-        raise DriverError("pointer trajectory is malformed")
-    if (
-        not isinstance(client_geometry, tuple)
-        or len(client_geometry) != 4
-        or any(isinstance(value, bool) or not isinstance(value, int) for value in client_geometry)
-        or client_geometry[2] <= 0
-        or client_geometry[3] <= 0
-    ):
-        raise DriverError("pointer client geometry is malformed")
-    left, top, width, height = client_geometry
-    bounds = Rect(0, 0, width, height)
-    if any(not bounds.contains(sample.point) for sample in trajectory.samples):
-        raise DriverError("pointer trajectory escaped the verified client")
-    chain = ["xdotool"]
-    previous_at = trajectory.samples[0].at
-    previous_point = trajectory.samples[0].point
-    emitted_moves = 0
-    for sample in trajectory.samples[1:]:
-        delay = sample.at - previous_at
-        if not math.isfinite(delay) or delay <= 0:
-            raise DriverError("pointer trajectory timing is not strictly increasing")
-        chain.extend(("sleep", f"{delay:.9f}"))
-        if sample.point != previous_point:
-            chain.extend(
-                (
-                    "mousemove",
-                    str(left + int(sample.point.x)),
-                    str(top + int(sample.point.y)),
-                )
-            )
-            emitted_moves += 1
-        previous_at = sample.at
-        previous_point = sample.point
-    if abs(previous_at - trajectory.duration) > 1e-9 or emitted_moves == 0:
+    try:
+        chain = _shared_pointer_motion_chain(trajectory, client_geometry)
+    except PointerExecutionError as exc:
+        raise DriverError(str(exc)) from exc
+    if chain.count("mousemove") == 0:
         raise DriverError("pointer trajectory does not contain a complete emitted path")
     return chain
 
@@ -1733,6 +1712,7 @@ class X11Backend:
         )
         self.window_id: str | None = None
         self.last_identity: WindowIdentity | None = None
+        self.last_pointer_execution: dict[str, Any] | None = None
         self._active_processes: set[subprocess.Popen[str]] = set()
         self._active_process_groups: set[int] = set()
         self._process_lock = threading.RLock()
@@ -3250,12 +3230,26 @@ class X11Backend:
     def action(self, name: str, *, generation: int | None = None, **kwargs: Any) -> None:
         if generation is None:
             raise DriverError("input action requires a current game generation")
+        if name in DesktopDriver.POINTER_ACTIONS:
+            self.last_pointer_execution = None
         anchor_record = self._measured_anchors.get(name)
         admitted_anchor = kwargs.pop("_admitted_anchor", None)
         pointer_plan = kwargs.pop("_pointer_plan", None)
         click_plan = kwargs.pop("_click_plan", None)
+        gesture_plan = kwargs.pop("_gesture_plan", None)
+        click_rate_permit = kwargs.pop("_click_rate_permit", None)
         refresh_anchor = kwargs.pop("_refresh_anchor", None)
         if name in DesktopDriver.POINTER_ACTIONS:
+            if (
+                not isinstance(gesture_plan, HumanPointerPlan)
+                or pointer_plan is None
+                or click_plan is None
+                or gesture_plan.trajectory is not pointer_plan
+                or gesture_plan.click is not click_plan
+            ):
+                raise DriverError("native pointer action requires a validated planned gesture")
+            if not isinstance(click_rate_permit, ClickRatePermit):
+                raise DriverError("native pointer action has no canonical click rate permit")
             if anchor_record is None:
                 raise DriverError(f"action anchor for {name} has not passed live calibration")
             if (
@@ -3298,6 +3292,12 @@ class X11Backend:
                     or pointer_plan.endpoint != click_plan.point
                 ):
                     raise DriverError("pointer trajectory does not cross-match the click plan")
+                if (
+                    isinstance(gesture_plan.seed, bool)
+                    or not isinstance(gesture_plan.seed, int)
+                    or not 0 <= gesture_plan.seed < 2**64
+                ):
+                    raise DriverError("pointer gesture seed is malformed")
                 if binding.generation != generation or binding.identity_fingerprint != identity.fingerprint:
                     raise DriverError("pointer plan binding is stale")
                 button = {1: PointerButton.LEFT, 3: PointerButton.RIGHT}.get(
@@ -3314,6 +3314,26 @@ class X11Backend:
                     or binding.target_ancestry != anchor_record.target_ancestry
                 ):
                     raise DriverError("pointer plan anchor binding is stale")
+                path_digest = hashlib.sha256(
+                    repr(
+                        tuple(
+                            (sample.at, sample.point.x, sample.point.y)
+                            for sample in gesture_plan.trajectory.samples
+                        )
+                    ).encode("ascii")
+                ).hexdigest()
+                self.last_pointer_execution = {
+                    "action": name,
+                    "generation": generation,
+                    "seed": gesture_plan.seed,
+                    "frozenEndpoint": (int(gesture_plan.endpoint.x), int(gesture_plan.endpoint.y)),
+                    "movementDuration": gesture_plan.movement_duration,
+                    "dwell": gesture_plan.dwell,
+                    "submovementCount": len(gesture_plan.waypoints),
+                    "pathSha256": path_digest,
+                    "rateGate": "canonical-user-session",
+                    "phase": "planned",
+                }
                 left, top, width, height = identity.child_geometry
                 expected_start = click_plan.point if pointer_plan is None else pointer_plan.samples[0].point
                 actual_x, actual_y, actual_window = self.pointer_position(generation=generation)
@@ -3323,12 +3343,16 @@ class X11Backend:
                     raise DriverError("native pointer start changed before the admitted gesture")
                 if pointer_plan is not None:
                     chain = build_pointer_motion_chain(pointer_plan, identity.child_geometry)
+                    self.last_pointer_execution["movementDispatchStartedMonotonicNs"] = time.monotonic_ns()
+                    self.last_pointer_execution["phase"] = "movement_dispatched"
                     self._run(
                         chain,
                         generation=generation,
                         input_schema="pointer-motion",
                         expected_argv=tuple(chain),
                     )
+                    self.last_pointer_execution["movementAckMonotonicNs"] = time.monotonic_ns()
+                    self.last_pointer_execution["phase"] = "movement_acknowledged"
                 # Recheck foreground identity and consume a fresh anchor after
                 # motion, immediately before the pointer/window commit query.
                 # Profile reads remain outside this protected click boundary.
@@ -3388,6 +3412,12 @@ class X11Backend:
                     "mouseup",
                     str(native_button),
                 ]
+                try:
+                    self.last_pointer_execution["clickPrecommitMonotonicNs"] = click_rate_permit.precommit()
+                except PointerExecutionError as exc:
+                    raise DriverError(str(exc)) from exc
+                self.last_pointer_execution["clickDispatchStartedMonotonicNs"] = time.monotonic_ns()
+                self.last_pointer_execution["phase"] = "click_dispatched"
                 self._run(
                     click_argv,
                     generation=generation,
@@ -3395,6 +3425,12 @@ class X11Backend:
                     input_schema="single-click",
                     expected_argv=tuple(click_argv),
                 )
+                self.last_pointer_execution["clickAckMonotonicNs"] = time.monotonic_ns()
+                try:
+                    self.last_pointer_execution["rateRecordMonotonicNs"] = click_rate_permit.record_press()
+                except PointerExecutionError as exc:
+                    raise DriverError(str(exc)) from exc
+                self.last_pointer_execution["phase"] = "click_released_and_rate_recorded"
                 if click_plan is not None:
                     final_x, final_y, final_window = self.pointer_position(generation=generation)
                     if not self._is_owned_client_target(final_window, current):
@@ -3407,15 +3443,7 @@ class X11Backend:
                     if (final_x, final_y) != expected_point:
                         raise DriverError("native pointer postcondition endpoint changed")
             else:
-                self._pointer(identity, *anchor, generation=generation)
-                button = DesktopDriver.POINTER_BUTTONS.get(name)
-                if button is None:
-                    raise DriverError(f"pointer button for {name} has not passed live calibration")
-                self._run(
-                    ["xdotool", "click", str(button)],
-                    generation=generation,
-                    held_buttons={button},
-                )
+                raise DriverError("native pointer action cannot use the direct-click fallback")
         elif name == "focus_game":
             return
         elif name == "open_chat":
@@ -4822,10 +4850,50 @@ class DesktopDriver:
         self._measured_anchors: dict[str, MeasuredAnchor] = {}
         self._measured_anchor_generations: dict[str, int] = {}
         self._consumed_anchor_seals: set[str] = set()
+        self._pointer_gesture_receipts: list[dict[str, Any]] = []
 
     @property
     def queued_calibration_count(self) -> int:
         return len(self._queued)
+
+    @property
+    def pointer_gesture_receipts(self) -> tuple[dict[str, Any], ...]:
+        """Return copies of the bounded runtime gesture evidence history."""
+
+        return tuple(json.loads(json.dumps(row)) for row in self._pointer_gesture_receipts)
+
+    def _record_pointer_gesture_receipt(
+        self,
+        *,
+        action: str,
+        generation: int,
+        gesture: HumanPointerPlan,
+        accepted: bool,
+    ) -> None:
+        execution = self.backend.last_pointer_execution if isinstance(self.backend, X11Backend) else None
+        self._pointer_gesture_receipts.append(
+            {
+                "action": action,
+                "generation": generation,
+                "seed": gesture.seed,
+                "frozenEndpoint": (int(gesture.endpoint.x), int(gesture.endpoint.y)),
+                "movementDuration": gesture.movement_duration,
+                "dwell": gesture.dwell,
+                "submovementCount": len(gesture.waypoints),
+                "pathSha256": hashlib.sha256(
+                    repr(
+                        tuple(
+                            (sample.at, sample.point.x, sample.point.y)
+                            for sample in gesture.trajectory.samples
+                        )
+                    ).encode("ascii")
+                ).hexdigest(),
+                "accepted": accepted,
+                "execution": json.loads(json.dumps(execution)) if execution is not None else None,
+            }
+        )
+        if len(self._pointer_gesture_receipts) > 32:
+            del self._pointer_gesture_receipts[:-32]
 
     @property
     def xauthority(self) -> str:
@@ -6872,6 +6940,28 @@ class DesktopDriver:
             self.guardian.check(generation)
         except GuardianError as exc:
             raise DriverError(str(exc)) from exc
+        if name in self.POINTER_ACTIONS and isinstance(self.backend, X11Backend):
+            supplied_permit = kwargs.get("_click_rate_permit")
+            if not isinstance(supplied_permit, ClickRatePermit) or not supplied_permit.is_open:
+                try:
+                    permit = acquire_click_rate_permit(
+                        cancellation_check=lambda: self.guardian.check(generation)
+                    )
+                except (PointerExecutionError, GuardianError) as exc:
+                    raise DriverError(f"pointer click admission failed: {exc}") from exc
+                try:
+                    forwarded = {key: value for key, value in kwargs.items() if key != "_click_rate_permit"}
+                    self.run(
+                        name,
+                        generation,
+                        precondition=precondition,
+                        postcondition=postcondition,
+                        _click_rate_permit=permit,
+                        **forwarded,
+                    )
+                finally:
+                    permit.close()
+                return
         if name == "type_allowlisted_command" and kwargs.get("command") not in self.COMMANDS:
             raise DriverError("command is not allowlisted")
         identity = (
@@ -7072,6 +7162,7 @@ class DesktopDriver:
         anchor = self._measured_anchors.get(name) if pointer_action else None
         pointer_plan: PointerTrajectory | None = None
         click_plan = None
+        gesture_plan: HumanPointerPlan | None = None
         expected_motion_trace: tuple[tuple[int, int, int, int], ...] = ()
         expected_coordinates = None
         expected_event_coordinates = None
@@ -7081,7 +7172,7 @@ class DesktopDriver:
             and native_pointer_dispatch
             and getattr(evidence, "xtest_profile", None) is not None
         )
-        if pointer_action and native_pointer_dispatch and isinstance(anchor, MeasuredAnchor):
+        if pointer_action and isinstance(self.backend, X11Backend) and isinstance(anchor, MeasuredAnchor):
             if anchor is None:
                 raise DriverError(f"action anchor for {name} is missing at plan construction")
             try:
@@ -7115,35 +7206,33 @@ class DesktopDriver:
                 initial_origin = (root_x, root_y, root_x, root_y)
                 padding = 1 if min(target_bounds.width, target_bounds.height) >= 3 else 0
                 target = PointerTarget(self.ANCHOR_CONTROLS[name], target_bounds, binding, padding=padding)
-                click_plan = plan_single_click(
+                gesture_plan = plan_human_pointer(
+                    start,
                     target,
                     client_bounds,
                     button=button,
                     profile=self.pointer_motion_profile,
                 )
-                if start != click_plan.point:
-                    pointer_plan = plan_pointer_curve(
-                        start,
-                        target,
-                        client_bounds,
-                        profile=self.pointer_motion_profile,
+                click_plan = gesture_plan.click
+                if click_plan is None:
+                    raise DriverError("human pointer planner omitted its click plan")
+                pointer_plan = gesture_plan.trajectory
+                trace: list[tuple[int, int, int, int]] = []
+                prior = pointer_plan.samples[0].point
+                for sample in pointer_plan.samples[1:]:
+                    if sample.point == prior:
+                        continue
+                    root = (
+                        current.child_geometry[0] + int(sample.point.x),
+                        current.child_geometry[1] + int(sample.point.y),
                     )
-                    trace: list[tuple[int, int, int, int]] = []
-                    prior = pointer_plan.samples[0].point
-                    for sample in pointer_plan.samples[1:]:
-                        if sample.point == prior:
-                            continue
-                        root = (
-                            current.child_geometry[0] + int(sample.point.x),
-                            current.child_geometry[1] + int(sample.point.y),
-                        )
-                        trace.append(
-                            (*root, *root)
-                            if canonical_motion
-                            else (*root, int(sample.point.x), int(sample.point.y))
-                        )
-                        prior = sample.point
-                    expected_motion_trace = tuple(trace)
+                    trace.append(
+                        (*root, *root)
+                        if canonical_motion
+                        else (*root, int(sample.point.x), int(sample.point.y))
+                    )
+                    prior = sample.point
+                expected_motion_trace = tuple(trace)
                 expected_coordinates = (
                     float(current.child_geometry[0] + click_plan.point.x),
                     float(current.child_geometry[1] + click_plan.point.y),
@@ -7156,7 +7245,7 @@ class DesktopDriver:
                     if canonical_motion
                     else (float(click_plan.point.x), float(click_plan.point.y))
                 )
-            except ExecutorError as exc:
+            except (ExecutorError, PointerExecutionError) as exc:
                 raise DriverError(f"native pointer plan is invalid: {exc}") from exc
         elif anchor is not None:
             expected_coordinates = (
@@ -7166,6 +7255,8 @@ class DesktopDriver:
             expected_event_coordinates = (float(anchor.x), float(anchor.y))
         action = None
         admitted_anchor: MeasuredAnchor | None = None
+        pointer_attempted = False
+        pointer_succeeded = False
         try:
             device_by_class: dict[str, int] = {}
             for event_class in event_classes:
@@ -7260,16 +7351,20 @@ class DesktopDriver:
                     raise
                 self._held_input = True
                 if pointer_action:
+                    if gesture_plan is None:
+                        raise DriverError("native pointer action has no complete seeded gesture plan")
                     kwargs = {
                         **kwargs,
                         "_admitted_anchor": admitted_anchor,
                         "_pointer_plan": pointer_plan,
                         "_click_plan": click_plan,
+                        "_gesture_plan": gesture_plan,
                     }
                     if pointer_plan is not None:
                         kwargs["_refresh_anchor"] = lambda current, previous: self._refresh_pointer_anchor(
                             name, generation, current, previous
                         )
+                pointer_attempted = pointer_action and gesture_plan is not None
                 self.backend.action(name, generation=generation, **kwargs)
             else:
 
@@ -7300,6 +7395,7 @@ class DesktopDriver:
                 raise DriverError(f"{name} requires actual postcondition evidence")
             if postcondition is not None and not postcondition(fresh):
                 raise DriverError(f"{name} postcondition failed")
+            pointer_succeeded = pointer_action
         except GuardianError as exc:
             raise DriverError(str(exc)) from exc
         except Exception as exc:
@@ -7307,9 +7403,18 @@ class DesktopDriver:
                 self.revoke(f"{name} failed: {exc}")
             raise
         finally:
-            if action is not None and self.guardian.armed and self.guardian.generation == generation:
-                self.guardian.finish_action(generation, action)
-                self._held_input = False
+            try:
+                if action is not None and self.guardian.armed and self.guardian.generation == generation:
+                    self.guardian.finish_action(generation, action)
+                    self._held_input = False
+            finally:
+                if pointer_attempted and gesture_plan is not None:
+                    self._record_pointer_gesture_receipt(
+                        action=name,
+                        generation=generation,
+                        gesture=gesture_plan,
+                        accepted=pointer_succeeded,
+                    )
 
     def flush_queued(self) -> None:
         queued, self._queued = self._queued, []

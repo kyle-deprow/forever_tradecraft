@@ -26,6 +26,7 @@ from crowley.core.luawriter import render_assignment
 from crowley.core.scanformat import encode_json_payload
 from crowley.core.watchlist import load_catalog
 from crowley.session import Controller, ControllerState, DesktopDriver, SessionConfig, SessionDaemon
+from crowley.session import pointer_execution as pointer_execution_module
 from crowley.session.calibration import (
     LinuxProcStatusVmHwmReset5,
     NativeCalibrationRunner,
@@ -55,6 +56,15 @@ from tests.test_session_input_tool import fixture_input_tool
 from .wow_harness import Auction, WowClient
 
 _REVERSE_BITS = bytes(int(f"{value:08b}"[::-1], 2) for value in range(256))
+
+
+@pytest.fixture(autouse=True)
+def _private_pointer_click_rate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the real click gate isolated from host-global state in lifecycle tests."""
+
+    state_directory = tmp_path / "pointer-click-rate"
+    state_directory.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_execution_module, "_session_state_directory", lambda: state_directory)
 
 
 class _FixtureNativeMemoryMeter(LinuxProcStatusVmHwmReset5):
@@ -454,6 +464,7 @@ class LifecycleBackend(X11Backend):
             1,
             frozenset({1, 2}),
         )
+        self.pointer = (20, 20)
 
     def xtest_input_profile(self, hierarchy, **_kwargs):
         """Return the sealed native fixture profile without querying host X11."""
@@ -486,6 +497,18 @@ class LifecycleBackend(X11Backend):
         if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
             raise DriverError("fixture identity query exceeded its deadline")
         return self.identity
+
+    def pointer_position(
+        self,
+        *,
+        generation: int | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> tuple[int, int, int]:
+        del generation
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise DriverError("fixture pointer query exceeded its deadline")
+        left, top, _width, _height = self.identity.child_geometry
+        return left + self.pointer[0], top + self.pointer[1], self.identity.child_xid
 
     def verify_identity(self, identity: WindowIdentity) -> WindowIdentity:
         if identity.fingerprint != self.identity.fingerprint:
@@ -838,6 +861,33 @@ class LifecycleBackend(X11Backend):
             )
         )
 
+    def _emit_runtime_pointer_gesture(self, gesture: object) -> None:
+        observer = self.runtime_observer
+        trajectory = getattr(gesture, "trajectory", None)
+        samples = getattr(trajectory, "samples", None)
+        if observer is None or not isinstance(samples, tuple) or len(samples) < 2:
+            raise AssertionError("runtime fixture has no complete seeded pointer trajectory")
+        left, top, _width, _height = self.identity.child_geometry
+        previous = samples[0].point
+        for sample in samples[1:]:
+            point = sample.point
+            if point == previous:
+                continue
+            x, y = int(point.x), int(point.y)
+            observer._add(
+                self._runtime_event(
+                    EventClass.MOTION,
+                    master=4,
+                    source=4,
+                    detail=0,
+                    root_coordinates=(float(left + x), float(top + y)),
+                    event_coordinates=(float(x), float(y)),
+                )
+            )
+            previous = point
+        endpoint = trajectory.endpoint
+        self.pointer = int(endpoint.x), int(endpoint.y)
+
     def action(self, name: str, **kwargs) -> None:
         command = self.command_buffer if name == "submit_command" else ""
         self.events.append({"name": name, **kwargs})
@@ -848,15 +898,22 @@ class LifecycleBackend(X11Backend):
         elif name == "submit_command":
             self._emit_runtime_key_operation("submit_command")
         elif name == "open_ah":
+            gesture = kwargs.get("_gesture_plan")
             click = kwargs.get("_click_plan")
             point = getattr(click, "point", None)
-            if point is None:
-                anchor = getattr(self.runtime_driver, "_measured_anchors", {}).get("open_ah")
-                point = SimpleNamespace(x=getattr(anchor, "x", -1), y=getattr(anchor, "y", -1))
+            permit = kwargs.get("_click_rate_permit")
+            if point is None or gesture is None or not callable(getattr(permit, "precommit", None)):
+                raise AssertionError(
+                    "runtime pointer fixture did not receive its seeded plan and rate permit"
+                )
             if int(point.x) < 0 or int(point.y) < 0:
                 raise AssertionError("runtime pointer action has no measured click point")
+            self._emit_runtime_pointer_gesture(gesture)
+            permit.precommit()
             client_x, client_y = int(point.x), int(point.y)
             left, top, _width, _height = self.identity.child_geometry
+            if not callable(getattr(permit, "record_press", None)):
+                raise AssertionError("runtime pointer fixture has no press recorder")
             self._emit_runtime_pointer_click(
                 3,
                 coordinates=(
@@ -864,6 +921,7 @@ class LifecycleBackend(X11Backend):
                     (float(client_x), float(client_y)),
                 ),
             )
+            permit.record_press()
         if name == "type_allowlisted_command":
             self.command_buffer = str(kwargs["command"])
             self.current["chatEdit"]["text"] = self.command_buffer
@@ -2152,6 +2210,20 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
         final_status = _socket_request(config.socket, {"command": "status"})["status"]
         assert final_status["streak"] == 3, final_status
         assert final_status["state"] == "STOPPED", final_status
+        pointer_events = [event for event in backend.events if event["name"] in driver.POINTER_ACTIONS]
+        gesture_receipts = driver.pointer_gesture_receipts
+        assert len(gesture_receipts) == len(pointer_events) > 0
+        assert all(
+            isinstance(receipt["seed"], int)
+            and len(receipt["frozenEndpoint"]) == 2
+            and receipt["movementDuration"] > 0
+            and receipt["submovementCount"] > 0
+            and receipt["accepted"] is True
+            for receipt in gesture_receipts
+        )
+        rate_state = json.loads((tmp_path / "pointer-click-rate" / "pointer-click-rate.json").read_text())
+        assert isinstance(rate_state["lastPressMonotonicNs"], int)
+        assert rate_state["nextAllowedMonotonicNs"] - rate_state["lastPressMonotonicNs"] == 1_000_000_000
         assert any(
             event["name"] == "submit_command" and event.get("command") == "/logout"
             for event in backend.events

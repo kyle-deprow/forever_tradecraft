@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from crowley.session import pointer_execution
 from crowley.session.calibration import XTestInputProfile
 from crowley.session.config import SessionConfig
 from crowley.session.daemon import SessionDaemon
@@ -19,6 +20,7 @@ from crowley.session.driver import (
     DesktopDriver,
     DriverError,
     DriverProfile,
+    MeasuredAnchor,
     PinnedX11IdentityObserver,
     WindowIdentity,
     X11Backend,
@@ -188,6 +190,9 @@ def _motion_pair(
 
 
 def _driver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, executable_source: str = "") -> DesktopDriver:
+    rate_directory = tmp_path / "pointer-rate-state"
+    rate_directory.mkdir(mode=0o700, exist_ok=True)
+    monkeypatch.setattr(pointer_execution, "_session_state_directory", lambda: rate_directory)
     backend = X11Backend(
         DriverProfile(display=":actions", xauthority=str(tmp_path / "Xauthority")),
         input_tool=fixture_input_tool(tmp_path / "tool", executable_source or "/bin/true"),
@@ -281,6 +286,156 @@ def test_native_pointer_producers_reject_profile_drift_before_input(
             with pytest.raises(DriverError, match="profile changed"):
                 driver.run_camera_drag(plan, generation=generation)
         assert commands == []
+    finally:
+        driver.close()
+
+
+def test_x11_pointer_backend_refuses_unplanned_direct_click_before_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    commands: list[list[str]] = []
+    monkeypatch.setattr(
+        driver.backend,
+        "_run",
+        lambda args, **_kwargs: commands.append(list(args)) or subprocess.CompletedProcess(args, 0, "", ""),
+    )
+    try:
+        with pytest.raises(DriverError, match="validated planned gesture"):
+            driver.backend.action("open_ah", generation=1)
+        assert commands == []
+    finally:
+        driver.close()
+
+
+def test_runtime_pointer_gesture_seed_and_emission_timing_reach_driver_receipt(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    identity = _identity()
+    pointer = [20, 20, identity.child_xid]
+    commands: list[list[str]] = []
+    seed = 0x123456789
+    now = time.monotonic()
+
+    def run_action(args, *, input_schema=None, **_kwargs):
+        commands.append(list(args))
+        if input_schema == "pointer-motion":
+            for index, value in enumerate(args[:-2]):
+                if value == "mousemove":
+                    pointer[0] = int(args[index + 1])
+                    pointer[1] = int(args[index + 2])
+                    pointer[2] = identity.child_xid
+
+    backend = driver.backend
+    backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+    backend._focus = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    backend.pointer_position = lambda **_kwargs: tuple(pointer)  # type: ignore[method-assign]
+    backend._run = run_action  # type: ignore[method-assign]
+    monkeypatch.setattr(pointer_execution.secrets, "randbits", lambda _bits: seed)
+    monkeypatch.setattr(driver, "_verify_current_xtest_profile", lambda *_args, **_kwargs: None)
+    anchor = MeasuredAnchor(
+        action="open_ah",
+        x=260,
+        y=210,
+        identity_fingerprint=identity.fingerprint,
+        target_xid=identity.child_xid,
+        capture_id="capture-one",
+        capture_sequence=1,
+        source="native-visual",
+        observed_monotonic=now,
+        capture_monotonic=now,
+        facts=(
+            ("capture", "capture-one"),
+            ("control", "auctioneer_buckler"),
+            ("target", str(identity.child_xid)),
+        ),
+        generation=1,
+        bounds=(240, 190, 60, 40),
+        target_ancestry=(identity.child_xid,),
+    ).with_hash()
+    binding = BindingMetadata(
+        identity.fingerprint,
+        anchor.capture_id,
+        anchor.capture_sequence,
+        1,
+        anchor.target_xid,
+        anchor.target_ancestry,
+        source=anchor.source,
+    )
+    expected = [
+        pointer_execution.plan_human_pointer(
+            Point(pointer[0], pointer[1]),
+            PointerTarget("auctioneer_buckler", Rect(*anchor.bounds), binding, padding=1),
+            Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3]),
+            seed=seed,
+            button=PointerButton.RIGHT,
+            profile=driver.pointer_motion_profile,
+        )
+    ]
+
+    def measure_pointer_anchor(name, *, generation):
+        assert name == "open_ah" and generation == 1
+        driver._measured_anchors[name] = anchor
+        driver._measured_anchor_generations[name] = generation
+        backend._measured_anchors[name] = anchor
+        return anchor
+
+    def consume_pointer_anchor(name, measured):
+        assert name == "open_ah" and measured is anchor
+        backend._consumed_anchor_seals.add(anchor.evidence_hash)
+
+    def refresh_pointer_anchor(_name, _generation, _identity, previous):
+        plan = expected[0]
+        assert plan is not None and previous is anchor
+        return MeasuredAnchor(
+            action="open_ah",
+            x=plan.endpoint.x,
+            y=plan.endpoint.y,
+            identity_fingerprint=identity.fingerprint,
+            target_xid=identity.child_xid,
+            capture_id="capture-two",
+            capture_sequence=2,
+            source="native-visual",
+            observed_monotonic=time.monotonic(),
+            capture_monotonic=time.monotonic(),
+            facts=(("control", "auctioneer_buckler"),),
+            generation=1,
+            bounds=anchor.bounds,
+            target_ancestry=anchor.target_ancestry,
+        ).with_hash()
+
+    driver.measure_pointer_anchor = measure_pointer_anchor  # type: ignore[method-assign]
+    driver._refresh_pointer_anchor = refresh_pointer_anchor  # type: ignore[method-assign]
+    backend.consume_measured_anchor = consume_pointer_anchor  # type: ignore[method-assign]
+    generation = driver.guardian.arm(driver._input_evidence)
+    backend.activate_generation(generation)
+    driver.guardian.finish_action = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+
+    try:
+        driver.run(
+            "open_ah",
+            generation,
+            precondition=lambda _identity: True,
+            postcondition=lambda _identity: True,
+        )
+        receipt = driver.pointer_gesture_receipts[-1]
+        execution = receipt["execution"]
+        assert receipt["seed"] == seed
+        assert receipt["frozenEndpoint"] == [int(expected[0].endpoint.x), int(expected[0].endpoint.y)]
+        assert receipt["pathSha256"] == execution["pathSha256"]
+        assert receipt["accepted"] is True
+        assert execution["seed"] == receipt["seed"]
+        assert execution["phase"] == "click_released_and_rate_recorded"
+        assert execution["movementDispatchStartedMonotonicNs"] <= execution["movementAckMonotonicNs"]
+        assert (
+            execution["clickPrecommitMonotonicNs"]
+            <= execution["clickDispatchStartedMonotonicNs"]
+            <= execution["clickAckMonotonicNs"]
+            <= execution["rateRecordMonotonicNs"]
+        )
+        assert len(commands) == 2
+        assert pointer[:2] == [int(expected[0].endpoint.x), int(expected[0].endpoint.y)]
     finally:
         driver.close()
 
