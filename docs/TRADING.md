@@ -43,9 +43,20 @@ selected share is recorded in report metadata.
 Equity uses a liquidity-aware mark. For each strategy and item, up to
 `floor(0.25 × demand_units_per_day × 2)` units (zero when demand is unknown) are
 marked at `min(fair, purchase-net visible minimum) × (1 − AH_CUT)` when those
-values are available. Units beyond that two-day capacity are marked at the item's
-vendor sell price, or zero when no item facts exist. Cash and pending cash are the
-realized component; the report exposes both `equity` and `realized`.
+values are available. If an item is not observed in the current sweep, the engine
+uses that item's most recent snapshot at or before the current step for both the
+liquidity limit and market mark; it never looks ahead to a later snapshot. An item
+never observed in the run is marked at its vendor sell price, or zero when no item
+facts exist. Units beyond the applicable two-day capacity use the vendor mark.
+Cash and pending cash are the realized component; the report exposes both `equity`
+and `realized`, plus each strategy's final-step `stale_marked_items` count.
+
+Crafting exits use only inventory present at the start of the decision. Outputs
+created by a Craft are therefore posted or vendor-sold on the following step, even
+when the shared time budget truncates that Craft. The other built-in strategies
+were audited for the same dependency: `snipe_flip` and `dip_reversion` emit their
+VendorSell/Post exits before Buy intents, and `vendor_arb` emits its VendorSell
+intents before Buy intents, so none posts or vendor-sells same-step purchases.
 
 The report also records `max_held_over_capacity` per strategy, calculated over the
 step-by-step held-unit observations (inventory, listings, and mail) against the

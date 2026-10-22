@@ -33,6 +33,7 @@ from crowley.trading.execution import (
 )
 from crowley.trading.market import Market
 from crowley.trading.report import build_report, text_summary
+from crowley.trading.strategies import crafting
 from crowley.trading.strategies.vendor_arb import VendorArbStrategy
 
 ITEM = 7
@@ -430,6 +431,126 @@ def test_marks_equity_attribution_and_no_lookahead():
     # Demand is not observable at the first step, so the purchased unit is
     # marked at its zero vendor value rather than the old unconditional book mark.
     assert result.total_equity_curve[0][1] == Fraction(190)
+
+
+def test_partial_sweep_marks_latest_observation_and_reports_stale_items():
+    stale_item, marker_item, unseen_item = 8, 9, 10
+    books = {
+        stale_item: [
+            book(0, [("old", 20, 8)], item_id=stale_item, sweep_id=1),
+            book(
+                900,
+                [("tracked", 40, 2), ("high", 80, 10)],
+                item_id=stale_item,
+                sweep_id=2,
+            ),
+            book(1_800, [("tracked", 150, 2)], item_id=stale_item, sweep_id=4),
+        ],
+        marker_item: [book(1_350, [("marker", 1, 1)], item_id=marker_item, sweep_id=3)],
+    }
+
+    def point(fair):
+        return {
+            "fair": {"value": fair, "band": {"p25": fair - 10, "p75": fair + 10}, "n": 20},
+            "demand": {"purchased_units_per_day": 10},
+            "risk": {},
+        }
+
+    statistics = {
+        stale_item: [point(100), point(100), point(500)],
+        marker_item: [point(1)],
+    }
+    item_facts = {
+        stale_item: ItemFacts(stale_item, 10, 1, 1, 20, 0),
+        marker_item: ItemFacts(marker_item, 0, None, None, 20, 0),
+        unseen_item: ItemFacts(unseen_item, 7, 1, 1, 20, 0),
+    }
+    strategy = Script(
+        "partial",
+        {0: [VendorBuy(unseen_item, 1)], 1: [Buy(stale_item, 40, 2)]},
+    )
+    result = run(
+        books,
+        [strategy],
+        facts_value=item_facts,
+        capital=1_000,
+        statistics=statistics,
+        end_t=1_350,
+    )
+
+    # The purchase consumes the latest book's cheap level, so its purchase-net
+    # snapshot marks the held units at 80 copper. The final selected sweep omits
+    # stale_item, and the later 150-copper snapshot must not be used.
+    assert result.accounts["partial"].counts["units_bought"] == 2
+    assert result.equity_curves["partial"][-1][1] == Fraction(1_078)
+    report = build_report(result)["strategies"]["partial"]
+    assert report["stale_marked_items"] == 1
+    assert report["equity"] == Fraction(1_078)
+
+
+def test_truncated_craft_posts_actual_output_quantity_on_the_next_step():
+    reagent, output, burner_item = 11, 12, 13
+    recipe = Recipe(
+        31,
+        frozenset({"alchemy"}),
+        ((reagent, 1),),
+        ((output, 1),),
+        None,
+        0,
+        "test",
+    )
+    books = {
+        output: [
+            book(t, [("output", 10, 1)], item_id=output, sweep_id=index)
+            for index, t in enumerate((0, 900, 1_800), start=1)
+        ]
+    }
+    trusted = {
+        "fair": {"value": 100, "band": {"p25": 90, "p75": 110}, "n": 20},
+        "demand": {"purchased_units_per_day": 188, "eligible_covered_seconds": 6 * 3_600},
+        "risk": {},
+    }
+    item_facts = {
+        reagent: ItemFacts(reagent, 0, 1, 1, 20, 0),
+        output: ItemFacts(output, 1, None, None, 20, 0),
+        burner_item: ItemFacts(burner_item, 0, 1, 1, 20, 0),
+    }
+    burner = Script("burner", {1: [VendorBuy(burner_item, 1)] * 162})
+    strategy = crafting.build({"professions": ["alchemy"]})
+    result = run(
+        books,
+        [Script("idle"), burner, strategy],
+        facts_value=item_facts,
+        recipes=(recipe,),
+        capital=3_000,
+        statistics={output: [trusted, trusted, trusted]},
+    )
+
+    account = result.accounts["crafting"]
+    step_one = result.step_log[1]["strategies"]["crafting"]
+    assert account.counts["craft_truncated"] == 1
+    assert account.counts["crafted"] == 41
+    assert account.rejections == {}
+    assert [entry["intent"]["type"] for entry in step_one] == ["Craft"]
+    assert step_one[0]["outcome"] == "executed"
+
+    step_two = result.step_log[2]["strategies"]["crafting"]
+    posts = [entry for entry in step_two if entry["intent"]["type"] == "Post"]
+    assert posts == [
+        {
+            "intent": {
+                "type": "Post",
+                "item_id": output,
+                "unit_price": 99,
+                "quantity": 41,
+                "duration_hours": 24,
+            },
+            "outcome": "executed",
+            "detail": {},
+        }
+    ]
+    assert account.counts["posts"] == 1
+    assert next(iter(account.listings_by_id.values())).quantity == 41
 
 
 def test_fractional_prices_and_summary_statistics_fail_loudly():

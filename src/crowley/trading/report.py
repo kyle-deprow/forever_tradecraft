@@ -132,6 +132,7 @@ def _strategy_report(
     covered_days: Fraction,
     observations: list[dict[str, Any]],
     wind_down_checkpoint: Mapping[str, Fraction] | None = None,
+    stale_marked_items: int = 0,
 ) -> dict[str, Any]:
     final_equity = curve[-1][1] if curve else Fraction(account.cash_balance + account.pending_cash())
     cash_and_pending = account.cash_balance + account.pending_cash()
@@ -155,6 +156,7 @@ def _strategy_report(
         "realized_at_wind_down_start": wind_down_checkpoint.get("realized", Fraction(0)),
         "equity_at_wind_down_start": wind_down_checkpoint.get("equity", Fraction(account.start_capital)),
         "unrealized": unrealized,
+        "stale_marked_items": stale_marked_items,
         "fees": fees,
         "counts": counts,
         "rejections": dict(sorted(account.rejections.items())),
@@ -181,6 +183,7 @@ def _sum_reports(
     )
     equity_at_wind_down_start = sum((report["equity_at_wind_down_start"] for report in reports), Fraction(0))
     unrealized = sum((report["unrealized"] for report in reports), Fraction(0))
+    stale_marked_items = sum(report["stale_marked_items"] for report in reports)
     counts = {key: sum(report["counts"].get(key, 0) for report in reports) for key in COUNT_KEYS}
     fees = {key: sum(report["fees"].get(key, 0) for report in reports) for key in FEE_KEYS}
     rejections: dict[str, int] = {}
@@ -199,6 +202,7 @@ def _sum_reports(
         "realized_at_wind_down_start": realized_at_wind_down_start,
         "equity_at_wind_down_start": equity_at_wind_down_start,
         "unrealized": unrealized,
+        "stale_marked_items": stale_marked_items,
         "fees": fees,
         "counts": counts,
         "rejections": dict(sorted(rejections.items())),
@@ -230,6 +234,7 @@ def build_report(result: BacktestResult) -> dict[str, Any]:
             covered_days,
             result.capacity_observations.get(name, []),
             result.wind_down_checkpoints.get(name),
+            result.stale_mark_counts.get(name, 0),
         )
         for name, account in result.accounts.items()
     ]

@@ -284,12 +284,25 @@ class CraftingStrategy:
         recipes = {
             recipe.spell_id: recipe for recipe in sorted(market.recipes(), key=lambda entry: entry.spell_id)
         }
-        inventory = {item_id: item_inventory(account.inventory(), item_id) for item_id in account.inventory()}
+        starting_inventory = {
+            item_id: item_inventory(account.inventory(), item_id) for item_id in account.inventory()
+        }
+        inventory = dict(starting_inventory)
         held = {item_id: held_quantity(account, item_id) for item_id in account.inventory()}
         for recipe in recipes.values():
             for item_id, _quantity in (*recipe.reagents, *recipe.outputs):
                 held.setdefault(item_id, held_quantity(account, item_id))
         intents, crafted_groups = self._craft_previous(market, account, recipes, inventory, held)
+        post_inventory = dict(starting_inventory)
+        for intent in intents:
+            if not isinstance(intent, Craft):
+                continue
+            recipe = recipes[intent.spell_id]
+            for item_id, quantity in recipe.reagents:
+                post_inventory[item_id] = max(
+                    0,
+                    item_inventory(post_inventory, item_id) - quantity * intent.times,
+                )
         projected_cash = max(0, int(account.cash()))
 
         output_ids = sorted(
@@ -305,7 +318,10 @@ class CraftingStrategy:
         for item_id in output_ids:
             snapshot = market.items().get(item_id)
             facts = market.facts(item_id)
-            quantity = item_inventory(inventory, item_id)
+            # A Craft intent executes before the remaining intents in this decision.  Only
+            # units that existed before this decision may be exited; newly crafted output is
+            # deliberately left for the next sweep.
+            quantity = item_inventory(post_inventory, item_id)
             if (
                 snapshot is None
                 or facts is None
@@ -334,7 +350,8 @@ class CraftingStrategy:
             facts = market.facts(item_id)
             assert facts is not None
             intents.append(VendorSell(item_id, quantity))
-            inventory[item_id] = 0
+            inventory[item_id] = max(0, item_inventory(inventory, item_id) - quantity)
+            post_inventory[item_id] = 0
             held[item_id] = max(0, held.get(item_id, 0) - quantity)
             projected_cash += facts.sell_price * quantity
 
@@ -352,7 +369,8 @@ class CraftingStrategy:
             )
             intents.append(Post(item_id, target, quantity, 24))
             projected_cash -= deposit
-            inventory[item_id] = 0
+            inventory[item_id] = max(0, item_inventory(inventory, item_id) - quantity)
+            post_inventory[item_id] = 0
 
         candidates: list[_Candidate] = []
         for recipe in recipes.values():

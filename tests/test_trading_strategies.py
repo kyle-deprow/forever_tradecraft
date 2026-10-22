@@ -410,8 +410,19 @@ def test_crafting_projects_posted_output_before_buying_it_as_a_reagent():
     strategy = crafting.build({"professions": ["alchemy"]})
     assert strategy.decide(market, FakeAccount()) == [Buy(1, 10, 25)]
     result = strategy.decide(market, FakeAccount(inventory_map={1: 25}))
-    assert result[:2] == [Craft(1, 25), Post(2, 99, 25, 24)]
-    assert result[-1] == Buy(2, 50, 10)
+    assert result == [Craft(1, 25)]
+
+
+def test_crafting_posts_newly_crafted_output_on_the_following_step():
+    market = crafting_market((recipe(1, 2, 1),), vendor=(1, 1))
+    market.snapshots[2] = snapshot(2, demand=Fraction(188), levels=(Level(50, 10),))
+    strategy = crafting.build({"professions": ["alchemy"]})
+
+    assert strategy.decide(market, FakeAccount()) == [VendorBuy(1, 47)]
+    craft = strategy.decide(market, FakeAccount(cash_value=0, inventory_map={1: 47}))
+    assert craft == [Craft(1, 47)]
+    assert not any(isinstance(intent, Post) for intent in craft)
+    assert strategy.decide(market, FakeAccount(cash_value=0, inventory_map={2: 47})) == [Post(2, 99, 47, 24)]
 
 
 def test_crafting_cooldown_and_stateful_determinism():
@@ -426,7 +437,6 @@ def test_crafting_cooldown_and_stateful_determinism():
         == right.decide(market, account)
         == [
             Craft(1, 1),
-            Post(2, 99, 1, 24),
         ]
     )
 

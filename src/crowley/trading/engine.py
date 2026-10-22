@@ -45,6 +45,7 @@ class BacktestResult:
     step_log: list[dict[str, Any]] = field(default_factory=list)
     realized_curves: dict[str, list[tuple[float, Fraction]]] = field(default_factory=dict)
     cash_curves: dict[str, list[tuple[float, int]]] = field(default_factory=dict)
+    stale_mark_counts: dict[str, int] = field(default_factory=dict)
 
     @property
     def strategies(self) -> dict[str, Account]:
@@ -65,15 +66,17 @@ class BacktestResult:
         return text_summary(self.report())
 
 
-def _mark_equity(
+def _mark_equity_details(
     account: Account,
     market: Market,
     t: float,
     sweep_index: int,
     snapshots: Mapping[int, Any] | None = None,
-) -> Fraction:
-    del t, sweep_index
+    snapshot_history: Mapping[int, tuple[int, Any]] | None = None,
+) -> tuple[Fraction, int]:
+    del t
     snapshots = market.view().items() if snapshots is None else snapshots
+    snapshot_history = {} if snapshot_history is None else snapshot_history
     holdings: dict[int, int] = {}
     for item_id, quantity in account.inventory_balance.items():
         holdings[item_id] = holdings.get(item_id, 0) + quantity
@@ -82,8 +85,16 @@ def _mark_equity(
     for item_id, quantity in account.in_transit().items():
         holdings[item_id] = holdings.get(item_id, 0) + quantity
     equity = Fraction(account.cash_balance + account.pending_cash())
+    stale_mark_count = 0
     for item_id, quantity in holdings.items():
         snapshot = snapshots.get(item_id)
+        if snapshot is None:
+            historical = snapshot_history.get(item_id)
+            if historical is not None:
+                historical_step, historical_snapshot = historical
+                if historical_step <= sweep_index:
+                    snapshot = historical_snapshot
+                    stale_mark_count += 1
         if snapshot is not None and snapshot.demand_units_per_day is not None:
             liquid_limit = max(0, int(Fraction(1, 4) * snapshot.demand_units_per_day * 2))
         else:
@@ -98,6 +109,27 @@ def _mark_equity(
         fact = market.facts(item_id)
         vendor_mark = Fraction(max(0, fact.sell_price)) if fact is not None else Fraction(0)
         equity += liquid_quantity * liquid_mark + (quantity - liquid_quantity) * vendor_mark
+    return equity, stale_mark_count
+
+
+def _mark_equity(
+    account: Account,
+    market: Market,
+    t: float,
+    sweep_index: int,
+    snapshots: Mapping[int, Any] | None = None,
+    snapshot_history: Mapping[int, tuple[int, Any]] | None = None,
+) -> Fraction:
+    """Mark holdings using the current or latest earlier observed snapshot."""
+
+    equity, _stale_mark_count = _mark_equity_details(
+        account,
+        market,
+        t,
+        sweep_index,
+        snapshots=snapshots,
+        snapshot_history=snapshot_history,
+    )
     return equity
 
 
@@ -264,6 +296,8 @@ def run_backtest(
     step_log: list[dict[str, Any]] = []
     realized_curves: dict[str, list[tuple[float, Fraction]]] = {name: [] for name in names}
     cash_curves: dict[str, list[tuple[float, int]]] = {name: [] for name in names}
+    snapshot_history: dict[int, tuple[int, Any]] = {}
+    stale_mark_counts: dict[str, int] = {name: 0 for name in names}
     wind_down_start_t = Fraction(steps[-1][1]) - wind_down_hours * 3600
     metadata["wind_down_start_t"] = wind_down_start_t
     wind_down_active = wind_down_hours > 0
@@ -289,7 +323,13 @@ def run_backtest(
                 name: {
                     "realized": Fraction(account.cash_balance + account.pending_cash())
                     - account.start_capital,
-                    "equity": _mark_equity(account, market, t, step),
+                    "equity": _mark_equity(
+                        account,
+                        market,
+                        t,
+                        step,
+                        snapshot_history=snapshot_history,
+                    ),
                 }
                 for name, account in accounts.items()
             }
@@ -319,12 +359,26 @@ def run_backtest(
                 )
                 next_listing_id = context.next_listing_id
                 market.set_step(t, step, purchased)
+        current_snapshots = market.view().items()
+        is_final_step = step == steps[-1][0]
         for name, account in accounts.items():
-            curves[name].append((t, _mark_equity(account, market, t, step)))
+            equity, stale_mark_count = _mark_equity_details(
+                account,
+                market,
+                t,
+                step,
+                snapshots=current_snapshots,
+                snapshot_history=snapshot_history,
+            )
+            curves[name].append((t, equity))
+            if is_final_step:
+                stale_mark_counts[name] = stale_mark_count
             realized_curves[name].append(
                 (t, Fraction(account.cash_balance + account.pending_cash() - account.start_capital))
             )
             cash_curves[name].append((t, account.cash_balance))
+        for item_id, snapshot in current_snapshots.items():
+            snapshot_history[item_id] = (step, snapshot)
         _record_capacity_observations(capacity_observations, strategy_list, ordered_accounts, market)
         total_curve.append((t, sum((curves[name][-1][1] for name in names), Fraction(0))))
         step_log.append(step_decisions)
@@ -341,6 +395,7 @@ def run_backtest(
         step_log=step_log,
         realized_curves=realized_curves,
         cash_curves=cash_curves,
+        stale_mark_counts=stale_mark_counts,
     )
 
 
