@@ -29,4 +29,15 @@ Updated 2026-10-22 after the live 03:22 UTC probe by the main game-driver sessio
 
 P2 merged MAIN commit: 05392bf
 Live expanded-probe capture: saved and uploaded; independently verified against DB.
-First resumed sweep: pending; Luna is restoring the keyboard-only AH route.
+First resumed sweep: UID`beta-normal-alliance-1792640172-Arthur-4663`,
+03:36:12–03:44:22 UTC,428 attempted/zero failures/1046 rows. Parent validated
+original format3 and matched complete logical digest/plan/counts to DB:
+423 full/5 bounded,428ok. Server receipt03:44:57.060933 UTC (35.06s after finish).
+Next due03:51:12 UTC. Original SavedVariables/Data.lua retained. Exact ACK exists
+in Data.lua; loaded-ACK proof is pending because the session reader rejects the
+producer's newly added `referenceItemIDs` field. Narrow Luna consumer-contract
+fix is promoted after Sol READY and parent4tests/retainedactualData.lua acceptance.
+Fresh helpers load it; paused daemon restart is pending before autonomous use.
+GUI owner is restoring AH with one uploaded pending UID
+below cap6 to keep collection moving. No active-sweep ACK reloads.
+Private proof: `assisted-collection-luna-20261021/543-scan237-exact-ack-diagnostic/parent-format3-upload-verification.json`.

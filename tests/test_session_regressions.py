@@ -228,17 +228,25 @@ def _state_file(path: Path, **changes: object) -> Journal:
     return journal
 
 
-def _write_data(path: Path, acknowledged: list[str], *, extra: dict | None = None) -> None:
-    # The four-key CROWLEY_DATA table still embeds the pinned plan.  A blank
-    # scanPlan is useful for hand-written fixtures but cannot cross the real
-    # Data.lua validator (which also checks the external plan/build pin).
-    plan = load_catalog().scan_plan()
+def _write_data(
+    path: Path,
+    acknowledged: list[str],
+    *,
+    extra: dict | None = None,
+    include_reference_item_ids: bool = True,
+) -> None:
+    # Match the companion's current CROWLEY_DATA payload and pinned item catalog.
+    catalog = load_catalog()
+    plan = catalog.scan_plan()
     value: dict = {
         "generatedAt": 1_760_000_000,
         "ackedScans": sorted(acknowledged, key=lambda item: item.encode()),
         "scanPlan": plan,
+        "referenceItemIDs": sorted(item.item_id for item in catalog.items),
         "shoppingLists": [],
     }
+    if not include_reference_item_ids:
+        del value["referenceItemIDs"]
     if extra:
         value.update(extra)
     path.write_text(render_assignment("CROWLEY_DATA", value, "strict captured Data.lua"), encoding="utf-8")
@@ -807,10 +815,27 @@ def _strict_bounded_commodity() -> dict:
     }
 
 
-def test_actual_data_schema_accepts_exact_four_keys_and_rejects_unknown_keys(tmp_path: Path) -> None:
+def test_actual_data_schema_matches_current_producer_and_rejects_bad_reference_ids(tmp_path: Path) -> None:
     data = tmp_path / "Data.lua"
     _write_data(data, ["uid-1"])
     assert read_data_acknowledged_ids(data) == ("uid-1",)
+
+    reference_item_ids = sorted(item.item_id for item in load_catalog().items)
+    invalid_reference_ids = (
+        reference_item_ids[:-1],
+        reference_item_ids[::-1],
+        [*reference_item_ids[:-1], reference_item_ids[-1], reference_item_ids[-1]],
+        [True, *reference_item_ids[1:]],
+        [*reference_item_ids[:-1], 999_999_999],
+    )
+    for invalid_ids in invalid_reference_ids:
+        _write_data(data, ["uid-1"], extra={"referenceItemIDs": invalid_ids})
+        with pytest.raises(EvidenceError, match="CROWLEY_DATA.referenceItemIDs is invalid"):
+            read_data_acknowledged_ids(data)
+
+    _write_data(data, ["uid-1"], include_reference_item_ids=False)
+    with pytest.raises(EvidenceError, match="CROWLEY_DATA is malformed"):
+        read_data_acknowledged_ids(data)
 
     _write_data(data, ["uid-1"], extra={"ackedSweeps": []})
     with pytest.raises(EvidenceError, match="CROWLEY_DATA is malformed"):

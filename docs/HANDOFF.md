@@ -1,11 +1,29 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 03:27 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 03:37 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Latest calibration appointment update (supersedes historical live state)
+
+**First resumed sweep uploaded:** UID`beta-normal-alliance-1792640172-Arthur-4663`
+ran03:36:12–03:44:22 UTC,428 attempted/zero failures/1046 rows. Parent validated
+the immutable original format3 envelope and matched its logical digest, plan,
+observation/row counts against read-only DB:423 full/5 bounded,428ok. Server
+received it03:44:57.060933 UTC (35.06s after finish). Private evidence:
+`assisted-collection-luna-20261021/543-scan237-exact-ack-diagnostic/parent-format3-upload-verification.json`.
+Data.lua already contains its exact ACK. Loaded ACK is pending because the strict
+session reader expected four top-level fields, while the current producer also
+emits `referenceItemIDs`. Narrow Luna fix is now promoted to MAIN working tree
+after Sol READY and parent4test pass + exact retained-live-file acceptance.
+It requires the current five fields and validates canonical full-catalog reference
+IDs; unknown fields and malformed IDs still fail. Do not delete producer fields.
+New helper processes load the fix; the paused daemon still needs restart before
+future autonomous use (coordinate with native-helper integration).
+Original SavedVariables and Data.lua bytes are preserved. GUI owner is restoring
+AH with one pending uploaded UID below cap6 so this reader repair does not hold
+the next03:51:12 UTC scan. Never reload during an active sweep to load an ACK.
 
 **Expanded API probe completed:** After loading P2, Luna submitted `/crowley probe`
 once and saved it with a verified reload. Probe1792639338 (03:22:18 UTC on
@@ -13,8 +31,10 @@ once and saved it with a verified reload. Probe1792639338 (03:22:18 UTC on
 `client_probes` against the immutable SavedVariables: exactly equal, including
 40 boolean globals, six boolean frame checks and expanded namespace inventories.
 Private evidence: `assisted-collection-luna-20261021/530-saving-reload-probe-check/parent-probe-verification.json`.
-The shared data-agent status below is updated. First resumed format3 sweep is
-still pending; Luna is restoring the keyboard-only AH interaction. Calibration
+The shared data-agent status below is updated. First resumed sweep started at
+03:36:12 UTC (startedAt1792640172),428 planned, next due03:51:12 UTC. Parent
+independently decoded the retained opened-AH PNG to verify those timestamps and
+actual item phase/ordinal1. Save/upload/exact loaded ACK remain pending. Calibration
 click repair remains offline and has design READY, not implementation approval.
 
 **CURRENT RESUME:** At02:46 UTC on2026-10-22 the user explicitly resumed Luna

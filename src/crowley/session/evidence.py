@@ -337,7 +337,7 @@ def read_data_acknowledged_ids(
     except (OSError, UnicodeError, ValueError, JournalError) as exc:
         raise EvidenceError(f"Data.lua is malformed: {exc}") from exc
     value = root.get("CROWLEY_DATA")
-    allowed = {"generatedAt", "ackedScans", "scanPlan", "shoppingLists"}
+    allowed = {"generatedAt", "ackedScans", "scanPlan", "referenceItemIDs", "shoppingLists"}
     if not isinstance(value, dict) or set(value) != allowed:
         raise EvidenceError("CROWLEY_DATA is malformed")
     generated_at = value.get("generatedAt", 0)
@@ -356,10 +356,23 @@ def read_data_acknowledged_ids(
     ids.extend(entries)
     if len(ids) != len(set(ids)):
         raise EvidenceError("CROWLEY_DATA acknowledgement IDs must be unique")
+    catalog = load_catalog()
+    reference_item_ids = value["referenceItemIDs"]
+    expected_reference_item_ids = sorted(item.item_id for item in catalog.items)
+    if (
+        not isinstance(reference_item_ids, list)
+        or any(
+            isinstance(item_id, bool) or not isinstance(item_id, int) or item_id <= 0
+            for item_id in reference_item_ids
+        )
+        or reference_item_ids != sorted(set(reference_item_ids))
+        or reference_item_ids != expected_reference_item_ids
+    ):
+        raise EvidenceError("CROWLEY_DATA.referenceItemIDs is invalid")
     scan_plan = value["scanPlan"]
     if not isinstance(scan_plan, dict):
         raise EvidenceError("CROWLEY_DATA.scanPlan is invalid")
-    pinned = load_catalog().scan_plan()
+    pinned = catalog.scan_plan()
     if expected_plan_json is None:
         expected_plan_json = pinned["planJSON"]
     if expected_plan_hash is None:
