@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 14:40 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-22 14:43 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -38,12 +38,23 @@ and independently decoded retained loaded-ACK PNG agree; private proof:
 No276 started. GUI owner completed its scan task and was explicitly woken with a
 follow-up task after deployment; verified running. Service restart14:32:34:
 PID2931936->3787948, fresh public PAUSED82/nativefalse/inputfalse/opidle,
-journal checkpoint keyABSENT. Mandatory preflight82 passed; public resume83
-succeeded and full deferred native measurement83 is running. Owner may complete
-checkpoint-dependent ordinary recovery using actual generations. Fresh user-availability question
+journal checkpoint keyABSENT. Mandatory preflight82 and full native83 subsequently
+passed; public pause84/canonical recovery84 succeeded. Fresh journal independently
+verified14:43:29 UTC is PAUSED84/native=true/input=false/checkpoint keyABSENT,
+lastAction native_construction_recovery_commit. Native83 resource growth was
+1,159,168B construction (within128MiB),61,980,672B updates (exceeds16MiB);
+this is not a performance-target or autonomous qualification pass.
+Native proof:
+`native-calibration-operator/native-calibration-measure-deferred-20261022T143902649049Z-3967959-680997c0/receipt.json`
+under the private Crowley state root. Reviewed placement repair is committed and
+pushed as8e858ce; prior origin repair aa8b43b. Fresh user-availability question
 is PENDING; **do not launch input-calibrate/timed human window until answered**.
-After ordinary native recovery, resume assisted collection if availability remains
-unconfirmed; keep the human question pending. Zero autonomous cycles qualified.
+GUI owner is restoring assisted276, then must keep repeating900s assisted cycles
+until explicit new user update or real blocker; do not stop after one/three cycles.
+Actual276 start has not yet been reported. Keep the human question pending and
+retain native83 evidence without gratuitous restart. Later human input admission
+must use fresh actual state/generation after a completed scan. Zero autonomous
+cycles qualified; live Mutter/certified-hit placement remains pending that stage.
 
 The following paragraphs retain the two earlier attempts and repair evidence;
 the current cutover above supersedes their state/generation/hold statements.
