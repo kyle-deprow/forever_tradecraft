@@ -2845,6 +2845,75 @@ class SessionDaemon:
         with self._calibration_state_lock:
             self._calibration_operation["readiness"] = self._sanitize_readiness(readiness)
 
+    def _persist_takeover_hover_failure(self, context: dict[str, Any]) -> Path:
+        """Persist one bounded private hover failure without affecting its error path."""
+
+        artifact = copy.deepcopy(context)
+        try:
+            artifact["sourceBindings"] = _runtime_source_hashes()
+        except Exception as exc:
+            artifact["sourceBindingsError"] = _bounded_diagnostic_error(exc)
+        artifact["persistedAtNs"] = time.time_ns()
+        artifact["artifact"] = "latest-takeover-hover-failure"
+        encoded = json.dumps(artifact, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+        if len(encoded) > 2 * 1024 * 1024:
+            observer = artifact.get("observer")
+            if isinstance(observer, dict):
+                observer["rawBlocks"] = []
+                observer["partialRaw"] = ""
+                observer["rawTruncated"] = True
+            artifact["artifactTruncated"] = True
+            encoded = json.dumps(artifact, sort_keys=True, separators=(",", ":"), allow_nan=False).encode(
+                "utf-8"
+            )
+        if len(encoded) > 2 * 1024 * 1024:
+            raise DriverError("takeover hover diagnostic exceeds its size bound")
+        journal = Path(self.config.journal).expanduser()
+        directory = journal.parent / "takeover-drill-diagnostics"
+        directory.mkdir(mode=0o700, parents=True, exist_ok=True)
+        os.chmod(directory, 0o700)
+        destination = directory / "latest-hover-failure.json"
+        descriptor, temporary_name = tempfile.mkstemp(prefix=".hover-failure-", dir=directory)
+        temporary = Path(temporary_name)
+        try:
+            os.fchmod(descriptor, 0o600)
+            with os.fdopen(descriptor, "wb") as stream:
+                descriptor = -1
+                stream.write(encoded)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, destination)
+            os.chmod(destination, 0o600)
+            return destination
+        finally:
+            if descriptor != -1:
+                os.close(descriptor)
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
+
+    @staticmethod
+    def _takeover_hover_failure_summary(context: dict[str, Any], error: Exception) -> str:
+        # The driver's failure handler may revoke an otherwise-armed lease as
+        # cleanup. Only the snapshot captured before that cleanup can explain
+        # why the hover failed; the post-cleanup snapshot remains private
+        # diagnostic context and must not be promoted to the first cause.
+        guardian = context.get("guardianBeforeCleanup")
+        reason = guardian.get("revokedReason") if isinstance(guardian, dict) else None
+        if isinstance(reason, str) and reason and reason != "startup":
+            first_cause = f"takeover hover Guardian revocation: {reason}"
+        else:
+            observer = context.get("observer")
+            failure = observer.get("failureDiagnostic") if isinstance(observer, dict) else None
+            observer_reason = failure.get("reason") if isinstance(failure, dict) else None
+            if isinstance(observer_reason, str) and observer_reason:
+                first_cause = f"takeover hover observer failure: {observer_reason}"
+            else:
+                stage = context.get("stage")
+                first_cause = f"takeover hover failed during {stage or 'native dispatch'}"
+        return _bounded_diagnostic_error(f"{first_cause}; {type(error).__name__}: {error}")
+
     def _persist_input_calibration_failure(self, context: dict[str, Any] | None) -> None:
         """Best-effort private persistence for a pre-human input failure.
 
@@ -7267,8 +7336,11 @@ class SessionDaemon:
         monitor = None
         armed_generation: int | None = None
         drill_started_ns = 0
+        drill_started_wall_ns = time.time_ns()
         completed_hover_ns = 0
         awaiting_input_ns = 0
+        runtime_evidence: RuntimeInputEvidence | None = None
+        hover_failure_context: dict[str, Any] | None = None
         cleanup_pending = bool(self._takeover_drill_operation.get("cleanupPending", False))
         with self._takeover_cancel_lock:
             self._takeover_cancel.clear()
@@ -7329,6 +7401,7 @@ class SessionDaemon:
                 status = self.controller.pause("takeover drill preparation")
             drill_generation = status.generation
             evidence = self.passive_startup()
+            runtime_evidence = evidence
             if not isinstance(self.driver, DesktopDriver) or not isinstance(self.driver.backend, X11Backend):
                 raise DriverError("takeover drill requires the owned native X11 driver")
             monitor = self.driver._monitor
@@ -7350,7 +7423,25 @@ class SessionDaemon:
             # The hover receives the exact arm generation. A pause racing this
             # call revokes that generation; the production hover executor
             # checks Guardian admission before every emitted pointer action.
-            self.driver.run_takeover_hover(armed_generation, evidence)
+            try:
+                self.driver.run_takeover_hover(armed_generation, evidence)
+            except Exception as exc:
+                retained = getattr(self.driver, "_last_takeover_hover_failure_context", None)
+                hover_failure_context = copy.deepcopy(retained) if isinstance(retained, dict) else {}
+                hover_failure_context["drill"] = {
+                    "controllerGeneration": drill_generation,
+                    "armedGeneration": armed_generation,
+                    "startedWallTimeNs": drill_started_wall_ns,
+                    "startedMonotonicNs": drill_started_ns,
+                    "readinessBoot": evidence.readiness_boot,
+                    "readinessSequence": evidence.readiness_sequence,
+                    "environmentFingerprint": evidence.environment_fingerprint,
+                }
+                hover_failure_context["commandError"] = {
+                    "type": type(exc).__name__,
+                    "message": " ".join(str(exc).split())[:8192],
+                }
+                raise DriverError(self._takeover_hover_failure_summary(hover_failure_context, exc)) from exc
             completed_hover_ns = time.monotonic_ns()
             if not self.driver.guardian.armed or self.driver.guardian.generation != armed_generation:
                 raise DriverError("takeover hover was revoked before the human observation window")
@@ -7493,6 +7584,47 @@ class SessionDaemon:
                     record_cleanup_error(
                         "ownership check", DriverError("owned observer or input resources remain")
                     )
+
+                if hover_failure_context is not None:
+                    cleanup_diagnostic: dict[str, Any] = {
+                        "errors": list(cleanup_errors),
+                        "resourcesUnresolved": resources_unresolved,
+                        "driverMonitorRegisteredAfterCleanup": current_monitor is not None,
+                    }
+                    try:
+                        cleanup_diagnostic.update(
+                            {
+                                "guardianArmed": bool(self.driver.guardian.armed),
+                                "guardianHeld": bool(self.driver.guardian.held),
+                                "observerProcessGroups": sorted(self.driver.guardian.observer_process_groups),
+                                "activeProcessGroups": sorted(self.driver.guardian.active_process_groups),
+                            }
+                        )
+                    except Exception as diagnostic_error:
+                        cleanup_diagnostic["ownershipSnapshotError"] = _bounded_diagnostic_error(
+                            diagnostic_error
+                        )
+                    hover_failure_context["cleanup"] = cleanup_diagnostic
+                    snapshot = getattr(monitor, "diagnostic_snapshot", None)
+                    if callable(snapshot):
+                        try:
+                            hover_failure_context["observer"] = snapshot()
+                            hover_failure_context["observerSnapshotTiming"] = "after_drill_cleanup"
+                        except Exception as diagnostic_error:
+                            hover_failure_context["observerSnapshotAfterCleanupError"] = (
+                                _bounded_diagnostic_error(diagnostic_error)
+                            )
+                    if runtime_evidence is not None:
+                        hover_failure_context["drill"]["readinessEnvironmentFingerprint"] = (
+                            runtime_evidence.environment_fingerprint
+                        )
+                    try:
+                        self._persist_takeover_hover_failure(hover_failure_context)
+                    except Exception as diagnostic_error:
+                        _LOGGER.warning(
+                            "takeover hover failure diagnostic persistence failed: %s",
+                            _bounded_diagnostic_error(diagnostic_error),
+                        )
 
                 with self._takeover_cancel_lock:
                     state = self._takeover_drill_operation.get("state", "failed")

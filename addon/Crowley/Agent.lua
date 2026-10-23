@@ -23,6 +23,8 @@ local bootReady = false
 local surface
 local cells = {}
 local frameBytes = nil
+local hudHidden = false
+local publishingForHudShow = false
 local elapsed = 1
 local nativePhase = "normal"
 local nativeOrdinal = 0
@@ -90,6 +92,18 @@ local function clearSurface()
     for _, texture in pairs(cells) do texture:Hide() end
   end
   surface, cells, frameBytes = nil, {}, nil
+end
+
+local function setSurfaceShown(visible)
+  if not surface then return end
+  if visible then
+    for _, texture in pairs(cells) do texture:Show() end
+    surface:Show()
+  else
+    if surface.SetScript then surface:SetScript("OnUpdate", nil) end
+    surface:Hide()
+    for _, texture in pairs(cells) do texture:Hide() end
+  end
 end
 
 local function u32(value)
@@ -597,6 +611,7 @@ local function setNativeState(phase, ordinal)
 end
 
 function Agent.Publish()
+  if hudHidden and not publishingForHudShow then error("agent_hud_hidden") end
   if not bootReady or not surface then error("agent_unconstructed") end
   renderMetrics.luaHeap = copy(lastLuaHeap)
   renderMetrics.nativePhase, renderMetrics.nativeOrdinal = nativePhase, nativeOrdinal
@@ -638,8 +653,96 @@ local function publishChecked()
   return pcall(Agent.Publish)
 end
 
-function Agent.FrameBytes() return frameBytes end
+function Agent.FrameBytes()
+  if hudHidden then return nil end
+  return frameBytes
+end
 function Agent.Surface() return surface end
+
+function Agent.HudHidden() return hudHidden end
+
+function Agent.HudStatus()
+  return {
+    hidden = hudHidden,
+    available = surface ~= nil,
+    visible = not hudHidden and surface ~= nil,
+  }
+end
+
+local function nativeHudAdmission()
+  if hudHidden then return false, "agent_hud_hidden" end
+  return true
+end
+
+local function visibilityMutationBlocked()
+  return not bootReady or lifecycle ~= "ordinary" or marker() ~= nil or
+    nativePhase ~= "normal" or restoreInFlight
+end
+
+function Agent.SetHudHidden(hidden)
+  if type(hidden) ~= "boolean" then return false, "hud_visibility_requires_boolean" end
+  if not ns.db or type(ns.db.settings) ~= "table" then return false, "agent_not_loaded" end
+  if visibilityMutationBlocked() then return false, "native_lifecycle_owns_surface" end
+
+  if hidden then
+    if hudHidden then
+      frameBytes = nil
+      elapsed = 0
+      setSurfaceShown(false)
+      ns.db.settings.hudHidden = true
+      return true, "already_hidden"
+    end
+    hudHidden = true
+    frameBytes = nil
+    elapsed = 0
+    setSurfaceShown(false)
+    ns.db.settings.hudHidden = true
+    return true, "hidden"
+  end
+
+  if not hudHidden then
+    if not surface then return false, "agent_surface_unavailable" end
+    return true, "already_visible"
+  end
+
+  if not surface then
+    local created, createFailure = createSurface()
+    if not created then return false, "surface_create_failed: " .. tostring(createFailure) end
+    -- BuildSurface uses the same pinned native geometry as an ordinary boot.
+    -- Keep the newly allocated cells off screen until fresh bytes are written.
+    setSurfaceShown(false)
+  end
+
+  frameBytes = nil
+  elapsed = 0
+  publishingForHudShow = true
+  local published, publication = pcall(Agent.Publish)
+  publishingForHudShow = false
+  if not published then
+    clearSurface()
+    hudHidden = true
+    ns.db.settings.hudHidden = true
+    return false, "publication_failed: " .. tostring(publication)
+  end
+  local shown, showFailure = pcall(function()
+    setSurfaceShown(true)
+    attachSurfaceScript()
+  end)
+  if not shown then
+    clearSurface()
+    hudHidden = true
+    ns.db.settings.hudHidden = true
+    return false, "surface_show_failed: " .. tostring(showFailure)
+  end
+
+  hudHidden = false
+  ns.db.settings.hudHidden = false
+  return true, "shown"
+end
+
+function Agent.ToggleHud()
+  return Agent.SetHudHidden(not hudHidden)
+end
 
 function Agent.NativeState()
   return { phase = nativePhase, ordinal = nativeOrdinal }
@@ -652,6 +755,8 @@ function Agent.ReleaseAdmitted()
 end
 function Agent.RestorePending() return restoreInFlight end
 function Agent.AdmitRelease()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   local current = marker()
   if type(current) ~= "table" or current.state ~= "deferred" or current.attempts ~= 0 then
     return false, "release_not_deferred"
@@ -665,6 +770,8 @@ function Agent.AdmitRelease()
 end
 function Agent.RecoveryAdmitted() return recoveryAdmitted end
 function Agent.BeginRecovery()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   -- The exact /crowley agent recover command is the addon-owned admission
   -- actor.  A future helper/daemon may add an external guard before invoking
   -- this public path, but there is no hidden manual admission step.
@@ -682,6 +789,8 @@ end
 function Agent.RecoveryMode() return recoveryMode end
 
 local function constructDeferred()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   local current = marker()
   if surface then return false, "agent_already_constructed" end
   if type(current) ~= "table" or current.state ~= "deferred" or current.attempts ~= 0 then
@@ -733,6 +842,8 @@ function Agent.Construct()
 end
 
 function Agent.Restore()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   if not recoveryAdmitted then return false, "recovery_not_admitted" end
   if not ns.db then return false, "agent_not_loaded" end
   if type(ReloadUI) ~= "function" then return false, "reload_unavailable" end
@@ -763,6 +874,8 @@ function Agent.Restore()
 end
 
 function Agent.Finalize()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   local current = marker()
   if type(current) ~= "table" or current.state ~= "constructed" or current.attempts ~= 1 then
     return false, "finalize_not_constructed"
@@ -805,6 +918,8 @@ local function scheduleMeasurementStep(token)
 end
 
 function Agent.Hold()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   if not surface then return false, "agent_unconstructed" end
   if nativePhase ~= "normal" then return false, "agent_not_normal" end
   measurementToken = measurementToken + 1
@@ -815,6 +930,8 @@ function Agent.Hold()
 end
 
 function Agent.Measure()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   if not surface then return false, "agent_unconstructed" end
   if nativePhase ~= "held" or nativeOrdinal ~= 0 then return false, "agent_measure_requires_held0" end
   measurementToken = measurementToken + 1
@@ -827,6 +944,8 @@ function Agent.Measure()
 end
 
 function Agent.Resume()
+  local admitted, reason = nativeHudAdmission()
+  if not admitted then return false, reason end
   if not surface then return false, "agent_unconstructed" end
   if nativePhase ~= "held" then return false, "agent_resume_requires_held" end
   local completed = nativeOrdinal == 100
@@ -854,7 +973,7 @@ end
 attachSurfaceScript = function()
   if not surface then return end
   surface:SetScript("OnUpdate", function(_, delta)
-    if nativePhase ~= "normal" then return end
+    if hudHidden or nativePhase ~= "normal" then return end
     elapsed = elapsed + (delta or 0)
     if elapsed >= 1 then elapsed = 0 safePublish() end
   end)
@@ -992,9 +1111,22 @@ local function initializeLoad()
   bootReady = false
   clearSurface()
   local state = decision.kind
+  if type(ns.db.settings) ~= "table" then
+    lifecycle = "restore_only"
+    if ns.Print then ns.Print("agent telemetry unavailable: invalid settings table") end
+    return
+  end
+  if ns.db.settings.hudHidden == nil then ns.db.settings.hudHidden = false end
+  if type(ns.db.settings.hudHidden) ~= "boolean" then
+    lifecycle = "restore_only"
+    if ns.Print then ns.Print("agent telemetry unavailable: invalid HUD visibility preference") end
+    return
+  end
   if state == "ordinary" then
     boot = randomBoot()
     bootReady, lifecycle = true, "ordinary"
+    hudHidden = ns.db.settings.hudHidden
+    if hudHidden then return end
     local ok, failure = createSurface()
     if not ok then
       lifecycle = "restore_only"
@@ -1008,6 +1140,10 @@ local function initializeLoad()
     safePublish()
     return
   end
+  -- An interrupted native lifecycle owns a visible publication surface so its
+  -- existing recovery path can complete. The saved display preference remains
+  -- intact and applies again after the next ordinary load.
+  hudHidden = false
   local current = marker()
   if type(current) == "table" and type(current.token) == "string" and current.state ~= "restore_pending" then
     boot = nativeBoot(current.token)

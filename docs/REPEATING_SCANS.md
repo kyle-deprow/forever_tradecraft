@@ -1,5 +1,11 @@
 # Repeating Crowley scans
 
+**Current operating status: collection stopped.** The user has directed us to
+assume the beta is over. The local session service is stopped and disabled;
+do not follow the startup instructions below until collection is authorized
+again. Existing data and evidence remain preserved. Live launch acceptance
+of the autonomous cycle is still pending; see HANDOFF for the exact limits.
+
 The local session controller collects the curated 428-item watchlist every 900
 seconds, anchored to actual scan starts. It preserves the original SavedVariables,
 waits for the companion upload and exact Data.lua UID acknowledgment, reloads,
@@ -12,6 +18,20 @@ This runbook describes the new passive-startup flow. The previous native/GTK
 calibration instructions are preserved as
 [historical diagnostics](../.archive/REPEATING_SCANS-legacy-calibration-20261022.md).
 They are not prerequisites for normal scanning.
+
+## Human play and the telemetry display
+
+Pause the session controller before taking over the game. The upper-left square
+is the addon telemetry display; `/crowley hud` toggles it. Use `/crowley hud hide`
+or `/crowley hud show` for an explicit choice, and `/crowley hud status` to check.
+The choice is saved across reloads. Hiding stops display updates; showing
+publishes fresh telemetry at the original position and size.
+
+This controls the display only. It does not pause the external controller or
+change the addon's scanner settings. Agent operation requires the display to be
+shown. Visibility changes are refused during an active native diagnostic
+transaction. New Lua commands become available after the addon next loads;
+loading this change does not authorize automation to resume.
 
 ## Installation and profile
 

@@ -1,25 +1,101 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-23 00:44 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-23 01:44 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**CURRENT: ASSISTED COLLECTION WORKS; LIVE HOVER BLOCKS HUMAN DRILL.**
+**USER DIRECTION: ASSUME THE BETA IS OVER.** End live collection, reconnects,
+recovery and calibration appointments. The game operator has been told to stop;
+`crowley-session.service` is stopped and disabled (independently verified
+inactive/disabled). Do not re-enable or resume scans without a new user update.
+Keep existing data/evidence and focus on offline launch readiness. Scan290 is
+the last fully verified complete/uploaded/loaded-ACK sweep. Partial291 is not
+yet durable or uploaded. Native eventual-echo delivery remains explicitly
+unqualified; no live acceptance is authorized by these code changes.
+
+**HUD visibility implemented and promoted to source.** `/crowley hud` toggles;
+`/crowley hud hide`, `show`, `status` make/check an explicit choice. Preference
+persists across reloads. Hidden HUD has no periodic updates or stale frame bytes;
+show publishes fresh bytes at original geometry. Native diagnostic ownership
+is protected in both command orders. This is display-only, not a controller
+pause or scanner mode change. The installed addon symlinks MAIN; commands become
+available at the next user-owned addon load/reload. No live reload was sent.
+Luna265PASS22.25s; parent265PASS21.82s/Ruff/format/diff; Sol READY/no Must or
+Should. Read [the plan](../.archive/PLAN-hud-visibility-20261023.md).
+Private R2 `executor-evidence/hud-visibility-20261023-r2/`, cumulative patch
+3165f785af01b282b66329a2b71336c31afca98fbade4568361a67d9fdb9ce5b;
+Sol review6c28576bba3198ff93575270674d8f0a34d28e26cdd89033b91c8c9790d7f6e4.
+Agent.lua source now05ddf75815b322e2e925cacda7d588bead223d3f9bbe162c82061886982ec4ea.
+Earlier live runtime manifests below describe the pre-HUD baseline, not current
+source; do not reuse them as current dispatch pins. Service stays disabled.
+
+**Motion correlation corrected offline and promoted to source.** The production
+parser/Guardian now accepts all four actual retained events, retaining two exact
+pending FIFO echoes and correctly refusing to mark the action complete. Source,
+target/root/event identity, raw/primary pairing, planned endpoints/origins,
+modifiers, per-pair250ms bounds and physical/UNKNOWN revoke remain enforced.
+This fixes the observed ordering refusal; it does not prove eventual native echo
+delivery or successful hover/human drill. Missing echoes still fail closed.
+Sol R2 READY/no Must or Should; parent broad322PASS296.28s on identical production
+bytes, then final exact-fixture/Guardian21PASS5.90s/Ruff/format/diff.
+The owned stale native keyboard test adapter now forwards/asserts measured
+numeric key emissions; production typing is unchanged. Read
+[the motion plan](../.archive/PLAN-takeover-motion-correlation-20261023.md).
+Private R2 `executor-evidence/takeover-motion-correlation-20261023-r2/`, cumulative
+patch623b866844f91dd7b0f73ecf1c396e6ae88306e623117668ab32dfcdd6641f18;
+Sol review3e86ac459218f59c6c4496bfbb2e89a2c0fb1fffeea19583c847626b8f74ab85.
+Guardian source nowdbc29dfd4eefb457a2764cc88e792516636d000be657bcb39611d42c40e9e46d.
+Parent combined MAIN verification after both promotions:353PASS35.76s across
+addon, startup and exact motion-fixture modules; Ruff4/format/diff clean.
+
+**Launch acceptance remaining:** fix the observed protected/secret-number
+telemetry failure; verify eventual native relay delivery and completed hover;
+perform one genuine human takeover drill; then demonstrate full autonomous
+save/upload/exact-loaded-ACK/reopen and900s cadence. All are outstanding; no
+additional live work until the user authorizes it. Keep prior beta data distinct
+from launch data and recheck live client/realm/build assumptions before collection.
+
+**NEW LIVE BLOCKER: ARTHUR DIED BESIDE JAXON.** At01:17:07UTC the retained
+scan291 watcher image shows the Release Spirit dialog and Arthur's corpse.
+No input had been sent since the scan-start click at01:11:11. Death cause is
+unknown; the adjacent protected/secret-value telemetry error does not establish
+causation. User has been notified; all game input is held pending recovery
+preference. Do not release spirit, navigate or run the ordinary reload helper
+through the modal. Scan291 terminated early: UID
+`beta-normal-alliance-1792717871-Arthur-6563`, finished1792718223,
+254attempts/177failures/370rows/428planned, pending1 in retainedHUD.
+**This partial is still memory/HUD-only:** preserved pre-reload SavedVariables
+does not contain its UID; no upload or loadedACK exists. Preserve evidence under
+`scan291-partial-preserve-20261023T0118Z/preservation.json` in assisted-collection
+evidence. Screenshot `scan291-watch-prestage-20261023T0106Z/029-full.png` also
+shows Agent.lua165/586 failing on a secret number. Offline motion-correlation
+work continues in its isolated worktree; earlier active291 statements below
+are superseded by this death/hold.
+
+**Last live collection state (superseded by beta cutoff above).**
 Exclusive GUI owner `/root/luna_assisted_scanner` is explicitly authorized to
 collect. Arthur remains in Stormwind next to Jaxon; no navigation/trades.
-Latest complete scan289: UID`beta-normal-alliance-1792715123-Arthur-7274`,
-started00:25:23UTC, finished00:33:33UTC,428attempts/0failures/728rows.
-Original SHA34215f81082a95f679d5121a02dc415e31b2ae2535fe6e51e54397fb3947adee;
-exact companion/Data.lua ACK timestamp00:34:24 (51safterfinish); parent separately
-CRC-decoded loadedACK boot1792715682-139726/seq5/pending0/AHclosed. Proof:
-`scan289-postprocess-stage-20261023T0027Z/scan288-save-upload-ack-20261023T003402683971Z/parent-loaded-ack-verification.json`
-under assisted-collection-luna-20261021. Next actual due00:40:23UTC; post-reload
-zero due is not permission to start early. Scan290 start remains unconfirmed;
-Luna is reopening after the reviewed controller update/hover test. Preserve the
-real earlier collection gap. No working autonomous15-minute cadence claim.
+**Active assisted scan291:** actual start01:11:11UTC (1792717871), due01:26:11UTC
+(1792718771),51seconds after prior nominaldue01:10:20. Fresh native frames show
+AHopen/itemphase/advancingordinal/428planned/pending0/speed0. One released curved
+right-click; no keyboard command. Start sidecar:
+`scan291-jaxon-curved-click-prestage-20261023T0106Z/scan291-start-proof.json`.
+Watcher/postprocess use the current24-file diagnostic manifest. Do not deploy
+mid-sweep or mistake intentionallyblank activeSweepId for idle.
+
+**Latest completed scan290:** UID`beta-normal-alliance-1792716920-Arthur-5985`,
+started00:55:20UTC, finished01:03:25UTC,428attempts/0failures/724rows.
+Parent independently parsed exact originalDBUID and SHA
+f585281dcb43a8c6d82a09c00c3f7db7295f416723851c0110f6262db3ae09d2;
+companion/strictDataACK timestamp01:04:25 (60safterfinish); loadedHUD exactUID
+boot1792717487-523401/seq5/CRC724215353/pending0/AHclosed. Proof:
+`scan290-postprocess-stage-20261023T0055Z/scan288-save-upload-ack-20261023T010404944167Z/parent-loaded-ack-verification.json`
+under assisted-collection-luna-20261021. Scan289 also fully independentlyACKed,
+728rows/zero failures; its artifacts remain preserved. The earliergap and late290
+start remain real; do not claim an autonomous or proven15-minute cadence.
 
 **Simplification installed and code-reviewed.** R2 is committed/pushed asb769d57;
 23 reviewed files include strict schema4, passive startup, durable genuine drill,
@@ -39,18 +115,29 @@ Canonical installed24-file pin manifest is `installed-runtime-manifest.json`,
 SHA2cfa592341b33f88352906e7456c6433d6ad43f9bbd64771c6a322cf82f4374d.
 ConfigSHA89580ebd... already pins private Codex0.162.1 and was unchanged.
 
-**Actual clickless hover FAILED before human window.** Public takeover-drill95
-terminated its pointer subprocess with signal15; the visible error only contains
-xdotool path/argv and masks the Guardian reason. No click, keyboard action, human
-sample or PASS. State remainsPAUSED95/startup.ready/3frames; controls released.
-No raw XI2 blocks were retained, so do not invent a cause or weaken Guardian.
-Private evidence: `takeover-drill-preflight-20261023T0041Z/` under assisted-collection.
-Next offline work must retain actual Guardian reason plus the existing observer's
-bounded diagnostic_snapshot on this error path, then review/test before a live
-instrumented attempt. Don't retry unchanged or ask the user to calibrate yet.
-Continue assisted scans while fixing this seam. No legacy native/GTK diagnostic,
-no fake human record, no second GUI owner. Genuine drill and a full autonomous
-save/upload/loadedACK/reopen/takeover-resume cycle remain live acceptance work.
+**Hover evidence instrumentation installed; exact native failure captured.**
+Evidence-only patch passes SolREADY and parent75PASS/12.10s/Ruff3/format/diff.
+Installed/restarted01:09:23, newownerPAUSED96. Actual drill then failed before the
+human window: Guardian reports unattributed Motion source4/target62914563. No
+click, keyboard action, human sample or PASS; controls/processgroups cleared.
+Timestamped actual JSON:
+`scan291-takeover-drill-failure-20261023T0109Z/latest-hover-failure.json`, SHA
+d383992b7855feb2f868bd2390e3730b133c43b7733d0e6597204e4ef932d322.
+It retains complete rawblocks plus the rejected partialtail: first primarymotion
+accepted, expected motionIndex1/pendingEchoCount1, second primary rejected before
+a relative-pointer echo appears. This proves the mandatory ordering assumption
+fails on the recorded stream; it does not prove no echo ever occurs. Replay this
+exact stream/context before changing correlation; preserve primary/raw pairing,
+plan order/identity/endpoint checks and immediate human/UNKNOWN revoke. No filters,
+blanket device acceptance, fabricated echo, native-profile/cadence change or new
+calibration framework. Continue assisted collection while correcting this seam.
+Private reviewed R2 instrumentation bundle:
+`executor-evidence/takeover-hover-evidence-20261023-r2/`; current installed manifest
+`installed-runtime-manifest.json` SHA
+0b79d94c7876615f42511199ba56265a948c8a1107f2b38463819919a458b4d0.
+Actual native input cause correction is next; do not ask the human to calibrate
+until actual hover reaches awaiting_input. Genuine drill and full autonomous
+save/upload/loadedACK/reopen/takeover-resume remain acceptance work.
 
 ### Historical work notes (superseded by the installed state above)
 

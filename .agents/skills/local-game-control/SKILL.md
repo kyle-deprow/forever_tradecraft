@@ -342,6 +342,9 @@ within existing authorization; respect any current movement limits.
   malformed input and retain the refusal instead of trying another live route.
   When a harness requires a new evidence directory, let the harness create it;
   store invocation logs beside that directory, not inside a pre-created one.
+  Root pointer queries can return a certified outer window. Use the measured
+  target_event_xids membership rule, not render-child equality. Normalize JSON
+  coordinate lists and native tuples before comparing them.
   Pointer position can change during Wine capture. Compare actual positions before
   and after capture; a tooltip in the image does not prove the current pointer
   stayed there. Diagnose the change before any guarded final reposition/click.

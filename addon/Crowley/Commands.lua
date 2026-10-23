@@ -6,6 +6,8 @@ ns.Commands = Commands
 local HELP = {
   "/crowley scan [force] - targeted watchlist sweep into the current house",
   "/crowley status - current house, next sweep, stored sweeps, data age",
+  "/crowley hud [hide|show|status] - toggle or inspect the telemetry display",
+  "  The telemetry HUD is required for agent operation; hiding it is a display preference only.",
   "/crowley set <region|ruleset|faction> <value|auto> - override house detection",
   "/crowley lists - push Crowley shopping lists into Auctionator",
   "/crowley probe - record which AH APIs this client has",
@@ -99,6 +101,7 @@ function Commands.Panel() return panel end
 function Commands.Refresh() updatePanel() end
 
 local function deferConstruction()
+  if ns.Agent.HudHidden() then return false, "agent_hud_hidden" end
   local current = marker()
   if ns.Agent.Lifecycle() ~= "ordinary" or not ns.Agent.Surface() then return false, "ordinary_boot_unavailable" end
   if current ~= nil then return false, "native_construction_already_set" end
@@ -174,6 +177,35 @@ local function set(field, value)
   ns.Print(("house is now |cffffd200%s|r"):format(ns.Context.House().key))
 end
 
+local HUD_NOTICE = "The telemetry HUD is required for agent operation; this display preference does not pause the controller or change scanner mode."
+
+local function hudStatus()
+  local state = ns.Agent.HudStatus()
+  local visibility = state.hidden and "hidden" or (state.visible and "visible" or "unavailable")
+  ns.Print(("telemetry HUD is %s. %s"):format(visibility, HUD_NOTICE))
+end
+
+local function hudCommand(action)
+  if action == "status" then
+    hudStatus()
+    return
+  end
+
+  local ok, result
+  if action == "toggle" then
+    ok, result = ns.Agent.ToggleHud()
+  else
+    ok, result = ns.Agent.SetHudHidden(action == "hide")
+  end
+  if ok then
+    local visibility = action == "hide" and "hidden" or action == "show" and "visible" or
+      (ns.Agent.HudHidden() and "hidden" or "visible")
+    ns.Print(("telemetry HUD %s. %s"):format(visibility, HUD_NOTICE))
+  else
+    ns.Print(("telemetry HUD %s refused: %s"):format(action, tostring(result)))
+  end
+end
+
 SLASH_CROWLEY1 = "/crowley"
 SlashCmdList.CROWLEY = function(msg)
   local args = {}
@@ -213,6 +245,16 @@ SlashCmdList.CROWLEY = function(msg)
       ns.Print("agent " .. tostring(args[2]) .. " refused: " .. tostring(reason))
     else
       for _, line in ipairs(HELP) do ns.Print(line) end
+    end
+  elseif cmd == "hud" and ns.Agent then
+    local action = args[2] and args[2]:lower()
+    if #args == 1 then
+      hudCommand("toggle")
+    elseif #args == 2 and (action == "hide" or action == "show" or action == "status") then
+      hudCommand(action)
+    else
+      ns.Print("usage: /crowley hud [hide|show|status]")
+      ns.Print(HUD_NOTICE)
     end
   elseif cmd == "status" then
     status()

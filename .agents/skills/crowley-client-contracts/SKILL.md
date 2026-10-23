@@ -25,6 +25,9 @@ Pinned development dependencies permit offline composition before live acceptanc
 finish assigned composition tests instead of deferring them as parent verification.
 Before claiming completion, map each assigned race/deadline requirement to its
 actual regression and result; a broad green total does not cover an omitted case.
+Test ownership transitions in both orders. A hidden resource can still exist;
+diagnostic admission must check its active state before changing markers or
+fences, and refusal must leave the normal restore controls usable.
 Exercise an input that distinguishes the fix from the old behavior: ordinary
 focus does not test an ancestor walk. Freeze only after the final edit and checks;
 any later source edit invalidates that manifest and needs a new explicit freeze.
@@ -54,6 +57,9 @@ cannot appear in a pre-pause expectation, and an empty expectation must prove
 an empty history rather than skip assertions.
 Derive phase deadlines and terminal controller states from the real producer's
 lifecycle, not field names or scripted replies that preserve an earlier state.
+Check which fields the producer actually populates before requiring an active ID.
+Prove progress from its phase, actual start/due times and advancing ordinal;
+prove completion from the new saved UID rather than an optional empty ID.
 Trace integration failures to the actual guard before blaming development inputs;
 verify the exact constructor call before claiming an unavailable-resource blocker.
 When a fixture tails an action log, consume only complete newline records and
