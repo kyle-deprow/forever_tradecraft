@@ -3158,6 +3158,13 @@ class NativeCalibrationOperator:
             def count_at_least(row: int, threshold: int) -> int:
                 return sum(value >= threshold for value in rows[row])
 
+            def median_delta(first: int, second: int) -> int:
+                values = sorted(rows[first][index] - rows[second][index] for index in range(width))
+                return values[len(values) // 2]
+
+            def count_positive_delta(first: int, second: int) -> int:
+                return sum(rows[first][index] > rows[second][index] for index in range(width))
+
             active = (
                 median(4) >= 130
                 and median(7) >= 180
@@ -3166,13 +3173,21 @@ class NativeCalibrationOperator:
                 and count_at_least(7, 150) >= 380
                 and count_at_least(23, 150) >= 380
             )
+            # The closed editor is transparent over the world, so its absolute
+            # luminance changes with the scene.  Its measured chrome profile is
+            # stable: the top edge is lighter than the inset row, the separator
+            # remains brighter than the inset, and the lower edge is nearly
+            # level.  Requiring that profile across most columns rejects flat
+            # dark crops and active/mixed chrome without pinning the background.
+            top_edge = median_delta(4, 7)
+            separator = median_delta(23, 7)
+            lower_edge = median_delta(25, 23)
             inactive = (
-                50 <= median(4) <= 100
-                and 20 <= median(7) <= 60
-                and 45 <= median(23) <= 90
-                and 50 <= median(25) <= 100
-                and max(rows[7]) < 150
-                and max(rows[23]) < 150
+                24 <= top_edge <= 45
+                and 20 <= separator <= 36
+                and -5 <= lower_edge <= 9
+                and count_positive_delta(4, 7) >= width * 0.98
+                and count_positive_delta(23, 7) >= width * 0.95
             )
             if active:
                 return CHAT_EDITOR_ACTIVE

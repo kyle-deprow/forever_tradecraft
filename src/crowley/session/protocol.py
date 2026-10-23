@@ -273,6 +273,8 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
             "ahOpen",
             "hover",
             "mailOpen",
+            "auctioneer",
+            "blockingUI",
             "scanner",
             "lastSaved",
             "pending",
@@ -283,8 +285,8 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
         },
         "snapshot",
     )
-    if _integer(top["schema"], "schema", minimum=4, maximum=4) != 4:
-        raise _error("schema", "must be 4")
+    if _integer(top["schema"], "schema", minimum=5, maximum=5) != 5:
+        raise _error("schema", "must be 5")
     _string(top["boot"], "boot", limit=96)
     # The addon increments before its first publication; zero is reserved for
     # an absent/uninitialized frame and cannot establish freshness.
@@ -410,6 +412,58 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
     if (hover["kind"] == "none") != (hover_name == ""):
         raise _error("hover", "name must be empty exactly when kind is none")
     _boolean(top["mailOpen"], "mailOpen")
+    auctioneer = _keys(
+        top["auctioneer"],
+        {
+            "targetPresent",
+            "targetName",
+            "rangeAvailable",
+            "withinTradeRange",
+            "bindingAvailable",
+            "ctrlF12Action",
+            "interactionMode",
+        },
+        "auctioneer",
+    )
+    target_present = _boolean(auctioneer["targetPresent"], "auctioneer.targetPresent")
+    target_name = _string(auctioneer["targetName"], "auctioneer.targetName", empty=True, limit=128)
+    range_available = _boolean(auctioneer["rangeAvailable"], "auctioneer.rangeAvailable")
+    within_trade_range = _boolean(auctioneer["withinTradeRange"], "auctioneer.withinTradeRange")
+    binding_available = _boolean(auctioneer["bindingAvailable"], "auctioneer.bindingAvailable")
+    binding_action = _string(auctioneer["ctrlF12Action"], "auctioneer.ctrlF12Action", empty=True, limit=128)
+    interaction_mode = auctioneer["interactionMode"]
+    if not isinstance(interaction_mode, str) or interaction_mode not in {
+        "disabled",
+        "gamepad",
+        "keyboard",
+        "any",
+        "unavailable",
+    }:
+        raise _error("auctioneer.interactionMode", "invalid native SoftTargetInteract mode")
+    if not target_present and (target_name or range_available or within_trade_range):
+        raise _error("auctioneer", "absent target must have empty name and unavailable range")
+    if target_present and not target_name:
+        raise _error("auctioneer.targetName", "present target requires a native name")
+    if within_trade_range and not range_available:
+        raise _error("auctioneer.withinTradeRange", "cannot be true when range is unavailable")
+    if not binding_available and binding_action:
+        raise _error("auctioneer.ctrlF12Action", "unavailable binding must have an empty action")
+    blocking_ui = _keys(
+        top["blockingUI"],
+        {
+            "staticPopupAvailable",
+            "staticPopupShown",
+            "gameMenuAvailable",
+            "gameMenuShown",
+        },
+        "blockingUI",
+    )
+    for name in ("staticPopupAvailable", "staticPopupShown", "gameMenuAvailable", "gameMenuShown"):
+        _boolean(blocking_ui[name], f"blockingUI.{name}")
+    if blocking_ui["staticPopupShown"] and not blocking_ui["staticPopupAvailable"]:
+        raise _error("blockingUI.staticPopupShown", "cannot be true when unavailable")
+    if blocking_ui["gameMenuShown"] and not blocking_ui["gameMenuAvailable"]:
+        raise _error("blockingUI.gameMenuShown", "cannot be true when unavailable")
     scanner = _keys(
         top["scanner"],
         {

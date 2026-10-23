@@ -1,6 +1,6 @@
 """Bounded native motion feedback and waypoint control primitives.
 
-The provider consumes the already decoded schema-4 status surface. It never
+The provider consumes the already decoded schema-5 status surface. It never
 manufactures a frame when the addon has not published one, and all higher
 level control is finite, generation-bound, and feedback driven.
 """
@@ -266,14 +266,14 @@ class MotionFrame:
         capture_started_monotonic: float | None = None,
     ) -> MotionFrame:
         if getattr(sample, "kind", None) != "FRESH" or getattr(sample, "frame", None) is None:
-            raise MotionError("native motion requires a fresh schema-4 frame")
+            raise MotionError("native motion requires a fresh schema-5 frame")
         frame = sample.frame
         snapshot_object = getattr(frame, "snapshot", None)
         snapshot = getattr(snapshot_object, "value", None)
         if not isinstance(snapshot, dict):
             raise MotionError("native motion frame has no decoded snapshot")
-        if snapshot.get("schema") != 4:
-            raise MotionError("native motion requires schema 4")
+        if snapshot.get("schema") != 5:
+            raise MotionError("native motion requires schema 5")
         identity_fingerprint = _text(getattr(identity, "fingerprint", ""), "motion.identity")
         motion = snapshot.get("motion")
         context = snapshot.get("context")

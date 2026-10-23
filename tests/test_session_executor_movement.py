@@ -47,9 +47,24 @@ def _sample(
     speed: float = 1.0,
 ) -> Sample:
     snapshot = {
-        "schema": 4,
+        "schema": 5,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "blockingUI": {
+            "staticPopupAvailable": True,
+            "staticPopupShown": False,
+            "gameMenuAvailable": True,
+            "gameMenuShown": False,
+        },
+        "auctioneer": {
+            "targetPresent": False,
+            "targetName": "",
+            "rangeAvailable": False,
+            "withinTradeRange": False,
+            "bindingAvailable": False,
+            "ctrlF12Action": "",
+            "interactionMode": "any",
+        },
         "boot": boot,
         "sequence": sequence,
         "chatEdit": {"active": False, "focused": False, "text": ""},

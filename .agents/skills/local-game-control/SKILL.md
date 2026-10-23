@@ -15,6 +15,8 @@ within existing authorization; respect any current movement limits.
 - Reused workers can retain an earlier worktree as their working directory.
   Bind live diagnostics and source references to the current absolute repository
   path and accepted hashes before using their conclusions.
+  Native fixture proofs must also bind the imported module and function code-file
+  paths; a correct working directory can still load an installed older package.
   Reuse production identity/capture helpers. Keep standalone Python helper names
   distinct from imported standard-library modules, such as `inspect`.
 - Check processes and map window IDs to PIDs before launching anything. A running
@@ -34,10 +36,17 @@ within existing authorization; respect any current movement limits.
   settled. Retain startup ownership through bounded readiness of the exact
   process/window. Root is never its certified frame; diagnostic capture must
   not enumerate unrelated root children when the owned frame is still absent.
+  An undecorated GTK client can remain a direct root child with no frame extents.
+  Pin the observed layout explicitly through owner, ticket and sealed evidence;
+  never interpret failed framed verification as permission to switch layouts.
+  Exclude InputOnly metadata helpers from event targets in either layout.
   Distinguish the Wine outer window from its rendering child before forcing a
   display size. Compare both measured geometries with the existing production
   resolver and profile; a larger outer window can contain the exact desired
   child. Inspect WM_NORMAL_HINTS and allowed actions when fullscreen is ignored.
+  For owned pointer-probe windows, prove the observed pointer lies inside the
+  actual mapped client after focus. Placement/decoration hints alone do not
+  prove this; retain before/after queries without repositioning it for the proof.
   Rebind a measured supported outer profile rather than changing correct client
   dimensions or repeatedly requesting an unsupported window action.
   Validate published identity before treating missing companion facts as startup
@@ -83,6 +92,9 @@ within existing authorization; respect any current movement limits.
 
 - Verify the foreground screen before a click or command; inspect the result before
   the next dependent action. Tool exit code zero proves input dispatch, not success.
+  A 1 Hz HUD can retain the previous phase or return NO_CHANGE after dispatch.
+  Poll within the original deadline for fresh effect evidence; do not replay the
+  action, restamp old evidence, or clean up merely because its first frame lags.
   Before starting an in-game calibration/recovery helper, inspect a fresh full
   scene as well as process/focus identity. A disconnected login screen can retain
   the same Wine identity; its background is not evidence of a chat classifier bug.
@@ -120,8 +132,9 @@ within existing authorization; respect any current movement limits.
   preserving both fields rather than treating raw data as endpoint evidence.
   Update every endpoint consumer together, including readiness predicates,
   proof-helper waits, calibration, runtime correlation and receipts. Tests must
-  traverse the native argv gate and actual producer/seal/arm path; replacing
-  those methods can conceal a broken command schema or incomplete evidence.
+  traverse the native argv gate and actual producer/seal/arm path, including
+  the configured capture admission from paused startup; replacing those methods
+  can conceal a broken command schema, state gate or incomplete evidence.
   Keep measured phase-start evidence immutable and separate from callback cursors.
   Exercise callback delivery before final validation; prepopulating only the
   initial state can hide a failure caused by the real lifecycle's state updates.
@@ -141,6 +154,9 @@ within existing authorization; respect any current movement limits.
   On a synthetic calibration timeout, retain the exact predicate rejection
   alongside that text before cleanup discards it. Window/process polling
   supplies lifecycle context; it cannot identify the rejected input event.
+  A diagnostic's partial final block can already have yielded a semantic event.
+  Replay its exact raw blocks plus partial tail through the production parser
+  before attributing missing transitions to producer buffering.
   Use XI2's CARD32 time domain consistently in runtime and calibration consumers;
   test queued raw/primary interleaving as well as direct pairing helpers.
   An advertised XTEST device does not prove source attribution. Require an
@@ -164,6 +180,8 @@ within existing authorization; respect any current movement limits.
 - Verify native process dispatch with a harmless real command before GUI input.
   Standalone helpers using the multiprocessing watchdog must put startup and all
   input under a guarded `main`; spawned children import the entrypoint again.
+  Run them from an importable script file, rather than stdin or `-c`, so spawn
+  can reload that entrypoint.
   A fake `Popen` misses exec-handshake deadlocks. Never wait for parent admission
   or apply simulated input effects inside `Popen` construction; effects belong
   after the real admission gate of an owned harmless child.
@@ -198,6 +216,15 @@ within existing authorization; respect any current movement limits.
   Planner and argv-builder tests do not establish executor behavior. Exercise
   the actual key/camera driver entrypoint and ordered observer completion;
   model the external process/events rather than replacing the ownership gate.
+  Keep required calibration keyboard operations aligned with the current runtime
+  vocabulary. An unused calibration-only chord can introduce native modifier
+  transitions that no runtime action needs; verify exact vocabulary coverage.
+  Named modifier keys can trigger xdotool's own modifier compensation even in
+  explicit down/up chains. Verify the native trace; measured physical keycodes
+  avoid that implicit compensation while preserving exact held-key ownership.
+  Human takeover tests must start with the actual raw event, then delivered
+  events. Guardian can revoke and stop the observer before the latter arrives;
+  a delivered-only fixture cannot prove the real human step works.
   For diagnostic format changes, pass actual persisted producer receipts through
   the public evaluator with bindings derived independently from known fixture
   files before the run. Separate synthetic evaluator tests and bindings copied
@@ -208,6 +235,10 @@ within existing authorization; respect any current movement limits.
   A failed owned-target bootstrap must reap and unregister its process so a
   fresh attempt on the same driver can start without rebuilding the session.
   Retain every owned resource before recording optional identity/diagnostics.
+  Mirror native ctypes structures against the installed C headers, including
+  field widths and alignment; verify read-only state queries on a private display.
+  Exercise new receipt/image-stat code on retained frames before input. A failure
+  after dispatch must preserve the completed action and never cause its replay.
   Build diagnostic helpers from the actual profile and cleanup interfaces;
   verify field names and resource ownership before a live run. A nonexistent
   cleanup method can mask an otherwise completed capture or button release.
@@ -247,6 +278,9 @@ within existing authorization; respect any current movement limits.
   A buffer staged before a long wait is not current dispatch evidence. Immediately
   before Return, verify fresh addon `chatEdit` is active, focused and contains the
   exact command; then require the actual boot/file transition for a reload.
+  A post-Return capture can still contain the old boot. Arm one owned decoder
+  boot transition and test old-to-new through the real decoder; a no-op fake
+  decoder cannot verify reload polling.
   Keep idle-scene admission separate from the owned chat phases: a guard requiring
   a closed editor cannot admit the expected focused empty editor after opening
   chat. Exercise adapted guards on retained phase snapshots before live input,
@@ -285,6 +319,9 @@ within existing authorization; respect any current movement limits.
   Exercise the helper's real entry path in a dry run as well as its pure guards;
   read-only preflight can pass while receipt initialization still prevents the
   first production command from being reached.
+  Replay extra guards against the complete typed snapshot before a live attempt;
+  summaries may omit context, and `context.clientBuild` is a string. When reusing
+  functions loaded from a script, bind their actual module globals in that test.
   Bound diagnostic slash commands to both client and telemetry readback limits.
   Derive emitter and acknowledgement bounds from the pinned tool's actual
   per-character timing and fixed command length; an instant recorder does not
@@ -297,6 +334,9 @@ within existing authorization; respect any current movement limits.
   buffer is empty before replacing it; Ctrl+U can leave a suffix after the cursor.
   Use verified paste or a measured typing rate and inspect both ends of a
   horizontally scrolled command before submission.
+  Chat can double typed pipe characters. Keep probe markers plain; color escapes
+  require actual client buffer evidence before use. Prefer retained visual readback
+  over repeatedly redesigning a marker when OCR misses legible output.
   Slash-command success does not prove shifted punctuation works. Compare the
   entire actual buffer, including parentheses and quotes, before Return; cancel
   malformed input and retain the refusal instead of trying another live route.
@@ -320,6 +360,8 @@ within existing authorization; respect any current movement limits.
   GNOME's shared D-Bus screenshot service can return before file creation or PNG
   completion under competing requests. Verify a new fully decoded image, retain
   the original capture time, and serialize requests within the existing deadline.
+  Give every retained poll a unique image path so repeated phase tags cannot
+  overwrite evidence already bound to a receipt hash.
   Profile command, image completion and identity-query time separately before
   optimizing cadence. Screenshot UI effects can dominate even with zero delay;
   verify the installed implementation rather than guessing from total latency.
@@ -397,8 +439,14 @@ require `resume`, with missing gates returning it to unarmed calibration; repeat
 `start` with a new generation cannot fix a state-specific command refusal.
 After native success, complete public pause/canonical ordinary recovery and prove
 checkpoint clear before human-input startup. Read the durable journal checkpoint
-when IPC status does not expose it; an absent field is not evidence of clearance. Inspect actual target geometry and
-pointer at the failed boundary; post-cleanup focus cannot establish its cause.
+when IPC status does not expose it; an absent field is not evidence of clearance.
+Inspect actual target geometry and pointer at the failed boundary; post-cleanup
+focus cannot establish its cause.
+
+`native_calibration_operator.py control-preflight` mutates the game through
+defer/construct/recovery; it is not a read-only gate check. When native proof is
+valid and the checkpoint is absent, input-only preparation uses ordinary
+identity/scene/held-input/status checks followed by resume and input-calibrate.
 A planned collection cutoff should stop new scans while allowing authorized save/logout
 cleanup. A user's explicit takeover or stop ends input immediately, including cleanup.
 

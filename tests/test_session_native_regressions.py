@@ -8,11 +8,15 @@ or a human input sample has passed calibration.
 from __future__ import annotations
 
 import copy
+import ctypes
+import ctypes.util
 import hashlib
 import io
 import json
 import os
 import re
+import select
+import shutil
 import socket
 import stat
 import subprocess
@@ -56,6 +60,7 @@ from crowley.session.daemon import SessionDaemon
 from crowley.session.decoder import PixelDecoder
 from crowley.session.driver import (
     _EXEC_ADMISSION_WRAPPER,
+    CalibrationTicket,
     DesktopDriver,
     DriverError,
     DriverProfile,
@@ -73,6 +78,8 @@ from tests.test_session_input_tool import fixture_input_tool
 
 TARGET = 0x600119
 FOREIGN = 0x1A00011
+TARGET_DESCENDANT = 0x60011A
+TARGET_FRAME = 0x60011B
 AUTHENTIC_CODEX_PATH = "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/vendor/x86_64-unknown-linux-musl/bin/codex"
 
 
@@ -174,6 +181,65 @@ def _mutter_gtk_fixture_command(
         raise AssertionError(args)
 
     return command
+
+
+def _root_child_gtk_fixture_command(*, pid: int, target: int, helper: int):
+    """Build actual owner-verifier responses for the observed root-child layout."""
+
+    state: dict[str, object] = {
+        "user_time_window": f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(helper)}\n",
+        "children": (helper,),
+        "map_state": "IsViewable",
+        "identity_companions": True,
+    }
+    commands: list[tuple[str, ...]] = []
+
+    def command(args: list[str], **_kwargs: object) -> str:
+        commands.append(tuple(args))
+        if args == ["wmctrl", "-lp"]:
+            return f"{hex(target)} -1 {pid} host CROWLEY INPUT CALIBRATION ONLY\n"
+        if args == ["xprop", "-id", hex(target)]:
+            identity_properties = (
+                f'WM_NAME(STRING) = "CROWLEY INPUT CALIBRATION ONLY"\n_NET_WM_PID(CARDINAL) = {pid}\n'
+                if state["identity_companions"]
+                else ""
+            )
+            return (
+                identity_properties + "_MOTIF_WM_HINTS(_MOTIF_WM_HINTS) = 0x2, 0, 0, 0, 0\n"
+                "_NET_FRAME_EXTENTS:  not found.\n"
+                + str(state["user_time_window"] or "_NET_WM_USER_TIME_WINDOW:  not found.\n")
+            )
+        if args == ["xwininfo", "-id", hex(target), "-stats"]:
+            map_state = state["map_state"]
+            return (
+                f"xwininfo: Window id: {hex(target)}\n"
+                "Absolute upper-left X: 1440\nAbsolute upper-left Y: 32\n"
+                "Width: 480\nHeight: 240\nDepth: 24\nBorder width: 0\n"
+                "Class: InputOutput\n" + (f"Map State: {map_state}\n" if map_state is not None else "")
+            )
+        if args == ["xwininfo", "-id", hex(target), "-tree"]:
+            children = tuple(state["children"])
+            rows = "".join(
+                f"     {hex(child)} (has no name): ()  1x1+-1+-1  +1439+31\n" for child in children
+            )
+            count = len(children)
+            return (
+                f'xwininfo: Window id: {hex(target)} "CROWLEY INPUT CALIBRATION ONLY"\n\n'
+                "  Root window id: 0x374 (the root window) (has no name)\n"
+                "  Parent window id: 0x374 (the root window) (has no name)\n"
+                f"     {count} children:\n{rows}"
+            )
+        if len(args) == 4 and args[:2] == ["xwininfo", "-id"] and args[3] == "-stats":
+            child = int(args[2], 16)
+            return (
+                f"xwininfo: Window id: {hex(child)}\n"
+                "Absolute upper-left X: 1439\nAbsolute upper-left Y: 31\n"
+                "Relative upper-left X: -1\nRelative upper-left Y: -1\n"
+                "Width: 1\nHeight: 1\nDepth: 0\nBorder width: 0\nClass: InputOnly\n"
+            )
+        raise AssertionError(args)
+
+    return state, commands, command
 
 
 def _wait_for(predicate, *, timeout: float = 2.0) -> bool:
@@ -768,7 +834,93 @@ def test_owned_calibration_click_uses_owned_geometry_plus_local_offset(tmp_path:
         driver.close()
 
 
-def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: Path) -> None:
+def test_root_child_ticket_pins_layout_and_rejects_root_helper_and_sibling_targets(tmp_path: Path) -> None:
+    from crowley.session.calibration import GTK_LAYOUT_ROOT_CHILD
+
+    target_xid = 0x600119
+    helper_xid = 0x60011A
+    sibling_xid = 0x60011B
+    root_xid = 0x374
+    target = OwnedWindow(
+        os.getpid(),
+        target_xid,
+        OwnedGtkCalibrationWindow.TITLE,
+        (1440, 32, 480, 240),
+        SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+        frozenset({target_xid, helper_xid}),
+        "/usr/bin/python3",
+        "root-child-target-start",
+        None,
+        (),
+        frozenset({target_xid}),
+        GTK_LAYOUT_ROOT_CHILD,
+        root_xid,
+        root_xid,
+        frozenset({helper_xid}),
+    )
+    driver = DesktopDriver(
+        profile=DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority")),
+        backend=RecordingBackend(),
+        lease_path=tmp_path / "root-child-ticket.lock",
+    )
+    try:
+        driver.begin_calibration_operation()
+        ticket = driver.issue_calibration_ticket(target)
+        assert ticket.target_xids == {target_xid}
+        assert ticket.target_descendant_xids == {target_xid, helper_xid}
+        assert ticket.target_excluded_input_only_xids == {helper_xid}
+        assert ticket.target_root_xid == ticket.target_parent_xid == root_xid
+
+        forged_targets = (
+            replace(target, certified_event_target_xids=frozenset({target_xid, root_xid})),
+            replace(target, certified_event_target_xids=frozenset({target_xid, helper_xid})),
+            replace(
+                target,
+                descendant_xids=frozenset({target_xid, helper_xid, sibling_xid}),
+                certified_event_target_xids=frozenset({target_xid, sibling_xid}),
+            ),
+            replace(
+                target,
+                xid=helper_xid,
+                descendant_xids=frozenset({target_xid, helper_xid}),
+                excluded_input_only_xids=frozenset({helper_xid}),
+                certified_event_target_xids=frozenset({helper_xid}),
+            ),
+            replace(target, layout_kind="mutter-managed-frame-v1", managed_frame_xid=target_xid),
+        )
+        for forged in forged_targets:
+            with pytest.raises(DriverError, match="certificate|changed after ticket"):
+                driver._verify_calibration_target(ticket, forged)
+
+        with pytest.raises(DriverError, match="changed after ticket"):
+            driver._verify_calibration_target(replace(ticket, target_root_xid=root_xid + 1), target)
+        with pytest.raises(DriverError, match="changed after ticket"):
+            driver._verify_calibration_target(
+                replace(ticket, target_layout_kind="mutter-managed-frame-v1"), target
+            )
+    finally:
+        driver.close()
+
+
+def _synthetic_calibration_ticket() -> CalibrationTicket:
+    return CalibrationTicket(
+        epoch=1,
+        target_pid=os.getpid(),
+        target_xid=TARGET,
+        target_xids=frozenset({TARGET, TARGET_DESCENDANT, TARGET_FRAME}),
+        title="CROWLEY INPUT CALIBRATION ONLY",
+        geometry=(40, 60, 240, 160),
+    )
+
+
+@pytest.mark.parametrize(
+    "hit_xid",
+    [TARGET, TARGET_DESCENDANT, TARGET_FRAME],
+    ids=("target", "certified-descendant", "certified-frame-over-client-area"),
+)
+def test_synthetic_calibration_accepts_only_certified_origin_and_post_hits(
+    tmp_path: Path, hit_xid: int
+) -> None:
     """The native producer must query ownership before and after its move."""
 
     profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
@@ -776,9 +928,10 @@ def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: 
     backend.profile = profile
     backend.xauthority = profile.xauthority
     backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
     backend._calibration_focus_ticket = None
     calls: list[list[str]] = []
-    pointer_reads = iter(((100, 100, TARGET), (120, 120, TARGET)))
+    pointer_reads = iter(((100, 100, hit_xid), (120, 120, hit_xid)))
 
     def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
         calls.append(list(args))
@@ -796,9 +949,27 @@ def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: 
         hex(TARGET),
         120,
         120,
-        calibration_ticket=SimpleNamespace(epoch=1),
+        calibration_ticket=_synthetic_calibration_ticket(),
     )
-    assert backend._last_synthetic_motion_query == (100, 100, TARGET, 120, 120, 120, 120, TARGET)
+    assert backend._last_synthetic_motion_query == (100, 100, hit_xid, 120, 120, 120, 120, hit_xid)
+    assert backend._last_synthetic_pointer_diagnostic == {
+        "producer": "X11Backend.synthetic_calibration",
+        "targetXid": TARGET,
+        "targetGeometry": [40, 60, 240, 160],
+        "requested": [120, 120],
+        "origin": {"x": 100, "y": 100, "windowXid": hit_xid},
+        "originPredicates": {
+            "certifiedHitWindow": True,
+            "insideTargetGeometry": True,
+            "nonzeroDisplacement": True,
+        },
+        "post": {"x": 120, "y": 120, "windowXid": hit_xid},
+        "postPredicates": {
+            "matchesRequested": True,
+            "insideTargetGeometry": True,
+            "certifiedHitWindow": True,
+        },
+    }
     assert [args[1] for args in calls if len(args) > 1] == [
         "getwindowgeometry",
         "windowactivate",
@@ -809,12 +980,27 @@ def test_synthetic_calibration_binds_owned_origin_and_exact_postquery(tmp_path: 
     ]
 
 
-def test_synthetic_calibration_refuses_outside_origin_before_motion(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("origin", "certified", "inside"),
+    [
+        ((100, 100, FOREIGN), False, True),
+        ((100, 100, 0x374), False, True),
+        ((39, 100, TARGET_FRAME), True, False),
+    ],
+    ids=("unrelated-in-bounds", "root-in-bounds", "certified-frame-outside-client"),
+)
+def test_synthetic_calibration_refuses_uncertified_or_outside_origin_before_motion(
+    tmp_path: Path,
+    origin: tuple[int, int, int],
+    certified: bool,
+    inside: bool,
+) -> None:
     profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
     backend = object.__new__(X11Backend)
     backend.profile = profile
     backend.xauthority = profile.xauthority
     backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
     backend._calibration_focus_ticket = None
     calls: list[list[str]] = []
 
@@ -829,15 +1015,27 @@ def test_synthetic_calibration_refuses_outside_origin_before_motion(tmp_path: Pa
         return subprocess.CompletedProcess(args, 0, "", "")
 
     backend._run = run  # type: ignore[method-assign]
-    backend.pointer_position = lambda **_kwargs: (100, 100, 0x700101)  # type: ignore[method-assign]
+    backend.pointer_position = lambda **_kwargs: origin  # type: ignore[method-assign]
     with pytest.raises(DriverError, match="origin is outside"):
         backend.synthetic_calibration(
             hex(TARGET),
             120,
             120,
-            calibration_ticket=SimpleNamespace(epoch=1),
+            calibration_ticket=_synthetic_calibration_ticket(),
         )
     assert all(args[1] not in {"key", "mousemove", "click"} for args in calls if len(args) > 1)
+    assert backend._last_synthetic_pointer_diagnostic is not None
+    assert backend._last_synthetic_pointer_diagnostic["origin"] == {
+        "x": origin[0],
+        "y": origin[1],
+        "windowXid": origin[2],
+    }
+    assert backend._last_synthetic_pointer_diagnostic["originPredicates"] == {
+        "certifiedHitWindow": certified,
+        "insideTargetGeometry": inside,
+        "nonzeroDisplacement": True,
+    }
+    assert "post" not in backend._last_synthetic_pointer_diagnostic
 
 
 def test_synthetic_calibration_refuses_zero_displacement_before_f13_or_move(tmp_path: Path) -> None:
@@ -846,6 +1044,7 @@ def test_synthetic_calibration_refuses_zero_displacement_before_f13_or_move(tmp_
     backend.profile = profile
     backend.xauthority = profile.xauthority
     backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
     calls: list[list[str]] = []
 
     def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
@@ -865,9 +1064,62 @@ def test_synthetic_calibration_refuses_zero_displacement_before_f13_or_move(tmp_
             hex(TARGET),
             120,
             120,
-            calibration_ticket=SimpleNamespace(epoch=1),
+            calibration_ticket=_synthetic_calibration_ticket(),
         )
     assert all(args[1] not in {"key", "mousemove", "click"} for args in calls if len(args) > 1)
+    assert backend._last_synthetic_pointer_diagnostic is not None
+    assert backend._last_synthetic_pointer_diagnostic["originPredicates"]["nonzeroDisplacement"] is False
+
+
+def test_synthetic_calibration_retains_post_failure_before_click(tmp_path: Path) -> None:
+    profile = DriverProfile(display=":test", xauthority=str(tmp_path / "Xauthority"))
+    backend = object.__new__(X11Backend)
+    backend.profile = profile
+    backend.xauthority = profile.xauthority
+    backend._last_synthetic_motion_query = None
+    backend._last_synthetic_pointer_diagnostic = None
+    backend._calibration_focus_ticket = None
+    calls: list[list[str]] = []
+
+    def run(args: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        calls.append(list(args))
+        if args[:2] == ["xdotool", "getwindowgeometry"]:
+            return subprocess.CompletedProcess(
+                args, 0, "WINDOW=0x600119\nX=40\nY=60\nWIDTH=240\nHEIGHT=160\nSCREEN=0\n", ""
+            )
+        if args == ["xdotool", "getwindowfocus"]:
+            return subprocess.CompletedProcess(args, 0, "6291737\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    backend._run = run  # type: ignore[method-assign]
+    pointer_reads = iter(((100, 100, TARGET), (120, 120, FOREIGN)))
+    backend.pointer_position = lambda **_kwargs: next(pointer_reads)  # type: ignore[method-assign]
+    with pytest.raises(DriverError, match="postcondition changed"):
+        backend.synthetic_calibration(
+            hex(TARGET),
+            120,
+            120,
+            calibration_ticket=_synthetic_calibration_ticket(),
+        )
+    assert [args[1] for args in calls if len(args) > 1] == [
+        "getwindowgeometry",
+        "windowactivate",
+        "getwindowfocus",
+        "key",
+        "mousemove",
+    ]
+    assert backend._last_synthetic_motion_query is None
+    assert backend._last_synthetic_pointer_diagnostic is not None
+    assert backend._last_synthetic_pointer_diagnostic["post"] == {
+        "x": 120,
+        "y": 120,
+        "windowXid": FOREIGN,
+    }
+    assert backend._last_synthetic_pointer_diagnostic["postPredicates"] == {
+        "matchesRequested": True,
+        "insideTargetGeometry": True,
+        "certifiedHitWindow": False,
+    }
 
 
 def test_calibration_gate_health_is_rechecked_after_registration_ack(tmp_path: Path) -> None:
@@ -1301,6 +1553,488 @@ def test_gtk_create_real_verifier_replays_startup_states_and_command_budget(
     finally:
         target.close()
         processes[0].stdout.close()  # type: ignore[attr-defined]
+
+
+@pytest.mark.skipif(
+    shutil.which("Xvfb") is None
+    or shutil.which("xdotool") is None
+    or shutil.which("xprop") is None
+    or shutil.which("xwininfo") is None
+    or not Path("/usr/bin/python3.13").is_file(),
+    reason="private Xvfb/GTK fixture is unavailable",
+)
+@pytest.mark.parametrize(
+    ("mouse_position_enabled", "expected_inside"),
+    [(True, True), (False, False)],
+    ids=("settled-mouse-position-contains-origin", "ignored-mouse-position-is-refused"),
+)
+def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mouse_position_enabled: bool,
+    expected_inside: bool,
+) -> None:
+    """Measure real GTK placement around an unchanged private-Xvfb pointer."""
+
+    import crowley.session.calibration as calibration_module
+
+    read_fd, write_fd = os.pipe()
+    xvfb = subprocess.Popen(
+        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1920x1080x24", "-ac"],
+        pass_fds=(write_fd,),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    os.close(write_fd)
+    target: OwnedGtkCalibrationWindow | None = None
+    driver: DesktopDriver | None = None
+    xdisplay = None
+    display = ""
+    try:
+        ready, _, _ = select.select([read_fd], [], [], 5.0)
+        assert ready, "private Xvfb did not publish a display number"
+        display_number = os.read(read_fd, 32).decode("ascii").strip()
+        assert display_number.isdigit()
+        display = f":{display_number}"
+        os.close(read_fd)
+        read_fd = -1
+        env = os.environ.copy()
+        env["DISPLAY"] = display
+        env["GDK_BACKEND"] = "x11"
+        xauthority = str(tmp_path / "private-xauthority")
+        Path(xauthority).touch(mode=0o600)
+        if not mouse_position_enabled:
+            script = calibration_module._GTK_SCRIPT
+            placement = "window.set_position(Gtk.WindowPosition.MOUSE)\n"
+            assert placement in script
+            monkeypatch.setattr(calibration_module, "_GTK_SCRIPT", script.replace(placement, ""))
+
+        # Xvfb's xdotool mousemove path is inert without an XTEST pointer
+        # device. Set only the initial private test coordinate with XWarpPointer,
+        # then observe it unchanged across real GTK mapping and guarded focus.
+        x11 = ctypes.CDLL(ctypes.util.find_library("X11"))
+        x11.XOpenDisplay.restype = ctypes.c_void_p
+        xdisplay = x11.XOpenDisplay(display.encode("ascii"))
+        assert xdisplay
+        x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
+        x11.XDefaultRootWindow.restype = ctypes.c_ulong
+        xroot = x11.XDefaultRootWindow(xdisplay)
+        x11.XWarpPointer.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.c_ulong,
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint,
+            ctypes.c_uint,
+            ctypes.c_int,
+            ctypes.c_int,
+        ]
+        x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
+        assert x11.XWarpPointer(xdisplay, 0, xroot, 0, 0, 0, 0, 1809, 43) == 1
+        x11.XSync(xdisplay, 0)
+
+        def pointer_position() -> tuple[int, int, int]:
+            output = subprocess.run(
+                ["xdotool", "getmouselocation", "--shell"],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            ).stdout
+            values = dict(line.split("=", 1) for line in output.splitlines() if "=" in line)
+            return int(values["X"]), int(values["Y"]), int(values["WINDOW"], 0)
+
+        before_create = pointer_position()
+        assert before_create[:2] == (1809, 43)
+
+        facts: dict[str, int] = {}
+        commands: list[tuple[str, ...]] = []
+        from crowley.session.driver import _parse_xwininfo_tree
+
+        def command(argv: list[str], *, display: str, xauthority: str, timeout: float = 5.0) -> str:
+            commands.append(tuple(argv))
+            if argv == ["wmctrl", "-lp"]:
+                if not facts:
+                    return ""
+                return f"0x{facts['xid']:x} -1 {facts['pid']} localhost {OwnedGtkCalibrationWindow.TITLE}\n"
+            if argv[:2] == ["xprop", "-id"]:
+                if int(argv[2], 16) != facts["xid"]:
+                    raise AssertionError(f"unowned xprop target: {argv!r}")
+            elif argv[:2] == ["xwininfo", "-id"]:
+                query_xid = int(argv[2], 16)
+                if query_xid not in {facts["xid"], facts.get("helper", 0)}:
+                    raise AssertionError(f"unowned xwininfo target: {argv!r}")
+            else:
+                raise AssertionError(f"unexpected GTK verifier command: {argv!r}")
+            if argv[0] == "xwininfo" and len(argv) == 4 and argv[3] == "-tree":
+                if argv[2] != hex(facts["xid"]):
+                    raise AssertionError("root enumeration is forbidden in the root-child contract test")
+            result = subprocess.run(
+                argv,
+                env=env | {"DISPLAY": display, "XAUTHORITY": xauthority},
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=max(0.001, timeout),
+            )
+            if result.returncode:
+                raise subprocess.CalledProcessError(
+                    result.returncode, argv, output=result.stdout, stderr=result.stderr
+                )
+            if argv == ["xwininfo", "-id", hex(facts["xid"]), "-tree"]:
+                _tree_root, parents, _geometry = _parse_xwininfo_tree(result.stdout)
+                if len(parents) != 1:
+                    raise AssertionError(f"unexpected GTK child tree: {parents!r}")
+                helper = next(iter(parents))
+                if "helper" not in facts:
+                    facts["helper"] = helper
+                elif helper != facts["helper"]:
+                    raise AssertionError(f"GTK child tree changed: {parents!r}")
+            return result.stdout
+
+        target = OwnedGtkCalibrationWindow(
+            display=display,
+            xauthority=xauthority,
+            python_executable="/usr/bin/python3.13",
+            command=command,
+            layout_kind=OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD,
+        )
+        original_verify = target._verify
+
+        def capture_identity(pid: int, xid: int, process, **kwargs):
+            facts.update(pid=pid, xid=xid)
+            return original_verify(pid, xid, process, **kwargs)
+
+        target._verify = capture_identity  # type: ignore[method-assign]
+        backend = RecordingBackend()
+
+        def guarded_private_focus(xid: int) -> None:
+            subprocess.run(
+                ["xdotool", "windowfocus", "--sync", hex(xid)],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            )
+            focused = subprocess.run(
+                ["xdotool", "getwindowfocus"],
+                env=env,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=3,
+            ).stdout.strip()
+            backend.events.append({"name": "private_guarded_focus", "xid": xid, "focused": focused})
+
+        backend.calibration_focus = guarded_private_focus
+        driver = DesktopDriver(
+            profile=DriverProfile(display=display, xauthority=xauthority),
+            backend=backend,
+            lease_path=tmp_path / "private-desktop.lock",
+        )
+        driver.begin_calibration_operation()
+        window = target.create(
+            timeout=3.0,
+            startup_admission=driver.admit_calibration_target_process,
+        )
+        process = window.process
+        after_map = pointer_position()
+        ticket = driver.issue_calibration_ticket(window)
+        driver.focus_calibration_target(window, calibration_ticket=ticket)
+        after_focus = pointer_position()
+        left, top, width, height = window.geometry
+        inside = left <= after_focus[0] < left + width and top <= after_focus[1] < top + height
+        assert window.title == OwnedGtkCalibrationWindow.TITLE
+        assert window.geometry[2:] == (480, 240)
+        assert window.layout_kind == OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD
+        assert window.managed_frame_xid is None
+        assert window.root_xid > 0 and window.parent_xid == window.root_xid
+        assert window.descendant_xids == {window.xid, facts["helper"]}
+        assert window.allowed_event_target_xids == {window.xid}
+        assert window.excluded_input_only_xids == {facts["helper"]}
+        assert window.contains_xid(window.xid)
+        assert not window.contains_xid(window.root_xid)
+        assert ("xwininfo", "-root", "-tree") not in commands
+        assert before_create[:2] == after_map[:2] == after_focus[:2] == (1809, 43)
+        assert inside is expected_inside, (after_focus, window.geometry)
+        assert backend.events == [
+            {"name": "private_guarded_focus", "xid": window.xid, "focused": str(window.xid)}
+        ]
+        target.close()
+        assert process.poll() is not None
+        assert target.window is None
+    finally:
+        if target is not None and target.window is not None:
+            target.close()
+        if driver is not None:
+            driver.cancel_calibration_actions()
+            driver.close()
+        if xdisplay:
+            x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
+            x11.XCloseDisplay(xdisplay)
+        if read_fd >= 0:
+            os.close(read_fd)
+        xvfb.terminate()
+        xvfb.wait(timeout=3)
+
+
+@pytest.mark.parametrize(
+    "mutation",
+    ("observed", "wrong-parent", "extra-client-descendant", "second-input-only-helper"),
+)
+def test_root_child_verifier_replays_input87_tree_and_rejects_unobserved_subtrees(
+    mutation: str,
+) -> None:
+    """Replay the retained live client tree without admitting root or siblings."""
+
+    target_xid = 0x4800003
+    helper_xid = 0x4800004
+    root_xid = 0x374
+    extra_xid = 0x4800005
+    parent_xid = 0x123 if mutation == "wrong-parent" else root_xid
+    child_rows = [f"     {hex(helper_xid)} (has no name): ()  1x1+-1+-1  +1439+31"]
+    if mutation == "extra-client-descendant":
+        child_rows.append(f'     {hex(extra_xid)} "extra": ("fixture" "fixture")  10x10+0+0  +1440+32')
+    elif mutation == "second-input-only-helper":
+        child_rows.append(f"     {hex(extra_xid)} (has no name): ()  1x1+-1+-1  +1439+31")
+    tree = (
+        f'xwininfo: Window id: {hex(target_xid)} "CROWLEY INPUT CALIBRATION ONLY"\n\n'
+        f"  Root window id: {hex(root_xid)} (the root window) (has no name)\n"
+        f"  Parent window id: {hex(parent_xid)} (the root window) (has no name)\n"
+        f"     {len(child_rows)} children:\n" + "\n".join(child_rows) + "\n"
+    )
+    helper_stats = (
+        f"xwininfo: Window id: {hex(helper_xid)}\n\n"
+        "  Absolute upper-left X:  1439\n"
+        "  Absolute upper-left Y:  31\n"
+        "  Relative upper-left X:  -1\n"
+        "  Relative upper-left Y:  -1\n"
+        "  Width: 1\n"
+        "  Height: 1\n"
+        "  Depth: 0\n"
+        "  Border width: 0\n"
+        "  Class: InputOnly\n"
+    )
+    extra_stats = (
+        f"xwininfo: Window id: {hex(extra_xid)}\n\n"
+        "  Absolute upper-left X:  1440\n"
+        "  Absolute upper-left Y:  32\n"
+        "  Relative upper-left X:  0\n"
+        "  Relative upper-left Y:  0\n"
+        "  Width: 10\n"
+        "  Height: 10\n"
+        "  Depth: 24\n"
+        "  Border width: 0\n"
+        "  Class: InputOutput\n"
+    )
+    commands: list[tuple[str, ...]] = []
+
+    def command(argv: list[str]) -> str:
+        commands.append(tuple(argv))
+        if argv == ["xwininfo", "-id", hex(target_xid), "-tree"]:
+            return tree
+        if argv == ["xwininfo", "-id", hex(helper_xid), "-stats"]:
+            return helper_stats
+        if argv == ["xwininfo", "-id", hex(extra_xid), "-stats"]:
+            return (
+                extra_stats
+                if mutation == "extra-client-descendant"
+                else helper_stats.replace(hex(helper_xid), hex(extra_xid))
+            )
+
+        raise AssertionError(f"unexpected root-child query: {argv!r}")
+
+    target = OwnedGtkCalibrationWindow(
+        display=":input87-observer",
+        xauthority="/tmp/input87-observer.Xauthority",
+        layout_kind=OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD,
+        command=lambda argv, **_kwargs: command(argv),
+    )
+    if mutation == "observed":
+        window = target._verify_root_child_layout(
+            pid=569822,
+            xid=target_xid,
+            process=SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            executable="/usr/bin/python3",
+            process_start="50072661",
+            geometry=(1440, 32, 480, 240),
+            advertised_helper_xid=helper_xid,
+            startup_readiness=False,
+            run_command=command,
+        )
+        assert window.root_xid == window.parent_xid == root_xid
+        assert window.descendant_xids == {target_xid, helper_xid}
+        assert window.allowed_event_target_xids == {target_xid}
+        assert window.excluded_input_only_xids == {helper_xid}
+        assert root_xid not in window.allowed_event_target_xids
+        assert all(row[:3] != ("xwininfo", "-root", "-tree") for row in commands)
+    else:
+        with pytest.raises(
+            CalibrationError,
+            match="directly parented|unexpected client descendant|certificate|metadata helper",
+        ):
+            target._verify_root_child_layout(
+                pid=569822,
+                xid=target_xid,
+                process=SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+                executable="/usr/bin/python3",
+                process_start="50072661",
+                geometry=(1440, 32, 480, 240),
+                advertised_helper_xid=helper_xid,
+                startup_readiness=False,
+                run_command=command,
+            )
+
+
+def _verify_root_child_fixture(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    pid: int,
+    target_xid: int = TARGET,
+    helper_xid: int = TARGET_DESCENDANT,
+) -> tuple[OwnedGtkCalibrationWindow, dict[str, object], list[tuple[str, ...]]]:
+    import crowley.session.calibration as calibration_module
+
+    state, commands, command = _root_child_gtk_fixture_command(pid=pid, target=target_xid, helper=helper_xid)
+
+    def process_identity(process_pid: int) -> tuple[str, str, str]:
+        if process_pid != pid:
+            raise AssertionError(process_pid)
+        return "/usr/bin/python3", "fixture-start", "python3"
+
+    monkeypatch.setattr(calibration_module, "_process_identity", process_identity)
+    target = OwnedGtkCalibrationWindow(
+        display=":root-child-verifier",
+        xauthority="private.Xauthority",
+        layout_kind=OwnedGtkCalibrationWindow.LAYOUT_ROOT_CHILD,
+        command=command,
+    )
+    return target, state, commands
+
+
+def test_root_child_owner_binds_advertised_user_time_helper_to_certificate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pid = os.getpid()
+    target, _state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    window = target._verify(
+        pid,
+        TARGET,
+        SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+        startup_readiness=True,
+    )
+    assert window.excluded_input_only_xids == frozenset({TARGET_DESCENDANT})
+    assert window.allowed_event_target_xids == frozenset({TARGET})
+    assert window.descendant_xids == frozenset({TARGET, TARGET_DESCENDANT})
+    assert ("xwininfo", "-id", hex(TARGET_DESCENDANT), "-stats") in commands
+
+
+def test_root_child_missing_advertised_helper_waits_for_publication_then_verifies(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import crowley.session.calibration as calibration_module
+
+    pid = os.getpid()
+    target, state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = None
+    process = SimpleNamespace(poll=lambda: None)
+    with pytest.raises(calibration_module._GtkStartupPending, match="helper identity"):
+        target._verify(pid, TARGET, process, startup_readiness=True)  # type: ignore[arg-type]
+    assert not any(args[-1:] == ("-tree",) for args in commands)
+
+    state["user_time_window"] = f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(TARGET_DESCENDANT)}\n"
+    window = target._verify(pid, TARGET, process, startup_readiness=True)  # type: ignore[arg-type]
+    assert window.excluded_input_only_xids == frozenset({TARGET_DESCENDANT})
+
+
+def test_root_child_absent_helper_is_hard_failure_after_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pid = os.getpid()
+    target, state, _commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = None
+    with pytest.raises(CalibrationError, match="helper identity"):
+        target._verify(
+            pid,
+            TARGET,
+            SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            startup_readiness=False,
+        )
+
+
+@pytest.mark.parametrize(
+    "publication",
+    (
+        "_NET_WM_USER_TIME_WINDOW(CARDINAL) = 123\n",
+        "_NET_WM_USER_TIME_WINDOW(WINDOW): window id # 0x60011a\n"
+        "_NET_WM_USER_TIME_WINDOW(WINDOW): window id # 0x60011a\n",
+    ),
+    ids=("wrong-property-type", "duplicate-property"),
+)
+def test_root_child_owner_rejects_malformed_or_duplicate_helper_publication(
+    monkeypatch: pytest.MonkeyPatch, publication: str
+) -> None:
+    pid = os.getpid()
+    target, state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = publication
+    state["identity_companions"] = False
+    with pytest.raises(CalibrationError, match="property|duplicated") as failure:
+        target._verify(
+            pid,
+            TARGET,
+            SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            startup_readiness=True,
+        )
+    import crowley.session.calibration as calibration_module
+
+    assert not isinstance(failure.value, calibration_module._GtkStartupPending)
+    assert not any(args[:2] == ("xwininfo", "-id") for args in commands)
+
+
+@pytest.mark.parametrize(
+    ("published_xid", "expected_query_count"),
+    ((TARGET, 0), (0x374, 1), (0x60011B, 1)),
+    ids=("client-self", "root", "wrong-helper"),
+)
+def test_root_child_owner_rejects_unbound_helper_xid_before_certificate(
+    monkeypatch: pytest.MonkeyPatch, published_xid: int, expected_query_count: int
+) -> None:
+    pid = os.getpid()
+    target, state, commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["user_time_window"] = f"_NET_WM_USER_TIME_WINDOW(WINDOW): window id # {hex(published_xid)}\n"
+    state["map_state"] = None
+    with pytest.raises(CalibrationError, match="helper|identity|advertised") as failure:
+        target._verify(
+            pid,
+            TARGET,
+            SimpleNamespace(poll=lambda: None),  # type: ignore[arg-type]
+            startup_readiness=True,
+        )
+    import crowley.session.calibration as calibration_module
+
+    assert not isinstance(failure.value, calibration_module._GtkStartupPending)
+    tree_queries = sum(args[-1:] == ("-tree",) for args in commands)
+    assert tree_queries == expected_query_count
+    assert ("xwininfo", "-id", hex(TARGET_DESCENDANT), "-stats") not in commands
+
+
+def test_root_child_missing_helper_subtree_is_pending_only_before_readiness(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import crowley.session.calibration as calibration_module
+
+    pid = os.getpid()
+    target, state, _commands = _verify_root_child_fixture(monkeypatch, pid=pid)
+    state["children"] = ()
+    process = SimpleNamespace(poll=lambda: None)
+    with pytest.raises(calibration_module._GtkStartupPending, match="subtree"):
+        target._verify(pid, TARGET, process, startup_readiness=True)  # type: ignore[arg-type]
+    with pytest.raises(CalibrationError, match="tree|helper") as failure:
+        target._verify(pid, TARGET, process, startup_readiness=False)  # type: ignore[arg-type]
+    assert not isinstance(failure.value, calibration_module._GtkStartupPending)
 
 
 def test_gtk_create_readiness_deadline_is_shrinking_and_reaps_pending_child(
@@ -2778,6 +3512,8 @@ class _WorkflowDriver:
             596,
             TARGET,
         )
+        self.backend._last_synthetic_pointer_diagnostic = None
+        self.backend.pointer_position = lambda **_kwargs: (10, 10, TARGET)  # type: ignore[method-assign]
         self.observer: _WorkflowObserver | None = None
         self.revocations: list[str] = []
         self.queued_calibration_count = 0
@@ -3058,6 +3794,56 @@ def test_complete_owned_workflow_preserves_exact_human_and_synthetic_pairs() -> 
     ]
     assert not driver.queued_calibration_count
     assert driver.queue_seen_before_ready
+
+
+def test_workflow_refuses_pointer_above_measured_client_after_guarded_focus() -> None:
+    """A certified frame hit in its title area is refused before probe input."""
+
+    driver = _WorkflowDriver(outside=False)
+    order: list[str] = []
+    pointer = (1809, 43, TARGET_FRAME)
+    driver.focus_calibration_target = lambda *_args, **_kwargs: order.append("focus")
+    driver.backend.pointer_position = lambda **_kwargs: order.append("pointer_query") or pointer
+    synthetic_calls: list[str] = []
+
+    def unexpected_synthetic(*_args, **_kwargs) -> None:
+        synthetic_calls.append("called")
+
+    driver.synthetic_target_keyboard_profile = unexpected_synthetic
+
+    class OffscreenMeasuredTarget(_WorkflowTarget):
+        def __init__(self) -> None:
+            super().__init__()
+            self.window = replace(
+                self.window,
+                geometry=(1440, 71, 480, 240),
+                managed_frame_geometry=(1379, -23, 602, 401),
+                certified_event_target_xids=frozenset({TARGET, TARGET_DESCENDANT, TARGET_FRAME}),
+            )
+            self.closed = False
+
+        def close(self) -> None:
+            self.closed = True
+
+    target = OffscreenMeasuredTarget()
+    workflow = InputCalibrationWorkflow(driver, display=":test", window_factory=lambda: target)
+    with pytest.raises(CalibrationError, match="does not contain the current pointer"):
+        workflow.run(human_timeout=1)
+
+    assert order == ["focus", "pointer_query"]
+    assert synthetic_calls == []
+    assert target.closed
+    assert workflow.failure_context is not None
+    placement = workflow.failure_context["targetPlacement"]
+    assert placement == {
+        "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+        "targetXid": TARGET,
+        "targetGeometry": [1440, 71, 480, 240],
+        "origin": {"x": 1809, "y": 43, "windowXid": TARGET_FRAME},
+        "predicates": {"certifiedHitWindow": True, "insideTargetGeometry": False},
+    }
+    assert workflow.failure_context["readinessPublished"] is False
+    assert workflow.failure_context["stage"] == "target_pointer_preflight"
 
 
 def test_first_human_event_outside_owned_target_revokes_and_suppresses_due_action() -> None:
@@ -3698,9 +4484,16 @@ def test_reload_stream_correlates_each_character_without_guardian_revoke(tmp_pat
                 ),
                 stderr="",
             )
-        if args[:3] != ["xdotool", "key", "--"]:
-            raise AssertionError(args)
         index = emitted
+        expected_command = [
+            "xdotool",
+            "keydown",
+            f"{details[index]:03d}",
+            "keyup",
+            f"{details[index]:03d}",
+        ]
+        if args != expected_command:
+            raise AssertionError(args)
         emitted += 1
         detail = details[index]
         timestamp = 232009000 + index * 10
@@ -3730,7 +4523,9 @@ def test_reload_stream_correlates_each_character_without_guardian_revoke(tmp_pat
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     backend._run = fake_run
-    backend.action = lambda _name, **kwargs: backend._type(kwargs["command"])
+    backend.action = lambda _name, **kwargs: backend._type(
+        kwargs["command"], keymap=kwargs["_keyboard_keymap"]
+    )
     driver = DesktopDriver(profile=profile, backend=backend, lease_path=tmp_path / "reload.lock")
     driver._identity = lambda **_kwargs: backend._identity_for_test  # type: ignore[method-assign]
     evidence = _evidence(
@@ -3750,15 +4545,10 @@ def test_reload_stream_correlates_each_character_without_guardian_revoke(tmp_pat
             command="/reload",
             precondition=lambda _identity: True,
         )
-        assert [command[-1] for command in commands if command[:2] == ["xdotool", "key"]] == [
-            "slash",
-            "r",
-            "e",
-            "l",
-            "o",
-            "a",
-            "d",
+        assert [command for command in commands if command and command[0] == "xdotool"] == [
+            ["xdotool", "keydown", f"{detail:03d}", "keyup", f"{detail:03d}"] for detail in details
         ]
+        assert emitted == len(details)
         assert driver.guardian.revoked_reason == ""
         assert driver.guardian.armed
         assert driver.guardian.action is None

@@ -14,6 +14,10 @@ import pytest
 from crowley.session import cli
 from crowley.session.model import CLI_VERSION, LunaAdapter, ModelError
 from crowley.session.motion import DEFAULT_MOVEMENT_CALIBRATION_PULSE_SECONDS
+from crowley.session.startup import (
+    TAKEOVER_DRILL_OPERATION_TIMEOUT_SECONDS,
+    TAKEOVER_DRILL_TRANSPORT_MARGIN_SECONDS,
+)
 
 
 def _stub_cli_boundary(monkeypatch, tmp_path: Path, response: dict[str, Any]):
@@ -62,6 +66,20 @@ def test_motion_calibration_cli_preserves_explicit_server_rejection(
     assert request["pulseSeconds"] == 0.9
     assert timeout == 95.0
     assert "outside bounds" in capsys.readouterr().out
+
+
+def test_takeover_drill_cli_budget_covers_server_lifecycle_and_transport(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    requests = _stub_cli_boundary(monkeypatch, tmp_path, {"ok": True, "status": {"state": "passed"}})
+
+    assert cli.main(["takeover-drill", "--generation", "70"]) == 0
+
+    _path, request, timeout = requests[0]
+    assert request == {"command": "takeover_drill", "generation": 70}
+    assert timeout == TAKEOVER_DRILL_OPERATION_TIMEOUT_SECONDS + TAKEOVER_DRILL_TRANSPORT_MARGIN_SECONDS
+    assert timeout > 125.0
+    assert '"state": "passed"' in capsys.readouterr().out
 
 
 def test_motion_camera_calibration_cli_preserves_generation_and_boot(

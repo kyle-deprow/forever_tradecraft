@@ -40,7 +40,7 @@ from .wow_harness import WowClient
 
 def snapshot(sequence: int = 1) -> dict:
     return {
-        "schema": 4,
+        "schema": 5,
         "boot": "boot-1",
         "sequence": sequence,
         "wallTime": 1_000,
@@ -68,6 +68,21 @@ def snapshot(sequence: int = 1) -> dict:
         "ahOpen": True,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "blockingUI": {
+            "staticPopupAvailable": True,
+            "staticPopupShown": False,
+            "gameMenuAvailable": True,
+            "gameMenuShown": False,
+        },
+        "auctioneer": {
+            "targetPresent": False,
+            "targetName": "",
+            "rangeAvailable": False,
+            "withinTradeRange": False,
+            "bindingAvailable": True,
+            "ctrlF12Action": "",
+            "interactionMode": "any",
+        },
         "scanner": {
             "phase": "ready",
             "activeSweepId": "",
@@ -532,7 +547,9 @@ def test_lua_frame_roundtrips_through_pixel_packer_and_python_decoder() -> None:
     assert "mutated" not in client.publish_agent()["pending"]["ids"]
 
 
-def test_protocol_requires_schema4_motion_and_rejects_legacy_or_malformed_motion() -> None:
+def test_protocol_requires_schema5_motion_and_auctioneer_facts_and_rejects_legacy_or_malformed_motion() -> (
+    None
+):
     legacy = snapshot()
     legacy["schema"] = 1
     with pytest.raises(ProtocolError, match="schema"):
@@ -543,11 +560,30 @@ def test_protocol_requires_schema4_motion_and_rejects_legacy_or_malformed_motion
     legacy["schema"] = 3
     with pytest.raises(ProtocolError, match="schema"):
         encode_frame(legacy)
+    legacy["schema"] = 4
+    with pytest.raises(ProtocolError, match="schema"):
+        encode_frame(legacy)
 
     missing = snapshot()
     del missing["motion"]
     with pytest.raises(ProtocolError, match="motion"):
         encode_frame(missing)
+
+    missing = snapshot()
+    del missing["blockingUI"]
+    with pytest.raises(ProtocolError, match="blockingUI"):
+        encode_frame(missing)
+
+    malformed = snapshot()
+    malformed["blockingUI"]["staticPopupAvailable"] = 1
+    with pytest.raises(ProtocolError, match="blockingUI.staticPopupAvailable"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["blockingUI"]["gameMenuAvailable"] = False
+    malformed["blockingUI"]["gameMenuShown"] = True
+    with pytest.raises(ProtocolError, match="cannot be true when unavailable"):
+        encode_frame(malformed)
 
     malformed = snapshot()
     malformed["motion"]["bindings"]["turnRight"] = "shift w"
@@ -562,6 +598,33 @@ def test_protocol_requires_schema4_motion_and_rejects_legacy_or_malformed_motion
     malformed = snapshot()
     malformed["motion"]["bindings"]["moveForward"] = "shift w"
     with pytest.raises(ProtocolError, match="moveForward"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"]["targetName"] = "Auctioneer Jaxon"
+    with pytest.raises(ProtocolError, match="absent target"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"].update(targetPresent=True, targetName="Auctioneer Jaxon")
+    malformed["auctioneer"]["withinTradeRange"] = True
+    with pytest.raises(ProtocolError, match="cannot be true"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"]["bindingAvailable"] = False
+    malformed["auctioneer"]["ctrlF12Action"] = "INTERACTTARGET"
+    with pytest.raises(ProtocolError, match="unavailable binding"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    del malformed["auctioneer"]["interactionMode"]
+    with pytest.raises(ProtocolError, match="interactionMode"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"]["interactionMode"] = "1"
+    with pytest.raises(ProtocolError, match="invalid native SoftTargetInteract mode"):
         encode_frame(malformed)
 
 
@@ -581,8 +644,8 @@ def test_pixel_decoder_rejects_forged_legacy_wire_frame() -> None:
     valid = encode_frame(snapshot())
     payload_length = int.from_bytes(valid[8:10], "little")
     raw = zlib.decompress(valid[26 : 26 + payload_length], wbits=-15)
-    assert b'"schema":4' in raw
-    forged_raw = raw.replace(b'"schema":4', b'"schema":3', 1)
+    assert b'"schema":5' in raw
+    forged_raw = raw.replace(b'"schema":5', b'"schema":4', 1)
     compressor = zlib.compressobj(wbits=-15)
     forged_payload = compressor.compress(forged_raw) + compressor.flush()
     assert 1 <= len(forged_payload) <= 2000
@@ -627,7 +690,7 @@ def test_pixel_decoder_rejects_forged_legacy_wire_frame() -> None:
         "missing-turn-right",
     ],
 )
-def test_protocol_rejects_schema4_hover_mail_and_binding_contract_mutations(mutate) -> None:
+def test_protocol_rejects_schema5_hover_mail_and_binding_contract_mutations(mutate) -> None:
     value = snapshot()
     mutate(value)
     with pytest.raises(ProtocolError):
@@ -1506,12 +1569,17 @@ def test_xi2_calibration_requires_real_sources_and_forwarded_correlation() -> No
     driver.close()
 
 
-def test_game_actions_require_calibrated_anchors(tmp_path: Path) -> None:
+def test_native_pointer_action_requires_a_seeded_planned_gesture(tmp_path: Path) -> None:
     from crowley.session.driver import DriverProfile, X11Backend
 
-    profile = DriverProfile(action_anchors={})
+    profile = DriverProfile(
+        display=":test",
+        xauthority="/tmp/test-Xauthority",
+        wine_prefix="/tmp/test-wine-prefix",
+        action_anchors={},
+    )
     backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
     backend._find_window = lambda: "window"  # type: ignore[method-assign]
     backend._run = lambda args, timeout=5.0: type("Result", (), {"stdout": "", "returncode": 0})()  # type: ignore[method-assign]
-    with pytest.raises(DriverError, match="anchor"):
-        backend.action("open_ah", generation=1)
+    with pytest.raises(DriverError, match="validated planned gesture"):
+        backend.action("logout", generation=1)

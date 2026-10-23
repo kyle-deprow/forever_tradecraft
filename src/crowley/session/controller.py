@@ -17,6 +17,7 @@ from .calibration import CalibrationError, NativeCalibrationEvidence, NativeMemo
 from .driver import DesktopDriver, DriverError
 from .evidence import BASELINE_MEDIAN_SECONDS, SweepEvidence
 from .journal import Journal, JournalError
+from .startup import InvalidationCause, RuntimeInputEvidence, TakeoverDrillRecord
 
 
 class _ReadOnlyDriver:
@@ -249,6 +250,12 @@ class Controller:
         self._blocker = str(value.get("blocker", ""))
         self._native_calibrated = bool(value.get("nativeCalibration", False))
         self._input_calibrated = bool(value.get("inputCalibration", False))
+        stored_takeover_drill = value.get("takeoverDrill")
+        self._takeover_drill_record = TakeoverDrillRecord.parse(stored_takeover_drill)
+        self._takeover_drill_valid = self._takeover_drill_record is not None
+        self._takeover_drill_raw: Any = (
+            None if self._takeover_drill_valid else copy.deepcopy(stored_takeover_drill)
+        )
         stored_calibration = value.get("calibrationEvidence", {})
         self._calibration_evidence: dict[str, Any] = (
             stored_calibration if isinstance(stored_calibration, dict) else {}
@@ -260,6 +267,13 @@ class Controller:
             else []
         )
         self._calibration_invalidated_reason = str(value.get("calibrationInvalidated", ""))
+        stored_invalidation = value.get("runtimeReadinessInvalidation")
+        try:
+            self._runtime_readiness_invalidation = (
+                InvalidationCause(stored_invalidation) if stored_invalidation else None
+            )
+        except ValueError:
+            self._runtime_readiness_invalidation = InvalidationCause.UNKNOWN
         stored_history = value.get("history", [])
         self._history: list[dict[str, Any]] = (
             [item for item in stored_history if isinstance(item, dict)][-200:]
@@ -272,6 +286,7 @@ class Controller:
         # the armed lease to the XInput hierarchy and target identity; after a
         # restart the record cannot be reconstructed from a journal boolean.
         self._input_evidence: Any | None = None
+        self._runtime_startup_evidence: RuntimeInputEvidence | None = None
         qualification = value.get("qualification", {})
         self._streak = int(qualification.get("streak", 0))
         self._accepted = list(qualification.get("accepted", []))
@@ -328,6 +343,12 @@ class Controller:
             self.clock() + max(0, self._deadline_at - self.wall_clock()) if self._deadline_at else 0.0
         )
         self._fresh_owner = False
+        # A process restart may convert an active repeat checkpoint into a
+        # durable pause.  The default owner may then recollect passive
+        # readiness and use the ordinary resume path, but only for that
+        # restart-created pause.  A checkpoint that was already PAUSED or
+        # STOPPED remains an explicit human hold.
+        self._restart_startup_resume_pending = False
         self._mutex = threading.RLock()
         self._guardian_callback_active = False
         self._planned_revoke = False
@@ -373,6 +394,9 @@ class Controller:
             )
             self._input_evidence = None
             self._state = ControllerState.PAUSED
+            self._restart_startup_resume_pending = bool(
+                self._mode == SessionMode.REPEAT and not self._stop_requested
+            )
             self._blocker = (
                 "process restart with uncertain action; fresh observation required"
                 if self._restart_uncertain
@@ -389,6 +413,21 @@ class Controller:
         # restart.  The dispatch/expect_boot boundary is the only honest
         # source of B0; if it was absent, a save/ack transition cannot later
         # claim a changed boot.
+
+    def claim_restart_startup_resume(self) -> int | None:
+        """Consume the one automatic resume allowed for a restart-created hold."""
+
+        with self._mutex:
+            if not self._restart_startup_resume_pending:
+                return None
+            self._restart_startup_resume_pending = False
+            if (
+                self._state != ControllerState.PAUSED
+                or self._mode != SessionMode.REPEAT
+                or self._stop_requested
+            ):
+                return None
+            return self._generation
 
     def observation_fence(self) -> ObservationFence:
         """Capture the generation/state admission boundary for external I/O."""
@@ -577,6 +616,9 @@ class Controller:
         }
 
     def _calibration_gate_state(self) -> ControllerState:
+        runtime_evidence = self._runtime_startup_evidence
+        if runtime_evidence is not None and runtime_evidence.is_live:
+            return ControllerState.ARMED
         if not self._native_calibrated:
             return ControllerState.NATIVE_CALIBRATION
         if not self._input_calibrated or self._input_evidence is None:
@@ -855,6 +897,7 @@ class Controller:
             "_calibration_evidence",
             "_calibration_history",
             "_calibration_invalidated_reason",
+            "_runtime_readiness_invalidation",
         )
         return {field: copy.deepcopy(getattr(self, field)) for field in fields}
 
@@ -982,6 +1025,16 @@ class Controller:
                     "calibrationEvidence": copy.deepcopy(self._calibration_evidence),
                     "calibrationHistory": copy.deepcopy(self._calibration_history),
                     "calibrationInvalidated": self._calibration_invalidated_reason,
+                    "runtimeReadinessInvalidation": (
+                        self._runtime_readiness_invalidation.value
+                        if self._runtime_readiness_invalidation is not None
+                        else None
+                    ),
+                    "takeoverDrill": (
+                        self._takeover_drill_record.to_json()
+                        if self._takeover_drill_valid and self._takeover_drill_record is not None
+                        else copy.deepcopy(self._takeover_drill_raw)
+                    ),
                     "restartUncertain": self._restart_uncertain,
                     "reconciliationRequired": self._reconciliation_required,
                     "qualificationPending": copy.deepcopy(self._qualification_pending),
@@ -1055,7 +1108,77 @@ class Controller:
         self._native_calibrated = False
         self._input_calibrated = False
         self._input_evidence = None
+        self._runtime_startup_evidence = None
         self._calibration_invalidated_reason = reason
+
+    def invalidate_runtime_readiness(self, cause: InvalidationCause) -> None:
+        """Drop only process-local readiness; the durable drill is environment checked."""
+
+        if not isinstance(cause, InvalidationCause):
+            cause = InvalidationCause.UNKNOWN
+        self._runtime_startup_evidence = None
+        self._runtime_readiness_invalidation = cause
+        self._invalidate_live_calibration(f"runtime readiness invalidated: {cause.value}")
+
+    @property
+    def runtime_readiness_invalidation(self) -> InvalidationCause | None:
+        with self._mutex:
+            return self._runtime_readiness_invalidation
+
+    @property
+    def takeover_drill_record(self) -> TakeoverDrillRecord | None:
+        with self._mutex:
+            return self._takeover_drill_record if self._takeover_drill_valid else None
+
+    def persist_takeover_drill(self, record: TakeoverDrillRecord) -> None:
+        """Persist one completed, environment-bound takeover drill."""
+
+        parsed = TakeoverDrillRecord.parse(record.to_json())
+        if parsed is None:
+            raise ValueError("takeover drill record is malformed")
+        with self._mutex:
+            if self._state != ControllerState.PAUSED or self.driver.guardian.armed:
+                raise RuntimeError("takeover drill evidence is retained only after the lease is paused")
+            self._takeover_drill_record = parsed
+            self._takeover_drill_valid = True
+            self._takeover_drill_raw = None
+            self._save(last_action="takeover_drill_passed")
+
+    def _validate_runtime_evidence(self, evidence: RuntimeInputEvidence) -> None:
+        try:
+            evidence.verify_seal()
+        except (TypeError, ValueError) as exc:
+            raise DriverError("runtime startup evidence is not live in this process") from exc
+        if not evidence.is_live:
+            raise DriverError("runtime startup evidence is not live in this process")
+        record = self._takeover_drill_record if self._takeover_drill_valid else None
+        if record is None or not record.matches(evidence.environment):
+            raise DriverError("a matching durable takeover drill is required before runtime input")
+
+    def _accept_runtime_evidence(self, evidence: RuntimeInputEvidence) -> None:
+        self._validate_runtime_evidence(evidence)
+        self._runtime_startup_evidence = evidence
+        self._native_calibrated = True
+        self._input_calibrated = True
+        self._input_evidence = evidence
+        self._calibration_invalidated_reason = ""
+        self._runtime_readiness_invalidation = None
+
+    def resume_with_runtime_evidence(
+        self,
+        evidence: RuntimeInputEvidence,
+        *,
+        expected_generation: int | None = None,
+    ) -> ControllerStatus:
+        """Bind fresh passive evidence, then use ordinary resume/reconcile fencing."""
+
+        with self._mutex:
+            if expected_generation is not None and expected_generation != self._generation:
+                raise RuntimeError("stale generation")
+            if self._state not in {ControllerState.PAUSED, ControllerState.BLOCKED, ControllerState.STOPPED}:
+                raise RuntimeError(f"cannot resume from {self._state}")
+            self._accept_runtime_evidence(evidence)
+        return self.resume(expected_generation=expected_generation)
 
     def status(self) -> ControllerStatus:
         with self._mutex:
@@ -1511,7 +1634,10 @@ class Controller:
             ):
                 return self.status()
             if not boot or sequence < 0 or crc32 < 0:
-                return self.block("malformed frame evidence")
+                return self.block(
+                    "malformed frame evidence",
+                    invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+                )
             restart_boot_transition = (
                 self._restart_uncertain
                 and self._action_intent in {"save_reload", "ack_reload", "enter_world"}
@@ -1532,7 +1658,10 @@ class Controller:
                 and boot != self._frame_boot
                 and not restart_boot_transition
             ):
-                return self.block("unexpected client boot change")
+                return self.block(
+                    "unexpected client boot change",
+                    invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+                )
             if self._state in {ControllerState.SAVE_RELOAD_SENT, ControllerState.ACK_RELOAD_SENT}:
                 # The sent state is entered before its reload command is
                 # dispatched.  A frame from the preceding boot cannot satisfy
@@ -1546,7 +1675,10 @@ class Controller:
                 if self._expected_boot and boot == self._expected_boot:
                     return self.status()
                 if self._reload_boot and boot != self._reload_boot:
-                    return self.block("client boot churn during reload")
+                    return self.block(
+                        "client boot churn during reload",
+                        invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+                    )
                 self._reload_boot = boot
                 self._expected_boot = ""
                 self._state = (
@@ -1556,9 +1688,15 @@ class Controller:
                 )
             elif self._state in {ControllerState.SAVE_RELOAD_WAIT, ControllerState.ACK_RELOAD_WAIT}:
                 if self._reload_boot and boot != self._reload_boot:
-                    return self.block("client boot changed after reload")
+                    return self.block(
+                        "client boot changed after reload",
+                        invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+                    )
             elif self._frame_boot and boot != self._frame_boot and not restart_boot_transition:
-                return self.block("client boot changed outside reload")
+                return self.block(
+                    "client boot changed outside reload",
+                    invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+                )
             if self._action_intent in {"save_reload", "ack_reload", "enter_world"}:
                 if self._restart_reference_boot and boot != self._restart_reference_boot:
                     self._restart_observed_boot = self._restart_observed_boot or boot
@@ -1577,13 +1715,35 @@ class Controller:
             self._save(last_action="frame_observed")
             return self.status()
 
-    def start(self, mode: SessionMode | str = SessionMode.REPEAT) -> ControllerStatus:
+    def start(
+        self,
+        mode: SessionMode | str = SessionMode.REPEAT,
+        *,
+        runtime_evidence: RuntimeInputEvidence | None = None,
+        expected_generation: int | None = None,
+    ) -> ControllerStatus:
         interaction_generation: int | None = None
+        runtime_generation: int | None = None
         with self._mutex:
+            if expected_generation is not None and expected_generation != self._generation:
+                raise RuntimeError("stale generation")
             if self._state not in {ControllerState.STOPPED, ControllerState.PAUSED}:
                 raise RuntimeError(f"cannot start from {self._state}")
             if self._pending:
                 raise RuntimeError("pending scan work requires explicit resume")
+            if runtime_evidence is not None:
+                self._validate_runtime_evidence(runtime_evidence)
+                if (
+                    self._reconciliation_required
+                    or self._restart_uncertain
+                    or (
+                        self._action_intent
+                        and self._action_result not in {"", "complete", "abandoned_after_restart"}
+                    )
+                ):
+                    raise RuntimeError(
+                        "runtime start cannot replace unresolved durable action evidence; use resume"
+                    )
             requested_mode = SessionMode(mode)
             if requested_mode == SessionMode.INTERACTION:
                 # Interaction startup uses the same durable calibration gates as
@@ -1596,6 +1756,8 @@ class Controller:
                 self._blocker = ""
                 self._generation += 1
                 interaction_generation = self._generation
+                if runtime_evidence is not None:
+                    self._accept_runtime_evidence(runtime_evidence)
                 gate = self._calibration_gate_state()
                 if gate != ControllerState.ARMED or self._reconciliation_required:
                     self._state = gate if gate != ControllerState.ARMED else ControllerState.RECONCILE
@@ -1641,10 +1803,33 @@ class Controller:
                 self._reconciliation_required = False
                 self._recovery_attempts = 0
                 self._recovery_actions.clear()
+                if runtime_evidence is None:
+                    self._state = ControllerState.NATIVE_CALIBRATION
+                    self._resume_state = self._state
+                    self._runtime_startup_evidence = None
+                else:
+                    self._accept_runtime_evidence(runtime_evidence)
+                    self._state = ControllerState.PAUSED
+                    self._resume_state = ControllerState.READY
+                    runtime_generation = self._generation
                 self._save(last_action="start")
-                return self.status()
+                if runtime_generation is None:
+                    return self.status()
+        if runtime_generation is not None:
+            return self.resume(expected_generation=runtime_generation)
         assert interaction_generation is not None
         return self.resume(expected_generation=interaction_generation)
+
+    def start_with_runtime_evidence(
+        self,
+        evidence: RuntimeInputEvidence,
+        mode: SessionMode | str = SessionMode.REPEAT,
+        *,
+        expected_generation: int | None = None,
+    ) -> ControllerStatus:
+        """Start through passive readiness and a matching durable drill."""
+
+        return self.start(mode, runtime_evidence=evidence, expected_generation=expected_generation)
 
     def enter_interaction(self, *, expected_generation: int | None = None) -> ControllerStatus:
         with self._mutex:
@@ -2205,6 +2390,7 @@ class Controller:
         expected_state: ControllerState | str | set[ControllerState | str] | None = None,
         fence: ObservationFence | None = None,
     ) -> ControllerStatus:
+        arm_request: tuple[int, ControllerState, RuntimeInputEvidence] | None = None
         with self._mutex:
             if not self._admitted(
                 expected_generation=expected_generation, expected_state=expected_state, fence=fence
@@ -2279,6 +2465,77 @@ class Controller:
                         self._deadline = self.clock() + self.ack_deadline_seconds
                         self._deadline_at = self.wall_clock() + self.ack_deadline_seconds
             self._save(last_action="reconcile")
+            result = self.status()
+            if (
+                world_ready
+                and not self._restart_uncertain
+                and not self._reconciliation_required
+                and isinstance(self._runtime_startup_evidence, RuntimeInputEvidence)
+                and result.state
+                in {
+                    ControllerState.WAIT_DUE,
+                    ControllerState.SCANNING,
+                    ControllerState.QUIET_SAVE,
+                    ControllerState.SAVE_RELOAD_SENT,
+                    ControllerState.SAVE_RELOAD_WAIT,
+                    ControllerState.UPLOAD_WAIT,
+                    ControllerState.ACK_RELOAD_SENT,
+                    ControllerState.ACK_RELOAD_WAIT,
+                    ControllerState.REOPEN,
+                    ControllerState.DISK_CLEANUP_SENT,
+                    ControllerState.DISK_CLEANUP_WAIT,
+                }
+            ):
+                guardian = getattr(self.driver, "guardian", None)
+                if guardian is None:
+                    return self.block("runtime reconciliation has no Guardian")
+                if guardian.armed:
+                    if guardian.generation != self._lease_generation:
+                        return self.block("runtime Guardian lease changed during reconciliation")
+                    return result
+                arm_request = (self._generation, result.state, self._runtime_startup_evidence)
+            else:
+                return result
+
+        # Passive readiness remains observation-only while an old effect is
+        # unresolved. Once the read-only reconciler has selected an action-
+        # capable state, re-arm outside the controller lock and bind that
+        # lease to the exact generation/state that admitted the transition.
+        assert arm_request is not None
+        arm_generation, arm_state, evidence = arm_request
+        try:
+            self.driver.arm(evidence)
+        except (DriverError, RuntimeError) as exc:
+            with self._mutex:
+                if self._generation != arm_generation or self._state != arm_state:
+                    return self.status()
+            invalidation_cause = getattr(exc, "invalidation_cause", InvalidationCause.UNKNOWN)
+            if not isinstance(invalidation_cause, InvalidationCause):
+                invalidation_cause = InvalidationCause.UNKNOWN
+            return self.block(
+                f"runtime reconciliation arm failed: {exc}",
+                invalidation_cause=invalidation_cause,
+                expected_generation=arm_generation,
+                expected_state=arm_state,
+            )
+        with self._mutex:
+            if (
+                self._generation != arm_generation
+                or self._state != arm_state
+                or self._stop_requested
+                or self._restart_uncertain
+                or self._reconciliation_required
+            ):
+                self._planned_revoke = True
+                try:
+                    self._lease_generation = self.driver.guardian.revoke(
+                        "runtime reconciliation generation was revoked"
+                    )
+                finally:
+                    self._planned_revoke = False
+                return self.status()
+            self._lease_generation = self.driver.guardian.generation
+            self._save(last_action="runtime_reconcile_rearmed")
             return self.status()
 
     def resume(self, *, expected_generation: int | None = None) -> ControllerStatus:
@@ -2362,14 +2619,22 @@ class Controller:
                 evidence = self._input_evidence
 
         try:
-            self.driver.input_calibration(evidence)
-            self.driver.arm(evidence)
+            if isinstance(evidence, RuntimeInputEvidence):
+                self.driver.arm(evidence)
+            else:
+                self.driver.input_calibration(evidence)
+                self.driver.arm(evidence)
         except (DriverError, RuntimeError) as exc:
             with self._mutex:
                 if self._generation != resume_generation or self._state != resume_origin:
                     return self.status()
+            invalidation_cause = getattr(exc, "invalidation_cause", InvalidationCause.UNKNOWN)
+            if not isinstance(invalidation_cause, InvalidationCause):
+                invalidation_cause = InvalidationCause.UNKNOWN
             return self.block(
-                f"resume calibration evidence rejected: {exc}", expected_generation=resume_generation
+                f"resume calibration evidence rejected: {exc}",
+                invalidation_cause=invalidation_cause,
+                expected_generation=resume_generation,
             )
         with self._mutex:
             if self._generation != resume_generation or self._state != resume_origin:
@@ -2889,12 +3154,14 @@ class Controller:
                 }
             ):
                 return
-            lowered = reason.lower()
-            if any(
-                marker in lowered
-                for marker in ("identity", "hierarchy", "observer", "display", "boot", "client")
-            ):
-                self._invalidate_live_calibration(f"live calibration invalidated: {reason}")
+            # The human-readable watchdog reason is audit context, not a type
+            # system. An unplanned Guardian revocation always drops the live
+            # lease evidence. The durable environment-bound takeover drill is
+            # retained and is compared with newly measured startup facts.
+            cause = getattr(self.driver, "_active_revocation_cause", InvalidationCause.UNKNOWN)
+            if not isinstance(cause, InvalidationCause):
+                cause = InvalidationCause.UNKNOWN
+            self.invalidate_runtime_readiness(cause)
             self._guardian_callback_active = True
             try:
                 self.pause(f"input guardian: {reason}")
@@ -3834,6 +4101,7 @@ class Controller:
         self,
         reason: str,
         *,
+        invalidation_cause: InvalidationCause = InvalidationCause.UNKNOWN,
         expected_generation: int | None = None,
         expected_state: ControllerState | str | set[ControllerState | str] | None = None,
         fence: ObservationFence | None = None,
@@ -3843,12 +4111,15 @@ class Controller:
                 expected_generation=expected_generation, expected_state=expected_state, fence=fence
             ):
                 return self.status()
+            if not isinstance(invalidation_cause, InvalidationCause):
+                invalidation_cause = InvalidationCause.UNKNOWN
             if isinstance(self._qualification_pending, dict) and not self._evidence_meta.get(
                 "outcomeArchived"
             ):
                 # An outcome publication failure leaves a complete retry proof
                 # on disk.  A normal daemon error handler must not replace it
                 # with mutated counters or a terminal REOPEN checkpoint.
+                self.invalidate_runtime_readiness(invalidation_cause)
                 self._planned_revoke = True
                 try:
                     self._lease_generation = self.driver.revoke(reason)
@@ -3897,6 +4168,7 @@ class Controller:
                     kind="blocked",
                 )
             self._resume_state = self._state
+            self.invalidate_runtime_readiness(invalidation_cause)
             self._planned_revoke = True
             try:
                 self.driver.revoke(reason)
@@ -3906,13 +4178,7 @@ class Controller:
             self._deadline = 0.0
             self._deadline_at = 0
             self._blocker = reason
-            lowered = reason.lower()
             self._reconciliation_required = True
-            if any(
-                marker in lowered
-                for marker in ("identity", "boot", "hierarchy", "display", "crc", "corrupt", "protocol")
-            ):
-                self._invalidate_live_calibration(f"live calibration invalidated: {reason}")
             self._state = ControllerState.BLOCKED
             self._streak = 0
             self._cadence_seed_start = None

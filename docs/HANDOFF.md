@@ -1,20 +1,592 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 04:43 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-23 00:44 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**Latest user instruction:** Game is idle and the user is AWAY. Keep Luna's
-assisted collection running until the user returns. Finish offline code work;
-do not start a live calibration window or timed human prompt during this absence.
+**CURRENT: ASSISTED COLLECTION WORKS; LIVE HOVER BLOCKS HUMAN DRILL.**
+Exclusive GUI owner `/root/luna_assisted_scanner` is explicitly authorized to
+collect. Arthur remains in Stormwind next to Jaxon; no navigation/trades.
+Latest complete scan289: UID`beta-normal-alliance-1792715123-Arthur-7274`,
+started00:25:23UTC, finished00:33:33UTC,428attempts/0failures/728rows.
+Original SHA34215f81082a95f679d5121a02dc415e31b2ae2535fe6e51e54397fb3947adee;
+exact companion/Data.lua ACK timestamp00:34:24 (51safterfinish); parent separately
+CRC-decoded loadedACK boot1792715682-139726/seq5/pending0/AHclosed. Proof:
+`scan289-postprocess-stage-20261023T0027Z/scan288-save-upload-ack-20261023T003402683971Z/parent-loaded-ack-verification.json`
+under assisted-collection-luna-20261021. Next actual due00:40:23UTC; post-reload
+zero due is not permission to start early. Scan290 start remains unconfirmed;
+Luna is reopening after the reviewed controller update/hover test. Preserve the
+real earlier collection gap. No working autonomous15-minute cadence claim.
+
+**Simplification installed and code-reviewed.** R2 is committed/pushed asb769d57;
+23 reviewed files include strict schema4, passive startup, durable genuine drill,
+typed invalidation, deterministic Jaxon opener and actual-start900s scheduling.
+Parent753PASS/562.59s, Ruff22/format/diff clean; Sol READY/no Must or Should.
+Addon-first one-shot reload was separately CRC-verified before Python promotion.
+Private R2 artifacts: `executor-evidence/autonomous-startup-takeover-20261022-r2/`.
+
+**Configured capture admission FIXED live:** the old PAUSED recovery-capability
+refusal is corrected by the isolated three-file passive-region patch. Sol READY,
+parent149PASS/287.49s, Ruff3/format/diff clean. Promoted/restarted00:40:24UTC.
+Public repeat start generation95 now succeeds with three advancing ordinary
+frames, no input and startup takeover_needed. Driver/Agent/protocol unchanged.
+Read [the narrow plan](../.archive/PLAN-passive-region-admission-20261023.md).
+Private artifacts: `executor-evidence/passive-region-admission-20261023/`.
+Canonical installed24-file pin manifest is `installed-runtime-manifest.json`,
+SHA2cfa592341b33f88352906e7456c6433d6ad43f9bbd64771c6a322cf82f4374d.
+ConfigSHA89580ebd... already pins private Codex0.162.1 and was unchanged.
+
+**Actual clickless hover FAILED before human window.** Public takeover-drill95
+terminated its pointer subprocess with signal15; the visible error only contains
+xdotool path/argv and masks the Guardian reason. No click, keyboard action, human
+sample or PASS. State remainsPAUSED95/startup.ready/3frames; controls released.
+No raw XI2 blocks were retained, so do not invent a cause or weaken Guardian.
+Private evidence: `takeover-drill-preflight-20261023T0041Z/` under assisted-collection.
+Next offline work must retain actual Guardian reason plus the existing observer's
+bounded diagnostic_snapshot on this error path, then review/test before a live
+instrumented attempt. Don't retry unchanged or ask the user to calibrate yet.
+Continue assisted scans while fixing this seam. No legacy native/GTK diagnostic,
+no fake human record, no second GUI owner. Genuine drill and a full autonomous
+save/upload/loadedACK/reopen/takeover-resume cycle remain live acceptance work.
+
+### Historical work notes (superseded by the installed state above)
+
+**Sol assisted-helper review NEEDS WORK:** Separate read-only review of the past
+2245/2257 helper snapshots found first-frame polling errors, receipt labels that
+hid four taps instead of a held Ctrl-F12 chord, and success exit on an unobserved
+start. Luna repaired those in the private helper, including actual-argv/cleanup
+replays and a private-Xvfb Xlib held-state query. No interaction was dispatched
+by the affected attempts. Review artifact is private under
+`autonomous-startup-takeover-20261022/assisted-helper-review/sol-review.md`.
+This is not the final core review. The source-controlled game-control skill now
+records the concise modifier/raw-first lessons; its validator passes.
+
+**CURRENT: USER HANDED CONTROL BACK; ASSISTED COLLECTION RECOVERING.** User explicitly
+answered "Luna can resume collection" and authorized the simplification with a
+Luna/Sol loop. `/root/luna_assisted_scanner` is running and exclusively owns GUI
+input/capture. Its fresh 21:01 UTC scene verified the same WoW process, Arthur
+stationary in Stormwind AH, advancing ordinary frames, empty closed editor and
+no held controls. The foreign `/run F=C` buffer is absent; no cleanup was sent.
+Scan288's loaded ACK is complete. Repeated WOW51900319 disconnects and verified
+interaction refusals have delayed the next sweep; no scan289 start is confirmed.
+Luna recovered the cached Arthur login and is using one pre-staged curved
+hover/auctioneer-tooltip/right-click chain. The latest hover found an intervening
+player rather than Fitch and correctly refused the click; Jaxon is being verified.
+Continue curated 428-item scans at 900 seconds anchored to actual starts. All earlier takeover
+holds below are superseded by this explicit handback.
+
+**Recovery COMPLETE / scan288 loaded ACK confirmed:** The first ACK-only helper observed a fresh
+WOW51900319 disconnect and sent no input. Luna dismissed it and followed the
+cached Normal ruleset/Arthur path with guarded curved clicks. Arthur is entering
+the world in the earlier record; the later world frame now confirms Arthur
+stationary in Stormwind, ordinary HUD boot1792704247-503409/seq17, exact scan288
+loaded ACK and pending0. Root independently CRC-decoded that retained full image
+and parsed the exact original `CrowleyDB.scans[uid]` key. Proof:
+`handback-world-entry-observation-20261022T2124Z/parent-loaded-ack-verification.json`.
+Luna is reopening the AH; a new scan start remains unconfirmed.
+Root also independently decoded retained 21:01 HUD PNGs and
+verified scan288's preserved original SHA. Comparing parsed current SavedVariables
+to that original showed only `scheduleTrace` changed. Proof is
+`handback-window-20261022T2101Z/parent-retained-handback-verification.json` under
+the assisted-collection evidence directory. Do not call this an autonomous cycle.
+
+**SIMPLIFICATION IMPLEMENTATION RUNNING OFFLINE.** Core Luna owns the complete
+startup/drill/AH-open vertical path in an isolated worktree; Sol independently
+reviews the design then frozen code. Read the concrete
+[implementation plan](../.archive/PLAN-autonomous-startup-takeover-20261022.md).
+Replace routine native/GTK/human-per-restart gates with passive automatic startup
+and one durable environment-bound human takeover drill; retain runtime safety,
+strict ACK/no-replay and the curved executor. Port the proven Stormwind opener.
+The isolated worktree is
+`~/.cache/crowley/worktrees/autonomous-startup-takeover-20261022`, base644dc14.
+Sol's plan review identified two integration seams now explicit in the plan:
+fresh process-local measured input evidence and a complete guarded Stormwind
+command/binding path. Ownership includes minimal Agent.lua auctioneer telemetry
+and its strict schema4 protocol/harness. The new parser rejects schema3, so the
+later live promotion requires an explicit staged addon reload/source transition.
+The current implementation covers passive evidence, durable drill/status, typed
+invalidation, schema4 auctioneer facts, guarded keyboard dispatch, actual-start
+cadence and active-repeat restart recovery. Verification is still running:
+the native shifted-key trace exposed extra RawKeyRelease events and the complete
+restart-to-admitted-action path needs a passing composed test. These are release
+blockers. Final scoped tests, frozen source hashes and Sol code review remain
+pending. Private Xvfb results do not qualify the live Mutter/Xwayland environment.
+No production runtime change or service restart has occurred. Cutover requires
+code review and parent checks, then a safe fully ACKed scan boundary. Do not run
+another old calibration attempt. Actual autonomous cycles remain unqualified.
+
+**Opus audit COMPLETE: MAJOR ISSUES / SIMPLIFY BEFORE CONTINUING.**
+Read [the preserved independent audit](../.archive/REVIEW-calibration-architecture-opus-20261022.md).
+Actual model claude-opus-5-5, read-only Read/Grep/Glob, no MCP/fallback; CLIexit0.
+Root independently verified restart clears both calibration gates and runtime
+AH-open still hardcodes Ironforge Buckler. Do not deploy the isolated patch or
+run another calibration attempt under the existing design. Preserve that small
+correct patch for the simplification. No runtime rewrite is proposed by the audit.
+Next design should decouple routine startup/telemetry checks from native memory
+benchmarking and per-restart human sampling, retain Guardian/watchdog/identity/
+focus/curvedclickcap/decoder/journal/ACK, use a persistent takeover drill with real
+input-environment invalidation, and port the proven Stormwind interaction path.
+The user approved the simplification; implementation/code review and human
+acceptance remain in progress. Any new user takeover takes priority.
+Private original CLI prompt/raw/process/result: calibration-audit-opus-20261022/.
+
+**Latest scan288:** Started20:35:05 UTC (`1792701305`), finished20:43:13
+(`1792701793`), UID`beta-normal-alliance-1792701305-Arthur-3046`,428attempts/
+zero failures/645rows. Preserved original SHA
+`6a2a8f6a536618df45d160342d700b9d6f7b7a58e3165165e8379da8c2e02a6b`.
+Companion uploaded/Data.lua strictACK observed timestamp1792701846=20:44:06,
+53safterfinish. Exact loadedHUD ACK was subsequently independently verified at
+21:24 UTC (proof above); AH reopen and the next scan remain unconfirmed. The earlier helper's first
+chat-open Return exposed the foreign controller's `/run F=C` text and refused
+typing/submission. No command was typed after that Return; no cleanup was sent.
+Receipt `scan288-postprocess-stage-20261022T204327Z/scan288-save-upload-ack-20261022T204346728505Z/receipt.json`
+under assisted-collection-luna-20261021. No active sweep at takeover; collection
+is recovering rather than actively sweeping. Nominal next due20:50:05 does not
+erase the actual collection gap or override user control.
+
+**Isolated candidate FROZEN, NOT DEPLOYED:** Luna completed the minimal12-line
+unused select_chat_all profile deletion in input92-keyboard-rehearsal worktree.
+Private native workflow reaches real strict keyboard+pointer readiness and
+no-input wait:8runtimeoperations/134steps/272keyboardrecords plus8pointerrecords;
+observer staysopen/idle afterfinalrelease, then target/observer reaped and Guardian
+registriesclear. Private fixture preconditions XTEST sources before observing to
+avoid fresh-Xvfb DeviceChanged metadata; no production filtering/parser changes.
+Scoped78PASS/1known-baseline test deselected, native9PASS/176deselected, Ruff/diffclean.
+Unfiltered78PASS/1FAIL reproduced exactsame pointer gesture-plan assertion onclean
+base1130c81. Report/manifest/native proof under input92-xi2-implementation; diffSHA
+13a1e8345c4b950dfeab9a0db4ffc663fb83e638663b34855b9270760c11dcfb.
+No productionpromotion, restart, code review or live qualification is claimed.
+
+**Latest collection boundary:**287 completed20:26:57 UTC, UID
+`beta-normal-alliance-1792700329-Arthur-5720`,428 attempts/zero failures/691 rows.
+Original224404B SHA`da34f9f7fad98ad43fbf682486cffc44fa33ae26ee7ab5c51b921370f3505fd5`.
+Companion upload1792700867=20:27:47 UTC,50s after finish. Exact loaded ACK/pending0
+verified; parent independently decoded boot1792700890-960915 seq5 and parsed the
+original SavedVariables queue key (not a UID substring). Parent proof:
+`scan287-postprocess-stage-20261022T202108Z/scan287-save-upload-ack-20261022T202727179496Z/parent-loaded-ack-verification.json`.
+This is historical evidence; see the current scanner state above.
+Do not start early solely because post-reload scanner dueAt=0. Main runtime source
+unchanged; latest pushedc252a3f contains only documentation/plan/skill updates.
+
+**Offline repair RUNNING20:28 UTC:** Luna is implementing the minimal input92
+fix in isolated worktree `~/.cache/crowley/worktrees/input92-keyboard-rehearsal-20261022`,
+base1130c81, under [keyboard rehearsal plan](../.archive/PLAN-input92-keyboard-rehearsal-20261022.md).
+Sol design review READY; exact runtime-vocabulary equality/sealed operation coverage
+and real private-Xvfb open-idle final-release/workflow-readiness proof are required.
+Production runtime bytes remain unchanged; GUI owner keeps scanning. No live retry
+until frozen implementation, independent Sol code review and parent verification,
+then promotion/restart/source rebinding at an exact ACK boundary and fresh native proof.
+Plan ownership now explicitly includes tests/test_session_input_tool.py to retain
+its generic left/right modifier-hold admission/refusal tests with explicit fixtures.
+
+Completed exact diagnostic replay:281 source5 key records vs280 expected; first
+mismatch is unused select_chat_all, then all256 suffix records align after one
+extra raw Control release. Exact raw+partial bytes yield289 parsed events including
+final KeyRelease40; finish()None. Missing final blank delimiter makes diagnostic
+replayable=false but did not withhold the semantic event. Pinned xinput uses line
+buffering; no parser/observer change is justified. Private diagnosis/report and
+Sol design review: `calibration-resume-20261021/input92-xi2-implementation/`.
+The existing game-control skill now records these two reusable lessons; validation
+passes. No new skill folder or incident dump is added.
+
+**Current collection20:18:49 UTC:** Assisted287 started at Jaxon,
+`startedAt=1792700329`, due20:33:49 (`1792701229`), AHopen/item2/speed0/pending0,
+interaction keys released. Receipt:
+`assisted-collection-luna-20261021/scan287-interaction-20261022T201757Z/receipt.json`.
+Actual286->287 start gap1660s(27m40),760s late against20:06:09 nominaldue.
+Keep watching287, preserve/save/upload/exactACK and repeat900s assisted cycles;
+no extra calibration attempt until reviewed fix promoted at a safe boundary.
+
+**Input92 diagnosis underway:** Actual first keyboard divergence occurs in
+calibration-only `select_chat_all`: expected release(a) before release(Control_L),
+but pinned xdotool releases Control_L before a and emits duplicate raw Control_L
+release due modifier compensation. All later256 class/detail records align after
+that one extra record; final deliveredrelease remains partial. Runtime ACTIONS
+explicitly exclude select_chat_all; public typing uses per-character allowlisted
+keys. Luna is finishing exact parser/validator replay and producer-tail flushing
+audit before root defines smallest fix. Preserve strict validation; don't filter
+extra records, reorder contract to hide mismatches, or invent missing native fields.
+Report under `calibration-resume-20261021/input92-xi2-implementation/`.
+
+**Current blocker20:13 UTC:** Readiness-only input92 FAILED before human readiness:
+`XI2 calibration event deadline expired`, operation started1792699794 and
+finished1792699807 (20:10:07 UTC). No genuine/fakehuman input and no unchanged retry.
+GTK root-child certificate and synthetic pointer pre/post predicates DID pass;
+failure stage synthetic, keyboard predicate "extra or missing key transitions"
+twice. Observer retained289/290 blocks/63,195bytes, no parserfailure/truncation;
+final delivered KeyRelease is partial, replayable=false. Do not infer its cause
+or invent missing native fields from that incomplete record. Immutable bundle:
+`assisted-collection-luna-20261021/input-calibration-failure-92-20261022T201139Z/failure-index.json`,
+original diagnostic SHA3e3cad097d297bbb86afcbb04f0f2916c2107a7b4e3b38a8c734eb9358ef903e.
+
+Publicpause92 advanced PAUSED93/native=true/input=false; exact target PID549304
+and title are gone, observer reaped, checkpoint keyABSENT, controlsUP and two advancing
+ordinary stationary frames verified. GUI owner `/root/luna_assisted_scanner` is
+restoring287 via the established Jaxon interaction chain. Next nominal due20:06:09
+was missed for calibration; actual287 start is not yet confirmed. Keep collecting
+while repairing, no further calibration attempt before reviewed fix and fresh gates.
+
+Offline READ-ONLY Luna diagnosis is RUNNING in `/root/luna_calibration_diagnosis`,
+bound to canonical1130c81 source (not its stale previous worktree). It compares
+actual keyboard operations/keymap and raw/primary stream at parser/validator
+boundaries, distinguishes incomplete evidence from replay, and proposes smallest
+source/test fix. Report under `calibration-resume-20261021/input92-xi2-implementation/`.
+Root will define an implementation plan after that diagnosis; Luna implements,
+Sol independently reviews, root verifies/promotes. No host GUI/input/capture/IPC,
+deployment or daemon restart by coding/review workers. Sole GUI owner remains Luna
+scanner. User remains AWAY; human calibration has NEVER reached readiness.
+
+**Successful native boundary20:09 UTC:** Mandatory control-preflight89 PASSED;
+resume90/full100-update103-call measure-deferred PASSED with native proof valid.
+Public pause advanced91; durable journal retained a valid measure90 checkpoint
+although aggregate status omitted it. Canonical recover91 then SUCCEEDED;
+parent independently verified journal PAUSED91/native=true/input=false,
+`nativeConstruction` keyABSENT and lastAction native_construction_recovery_commit.
+Receipt: `native-calibration-operator/native-calibration-recover-20261022T200732651521Z-481965-9e546958/receipt.json`;
+parent proof: `closed-chat-world-implementation/parent-recovery91-verification.json`.
+Resource assessment remains target_exceeded: construction12,779,520B within128MiB,
+updates73,740,288B exceeds16MiB. Native validity is not a performance-target pass.
+
+Two fresh post-recovery ordinary frames boot1792699669-261365 seq77->79 verify
+stationary Arthur/Stormwind build70450/validmovementbindings/AHclosed/noactive/
+pending0/native-normal/controlsUP/currentidentity+pins. GUI owner is proceeding
+with the reviewed readiness-only input rehearsal, staged before public resume;
+reuse matching auto-started input op, don't duplicate it. Do not rerun mutating
+native preflight or restart with native proof already valid. No live input readiness
+or human acceptance has yet been established. After calibration flow the current
+loaded ACK list is empty; separately retained exact286 upload/ACK proof remains
+valid. Next nominal due20:06:09 is already passed; retain actual overrun and restore
+assisted collection after operation terminal and cleanup. User remains AWAY.
+
+**Previous scan boundary20:02 UTC:** Assisted286 is completed, saved, uploaded and
+exact-loaded ACK/pending0 verified. Actual start19:51:09 (`1792698669`), finish
+19:59:13 (`1792699153`),428 attempts/zero failures/727 rows, UID
+`beta-normal-alliance-1792698669-Arthur-7290`. Original226875-byte SavedVariables
+SHA`4064f8f402ce0920718058c7f98365fd8c1333f4d7103ccbc2abf55fb9943843`.
+Companion timestamp1792699216=20:00:16 UTC,63s after finish. Loaded ACK verified
+20:00:47; parent independently decoded original PNG boot1792699238-294888 seq7
+and checked original bytes. Proof:
+`scan286-postprocess-stage/scan285-save-upload-ack-20261022T195955811091Z/parent-loaded-ack-verification.json`
+under assisted-collection-luna-20261021; the reused folder name does not identify
+the scan. Actual285->286 start gap3294s(54m54); neither900s cadence nor60s upload
+qualification is claimed. Zero autonomous cycles qualify.
+
+Two fresh post-ACK frames verify ordinary state/complete movement bindings
+(moveForward=W)/speed0/pending0/exact286loaded/controlsUP/current identity+pins,
+public PAUSED89/native=false/input=false/opidle/checkpoint keyABSENT.
+The Agent.lua invalid moveForward message visible in earlier post-save chat is
+historical; actual fresh native snapshots are valid. Do not change user bindings
+or weaken the publisher based on that retained log line. Proof:
+`scan286-postack-readonly-gate-20261022T2001Z/receipt.json`.
+
+GUI owner now owns the staged mandatory mutating control-preflight89, actual
+resume/full100-update103-call native measurement, pause/canonical recovery if valid
+checkpoint present, ordinary/checkpoint keyABSENT, then ONE reviewed readiness-only
+input rehearsal. User AWAY: no human/fakehuman events. At actual matching ready+
+visible owned GTK use one public pause and wait for actual same input-operation
+terminal plus window/process cleanup before restoring collection. Poller is
+`scan285-calibration-rehearsal-stage-20261022T1900Z/readiness_rehearsal_poller.py`,
+SHA959fbbcb0cbd6e4e72175d3d937cb9a01edb7ad57fc95982507b5e727d5ae374,
+Sol READY. Next nominal scan due20:06:09; record actual proof overrun rather than
+interrupting a running owned proof or claiming cadence. Native/input/live readiness
+remain unproven at this boundary. Do not restart the daemon gratuitously.
+
+**Pre-scan recovery chronology (19:39 UTC):** Canonical recover89 SUCCEEDED with the
+reviewed helper585b005b. It verified exact `/reload` before Return, crossed an
+ordinary reload boundary and committed recovery. Parent independently checked its
+receipt and durable journal: PAUSED89/native=false/input=false/opidle,
+`nativeConstruction` keyABSENT, lastAction native_construction_recovery_commit.
+Receipt: `native-calibration-operator/native-calibration-recover-20261022T193913274925Z-3877195-ecb63434/receipt.json`;
+parent proof: `calibration-resume-20261021/closed-chat-world-implementation/parent-recovery89-verification.json`.
+Do not repeat recovery or restart the daemon. GUI owner is restoring286 first;
+no start confirmed19:46. Fresh stationary Stormwind scene/pending0/loaded285 ACK
+verified, Jaxon reselected via exact guarded `/targetexact Auctioneer Jaxon`.
+One adapted range helper refused before input on obsolete hardcoded pins; corrected
+helper then succeeded19:45:45: literal interaction flags1/2/3/4 all true,
+Jaxon target visible, chat/AHclosed/speed0/pending0. Game displayed "World refresh
+in 5 Minutes"; preserve interrupted partial data if maintenance cuts the new sweep
+short, then normal cached reconnect/re-entry is authorized. Conditional binding and
+one interaction are next. Update remaining helper dependencies from accepted pin
+receipts offline before dispatch rather than discovering one stale pin per action.
+
+**Last completed sweep:**285 finished19:05:02 UTC, UID
+`beta-normal-alliance-1792695375-Arthur-9733`,428 attempts/zero failures/793 rows.
+Original230873-byte SavedVariables SHA
+`20193ccfc3c0743093f817b9382a64589860fb71c1f21cb1f74d450f9b33a6a2`.
+Companion upload timestamp1792695987=19:06:27 UTC,85s after finish; later observation
+time is separate. Exact loaded ACK/pending0 verified independently from retained
+PNG and original bytes. Proof in
+`scan285-postprocess-stage/scan285-save-upload-ack-20261022T190607790164Z/`.
+Cadence is interrupted; zero autonomous cycles qualified.
+
+**Closed-editor repair installed and pushed9df2091:** Sol READY, helper SHA
+`585b005baa608ec01c2ba4e8a548854ef998da090383302ba13b8f10fbbeba0a`, installed19:26.
+Transparent editor chrome contrast replaces absolute world-background luminance;
+active-state refusal and exact typed-command OCR/Return ordering remain. Both actual
+failed crops replay through guarded `_chat`. Full module:126 PASS/1 FAIL in848.40s,
+sole failure the pre-existing RGB-versus-L assertion collected before correction.
+Final focused21 PASS/106 deselected includes that corrected assertion and actual OCR;
+Ruff/diff checks PASS. No second full run for the test-only correction.
+Private exact review/report and source/test/fixture hashes are in
+`calibration-resume-20261021/closed-chat-world-implementation/`. Helper pin is
+receipt-only; promotion preserved daemon PID1812097 and valid checkpoint89 without
+restart. Plan: [closed-editor repair](../.archive/PLAN-closed-chat-world-background-20261022.md).
+
+**Resolved UI obstruction:** Fresh19:27 scene showed in-game Game Menu plus empty
+focused Say editor. Raw XTEST Escape19:30 had no immediate observed effect; later
+fresh frame showed chat inactive but menu remained. Exact XGetInputFocus and
+_NET_ACTIVE_WINDOW agreed with the verified game. One owned FixedInput.key_escape
+with production graphical environment19:38 dismissed the menu, with two advancing
+frames and controls UP verified. Receipt:
+`closed-chat-world-implementation/recover89-owned-escape-20261022T193809Z/receipt.json`.
+Do not infer the earlier cause solely from an unset worker shell environment.
+An offline audit found full-module tests use private Xvfb/D-Bus and recorder tools;
+no actual host-game XTEST/uinput path was found.
+
+After286 scan/save/upload/exact ACK, native/readiness rehearsal follows in an
+interscan window. Final poller/actual-entry fixture audit is Sol READY at
+poller959fbbcb, harness48a93bf6, receipt3e251590 using retained input87
+stats/tree/xprop and actual daemon readiness serialization. No live readiness or
+human qualification is claimed; user remains AWAY.
+
+**Current collection (2026-10-22 18:59 UTC):** Assisted285 actually started
+18:56:15 UTC (`startedAt=1792695375`), due19:11:15 (`dueAt=1792696275`).
+Parent independently decoded its retained start PNG: AHopen/item phase/ordinal1,
+speed0/pending0 and exact284 loaded ACK. All interaction keys released. Evidence:
+`assisted-collection-luna-20261021/scan285-interaction-20261022T1852Z/`, including
+`parent-start-verification.json`. Actual284->285 start gap3187s (53m7); this is
+not900s cadence qualification. Zero autonomous cycles qualify. Sole GUI owner
+`/root/luna_assisted_scanner` is watching285; do not interrupt the active sweep
+or run binding cleanup during it. Keep the authorized session-only CTRL-F12
+binding for assisted interaction; no SaveBindings.
+
+**Latest user instruction:** User confirmed intervening Arthur movement was
+intentional, then said: "nvm Im stepping away, just make sure the calibration
+works when I get back, keep scanning". User is AWAY. Do not request genuine
+human samples until they return. GUI owner owns complete scan/save/upload/exact
+ACK/native/readiness/collection outcome; root must not capture/input concurrently.
+Keep repeating assisted900s collection; do not stop after one/three cycles.
+Honor new user takeover immediately.
+
+**Installed repair:** GTK root-child fix is committed/pushed as7788c4b and Sol
+READY at scoped diffSHA
+`a2e697d7308f2ffa2950aef0c7567bbda0cdf0532b1e14636407ea35903ffd0c`.
+Root restarted crowley-session once18:25 UTC: PID3787948->1812097; fresh initialized
+PAUSED89/native=false/input=false/operationidle/journal `nativeConstruction`
+keyABSENT. No native89 measurement or new input attempt has started. Installed
+calibration.py=`31d421b232ef4b84378fcc43f9856e59c8391f6782f0b69432984ea70ec98ebf`;
+driver.py=`0600af7a484fac896a16fdcef034f1731fed7c7d386bbb3d67f233d1893440cd`.
+Private `calibration-resume-20261021/gtk-unframed-implementation/` contains exact
+installation/restart proofs, Sol review, parent checks and real private-Xvfb proof.
+Final-source suite243 PASS316.34s; parent20 focused+54 diagnostic/driver checks
+PASS; implementer21 focused PASS; Ruff check/format/diff check PASS. No human
+readiness or completed input calibration has ever occurred.
+
+**Authorized next chain:** After285 terminal/original save/upload/exact loaded ACK,
+use interscan time for fresh identity/scene/held/source gates, mandatory mutating
+control-preflight, resume/full100-update/103-call native measurement, pause/
+canonical recovery and checkpoint keyABSENT. While user is away run ONE explicitly
+readiness-only input rehearsal: stage public-status polling before input-calibrate,
+retain matching running input readiness plus visibly mapped owned GTK, then
+public-pause/revoke without genuine input and wait for actual terminal cleanup
+(human wait may retain its existing120s bound). Never claim that rehearsal as
+input qualification. On pre-readiness failure retain exact diagnostic, no unchanged
+retry. Restore ordinary assisted collection and record any actual overrun of
+nextdue; do not interrupt proof or fabricate cadence. Sol is reviewing this small
+public API/cancellation sequence offline; GUI owner supplies staged helper paths.
+
+**284 preserved and acknowledged:** UID
+`beta-normal-alliance-1792692188-Arthur-8390`, start18:03:08, finish18:12:43 UTC,
+428 attempts/2 failures/1195 rows. Original251877-byte SavedVariables SHA
+`076942bc871c587f18f6d937e1168eb61592be45653971506876465bdb4a7433` is preserved.
+Companion uploaded18:13:20; loaded-HUD exact ACK/pending0 verified18:34:30 at
+boot`1792694066-508586`,seq3, AHclosed/noactive. Parent independently decoded
+retained PNG and verified original bytes. Private receipt and parent proof:
+`assisted-collection-luna-20261021/scan284-ack-continuation-20261022T183416955877Z/`.
+The repaired ACK helper passed14 offline cases and Sol review (parent independently
+reproduced13 before its final diagnostic-only identity correction). Actual live
+continuation typed exact `/reload` and Return from observed focused empty chat.
+Reuse these proven helpers; private wrapper defects caused a real collection gap.
+
+**Repaired assumption:** Input87 failed17:40:41 before readiness. Alive-window
+observations showed owned focused/viewable480x240 GTK at1440,32, direct parent
+root0x374, no frame extents, Motif decorations0 and one advertised1x1 InputOnly
+helper. Old code required a reparented frame. Production now explicitly pins
+root-child layout and advertised helper identity; only the client is an event
+target. Root/helper/siblings remain excluded. Missing helper publication is
+startup-pending within10s; present-invalid facts and post-ready loss fail hard.
+Private Xvfb proof exercises real GTK/verifier/ticket/focus with unchanged pointer,
+but does not establish live target-hit/human acceptance. Plan:
+[GTK repair](../.archive/PLAN-gtk-unframed-calibration-20261022.md). Retained live
+facts: `calibration-retry-20261022/input87-observed-failure-20261022T1740Z/`.
+
+The following paragraphs retain earlier chronology; the current state above
+supersedes their generations, availability holds, deployment and pending statements.
+
+**Latest live handover (2026-10-22 17:29 UTC):** User moved Arthur to Stormwind
+and explicitly returned control with "i am in stormwind, lets calibrate".
+That supersedes the availability hold and movement takeover below. Sole GUI
+owner `/root/luna_assisted_scanner` was woken by follow-up and verified running.
+Fresh scene verifies stationary Arthur in Trade District, build70450, unchanged
+process/window identity, all keys/buttons released, AH/chat closed, pending0,
+scan283 exact ACK loaded. Native83 remains valid; do not restart gratuitously.
+
+The prior fresh connection attempt85 failed before readiness at17:19:41 UTC:
+final client xprop timed out with2.9ms left of the shared10s GTK startup deadline.
+It does not establish why earlier readiness polls remained pending. Diagnostic
+and post-cleanup observation are preserved under
+`calibration-retry-20261022/input-calibration-ready-20261022T1717Z-3/`.
+Public pause returned PAUSED86/native=true/input=false, checkpoint keyABSENT.
+W was held intentionally during the user's movement; never release user-owned
+keys or misclassify that movement as a stuck input.
+
+Scan283 completed428 attempts/zero failures/1546 rows and exact loaded ACK;
+no284 began. User is currently connected/available. Owner is authorized for ONE
+observed input attempt with a bounded read-only sampler staged BEFORE startup
+to retain owned GTK properties/geometry while alive, using actual generations.
+No source/config/deadline changes or blind retries. Alert user only at matching
+running input readiness AND visible owned prompt. Preserve failure facts if it
+fails; do not infer startup cause from post-cleanup BadWindow. The state below
+is earlier chronology and is superseded by this handover.
+
+**Latest user instruction:** The user returned and requested calibration after the
+next scan. That supersedes the previous AWAY hold. Luna remains the sole GUI
+owner; root must not capture or input concurrently. Human calibration has not
+reached readiness. Never ask for human events before actual readiness.
+
+**Current cutover (14:32 UTC):** Placement repair passed final Sol review at scoped
+diffSHA`0bc394c624c431e7101aeaaf9f4f0e0cf88be9e137c2dbe9963167275c866d67`.
+An undecorated GTK client now has a private actual-constructor/guarded-focus proof
+for unchanged(1809,43) inside measured[1440,0,480,240]; placement-disabled negative
+and historical out-of-client refusal remain covered. Private Xvfb geometry proof
+does not establish live Mutter/certified-hit acceptance. Production preflight
+requires actual certified hit AND measured client bounds before synthetic probes.
+Read-only keyboard/device profiles may precede this guard; input dispatch may not.
+Parent independently passed11 GTK/workflow/producer tests and9 diagnostic tests.
+The installed full native-regression/diagnostic/real-producer run subsequently
+passed181 tests in285.44s; Ruff check/format and diff-check also passed.
+Sol READY, no findings. Reviewed calibration.py is now
+`281ddffcb34ac928e5d144788a87652afe11d644c91d59ab8eb8377e8e115069`;
+driver35677b remains unchanged. Exact reviewed three-file promotion and restart
+proofs are in `calibration-resume-20261021/input-pointer-origin-implementation/`
+(`sol-placement-review.md`, `parent-placement-installation.json`,
+`parent-placement-service-restart.json`).
+
+Scan275 is preserved/uploaded/exact-loaded-ACK verified: UID
+`beta-normal-alliance-1792678774-Arthur-9084`,428/428,zero failures,1517 rows,
+finished14:27:33,received14:28:08.397681 UTC (35.40s). Parent read-only DB counts
+and independently decoded retained loaded-ACK PNG agree; private proof:
+`assisted-collection-luna-20261021/848-scan275-postprocess/scan275-save-upload-ack-20261022T142749711585Z/parent-scan275-loaded-ack-verification.json`.
+No276 started. GUI owner completed its scan task and was explicitly woken with a
+follow-up task after deployment; verified running. Service restart14:32:34:
+PID2931936->3787948, fresh public PAUSED82/nativefalse/inputfalse/opidle,
+journal checkpoint keyABSENT. Mandatory preflight82 and full native83 subsequently
+passed; public pause84/canonical recovery84 succeeded. Fresh journal independently
+verified14:43:29 UTC is PAUSED84/native=true/input=false/checkpoint keyABSENT,
+lastAction native_construction_recovery_commit. Native83 resource growth was
+1,159,168B construction (within128MiB),61,980,672B updates (exceeds16MiB);
+this is not a performance-target or autonomous qualification pass.
+Native proof:
+`native-calibration-operator/native-calibration-measure-deferred-20261022T143902649049Z-3967959-680997c0/receipt.json`
+under the private Crowley state root. Reviewed placement repair is committed and
+pushed as8e858ce; prior origin repair aa8b43b. Fresh user-availability question
+is PENDING; **do not launch input-calibrate/timed human window until answered**.
+GUI owner is restoring assisted276, then must keep repeating900s assisted cycles
+until explicit new user update or real blocker; do not stop after one/three cycles.
+Actual276 start has not yet been reported. Keep the human question pending and
+retain native83 evidence without gratuitous restart. Later human input admission
+must use fresh actual state/generation after a completed scan. Zero autonomous
+cycles qualified; live Mutter/certified-hit placement remains pending that stage.
+
+The following paragraphs retain the two earlier attempts and repair evidence;
+the current cutover above supersedes their state/generation/hold statements.
+
+Scan274 completed13:38:05 UTC: UID`beta-normal-alliance-1792675804-Arthur-7101`,
+428/428 attempted, zero failures,1471 rows. Read-only DB confirms428 observations/
+1471 rows received13:38:37.077966 UTC (32.08s after finish). Luna preserved original
+SavedVariables and verified exact loaded ACK/pending0/AHclosed. Parent independently
+decoded the retained screenshot and matched the DB counts; private proof:
+`assisted-collection-luna-20261021/832-scan274-postprocess/scan274-save-upload-ack-20261022T133820858870Z/parent-scan274-loaded-ack-verification.json`.
+
+Fresh Sol compatibility review accepted MAIN82857ee. Mandatory control-preflight
+at PAUSED72 succeeded and recovered ordinarily. Resume73/full native measurement
+succeeded13:44:07 UTC, native=true/input=false. Construction growth14,422,016B
+met128MiB target; update growth57,204,736B exceeded16MiB target. This is a recorded
+resource-target failure, not a waived calibration guard. Pause74/canonical recovery
+succeeded; journal `nativeConstruction` key was ABSENT before input admission.
+
+Resume75/input-calibrate failed before readiness at13:45:47 UTC:
+`calibration pointer origin is outside the owned target`, stage=synthetic,
+readinessPublished=false. User input was never requested. Bounded private diagnostic:
+`~/.local/state/crowley/input-calibration-diagnostics/latest-pre-human-failure.json`
+(SHA256`ddd9cfe7420cd81cc678e812810214b1a0118629ce5bae0585b7a3a3dc0391f1`).
+It records target geometry[1440,71,480,240] and certified owned ancestry, but lacks
+the actual rejected pointer-query tuple; do not invent it. Immutable copy:
+`calibration-resume-20261021/input75-origin-failure/pre-human-failure.json`.
+The exact historical failing conjunct remains unknown.
+
+**Reviewed origin repair installed; one fresh retry authorized.** The producer
+incorrectly required an exact top-level hit XID while its ticket/seal permits
+the certified target, descendants and managed frame. It now uses the ticket's
+exact set while retaining measured client bounds, endpoint equality, nonzero
+motion, ownership/focus/Guardian/cadence. Failure evidence retains actual queried
+origin/post coordinates, hit XID and each predicate through daemon JSON persistence.
+No GTK placement assumption was changed. Luna178 tests passed before a test-only
+persistence correction; corrected diagnostics9 passed. Parent independently
+reproduced8 producer regressions,9 diagnostics and1 real producer/Guardian test;
+installed MAIN8+9 tests also passed. Ruff/format/diff checks passed. Sol READY,
+no outstanding findings, reviewed diffSHA
+`45532ff721eedf40212b813417e4ba7eba00a7df2c6a575ef8f9d9086ed07bf8`.
+Private review/install/restart proofs:
+`calibration-resume-20261021/input-pointer-origin-implementation/`.
+
+At the safe boundary no scan275 had started: AHclosed/noactive/pending0,
+ordinary native phase; temporary CTRL-F12 was set session-only, never saved.
+Root promoted the four exact reviewed files and restarted the service once;
+PID2931936, fresh public PAUSED77/nativefalse/inputfalse/operationidle,
+checkpoint keyABSENT verified14:02:03 UTC. User freshly confirmed connected and
+available. GUI owner is authorized to repeat the full guarded preflight/native/
+recovery/input sequence using actual generations, immediately alert root at
+matching readiness plus visible GTK. Never fabricate human input. On failure
+preserve the new diagnostic, restore ordinary collection, and report the exact
+new tuple/predicate before further repair. Do not blindly repeat.
+
+**Retry result: native78 PASS, input80 refused on proven geometry.** Mandatory
+preflight77 and full native78 passed; canonical pause79/recovery79 restored
+ordinary state/keyABSENT. Input80 failed before readiness14:10:08 UTC. Actual
+origin(1809,43), hitXID73400323 was certified, but GTK client was
+[1440,71,480,240]: `certifiedHitWindow=true`, `insideTargetGeometry=false`,
+`nonzeroDisplacement=true`. The origin repair worked; the pointer sat above
+the client area and the bounds guard correctly refused. No human prompt occurred.
+Immutable diagnostic and independent parent predicate verification:
+`calibration-retry-20261022-1402/input80-origin-failure/`.
+
+Public pause returned PAUSED81/native=true/input=false, checkpoint keyABSENT;
+fresh14:11:46 scene was ordinary, AHclosed/noactive/pending0/speed0 and GTKgone.
+No scan275 had begun at that failure boundary. Root subsequently resumed assisted
+collection during placement repair/review under
+`../.archive/PLAN-input-target-placement-20261022.md`. Scan275 started14:19:34 UTC
+(1792678774),due14:34:34 UTC (1792679674),428 planned,AHopen/pending0/speed0.
+The274→275 start interval is2970s (49m30s), including the calibration hold and
+repairs; this is not900s cadence qualification. GUI owner must finish/save/upload/
+exact-ACK275 before closing AH for deployment; never interrupt it.
+Luna owns offline implementation; Sol reviews. No further live retry is approved
+until that review passes. Current user is connected/available. Input and autonomous
+qualification remain pending. Native78 resource update growth60,243,968B also
+exceeded16MiB target.
+
+The following scan237–241 details describe the earlier collection restart;
+Luna continued assisted scans overnight through274. These are not autonomous
+qualification: three new unattended900s cycles remain unproven.
 
 The user resumed game operation at 02:46 UTC on 2026-10-22 and confirmed RDP
 availability then. `/root/luna_assisted_scanner` was woken with a follow-up task
 and verified running. It is the sole GUI owner; root must not capture or input
-concurrently. Reconfirm human availability before any timed calibration prompt.
+concurrently. The user has now returned for calibration; reconfirm availability
+if the repair outlasts this session before starting a new timed human prompt.
 
 **Collection continues under Luna supervision.** Scan241 began04:41:18 UTC
 (startedAt1792644078),nextdue04:56:18 UTC (1792644978),pending0 and prior exact
@@ -84,7 +656,7 @@ The addon symlinks to MAIN's `addon/Crowley`. Current client is PID1532084,
 start44691603, Arthur/Ironforge, build70450/version1.60.1/interface16001. Re-resolve
 identity before input; do not reuse old PID2792826 or earlier fingerprint evidence.
 
-**Gesture repair installed; live calibration held for user return.** Shared
+**Gesture repair installed; current live retry described above.** Shared
 seeded curved Fitts-timed movement, submovements, endpoint scatter/receipts and a
 fixed crash-safe >=1.0s click gate now cover native bootstrap/parking and runtime
 X11 actions. Raw click branches refuse before input. Existing Guardian, one-use
@@ -92,10 +664,13 @@ anchors, five-second click evidence, ten-second constructor, owned cleanup and
 native103 protocol remain enforced. Rate timestamps are conservative post-click
 ACK times, not hardware-down timestamps.
 
-Luna implementation in `~/.cache/crowley/worktrees/native-human-click-20261022`
-passed final Sol code review and was promoted byte-for-byte. Final production SHA:
+Luna's original gesture implementation in
+`~/.cache/crowley/worktrees/native-human-click-20261022` passed final Sol code review
+and was promoted byte-for-byte. The origin repair above supersedes its driver
+and calibration pins. Current production SHA:
 
-- driver.py: `6520bf8bb37a1cba2db54275136684d9356482a66cc4174591e3c74cb7929a96`
+- driver.py: `35677b166b153f2349fb7abbce7c482d7537cad874cdae5b903abaa99b99a9a5`
+- calibration.py: `281ddffcb34ac928e5d144788a87652afe11d644c91d59ab8eb8377e8e115069`
 - pointer_execution.py: `a116142fcd04c319681c957df9891f83bcda126a9ee338047444d1b5da408b30`
 - native_calibration_operator.py: `807d7d80614a9410b372674abc311706bbfe3b5d907e1ecd8ed7df42136bad30`
 
@@ -113,11 +688,9 @@ Plan: `../.archive/PLAN-native-human-click-20261022.md`, including runtime test-
 isolation addendum. The prior provisional driver020950a4 approval is superseded.
 
 No live native attempt or human prompt was started during the user's absence.
-Native/input remain false and **zero autonomous cycles are qualified**. On return,
-coordinate after a completed scan, re-resolve identity/state/generation72 (or later),
-then run fresh native preflight, native100, public pause/checkpoint-dependent ordinary
-recovery and genuine owned-GTK input. Require actual matching input readiness and
-visible owned prompt before asking for human events. Final acceptance is three
+The user-return attempts and current generations are recorded above;
+**zero autonomous cycles are qualified**. Require actual matching input readiness
+and visible owned prompt before asking for human events. Final acceptance is three
 consecutive unattended900s full save/upload/exact loaded-ACK/reopen cycles.
 
 Shared data-agent coordination: `../.archive/trade-api-probe/LIVE-DRIVER-STATUS.md`.

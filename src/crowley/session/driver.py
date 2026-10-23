@@ -25,7 +25,7 @@ import tempfile
 import threading
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass, field, replace
 from functools import wraps
@@ -68,6 +68,16 @@ from .pointer_execution import (
     build_pointer_motion_chain as _shared_pointer_motion_chain,
 )
 from .process_admission import ADMISSION_WRAPPER, AdmissionGate
+from .startup import (
+    TAKEOVER_DRILL_HOVER_COMMAND_TIMEOUT_SECONDS,
+    TAKEOVER_DRILL_HOVER_OBSERVATION_TIMEOUT_SECONDS,
+    InvalidationCause,
+    RuntimeInputEvidence,
+    StartupEnvironment,
+    is_measured_human_action,
+    mint_runtime_evidence,
+    resolve_forwarded_echo_sources,
+)
 
 _F_ADD_SEALS = getattr(fcntl, "F_ADD_SEALS", 1033)
 _F_SEAL_SEAL = getattr(fcntl, "F_SEAL_SEAL", 0x0001)
@@ -147,6 +157,14 @@ def _identity_latency_decorator(name: str):
 
 class DriverError(RuntimeError):
     """A precondition, identity, lease, or postcondition failed."""
+
+
+class RuntimeReadinessError(DriverError):
+    """A failed runtime-arm precondition with its observed invalidation cause."""
+
+    def __init__(self, message: str, cause: InvalidationCause):
+        super().__init__(message)
+        self.invalidation_cause = cause
 
 
 @dataclass(frozen=True)
@@ -735,6 +753,11 @@ class CalibrationTicket:
     managed_frame_geometry: tuple[int, int, int, int] = ()
     target_executable: str = ""
     target_process_start: str = ""
+    target_layout_kind: str = "mutter-managed-frame-v1"
+    target_root_xid: int = 0
+    target_parent_xid: int = 0
+    target_descendant_xids: frozenset[int] = frozenset()
+    target_excluded_input_only_xids: frozenset[int] = frozenset()
 
     def contains(self, xid: int) -> bool:
         return xid in self.target_xids
@@ -1744,6 +1767,9 @@ class X11Backend:
         # carried into the calibration seal; it is deliberately absent until
         # a complete, successful producer action has finished.
         self._last_synthetic_motion_query: tuple[Any, ...] | None = None
+        # Failure-only query context is copied into the private pre-human
+        # diagnostic.  It never qualifies calibration or grants input.
+        self._last_synthetic_pointer_diagnostic: dict[str, Any] | None = None
         self.last_region_receipt: TelemetryRegionReceipt | None = None
         self.last_region_attempt: dict[str, float | str | None] = {}
         self.resolver_kind = "reference-test"
@@ -1913,6 +1939,7 @@ class X11Backend:
             "camera-drag",
             "pointer-motion",
             "single-click",
+            "keyboard-steps",
         }
         if input_schema is not None and input_schema not in known_input_schemas:
             raise DriverError("unknown input schema")
@@ -1924,6 +1951,9 @@ class X11Backend:
 
         def integer(value: str) -> bool:
             return bool(re.fullmatch(r"-?[0-9]+", value))
+
+        def physical_keycode(value: str) -> bool:
+            return bool(re.fullmatch(r"[0-9]{3}", value)) and 8 <= int(value) <= 255
 
         def bounded_sleep(value: str) -> bool:
             if not re.fullmatch(r"(?:0|[1-9][0-9]*)(?:\.[0-9]+)?", value):
@@ -2029,6 +2059,30 @@ class X11Backend:
                 operations += 1
                 index += 3
             return (operations > 0 or not require_motion) and (not require_motion or moves > 0), moves > 0
+
+        def keyboard_chain(tokens: list[str]) -> tuple[bool, bool]:
+            """Validate one bounded sequence of explicit physical key transitions."""
+
+            if not tokens or len(tokens) > 4096 or len(tokens) % 2:
+                return False, False
+            held: list[str] = []
+            operations = 0
+            for index in range(0, len(tokens), 2):
+                operation, keysym = tokens[index : index + 2]
+                if not physical_keycode(keysym):
+                    return False, False
+                if operation == "keydown":
+                    if keysym in held:
+                        return False, False
+                    held.append(keysym)
+                elif operation == "keyup":
+                    if not held or held[-1] != keysym:
+                        return False, False
+                    held.pop()
+                else:
+                    return False, False
+                operations += 1
+            return operations > 0 and not held, operations > 0
 
         def camera_chain(tokens: list[str]) -> tuple[bool, bool]:
             """Validate optional pointer positioning plus one held right drag."""
@@ -2202,6 +2256,8 @@ class X11Backend:
                         and args[6] == args[2]
                     )
                     mutating = valid
+                elif input_schema == "keyboard-steps":
+                    valid, mutating = keyboard_chain(args[1:])
                 else:
                     valid, mutating = pointer_segment(args[1:], require_motion=True)
             elif subcommand in {"key", "keydown", "keyup"}:
@@ -2251,6 +2307,11 @@ class X11Backend:
             elif input_schema == "camera-drag":
                 expected_keys = frozenset()
                 expected_buttons = frozenset({3})
+            elif input_schema == "keyboard-steps":
+                expected_keys = frozenset(
+                    args[index + 1] for index in range(1, len(args), 2) if args[index] == "keydown"
+                )
+                expected_buttons = frozenset()
             else:
                 expected_keys = frozenset()
                 expected_buttons = frozenset()
@@ -2673,35 +2734,151 @@ class X11Backend:
             raise DriverError("owned X11 backend returned no keymap levels")
         return levels
 
+    def observe_keysym_modifier_mask(self, keysym: str) -> int:
+        """Read the server's native modifier mask for one physical keysym."""
+
+        if not isinstance(keysym, str) or not keysym or not keysym.isascii():
+            raise DriverError("native modifier lookup requires an ASCII keysym")
+        library = ctypes.CDLL("libX11.so.6")
+        library.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        library.XOpenDisplay.restype = ctypes.c_void_p
+        library.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        library.XCloseDisplay.restype = ctypes.c_int
+        library.XStringToKeysym.argtypes = [ctypes.c_char_p]
+        library.XStringToKeysym.restype = ctypes.c_ulong
+        library.XkbKeysymToModifiers.argtypes = [ctypes.c_void_p, ctypes.c_ulong]
+        library.XkbKeysymToModifiers.restype = ctypes.c_uint
+        display = library.XOpenDisplay(self.profile.display.encode())
+        if not display:
+            raise DriverError("native X11 modifier lookup could not open the configured display")
+        try:
+            symbol = library.XStringToKeysym(keysym.encode("ascii"))
+            if symbol == 0:
+                raise DriverError(f"native X11 modifier lookup has no keysym for {keysym!r}")
+            mask = int(library.XkbKeysymToModifiers(display, symbol))
+            if mask <= 0 or mask & (mask - 1):
+                raise DriverError(f"native X11 modifier mask for {keysym!r} is absent or ambiguous")
+            return mask
+        finally:
+            library.XCloseDisplay(display)
+
+    def observe_native_input_state(
+        self, root_xid: int
+    ) -> tuple[tuple[int, int, int], tuple[int, ...], tuple[int, ...]]:
+        """Read live XKB modifiers, key state and root pointer buttons without input."""
+
+        if isinstance(root_xid, bool) or not isinstance(root_xid, int) or root_xid <= 0:
+            raise DriverError("native input state requires a measured root window")
+
+        class XkbState(ctypes.Structure):
+            _fields_ = [
+                ("group", ctypes.c_ubyte),
+                ("locked_group", ctypes.c_ubyte),
+                ("base_group", ctypes.c_ushort),
+                ("latched_group", ctypes.c_ushort),
+                ("mods", ctypes.c_ubyte),
+                ("base_mods", ctypes.c_ubyte),
+                ("latched_mods", ctypes.c_ubyte),
+                ("locked_mods", ctypes.c_ubyte),
+                ("compat_state", ctypes.c_ubyte),
+                ("grab_mods", ctypes.c_ubyte),
+                ("compat_grab_mods", ctypes.c_ubyte),
+                ("lookup_mods", ctypes.c_ubyte),
+                ("compat_lookup_mods", ctypes.c_ubyte),
+                ("pointer_buttons", ctypes.c_ushort),
+            ]
+
+        display_name = self.profile.display.encode()
+        library = ctypes.CDLL("libX11.so.6")
+        library.XOpenDisplay.argtypes = [ctypes.c_char_p]
+        library.XOpenDisplay.restype = ctypes.c_void_p
+        library.XCloseDisplay.argtypes = [ctypes.c_void_p]
+        library.XCloseDisplay.restype = ctypes.c_int
+        library.XQueryKeymap.argtypes = [ctypes.c_void_p, ctypes.POINTER(ctypes.c_char)]
+        library.XQueryKeymap.restype = ctypes.c_int
+        library.XQueryPointer.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_ulong,
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_ulong),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_int),
+            ctypes.POINTER(ctypes.c_uint),
+        ]
+        library.XQueryPointer.restype = ctypes.c_int
+        library.XkbGetState.argtypes = [ctypes.c_void_p, ctypes.c_uint, ctypes.POINTER(XkbState)]
+        library.XkbGetState.restype = ctypes.c_int
+        display = library.XOpenDisplay(display_name)
+        if not display:
+            raise DriverError("native X11 state query could not open the configured display")
+        try:
+            keymap = ctypes.create_string_buffer(32)
+            if not library.XQueryKeymap(display, keymap):
+                raise DriverError("native X11 key state query failed")
+            held_keys = tuple(
+                keycode for keycode in range(8, 256) if keymap.raw[keycode >> 3] & (1 << (keycode & 7))
+            )
+            root = ctypes.c_ulong(root_xid)
+            root_return = ctypes.c_ulong()
+            child_return = ctypes.c_ulong()
+            root_x = ctypes.c_int()
+            root_y = ctypes.c_int()
+            win_x = ctypes.c_int()
+            win_y = ctypes.c_int()
+            mask = ctypes.c_uint()
+            if not library.XQueryPointer(
+                display,
+                root,
+                ctypes.byref(root_return),
+                ctypes.byref(child_return),
+                ctypes.byref(root_x),
+                ctypes.byref(root_y),
+                ctypes.byref(win_x),
+                ctypes.byref(win_y),
+                ctypes.byref(mask),
+            ):
+                raise DriverError("native X11 pointer state query failed")
+            pointer_bits = (1 << 8) | (1 << 9) | (1 << 10) | (1 << 11) | (1 << 12)
+            held_buttons = tuple(button for button in range(1, 6) if mask.value & (1 << (7 + button)))
+            if mask.value & pointer_bits:
+                # XQueryPointer's mask is an independent button-state witness;
+                # keep its interpretation explicit and refuse unknown bits.
+                if not held_buttons:
+                    raise DriverError("native X11 pointer button state is ambiguous")
+            state = XkbState()
+            if library.XkbGetState(display, 0x100, ctypes.byref(state)) != 0:
+                raise DriverError("native XKB modifier state query failed")
+            modifiers = (int(state.locked_mods), int(state.latched_mods), int(state.base_mods))
+            return modifiers, held_keys, held_buttons
+        finally:
+            library.XCloseDisplay(display)
+
     def synthetic_keyboard_profile(
         self,
         operations: tuple[Any, ...],
         *,
+        keymap: Mapping[str, int],
         calibration_ticket: CalibrationTicket,
     ) -> None:
         """Emit the finite keyboard profile through the owned XTEST path.
 
         The calibration workflow supplies operations whose steps describe the
-        physical transitions that the runtime will later correlate.  A simple
-        press/release pair is emitted with ``xdotool key``; a chord such as
-        Control+A is emitted as one key sequence so xdotool preserves the
-        measured modifier transition order.  Every subprocess carries the
-        exact GTK ticket and therefore remains behind the common calibration
-        admission fence.
+        physical transitions that the runtime will later correlate. Each
+        bounded pair or chord is emitted as explicit XTEST keydown/keyup
+        commands, preserving the same transitions observed by XI2. Every
+        subprocess carries the exact GTK ticket and therefore remains behind
+        the common calibration admission fence.
         """
 
         if not isinstance(calibration_ticket, CalibrationTicket):
             raise DriverError("keyboard calibration requires an exact calibration ticket")
         if not operations:
             raise DriverError("keyboard calibration profile is empty")
+        if not isinstance(keymap, Mapping) or not keymap:
+            raise DriverError("keyboard calibration has no measured keymap")
         from .calibration import KeyboardProbeOperation, KeyboardProbeStep
-
-        def token(keysym: str) -> str:
-            # Keep the physical keysym from the sealed probe profile.  The
-            # left/right Control distinction is part of the ownership proof;
-            # collapsing either one to xdotool's ``ctrl`` alias would make the
-            # argv disagree with the held-key metadata before admission.
-            return keysym
 
         for operation in operations:
             if not isinstance(operation, KeyboardProbeOperation) or not operation.steps:
@@ -2721,32 +2898,44 @@ class X11Backend:
                     and steps[index + 1].phase == "release"
                     and steps[index + 1].keysym == step.keysym
                 ):
-                    sequence = token(step.keysym)
+                    transition_steps = (("press", step.keysym), ("release", step.keysym))
                     index += 2
                 else:
-                    # Chords are represented as an ordered press/release
-                    # stream.  xdotool's ``+`` sequence produces that same
-                    # stream without asking it to clear or restore modifiers.
-                    chord = list(steps[index:])
-                    if not chord or any(not item.keysym for item in chord):
+                    # A chord is one contiguous press run followed by its
+                    # reverse-order release run. Consume only that physical
+                    # unit so later ordinary key pairs in the same command
+                    # remain separate bounded emissions.
+                    press_end = index
+                    pressed: list[str] = []
+                    while press_end < len(steps) and steps[press_end].phase == "press":
+                        keysym = steps[press_end].keysym
+                        if not keysym:
+                            raise DriverError("keyboard calibration chord is malformed")
+                        pressed.append(keysym)
+                        press_end += 1
+                    release_end = press_end + len(pressed)
+                    released_steps = steps[press_end:release_end]
+                    if (
+                        not pressed
+                        or len(released_steps) != len(pressed)
+                        or any(item.phase != "release" or not item.keysym for item in released_steps)
+                    ):
                         raise DriverError("keyboard calibration chord is malformed")
-                    pressed = [item.keysym for item in chord if item.phase == "press"]
-                    released = [item.keysym for item in chord if item.phase == "release"]
-                    if not pressed or not released or released != list(reversed(pressed[1:])) + [pressed[0]]:
+                    released = [item.keysym for item in released_steps]
+                    if released != list(reversed(pressed)):
                         raise DriverError("keyboard calibration chord transition order is malformed")
-                    sequence = "+".join(token(keysym) for keysym in pressed)
-                    index = len(steps)
-                    held = set(pressed)
-                    self._run(
-                        ["xdotool", "key", "--", sequence],
-                        calibration_ticket=calibration_ticket,
-                        held_keys=held,
+                    transition_steps = tuple(
+                        [("press", keysym) for keysym in pressed]
+                        + [("release", item.keysym) for item in released_steps]
                     )
-                    continue
+                    index = release_end
+                argv, held = self._keyboard_transition_argv(transition_steps, keymap)
                 self._run(
-                    ["xdotool", "key", "--", sequence],
+                    argv,
                     calibration_ticket=calibration_ticket,
-                    held_keys={step.keysym},
+                    held_keys=set(held),
+                    input_schema="keyboard-steps",
+                    expected_argv=tuple(argv),
                 )
 
     def release_held_input(self) -> None:
@@ -3191,24 +3380,75 @@ class X11Backend:
     @staticmethod
     def _keysym_for_char(char: str) -> str | None:
         if char.isascii() and char.isalpha() and char.isupper():
-            return f"shift+{char.lower()}"
+            return f"Shift_L+{char.lower()}"
         if char.isascii() and char.isalnum():
             return char
         return {
             "/": "slash",
             " ": "space",
             "-": "minus",
+            "=": "equal",
+            ";": "semicolon",
+            "'": "apostrophe",
+            ",": "comma",
+            "(": "Shift_L+9",
+            ")": "Shift_L+0",
         }.get(char)
 
-    def _key(self, key: str, *, generation: int | None = None) -> None:
-        try:
-            self._run(["xdotool", "key", key], generation=generation, held_keys={key})
-        except Exception:
-            raise
-        else:
-            self._held_keys.discard(key)
+    @staticmethod
+    def _keyboard_transition_argv(
+        steps: tuple[tuple[str, str], ...], keymap: Mapping[str, int]
+    ) -> tuple[list[str], frozenset[str]]:
+        """Build exact keycode transitions and their bounded held-key set.
 
-    def _type(self, text: str, *, generation: int | None = None) -> None:
+        Numeric keycode tokens make xdotool send the measured physical key
+        directly. Passing modifier keysyms through xdotool's keysym path also
+        causes it to synthesize that modifier from the key's own modifier map,
+        producing an unmatched raw release on this server.
+        """
+
+        if not steps or not isinstance(keymap, Mapping):
+            raise DriverError("keyboard transition chain is empty")
+        argv = ["xdotool"]
+        held: list[str] = []
+        for phase, keysym in steps:
+            if not isinstance(keysym, str) or not re.fullmatch(r"[A-Za-z0-9_.+-]+", keysym):
+                raise DriverError("keyboard transition keysym is malformed")
+            keycode = keymap.get(keysym)
+            if isinstance(keycode, bool) or not isinstance(keycode, int) or not 8 <= keycode <= 255:
+                raise DriverError(f"keyboard transition keysym {keysym!r} has no measured keycode")
+            # xdo first tries XStringToKeysym and only then parses a numeric
+            # keycode. Three digits keep keycodes 8 and 9 distinct from the
+            # printable keysyms "8" and "9".
+            physical = f"{keycode:03d}"
+            if phase == "press":
+                if physical in held:
+                    raise DriverError("keyboard transition presses a key that is already held")
+                held.append(physical)
+                argv.extend(("keydown", physical))
+            elif phase == "release":
+                if not held or physical != held[-1]:
+                    raise DriverError("keyboard transition releases a key that is not held")
+                held.pop()
+                argv.extend(("keyup", physical))
+            else:
+                raise DriverError("keyboard transition phase is malformed")
+        if held:
+            raise DriverError("keyboard transition chain leaves a key held")
+        return argv, frozenset(f"{keymap[keysym]:03d}" for _phase, keysym in steps)
+
+    def _key(self, key: str, *, generation: int | None = None, keymap: Mapping[str, int]) -> None:
+        argv, held = self._keyboard_transition_argv((("press", key), ("release", key)), keymap)
+        self._run(
+            argv,
+            generation=generation,
+            held_keys=set(held),
+            input_schema="keyboard-steps",
+            expected_argv=tuple(argv),
+        )
+        self._held_keys.difference_update(held)
+
+    def _type(self, text: str, *, generation: int | None = None, keymap: Mapping[str, int]) -> None:
         # ``xdotool type`` emits one opaque command with no way to correlate
         # each character's raw/delivered press and release.  Emit the bounded
         # allowlisted text as one XTEST key action per character so the
@@ -3219,14 +3459,18 @@ class X11Backend:
             if mapped is None:
                 raise DriverError(f"character {char!r} has no allowlisted XTEST keysym")
             components = tuple(part for part in mapped.split("+") if part)
-            try:
-                self._run(
-                    ["xdotool", "key", "--", mapped],
-                    generation=generation,
-                    held_keys=set(components),
-                )
-            except Exception:
-                raise
+            transitions = tuple(
+                [("press", component) for component in components]
+                + [("release", component) for component in reversed(components)]
+            )
+            argv, held = self._keyboard_transition_argv(transitions, keymap)
+            self._run(
+                argv,
+                generation=generation,
+                held_keys=set(held),
+                input_schema="keyboard-steps",
+                expected_argv=tuple(argv),
+            )
 
     def pointer_position(
         self, *, generation: int | None = None, deadline_monotonic: float | None = None
@@ -3305,6 +3549,7 @@ class X11Backend:
         gesture_plan = kwargs.pop("_gesture_plan", None)
         click_rate_permit = kwargs.pop("_click_rate_permit", None)
         refresh_anchor = kwargs.pop("_refresh_anchor", None)
+        keyboard_keymap = kwargs.pop("_keyboard_keymap", None)
         if name in DesktopDriver.POINTER_ACTIONS:
             if (
                 not isinstance(gesture_plan, HumanPointerPlan)
@@ -3513,16 +3758,33 @@ class X11Backend:
         elif name == "focus_game":
             return
         elif name == "open_chat":
-            self._key("Return", generation=generation)
+            self._key("Return", generation=generation, keymap=keyboard_keymap)
         elif name == "submit_command":
-            self._key("Return", generation=generation)
+            self._key("Return", generation=generation, keymap=keyboard_keymap)
         elif name == "escape_command_buffer":
-            self._key("Escape", generation=generation)
+            self._key("Escape", generation=generation, keymap=keyboard_keymap)
+        elif name == "open_ah":
+            argv, held = self._keyboard_transition_argv(
+                (
+                    ("press", "Control_L"),
+                    ("press", "F12"),
+                    ("release", "F12"),
+                    ("release", "Control_L"),
+                ),
+                keyboard_keymap,
+            )
+            self._run(
+                argv,
+                generation=generation,
+                held_keys=set(held),
+                input_schema="keyboard-steps",
+                expected_argv=tuple(argv),
+            )
         elif name == "type_allowlisted_command":
             command = kwargs.get("command")
             if command not in DesktopDriver.COMMANDS:
                 raise DriverError("attempted to type a non-allowlisted command")
-            self._type(command, generation=generation)
+            self._type(command, generation=generation, keymap=keyboard_keymap)
         else:
             raise DriverError(f"unsupported X11 action {name}")
 
@@ -4110,6 +4372,8 @@ class X11Backend:
     ) -> None:
         if calibration_ticket is None:
             raise DriverError("synthetic calibration requires an exact calibration ticket")
+        self._last_synthetic_motion_query = None
+        self._last_synthetic_pointer_diagnostic = None
         try:
             target_xid = int(window_id, 0)
         except (TypeError, ValueError) as exc:
@@ -4122,7 +4386,6 @@ class X11Backend:
         left, top, width, height = geometry
         if not (left <= x < left + width and top <= y < top + height):
             raise DriverError("calibration point is outside the measured owned target geometry")
-        self._last_synthetic_motion_query = None
         self._run(
             ["xdotool", "windowactivate", "--sync", window_id],
             calibration_ticket=calibration_ticket,
@@ -4134,11 +4397,25 @@ class X11Backend:
         # use a bootstrap warp to manufacture an origin for the proof.
         requested = (int(x), int(y))
         origin_x, origin_y, origin_window = self.pointer_position()
-        if origin_window != target_xid or not (
-            left <= origin_x < left + width and top <= origin_y < top + height
-        ):
+        origin_inside_geometry = left <= origin_x < left + width and top <= origin_y < top + height
+        origin_certified_window = calibration_ticket.contains(origin_window)
+        origin_nonzero_displacement = (origin_x, origin_y) != requested
+        pointer_diagnostic: dict[str, Any] = {
+            "producer": "X11Backend.synthetic_calibration",
+            "targetXid": target_xid,
+            "targetGeometry": [left, top, width, height],
+            "requested": [requested[0], requested[1]],
+            "origin": {"x": origin_x, "y": origin_y, "windowXid": origin_window},
+            "originPredicates": {
+                "certifiedHitWindow": origin_certified_window,
+                "insideTargetGeometry": origin_inside_geometry,
+                "nonzeroDisplacement": origin_nonzero_displacement,
+            },
+        }
+        self._last_synthetic_pointer_diagnostic = pointer_diagnostic
+        if not origin_certified_window or not origin_inside_geometry:
             raise DriverError("calibration pointer origin is outside the owned target")
-        if (origin_x, origin_y) == requested:
+        if not origin_nonzero_displacement:
             raise DriverError("calibration move must produce a nonzero measured displacement")
         self._calibration_focus_ticket = calibration_ticket
         self._run(
@@ -4151,7 +4428,16 @@ class X11Backend:
             calibration_ticket=calibration_ticket,
         )
         post_x, post_y, post_window = self.pointer_position()
-        if (post_x, post_y) != requested or post_window != target_xid:
+        post_matches_requested = (post_x, post_y) == requested
+        post_inside_geometry = left <= post_x < left + width and top <= post_y < top + height
+        post_certified_window = calibration_ticket.contains(post_window)
+        pointer_diagnostic["post"] = {"x": post_x, "y": post_y, "windowXid": post_window}
+        pointer_diagnostic["postPredicates"] = {
+            "matchesRequested": post_matches_requested,
+            "insideTargetGeometry": post_inside_geometry,
+            "certifiedHitWindow": post_certified_window,
+        }
+        if not post_matches_requested or not post_inside_geometry or not post_certified_window:
             raise DriverError("calibration pointer postcondition changed")
         self._last_synthetic_motion_query = (
             origin_x,
@@ -4739,7 +5025,6 @@ class DesktopDriver:
         "reconnect_game",
         "select_arthur",
         "enter_world",
-        "open_ah",
         "logout",
     }
     POINTER_BUTTONS = {
@@ -4747,7 +5032,6 @@ class DesktopDriver:
         "reconnect_game": 1,
         "select_arthur": 1,
         "enter_world": 1,
-        "open_ah": 3,
         "logout": 1,
     }
     # Native visual anchors are bound to the named control proved by the
@@ -4758,7 +5042,6 @@ class DesktopDriver:
         "reconnect_game": "reconnect_game",
         "select_arthur": "arthur_row",
         "enter_world": "enter_world",
-        "open_ah": "auctioneer_buckler",
         "logout": "world",
     }
     ANCHOR_SCENES = {
@@ -4769,7 +5052,20 @@ class DesktopDriver:
         "open_ah": "world",
         "logout": "world",
     }
-    COMMANDS = {"/crowley status", "/crowley scan", "/crowley session fence", "/reload", "/logout"}
+    TARGET_AUCTIONEER_COMMAND = "/targetexact Auctioneer Jaxon"
+    CONDITIONAL_INTERACTION_BINDING_COMMAND = (
+        "/run local a=GetBindingAction('CTRL-F12'); "
+        "if a=='' or a=='INTERACTTARGET' then SetBinding('CTRL-F12','INTERACTTARGET') end"
+    )
+    COMMANDS = {
+        "/crowley status",
+        "/crowley scan",
+        "/crowley session fence",
+        "/reload",
+        "/logout",
+        TARGET_AUCTIONEER_COMMAND,
+        CONDITIONAL_INTERACTION_BINDING_COMMAND,
+    }
 
     def __init__(
         self,
@@ -4872,6 +5168,7 @@ class DesktopDriver:
         self._calibration_action_lock = threading.RLock()
         self._monitor: InputMonitor | None = None
         self._monitor_calibration = False
+        self._takeover_input_callback: Callable[[XI2Event], None] | None = None
         self._calibration_timers: dict[int, threading.Timer] = {}
         self._calibration_due_waiters: dict[int, threading.Event] = {}
         self._calibration_epoch = 0
@@ -4886,6 +5183,7 @@ class DesktopDriver:
         self._input_evidence: Any | None = None
         self._retained_input_evidence: Any | None = None
         self._input_calibration_readiness: Any | None = None
+        self._active_revocation_cause = InvalidationCause.UNKNOWN
         self.driver_version = (
             f"{DRIVER_VERSION};{getattr(self.backend, 'input_tool_version', self.backend.input_tool.version)}"
             if isinstance(self.backend, X11Backend)
@@ -4895,6 +5193,7 @@ class DesktopDriver:
         self._character_select_observer = character_select_observer
         self._named_state_observer = named_state_observer or character_select_observer
         self._last_named_observation: NamedStateObservation | None = None
+        self._named_capture_sequence = 0
         self._named_action_before: dict[str, NamedStateObservation] = {}
         self.native_measurement_provider = native_measurement_provider
         self.native_memory_meter = native_memory_meter
@@ -5045,7 +5344,7 @@ class DesktopDriver:
                 "realm": self.profile.realm,
                 "modal": "auction_house",
                 "code": "",
-                "control": "auctioneer_buckler",
+                "control": "auction_house",
                 "idle": "true",
             },
         }
@@ -5198,7 +5497,7 @@ class DesktopDriver:
         self._retained_input_evidence = None
         self._input_calibration_readiness = None
         if self.guardian.armed:
-            self.guardian.revoke(reason)
+            self.revoke(reason, invalidation_cause=InvalidationCause.INPUT_ENVIRONMENT_CHANGED)
 
     def _publish_holds(
         self,
@@ -5338,40 +5637,53 @@ class DesktopDriver:
         return unregister
 
     @staticmethod
-    def _calibration_target_certificate(target: Any) -> tuple[frozenset[int], int, tuple[int, int, int, int]]:
-        """Return the exact certified GTK/X11 event target set.
+    def _calibration_target_certificate(
+        target: Any,
+    ) -> tuple[
+        frozenset[int],
+        str,
+        int,
+        int,
+        int,
+        tuple[int, ...],
+        frozenset[int],
+        frozenset[int],
+    ]:
+        """Return the exact owned GTK layout and its event-capable XID set."""
 
-        The calibration owner certifies one managed frame and the GTK client
-        subtree.  The driver consumes that certificate as an exact set; it
-        never infers extra parents or accepts a root/sibling supplied by a
-        caller.
-        """
+        from .calibration import GTK_LAYOUT_MUTTER_FRAME, GTK_LAYOUT_ROOT_CHILD
 
         allowed = frozenset(target.allowed_event_target_xids)
         descendants = frozenset(target.descendant_xids)
         target_xid = target.xid
         frame_xid = target.managed_frame_xid
         frame_geometry = tuple(target.managed_frame_geometry)
+        layout_kind = getattr(target, "layout_kind", GTK_LAYOUT_MUTTER_FRAME)
+        root_xid = getattr(target, "root_xid", 0)
+        parent_xid = getattr(target, "parent_xid", 0)
+        excluded = frozenset(getattr(target, "excluded_input_only_xids", ()))
         target_executable = getattr(target, "executable", "")
         target_process_start = getattr(target, "process_start", "")
         if (
-            not allowed
+            layout_kind not in {GTK_LAYOUT_MUTTER_FRAME, GTK_LAYOUT_ROOT_CHILD}
+            or not allowed
             or not descendants
             or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in allowed)
             or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in descendants)
+            or any(isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0 for xid in excluded)
             or isinstance(target_xid, bool)
             or not isinstance(target_xid, int)
             or target_xid <= 0
             or target_xid not in descendants
-            or isinstance(frame_xid, bool)
-            or not isinstance(frame_xid, int)
-            or frame_xid <= 0
-            or frame_xid in descendants
-            or allowed != frozenset({frame_xid, *descendants})
-            or len(frame_geometry) != 4
-            or any(isinstance(value, bool) or not isinstance(value, int) for value in frame_geometry)
-            or frame_geometry[2] <= 0
-            or frame_geometry[3] <= 0
+            or isinstance(root_xid, bool)
+            or not isinstance(root_xid, int)
+            or root_xid < 0
+            or isinstance(parent_xid, bool)
+            or not isinstance(parent_xid, int)
+            or parent_xid < 0
+            or root_xid in allowed
+            or root_xid in excluded
+            or allowed & excluded
             or not isinstance(target_executable, str)
             or not target_executable
             or not os.path.isabs(target_executable)
@@ -5379,25 +5691,75 @@ class DesktopDriver:
             or not target_process_start
         ):
             raise DriverError("owned GTK target event-target certificate is incomplete or altered")
+        if layout_kind == GTK_LAYOUT_ROOT_CHILD:
+            if (
+                root_xid <= 0
+                or parent_xid != root_xid
+                or frame_xid not in (None, 0)
+                or frame_geometry
+                or target_xid in excluded
+                or len(excluded) != 1
+                or not excluded.issubset(descendants)
+                or root_xid in descendants
+                or descendants != {target_xid, *excluded}
+                or allowed != frozenset({target_xid})
+            ):
+                raise DriverError("owned GTK root-child certificate is incomplete or altered")
+        else:
+            if (
+                isinstance(frame_xid, bool)
+                or not isinstance(frame_xid, int)
+                or frame_xid <= 0
+                or frame_xid in descendants
+                or allowed != frozenset({frame_xid, *descendants})
+                or len(frame_geometry) != 4
+                or any(isinstance(value, bool) or not isinstance(value, int) for value in frame_geometry)
+                or frame_geometry[2] <= 0
+                or frame_geometry[3] <= 0
+                or (root_xid > 0 and parent_xid != frame_xid)
+                or (root_xid > 0 and root_xid in descendants)
+            ):
+                raise DriverError("owned GTK managed-frame certificate is incomplete or altered")
         target_geometry = tuple(target.geometry)
         if (
             len(target_geometry) != 4
             or any(isinstance(value, bool) or not isinstance(value, int) for value in target_geometry)
             or target_geometry[2] <= 0
             or target_geometry[3] <= 0
-            or not (
-                frame_geometry[0] <= target_geometry[0]
-                and frame_geometry[1] <= target_geometry[1]
-                and frame_geometry[0] + frame_geometry[2] >= target_geometry[0] + target_geometry[2]
-                and frame_geometry[1] + frame_geometry[3] >= target_geometry[1] + target_geometry[3]
+            or (
+                layout_kind == GTK_LAYOUT_MUTTER_FRAME
+                and not (
+                    frame_geometry[0] <= target_geometry[0]
+                    and frame_geometry[1] <= target_geometry[1]
+                    and frame_geometry[0] + frame_geometry[2] >= target_geometry[0] + target_geometry[2]
+                    and frame_geometry[1] + frame_geometry[3] >= target_geometry[1] + target_geometry[3]
+                )
             )
         ):
-            raise DriverError("owned GTK managed-frame geometry certificate is invalid")
-        return allowed, frame_xid, frame_geometry
+            raise DriverError("owned GTK target geometry certificate is invalid")
+        return (
+            allowed,
+            layout_kind,
+            root_xid,
+            parent_xid,
+            int(frame_xid or 0),
+            frame_geometry,
+            descendants,
+            excluded,
+        )
 
     @classmethod
     def _verify_calibration_target(cls, ticket: CalibrationTicket, target: Any) -> None:
-        allowed, frame_xid, frame_geometry = cls._calibration_target_certificate(target)
+        (
+            allowed,
+            layout_kind,
+            root_xid,
+            parent_xid,
+            frame_xid,
+            frame_geometry,
+            descendants,
+            excluded,
+        ) = cls._calibration_target_certificate(target)
         if (
             int(getattr(target, "pid", 0)) != ticket.target_pid
             or int(getattr(target, "xid", 0)) != ticket.target_xid
@@ -5408,6 +5770,11 @@ class DesktopDriver:
             or allowed != ticket.target_xids
             or frame_xid != ticket.managed_frame_xid
             or frame_geometry != ticket.managed_frame_geometry
+            or layout_kind != ticket.target_layout_kind
+            or root_xid != ticket.target_root_xid
+            or parent_xid != ticket.target_parent_xid
+            or descendants != ticket.target_descendant_xids
+            or excluded != ticket.target_excluded_input_only_xids
         ):
             raise DriverError("owned GTK calibration target changed after ticket issue")
 
@@ -5452,7 +5819,16 @@ class DesktopDriver:
 
         if not isinstance(target, OwnedWindow) or target.title != OwnedGtkCalibrationWindow.TITLE:
             raise DriverError("calibration target is not the owned GTK window")
-        target_xids, managed_frame_xid, managed_frame_geometry = self._calibration_target_certificate(target)
+        (
+            target_xids,
+            layout_kind,
+            root_xid,
+            parent_xid,
+            managed_frame_xid,
+            managed_frame_geometry,
+            descendants,
+            excluded,
+        ) = self._calibration_target_certificate(target)
         with self._calibration_action_lock:
             expected_epoch = self._calibration_epoch
             with self.guardian._lock:
@@ -5488,6 +5864,11 @@ class DesktopDriver:
                 managed_frame_geometry,
                 str(target.executable),
                 str(target.process_start),
+                layout_kind,
+                root_xid,
+                parent_xid,
+                descendants,
+                excluded,
             )
             try:
                 self.guardian.issue_calibration_ticket(ticket)
@@ -5531,35 +5912,110 @@ class DesktopDriver:
         try:
             evidence.verify_seal()
         except Exception as exc:
-            raise DriverError("input arm requires owned live calibration evidence") from exc
+            raise DriverError("input arm requires owned live runtime evidence") from exc
         if isinstance(self.backend, X11Backend):
             self.backend._check_published_tool()
-        if getattr(evidence, "display", self.profile.display) != self.profile.display:
-            raise DriverError("input calibration display does not match the configured display")
-        if getattr(evidence, "driver_version", self.driver_version) != self.driver_version:
-            raise DriverError("input calibration was produced by a different driver version")
-        evidence_xauthority = getattr(evidence, "xauthority", "")
-        if evidence_xauthority and evidence_xauthority != self.xauthority:
-            raise DriverError("input calibration Xauthority changed")
-        if isinstance(self.backend, X11Backend):
+        if isinstance(evidence, RuntimeInputEvidence):
+            if not evidence.is_live:
+                raise RuntimeReadinessError(
+                    "runtime startup evidence is stale",
+                    InvalidationCause.UNKNOWN,
+                )
+            if evidence.display != self.profile.display:
+                raise RuntimeReadinessError(
+                    "runtime startup evidence is bound to another display",
+                    InvalidationCause.INPUT_ENVIRONMENT_CHANGED,
+                )
+            if not isinstance(self.backend, X11Backend):
+                raise RuntimeReadinessError(
+                    "runtime startup evidence requires the owned X11 backend",
+                    InvalidationCause.INPUT_ENVIRONMENT_CHANGED,
+                )
             current_hierarchy = self.input_hierarchy()
-            if current_hierarchy != tuple(getattr(evidence, "xinput_hierarchy", ())):
-                raise DriverError("input calibration XInput hierarchy changed")
+            if current_hierarchy != evidence.xinput_hierarchy:
+                raise RuntimeReadinessError(
+                    "runtime XInput hierarchy changed after passive startup",
+                    InvalidationCause.INPUT_ENVIRONMENT_CHANGED,
+                )
             current_profile = self.xtest_input_profile(current_hierarchy)
-            sealed_profile = getattr(evidence, "xtest_profile", None)
+            if current_profile.canonical_payload() != evidence.xtest_profile.canonical_payload():
+                raise RuntimeReadinessError(
+                    "runtime XTEST profile changed after passive startup",
+                    InvalidationCause.INPUT_ENVIRONMENT_CHANGED,
+                )
+            levels = tuple(
+                sorted(
+                    (
+                        keycode,
+                        tuple(symbols),
+                    )
+                    for keycode, symbols in self.backend.observe_keymap_levels().items()
+                )
+            )
+            if levels != evidence.environment.keymap_levels:
+                raise RuntimeReadinessError(
+                    "runtime keyboard keymap changed after passive startup",
+                    InvalidationCause.INPUT_ENVIRONMENT_CHANGED,
+                )
+            native_state = self.backend.observe_native_input_state(current_profile.root_xid)
+            if native_state[1] or native_state[2]:
+                raise RuntimeReadinessError(
+                    "native input became held before runtime arm",
+                    InvalidationCause.UNKNOWN,
+                )
+            if native_state[0] != evidence.native_modifiers:
+                raise RuntimeReadinessError(
+                    "native modifier state changed before runtime arm",
+                    InvalidationCause.UNKNOWN,
+                )
+            try:
+                current_identity = self.resolve_identity(require_foreground=True)
+            except DriverError as exc:
+                raise RuntimeReadinessError(
+                    "game identity could not be reverified before runtime arm",
+                    InvalidationCause.GAME_PROCESS_CHANGED,
+                ) from exc
             if (
-                sealed_profile is None
-                or current_profile.canonical_payload() != sealed_profile.canonical_payload()
+                current_identity.fingerprint != evidence.game_identity_fingerprint
+                or current_identity.process_start != evidence.game_process_start
+                or tuple(current_identity.child_geometry) != evidence.game_geometry
             ):
-                raise DriverError("input calibration XTEST profile changed")
-            evidence_identity = getattr(evidence, "game_identity_fingerprint", "")
-            if not evidence_identity:
-                raise DriverError("input calibration has no verified game identity")
-            current_identity = self.resolve_identity(require_foreground=False)
-            if current_identity.fingerprint != evidence_identity:
-                raise DriverError("input calibration game identity changed")
-            if tuple(getattr(evidence, "game_geometry", ())) != current_identity.child_geometry:
-                raise DriverError("input calibration game geometry changed")
+                raise RuntimeReadinessError(
+                    "game identity or geometry changed after passive startup",
+                    InvalidationCause.GAME_PROCESS_CHANGED,
+                )
+            if self._monitor is None or not self._monitor.alive:
+                raise RuntimeReadinessError(
+                    "runtime XI2 observer is not alive at arm boundary",
+                    InvalidationCause.OBSERVER_LOST,
+                )
+        else:
+            if getattr(evidence, "display", self.profile.display) != self.profile.display:
+                raise DriverError("input calibration display does not match the configured display")
+            if getattr(evidence, "driver_version", self.driver_version) != self.driver_version:
+                raise DriverError("input calibration was produced by a different driver version")
+            evidence_xauthority = getattr(evidence, "xauthority", "")
+            if evidence_xauthority and evidence_xauthority != self.xauthority:
+                raise DriverError("input calibration Xauthority changed")
+            if isinstance(self.backend, X11Backend):
+                current_hierarchy = self.input_hierarchy()
+                if current_hierarchy != tuple(getattr(evidence, "xinput_hierarchy", ())):
+                    raise DriverError("input calibration XInput hierarchy changed")
+                current_profile = self.xtest_input_profile(current_hierarchy)
+                sealed_profile = getattr(evidence, "xtest_profile", None)
+                if (
+                    sealed_profile is None
+                    or current_profile.canonical_payload() != sealed_profile.canonical_payload()
+                ):
+                    raise DriverError("input calibration XTEST profile changed")
+                evidence_identity = getattr(evidence, "game_identity_fingerprint", "")
+                if not evidence_identity:
+                    raise DriverError("input calibration has no verified game identity")
+                current_identity = self.resolve_identity(require_foreground=False)
+                if current_identity.fingerprint != evidence_identity:
+                    raise DriverError("input calibration game identity changed")
+                if tuple(getattr(evidence, "game_geometry", ())) != current_identity.child_geometry:
+                    raise DriverError("input calibration game geometry changed")
         self._input_evidence = evidence
         started_runtime_monitor: InputMonitor | None = None
         try:
@@ -5571,12 +6027,21 @@ class DesktopDriver:
                     dead_monitor = self._monitor
                     self.stop_input_observer(dead_monitor, already_stopped=True)
             if isinstance(self.backend, X11Backend) and self._monitor is None:
-                started_runtime_monitor = self.start_input_observer()
+                try:
+                    started_runtime_monitor = self.start_input_observer()
+                except DriverError as exc:
+                    raise RuntimeReadinessError(
+                        "runtime XI2 observer could not be started",
+                        InvalidationCause.OBSERVER_LOST,
+                    ) from exc
                 monitor_alive = getattr(started_runtime_monitor, "alive", True)
                 if callable(monitor_alive):
                     monitor_alive = monitor_alive()
                 if monitor_alive is False:
-                    raise DriverError("runtime XI2 observer is not alive at arm boundary")
+                    raise RuntimeReadinessError(
+                        "runtime XI2 observer is not alive at arm boundary",
+                        InvalidationCause.OBSERVER_LOST,
+                    )
             # The observer must have a live stdout reader before the lease is
             # armed.  A monitor dying between arm and startup would otherwise
             # leave a generation that can never observe revocation.
@@ -5590,12 +6055,24 @@ class DesktopDriver:
                 if callable(live_after_arm):
                     live_after_arm = live_after_arm()
                 if live_after_arm is False:
-                    self.guardian.revoke("runtime XI2 observer died at arm boundary")
-                    raise DriverError("runtime XI2 observer died at arm boundary")
-        except Exception:
+                    self.revoke(
+                        "runtime XI2 observer died at arm boundary",
+                        invalidation_cause=InvalidationCause.OBSERVER_LOST,
+                    )
+                    raise RuntimeReadinessError(
+                        "runtime XI2 observer died at arm boundary",
+                        InvalidationCause.OBSERVER_LOST,
+                    )
+        except Exception as exc:
             self._input_evidence = None
             if self.guardian.armed:
-                self.guardian.revoke("runtime XI2 observer could not be started")
+                cause = getattr(exc, "invalidation_cause", InvalidationCause.UNKNOWN)
+                if not isinstance(cause, InvalidationCause):
+                    cause = InvalidationCause.UNKNOWN
+                self.revoke(
+                    "runtime input arm failed",
+                    invalidation_cause=cause,
+                )
             elif started_runtime_monitor is not None:
                 self.stop_input_observer(started_runtime_monitor)
             raise
@@ -5681,6 +6158,170 @@ class DesktopDriver:
         except Exception as exc:
             raise DriverError(str(exc)) from exc
 
+    @staticmethod
+    def _runtime_keyboard_profile(
+        commands: tuple[str, ...],
+        levels: dict[int, tuple[str, ...]],
+        keymap: dict[str, int],
+        modifiers: tuple[int, int, int],
+        modifier_masks: tuple[int, int],
+    ) -> tuple[tuple[str, str, tuple[tuple[Any, ...], ...]], ...]:
+        reverse: dict[str, tuple[int, str]] = {}
+        for keycode, symbols in levels.items():
+            for symbol in symbols:
+                reverse.setdefault(symbol, (keycode, symbols[0]))
+
+        def detail(symbol: str, fallback: str | None = None) -> int:
+            row = reverse.get(symbol) or (reverse.get(fallback) if fallback else None)
+            if row is None:
+                raise DriverError(f"runtime keymap has no physical key for {symbol!r}")
+            return row[0]
+
+        lock, latched, base = modifiers
+
+        def state(base_value: int) -> tuple[tuple[int, int, int], int]:
+            triple = (lock, latched, base_value)
+            return triple, lock | latched | base_value
+
+        def press_release(symbol: str, keycode: int, current: int) -> list[tuple[Any, ...]]:
+            triple, effective = state(current)
+            return [
+                ("press", symbol, keycode, triple, effective),
+                ("release", symbol, keycode, triple, effective),
+            ]
+
+        def character_steps(char: str) -> list[tuple[Any, ...]]:
+            mapped = X11Backend._keysym_for_char(char)
+            if mapped is None:
+                raise DriverError(f"runtime command character {char!r} has no XTEST mapping")
+            pieces = mapped.split("+")
+            if len(pieces) == 1:
+                keycode = detail(pieces[0], pieces[0].lower() if pieces[0].isupper() else None)
+                return press_release(pieces[0], keycode, base)
+            if len(pieces) != 2 or pieces[0] != "Shift_L":
+                raise DriverError(f"runtime key mapping {mapped!r} is not a supported modifier form")
+            key_symbol = pieces[1]
+            shift_code = detail("Shift_L")
+            key_code = detail(key_symbol, key_symbol.lower())
+            shift_mask = modifier_masks[0]
+            shifted, effective = state(base | shift_mask)
+            unshifted, unshifted_effective = state(base)
+            return [
+                # XI2 delivered modifier state describes the state before the
+                # modifier key transition: Shift_L press is still unshifted,
+                # while its release is still shifted. The following character
+                # transitions see the held modifier in both directions.
+                ("press", "Shift_L", shift_code, unshifted, unshifted_effective),
+                ("press", key_symbol, key_code, shifted, effective),
+                ("release", key_symbol, key_code, shifted, effective),
+                ("release", "Shift_L", shift_code, shifted, effective),
+            ]
+
+        rows: list[tuple[str, str, tuple[tuple[Any, ...], ...]]] = []
+        for operation, payload, keys in (
+            ("open_chat", "", ("Return",)),
+            ("submit_command", "", ("Return",)),
+            ("escape_command_buffer", "", ("Escape",)),
+        ):
+            steps: list[tuple[Any, ...]] = []
+            for key in keys:
+                steps.extend(press_release(key, detail(key), base))
+            rows.append((operation, payload, tuple(steps)))
+        for command in sorted(commands):
+            steps = []
+            for char in command:
+                steps.extend(character_steps(char))
+            rows.append(("type_allowlisted_command", command, tuple(steps)))
+        control_code = detail("Control_L")
+        f12_code = detail("F12")
+        control_mask = modifier_masks[1]
+        controlled, controlled_effective = state(base | control_mask)
+        unmodified, unmodified_effective = state(base)
+        rows.append(
+            (
+                "interact_target",
+                "",
+                (
+                    ("press", "Control_L", control_code, unmodified, unmodified_effective),
+                    ("press", "F12", f12_code, controlled, controlled_effective),
+                    ("release", "F12", f12_code, controlled, controlled_effective),
+                    ("release", "Control_L", control_code, controlled, controlled_effective),
+                ),
+            )
+        )
+        return tuple(rows)
+
+    def mint_runtime_input_evidence(
+        self, identity: WindowIdentity, *, readiness_boot: str, readiness_sequence: int
+    ) -> RuntimeInputEvidence:
+        if not isinstance(self.backend, X11Backend):
+            raise DriverError("passive runtime startup requires the owned X11 backend")
+        hierarchy = self.input_hierarchy()
+        from .calibration import xtest_sources
+
+        try:
+            keyboard_source, pointer_source = xtest_sources(hierarchy)
+        except Exception as exc:
+            raise DriverError(f"passive startup could not resolve unique XTEST devices: {exc}") from exc
+        keyboard_master = next((row[1] for row in hierarchy if row[0] == keyboard_source), 0)
+        pointer_master = next((row[1] for row in hierarchy if row[0] == pointer_source), 0)
+        if keyboard_master <= 0 or pointer_master <= 0:
+            raise DriverError("passive startup XTEST device hierarchy has no measured masters")
+        try:
+            forwarded_echo_sources = resolve_forwarded_echo_sources(hierarchy, pointer_master)
+        except ValueError as exc:
+            raise DriverError(
+                f"passive startup cannot identify the forwarded XI2 pointer source: {exc}"
+            ) from exc
+        profile = self.xtest_input_profile(hierarchy)
+        if profile is None:
+            raise DriverError("passive startup has no measured XTEST pointer profile")
+        profile.verify()
+        levels = self.backend.observe_keymap_levels()
+        modifier_masks = (
+            self.backend.observe_keysym_modifier_mask("Shift_L"),
+            self.backend.observe_keysym_modifier_mask("Control_L"),
+        )
+        keymap: dict[str, int] = {}
+        for keycode, symbols in levels.items():
+            keymap.setdefault(symbols[0], keycode)
+        state, held_keys, held_buttons = self.backend.observe_native_input_state(profile.root_xid)
+        if held_keys or held_buttons:
+            raise DriverError("passive startup found pre-existing held native input")
+        from .input_tool import verify_artifact
+
+        tool = verify_artifact(self.backend.input_tool.identity.root)
+        environment = StartupEnvironment(
+            display=self.profile.display,
+            hierarchy=hierarchy,
+            keyboard_source=keyboard_source,
+            keyboard_master=keyboard_master,
+            pointer_source=pointer_source,
+            pointer_master=pointer_master,
+            forwarded_echo_sources=forwarded_echo_sources,
+            xtest_profile=profile,
+            keymap_levels=tuple(sorted((code, tuple(symbols)) for code, symbols in levels.items())),
+            modifier_masks=(
+                ("Shift_L", modifier_masks[0]),
+                ("Control_L", modifier_masks[1]),
+            ),
+            input_tool_version=tool.version,
+            input_tool_sha256=tool.executable_sha256,
+        )
+        commands = tuple(self.COMMANDS)
+        keyboard_profile = self._runtime_keyboard_profile(commands, levels, keymap, state, modifier_masks)
+        return mint_runtime_evidence(
+            readiness_boot=readiness_boot,
+            readiness_sequence=readiness_sequence,
+            environment=environment,
+            identity=identity,
+            keyboard_keymap=tuple(sorted(keymap.items())),
+            native_modifiers=state,
+            native_held_keycodes=held_keys,
+            native_held_buttons=held_buttons,
+            keyboard_profile=keyboard_profile,
+        )
+
     def xtest_input_profile(
         self,
         hierarchy: tuple[tuple[int, int, str, str], ...],
@@ -5735,17 +6376,51 @@ class DesktopDriver:
 
     def _external_input(self, event: XI2Event | None) -> None:
         if event is None:
-            self.revoke("malformed XI2 event stream")
+            self.revoke(
+                "malformed XI2 event stream",
+                invalidation_cause=InvalidationCause.OBSERVER_LOST,
+            )
             return
+        evidence = self._input_evidence
+        callback = self._takeover_input_callback
+        if (
+            callback is not None
+            and isinstance(evidence, RuntimeInputEvidence)
+            and is_measured_human_action(event, evidence.environment)
+        ):
+            # Raw physical key/button records precede their delivered XI2
+            # counterpart. Record the first hierarchy-verified physical
+            # event before Guardian's normal immediate revoke closes the
+            # observer; unknown and synthetic sources still fail closed.
+            callback(event)
         try:
             self.guardian.observe(event)
         except Exception as exc:
             self.revoke(f"XI2 guardian failure: {exc}")
 
-    def revoke(self, reason: str) -> int:
+    def set_takeover_input_callback(self, callback: Callable[[XI2Event], None] | None) -> None:
+        """Observe one actual non-XTEST XI2 input record during the explicit drill."""
+
+        self._takeover_input_callback = callback
+
+    def revoke(
+        self,
+        reason: str,
+        *,
+        invalidation_cause: InvalidationCause = InvalidationCause.UNKNOWN,
+    ) -> int:
         with self._calibration_action_lock:
             self._queued.clear()
-        generation = self.guardian.revoke(reason)
+        previous_cause = getattr(self, "_active_revocation_cause", InvalidationCause.UNKNOWN)
+        self._active_revocation_cause = (
+            invalidation_cause
+            if isinstance(invalidation_cause, InvalidationCause)
+            else InvalidationCause.UNKNOWN
+        )
+        try:
+            generation = self.guardian.revoke(reason)
+        finally:
+            self._active_revocation_cause = previous_cause
         self._input_evidence = None
         return generation
 
@@ -6484,15 +7159,13 @@ class DesktopDriver:
             KeyboardProbeOperation("open_chat", "", pair("Return")),
             KeyboardProbeOperation("submit_command", "", pair("Return")),
             KeyboardProbeOperation("escape_command_buffer", "", pair("Escape")),
-            # This is a calibration fact for the existing bounded chat chord;
-            # it is not a new public DesktopDriver action.
             KeyboardProbeOperation(
-                "select_chat_all",
+                "interact_target",
                 "",
                 (
                     KeyboardProbeStep("press", "Control_L"),
-                    KeyboardProbeStep("press", "a"),
-                    KeyboardProbeStep("release", "a"),
+                    KeyboardProbeStep("press", "F12"),
+                    KeyboardProbeStep("release", "F12"),
                     KeyboardProbeStep("release", "Control_L"),
                 ),
             ),
@@ -6503,7 +7176,22 @@ class DesktopDriver:
                 keysym = X11Backend._keysym_for_char(char)
                 if keysym is None:
                     raise DriverError(f"character {char!r} has no allowlisted XTEST keysym")
-                steps.extend(pair(keysym))
+                components = tuple(part for part in keysym.split("+") if part)
+                if len(components) == 1:
+                    steps.extend(pair(components[0]))
+                else:
+                    # xdotool emits modifier key transitions as well as the
+                    # character transition. Keep those physical transitions
+                    # explicit so XI2 rehearsal and runtime Guardian expect
+                    # the same ordered stream for uppercase and shifted punctuation.
+                    steps.extend(
+                        (
+                            KeyboardProbeStep("press", components[0]),
+                            KeyboardProbeStep("press", components[1]),
+                            KeyboardProbeStep("release", components[1]),
+                            KeyboardProbeStep("release", components[0]),
+                        )
+                    )
             operations.append(KeyboardProbeOperation("type_allowlisted_command", command, tuple(steps)))
         return tuple(operations)
 
@@ -6526,6 +7214,9 @@ class DesktopDriver:
         return dict(mapping)
 
     def _expected_modifiers(self, evidence: Any) -> tuple[int, int, int]:
+        if isinstance(evidence, RuntimeInputEvidence):
+            evidence.verify_seal()
+            return evidence.native_modifiers
         sealed = getattr(evidence, "synthetic_modifiers", ())
         if (
             not isinstance(sealed, (tuple, list))
@@ -6610,6 +7301,8 @@ class DesktopDriver:
             operation, payload = "submit_command", ""
         elif name == "escape_command_buffer":
             operation, payload = "escape_command_buffer", ""
+        elif name == "open_ah":
+            operation, payload = "interact_target", ""
         else:
             return (), (), ()
         if not isinstance(payload, str):
@@ -6839,7 +7532,7 @@ class DesktopDriver:
                 if event.key not in active:
                     raise DriverError(f"motion timeline releases {event.key} without a press")
                 hold = at - pressed_at[event.key]
-                if hold < 0.03 or hold > MAX_KEY_HOLD_SECONDS:
+                if hold < 0.03 - 1e-9 or hold > MAX_KEY_HOLD_SECONDS + 1e-9:
                     raise DriverError(f"motion timeline {event.key} hold is outside the human bound")
                 active.remove(event.key)
                 del pressed_at[event.key]
@@ -7048,7 +7741,19 @@ class DesktopDriver:
             EventClass.ENTER.value,
             EventClass.LEAVE.value,
         }
-        echo_proof = tuple(tuple(record) for record in getattr(evidence, "synthetic_echo_proof", ()))
+        raw_echo = getattr(evidence, "synthetic_echo_proof", ())
+        if not isinstance(raw_echo, (tuple, list)):
+            raise DriverError("input calibration controlled echo proof is malformed")
+        echo_proof = tuple(tuple(record) for record in raw_echo)
+        raw_sources = getattr(evidence, "forwarded_echo_sources", ())
+        if not isinstance(raw_sources, (tuple, list, set, frozenset)):
+            raise DriverError("input calibration forwarded echo sources are malformed")
+        if any(
+            isinstance(source_id, bool) or not isinstance(source_id, int) or source_id <= 0
+            for source_id in raw_sources
+        ):
+            raise DriverError("input calibration forwarded echo sources are malformed")
+        echo_sources = frozenset(raw_sources)
         action = None
         try:
             action_timeout = 10.0
@@ -7086,6 +7791,7 @@ class DesktopDriver:
                 ),
                 canonical_motion=canonical_motion,
                 echo_proof=echo_proof,
+                echo_sources=echo_sources,
                 timeout=action_timeout,
             )
             self.guardian.dispatch_admission(generation, lambda: None)
@@ -7491,6 +8197,7 @@ class DesktopDriver:
             chain = build_camera_drag_chain(plan, identity.child_geometry, positioning)
             self.backend._run(
                 chain,
+                timeout=TAKEOVER_DRILL_HOVER_COMMAND_TIMEOUT_SECONDS,
                 generation=generation,
                 held_buttons={3},
                 input_schema="camera-drag",
@@ -7747,6 +8454,8 @@ class DesktopDriver:
                 operation, payload = name, kwargs.get("command")
             elif name in {"open_chat", "submit_command", "escape_command_buffer"}:
                 operation, payload = name, ""
+            elif name == "open_ah":
+                operation, payload = "interact_target", ""
             else:
                 operation, payload = "", ""
             if operation:
@@ -7756,11 +8465,21 @@ class DesktopDriver:
                         raise DriverError("sealed keyboard operation has malformed keysym")
                     held_keys.update(part for part in keysym.split("+") if part)
         echo_proof: tuple[tuple[Any, ...], ...] = ()
+        echo_sources: frozenset[int] = frozenset()
         if pointer_action:
             raw_echo = getattr(evidence, "synthetic_echo_proof", ())
             if not isinstance(raw_echo, (tuple, list)):
                 raise DriverError("input calibration controlled echo proof is malformed")
             echo_proof = tuple(tuple(record) for record in raw_echo)
+            raw_sources = getattr(evidence, "forwarded_echo_sources", ())
+            if not isinstance(raw_sources, (tuple, list, set, frozenset)):
+                raise DriverError("input calibration forwarded echo sources are malformed")
+            if any(
+                isinstance(source_id, bool) or not isinstance(source_id, int) or source_id <= 0
+                for source_id in raw_sources
+            ):
+                raise DriverError("input calibration forwarded echo sources are malformed")
+            echo_sources = frozenset(raw_sources)
         anchor = self._measured_anchors.get(name) if pointer_action else None
         pointer_plan: PointerTrajectory | None = None
         click_plan = None
@@ -7896,6 +8615,7 @@ class DesktopDriver:
                 expected_coordinates=expected_coordinates,
                 expected_event_coordinates=expected_event_coordinates,
                 expected_motion_trace=expected_motion_trace,
+                echo_sources=echo_sources,
                 initial_origin=initial_origin,
                 expected_root_xid=(
                     getattr(getattr(evidence, "xtest_profile", None), "root_xid", None)
@@ -7966,6 +8686,11 @@ class DesktopDriver:
                         kwargs["_refresh_anchor"] = lambda current, previous: self._refresh_pointer_anchor(
                             name, generation, current, previous
                         )
+                else:
+                    # The emitter receives only the keymap sealed by current
+                    # runtime evidence. It converts the planned keysyms to
+                    # exact physical keycodes before its process is admitted.
+                    kwargs = {**kwargs, "_keyboard_keymap": self._sealed_keyboard_keymap(evidence)}
                 pointer_attempted = pointer_action and gesture_plan is not None
                 self.backend.action(name, generation=generation, **kwargs)
             else:
@@ -8022,6 +8747,160 @@ class DesktopDriver:
         queued, self._queued = self._queued, []
         for generation, name, kwargs in queued:
             self.run(name, generation, **kwargs)
+
+    def run_takeover_hover(self, generation: int, evidence: RuntimeInputEvidence) -> HumanPointerPlan:
+        """Emit one guarded clickless curved hover for the takeover drill."""
+
+        if not isinstance(self.backend, X11Backend) or not isinstance(evidence, RuntimeInputEvidence):
+            raise DriverError("takeover hover requires live native runtime evidence")
+        evidence.verify_seal()
+        if self._input_evidence is not evidence:
+            raise DriverError("takeover hover evidence is not the current armed runtime proof")
+        self.guardian.check(generation)
+        identity = self.resolve_identity(require_foreground=True)
+        if (
+            identity.fingerprint != evidence.game_identity_fingerprint
+            or identity.process_start != evidence.game_process_start
+            or tuple(identity.child_geometry) != evidence.game_geometry
+        ):
+            raise DriverError("takeover hover game identity changed after passive startup")
+        xtest_profile = evidence.xtest_profile
+        xtest_profile.verify()
+        source = evidence.synthetic_pointer_source
+        master = evidence.synthetic_pointer_master
+        if source <= 0 or master <= 0 or not identity.target_event_xids:
+            raise DriverError("takeover hover has no certified pointer source or target set")
+        left, top, width, height = identity.child_geometry
+        root_x, root_y, pointer_window = self.backend.pointer_position(generation=generation)
+        if not self._is_owned_client_target(pointer_window, identity):
+            raise DriverError("takeover hover pointer is outside the verified game client")
+        start = Point(root_x - left, root_y - top).to_pixel()
+        client_bounds = Rect(0, 0, width, height)
+        if not client_bounds.contains(start):
+            raise DriverError("takeover hover pointer is outside verified client pixels")
+        target_width = min(96, width)
+        target_height = min(80, height)
+        target_left = min(max(0, int(start.x) - target_width // 2), width - target_width)
+        target_top = min(max(0, int(start.y) - target_height // 2), height - target_height)
+        binding = BindingMetadata(
+            identity_fingerprint=identity.fingerprint,
+            capture_id=(
+                f"takeover:{evidence.readiness_boot}:{evidence.readiness_sequence}:"
+                f"{evidence.environment_fingerprint}:{generation}"
+            ),
+            capture_sequence=evidence.readiness_sequence,
+            generation=generation,
+            target_xid=identity.child_xid,
+            target_ancestry=tuple(identity.target_event_xids),
+            source="passive-startup-client-interior",
+        )
+        target = PointerTarget(
+            "takeover_hover",
+            Rect(target_left, target_top, target_width, target_height),
+            binding,
+        )
+        motion_profile = replace(
+            self.pointer_motion_profile,
+            min_duration=max(0.8, self.pointer_motion_profile.min_duration),
+            max_duration=max(0.8, self.pointer_motion_profile.max_duration),
+        )
+        try:
+            gesture = plan_human_pointer(start, target, client_bounds, button=None, profile=motion_profile)
+            trajectory = gesture.trajectory
+            if gesture.click is not None or trajectory.endpoint == start:
+                raise DriverError("takeover hover plan is not a distinct clickless path")
+            trace: list[tuple[int, int, int, int]] = []
+            prior = trajectory.samples[0].point
+            for sample in trajectory.samples[1:]:
+                if sample.point == prior:
+                    continue
+                point = (left + int(sample.point.x), top + int(sample.point.y))
+                trace.append((*point, *point))
+                prior = sample.point
+            expected_trace = tuple(trace)
+            if not expected_trace:
+                raise DriverError("takeover hover plan emitted no pointer movement")
+            chain = build_pointer_motion_chain(trajectory, identity.child_geometry)
+        except (ExecutorError, PointerExecutionError) as exc:
+            raise DriverError(f"takeover hover plan is invalid: {exc}") from exc
+
+        event_classes = {
+            EventClass.DEVICE_CHANGED.value,
+            EventClass.RAW_MOTION.value,
+            EventClass.MOTION.value,
+            EventClass.ENTER.value,
+            EventClass.LEAVE.value,
+        }
+        optional_classes = {
+            EventClass.DEVICE_CHANGED.value,
+            EventClass.ENTER.value,
+            EventClass.LEAVE.value,
+        }
+        device_by_class = {
+            event_class: master
+            if event_class in {EventClass.DEVICE_CHANGED.value, EventClass.RAW_MOTION.value}
+            else source
+            for event_class in event_classes
+        }
+        expected_origin = (root_x, root_y, root_x, root_y)
+        action = self.guardian.begin_action(
+            generation,
+            target_xid=identity.child_xid,
+            source_device=source,
+            master_device=master,
+            event_classes=event_classes,
+            device_by_class=device_by_class,
+            target_ancestor=lambda xid: self._is_owned_client_target(xid, identity),
+            required_sequence=(),
+            optional_classes=optional_classes,
+            expected_modifiers=self._expected_modifiers(evidence),
+            expected_motion_trace=expected_trace,
+            initial_origin=expected_origin,
+            expected_root_xid=xtest_profile.root_xid,
+            expected_event_xid=xtest_profile.root_xid,
+            expected_child_xids=frozenset(identity.target_event_xids),
+            canonical_motion=True,
+            echo_sources=evidence.forwarded_echo_sources,
+        )
+        try:
+
+            def admit_hover() -> None:
+                self.guardian.check(generation)
+                current = self.resolve_identity(require_foreground=True)
+                if current.fingerprint != identity.fingerprint:
+                    raise DriverError("takeover hover identity changed before dispatch")
+                current_pointer = self.backend.pointer_position(generation=generation)
+                if current_pointer != (root_x, root_y, pointer_window):
+                    raise DriverError("takeover hover pointer moved before owned dispatch")
+
+            self.guardian.dispatch_admission(generation, admit_hover)
+            self.backend._run(
+                chain,
+                generation=generation,
+                input_schema="pointer-motion",
+                expected_argv=tuple(chain),
+            )
+            monitor = self._monitor
+            if monitor is None or not monitor.alive:
+                raise DriverError("takeover hover lost the registered XI2 observer")
+            monitor.wait_for_event(
+                lambda _events: self.guardian.action is not None and self.guardian.action.complete,
+                timeout=max(TAKEOVER_DRILL_HOVER_OBSERVATION_TIMEOUT_SECONDS, trajectory.duration + 1.0),
+            )
+            if self.guardian.action is not action or not action.complete:
+                raise DriverError("takeover hover lacks a complete raw/delivered motion trace")
+            fresh = self.resolve_identity(require_foreground=True)
+            if fresh.fingerprint != identity.fingerprint:
+                raise DriverError("takeover hover game identity changed during dispatch")
+            self.guardian.finish_action(generation, action)
+            self._record_pointer_gesture_receipt(
+                action="takeover_hover", generation=generation, gesture=gesture, accepted=True
+            )
+            return gesture
+        except Exception:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke("takeover hover failed before its motion trace completed")
+            raise
 
     def prepare_command(
         self,
@@ -8318,6 +9197,7 @@ class DesktopDriver:
         props = self.backend._xprop(hex(target.xid), "WM_NAME", "_NET_WM_PID")
         if target.title not in props or not re.search(rf"_NET_WM_PID\([^)]*\).*\b{target.pid}\b", props):
             raise DriverError("owned GTK calibration XID/PID changed")
+        keymap = self.calibration_keyboard_keymap()
         # F13, motion, and click establish the baseline and controlled target
         # proof expected by the calibration workflow.  All of these commands
         # carry the same ticket as the keyboard profile below.
@@ -8328,7 +9208,11 @@ class DesktopDriver:
             top + max(0, height // 2),
             calibration_ticket=calibration_ticket,
         )
-        self.backend.synthetic_keyboard_profile(operations, calibration_ticket=calibration_ticket)
+        self.backend.synthetic_keyboard_profile(
+            operations,
+            keymap=keymap,
+            calibration_ticket=calibration_ticket,
+        )
 
     def close(self) -> None:
         self.revoke("driver closed")

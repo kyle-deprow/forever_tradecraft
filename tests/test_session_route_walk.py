@@ -110,6 +110,24 @@ def test_interaction_ipc_rejects_route_and_world_click_field_drift() -> None:
     assert owner.calls == []
 
 
+def test_interaction_ipc_rejects_world_click_ah_open_expectation() -> None:
+    owner = _Owner()
+    ipc = cli.SessionIPC(SimpleNamespace(), owner)  # type: ignore[arg-type]
+
+    assert ipc.dispatch(
+        {
+            "command": "world_click",
+            "generation": 4,
+            "target": "Auctioneer Jaxon",
+            "hintX": 10,
+            "hintY": 20,
+            "radius": 60,
+            "expect": "ahOpen",
+        }
+    ) == {"ok": False, "error": "world click expected state is not allowlisted"}
+    assert owner.calls == []
+
+
 def test_interaction_ipc_accepts_new_commands_and_returns_hover() -> None:
     owner = _Owner()
     ipc = cli.SessionIPC(SimpleNamespace(), owner)  # type: ignore[arg-type]
@@ -182,6 +200,26 @@ def test_cli_serializes_route_walk_and_world_click(monkeypatch, tmp_path: Path, 
     ]
     assert timeouts == [60.0 + cli.MOTION_TRANSPORT_MARGIN_SECONDS] * 2
     assert capsys.readouterr().out.count('"ok": true') == 2
+
+
+def test_cli_rejects_world_click_ah_open_expectation() -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        cli.main(
+            [
+                "world-click",
+                "--generation",
+                "7",
+                "--target",
+                "Auctioneer Jaxon",
+                "--hint",
+                "10,20",
+                "--radius",
+                "120",
+                "--expect",
+                "ahOpen",
+            ]
+        )
+    assert exc_info.value.code == 2
 
 
 def test_motion_timeline_argv_schema_accepts_only_balanced_sealed_keys(
@@ -934,8 +972,26 @@ def test_initial_settled_fix_waits_for_the_full_settle_interval(monkeypatch: pyt
     assert observed[0] == pytest.approx(11.2)
 
 
+_CLEAR_BLOCKING_UI = {
+    "staticPopupAvailable": True,
+    "staticPopupShown": False,
+    "gameMenuAvailable": True,
+    "gameMenuShown": False,
+}
+
+
+@pytest.mark.parametrize(
+    "proof_blocking_ui",
+    [
+        _CLEAR_BLOCKING_UI,
+        {**_CLEAR_BLOCKING_UI, "gameMenuShown": True},
+        {**_CLEAR_BLOCKING_UI, "staticPopupShown": True},
+    ],
+    ids=["clear", "game-menu-appeared", "popup-appeared"],
+)
 def test_world_click_retakes_hover_proof_after_permit_and_uses_release_boundary(
     monkeypatch: pytest.MonkeyPatch,
+    proof_blocking_ui: dict[str, bool],
 ) -> None:
     daemon = object.__new__(SessionDaemon)
     daemon._motion_intent_lock = threading.RLock()
@@ -953,9 +1009,20 @@ def test_world_click_retakes_hover_proof_after_permit_and_uses_release_boundary(
     proof.hover_kind, proof.hover_name = "object", "Mailbox"
     final = _motion_frame(x=0.3, capture=10.3)
     snapshots = {
-        (initial.boot, initial.sequence, initial.identity_fingerprint): {"mailOpen": False},
+        (initial.boot, initial.sequence, initial.identity_fingerprint): {
+            "mailOpen": False,
+            "blockingUI": {
+                "staticPopupAvailable": True,
+                "staticPopupShown": False,
+                "gameMenuAvailable": True,
+                "gameMenuShown": False,
+            },
+        },
         (hover.boot, hover.sequence, hover.identity_fingerprint): {"mailOpen": False},
-        (proof.boot, proof.sequence, proof.identity_fingerprint): {"mailOpen": False},
+        (proof.boot, proof.sequence, proof.identity_fingerprint): {
+            "mailOpen": False,
+            "blockingUI": proof_blocking_ui,
+        },
         (final.boot, final.sequence, final.identity_fingerprint): {"mailOpen": True},
     }
     daemon._motion_snapshots = snapshots
@@ -1002,6 +1069,12 @@ def test_world_click_retakes_hover_proof_after_permit_and_uses_release_boundary(
             clicked.append((generation, frame.hover_name))
 
     daemon.driver = Driver()
+    if proof_blocking_ui is not _CLEAR_BLOCKING_UI:
+        with pytest.raises(DriverError, match="blocking UI"):
+            daemon.execute_world_click("Mailbox", 50, 50, 60, expect="mailOpen", generation=7)
+        assert clicked == []
+        assert permit.is_open is False
+        return
     result = daemon.execute_world_click("Mailbox", 50, 50, 60, expect="mailOpen", generation=7)
     assert result is final
     assert clicked == [(44, "Mailbox")]
@@ -1227,6 +1300,12 @@ def _world_click_daemon(
         daemon._motion_snapshots[(frame.boot, frame.sequence, frame.identity_fingerprint)] = {
             "mailOpen": state,
             "ahOpen": state,
+            "blockingUI": {
+                "staticPopupAvailable": True,
+                "staticPopupShown": False,
+                "gameMenuAvailable": True,
+                "gameMenuShown": False,
+            },
         }
         return frame
 

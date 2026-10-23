@@ -13,6 +13,7 @@ import re
 import secrets
 import shutil
 import stat
+import sys
 import tempfile
 import threading
 import time
@@ -22,6 +23,7 @@ from contextlib import contextmanager, nullcontext
 from dataclasses import asdict, dataclass, is_dataclass, replace
 from functools import wraps
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any
 
 from crowley.core import savedvars
@@ -120,6 +122,15 @@ from .pointer_execution import PointerExecutionError, acquire_click_rate_permit
 from .preferences import load_motion_profile
 from .protocol import ProtocolError, unsigned_delta
 from .route_walk import Pose, RouteFile, check_fix, plan_segment, walk_budget
+from .startup import (
+    PASSIVE_STARTUP_TIMEOUT_SECONDS,
+    TAKEOVER_DRILL_HUMAN_TIMEOUT_SECONDS,
+    TAKEOVER_DRILL_RELEASE_TIMEOUT_SECONDS,
+    InvalidationCause,
+    RuntimeInputEvidence,
+    TakeoverDrillRecord,
+    is_measured_human_action,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1424,6 +1435,21 @@ class _NativeUpdateCapability:
     expires_monotonic: float
 
 
+@dataclass(frozen=True, slots=True)
+class _PassiveRegionCaptureCapability:
+    """One passive-startup operation's read-only region-capture authority."""
+
+    epoch: int
+    generation: int
+    state: ControllerState
+    identity_fingerprint: str
+    process_start: str
+    guardian_generation: int
+    observer_pid: int
+    deadline_monotonic: float
+    observer: Any
+
+
 def _serialized_motion(method):
     """Serialize all interaction producers around one physical intent.
 
@@ -1482,6 +1508,16 @@ def _serialized_motion(method):
 
 class SessionDaemon:
     """One process owns one controller, input lease, capture loop, and IPC lock."""
+
+    _NO_ROUTE_WALK_STATUS = MappingProxyType(
+        {
+            "state": "idle",
+            "route": "",
+            "generation": 0,
+            "segments": (),
+            "error": "",
+        }
+    )
 
     # Native operator actions are deliberately outside the daemon.  These
     # bounds only determine how long the producer waits for the next actual
@@ -1561,6 +1597,22 @@ class SessionDaemon:
         self._loaded_config_semantic_sha256 = session_config_semantic_sha256(self.config)
         self._model_counter_lock = threading.RLock()
         self._model_call_counters = {"started": 0, "succeeded": 0, "failed": 0}
+        self._startup_lock = threading.Lock()
+        self._startup_operation: dict[str, Any] = {
+            "state": "not_checked",
+            "checkedAt": 0,
+            "advancingFrames": 0,
+            "failure": "",
+        }
+        self._startup_evidence: RuntimeInputEvidence | None = None
+        self._takeover_drill_lock = threading.Lock()
+        # Serialize drill admission/commit against the public cancel command.
+        # The cancellation path releases this lock before revoking Guardian so
+        # its callback can safely take the controller lock.
+        self._takeover_cancel_lock = threading.Lock()
+        self._takeover_cancel = threading.Event()
+        self._takeover_event: tuple[Any, int] | None = None
+        self._takeover_drill_operation: dict[str, Any] = {"state": "idle", "failure": ""}
         # Source evidence is optional for ordinary daemon operation. A source
         # installation that cannot be inspected remains usable, but its
         # paused diagnostic is refused when it reaches the qualification gate.
@@ -1610,6 +1662,11 @@ class SessionDaemon:
         # returned by status_dict so B0, reservation IDs, and identity fields
         # cannot leak through public status.
         self._native_construction_lock = threading.RLock()
+        # Passive startup has a separate, read-only capture authority.  It is
+        # never exposed through status or IPC and is valid only while the
+        # exact startup operation owns its registered XI2 observer.
+        self._passive_region_epoch = 0
+        self._passive_region_admission: _PassiveRegionCaptureCapability | None = None
         self._native_construction_reservation: dict[str, Any] | None = None
         self._native_construction_ticket: dict[str, Any] | None = None
         self._native_construction_handshake: dict[str, Any] = {}
@@ -6211,7 +6268,7 @@ class SessionDaemon:
                 "realm": realm,
                 "modal": "auction_house",
                 "code": "",
-                "control": "auctioneer_buckler",
+                "control": "auction_house",
                 "idle": idle,
             },
         }
@@ -6477,6 +6534,50 @@ class SessionDaemon:
         digest = getattr(profile, "telemetry_region_executable_sha256", None)
         return executable is not None and digest is not None
 
+    def _passive_region_capability_matches_locked(
+        self,
+        capability: _PassiveRegionCaptureCapability | None,
+        identity: WindowIdentity,
+        *,
+        generation: int,
+        state: ControllerState,
+        deadline: float | None,
+    ) -> bool:
+        """Check one live passive operation while holding construction lock."""
+
+        if capability is None or capability is not self._passive_region_admission:
+            return False
+        if capability.epoch != self._passive_region_epoch:
+            return False
+        if capability.generation != generation or capability.state is not state:
+            return False
+        if (
+            capability.identity_fingerprint != identity.fingerprint
+            or capability.process_start != identity.process_start
+            or capability.deadline_monotonic != deadline
+            or time.monotonic() >= capability.deadline_monotonic
+        ):
+            return False
+        shutdown = getattr(self, "_shutdown_event", None)
+        if shutdown is not None and shutdown.is_set():
+            return False
+        guardian = self.driver.guardian
+        if guardian.generation != capability.guardian_generation:
+            return False
+        monitor = capability.observer
+        if (
+            getattr(self.driver, "_monitor", None) is not monitor
+            or not getattr(monitor, "alive", False)
+            or getattr(monitor, "failure_diagnostic", None) is not None
+        ):
+            return False
+        process = getattr(getattr(monitor, "observer", None), "process", None)
+        if getattr(process, "pid", None) != capability.observer_pid:
+            return False
+        if capability.observer_pid not in getattr(guardian, "observer_process_groups", ()):
+            return False
+        return True
+
     def _capture_native_region_for_identity(
         self,
         identity: WindowIdentity,
@@ -6486,17 +6587,23 @@ class SessionDaemon:
         expected_generation: int | None = None,
         expected_state: ControllerState | None = None,
         native_capability: dict[str, Any] | _NativeUpdateCapability | None = None,
+        passive_capability: _PassiveRegionCaptureCapability | None = None,
         native_update_ordinal: int | None = None,
         _receipt_sink: Callable[[Any], None] | None = None,
     ) -> Path:
         with self.controller.lock:
             admitted_status = self.controller.status()
             required_state = expected_state or admitted_status.state
+            if passive_capability is not None and native_capability is not None:
+                raise DriverError("passive region admission cannot borrow a native recovery capability")
             if expected_generation is not None and admitted_status.generation != expected_generation:
                 raise DriverError("controller generation does not admit a native region capture")
             if expected_state is not None and admitted_status.state is not expected_state:
                 raise DriverError("controller state does not admit a native region capture")
-            if required_state in {ControllerState.BLOCKED, ControllerState.STOPPED}:
+            if (
+                required_state in {ControllerState.BLOCKED, ControllerState.STOPPED}
+                and passive_capability is None
+            ):
                 raise DriverError("controller state does not admit a native region capture")
             if admitted_status.stop_requested:
                 raise DriverError("controller stop request does not admit a native region capture")
@@ -6512,7 +6619,25 @@ class SessionDaemon:
         if not isinstance(self.driver.backend, X11Backend):
             raise DriverError("native region capture requires the configured X11 backend")
 
-        if admitted_state is ControllerState.PAUSED:
+        if passive_capability is not None:
+            if admitted_state not in {
+                ControllerState.STOPPED,
+                ControllerState.PAUSED,
+                ControllerState.BLOCKED,
+            }:
+                raise DriverError(
+                    "passive region admission is limited to stopped, paused, or blocked startup"
+                )
+            with self._native_construction_lock:
+                if not self._passive_region_capability_matches_locked(
+                    passive_capability,
+                    identity,
+                    generation=admitted_generation,
+                    state=admitted_state,
+                    deadline=deadline,
+                ):
+                    raise DriverError("passive native region capture capability was revoked")
+        elif admitted_state is ControllerState.PAUSED:
             # A generic status/model capture in PAUSED is closed.  Only the
             # exact generation-bound provisional/recovery owner may use the
             # configured telemetry-region producer here.
@@ -6558,7 +6683,16 @@ class SessionDaemon:
                 # owner under construction lock, so keep that lock through
                 # the actual Guardian process admission.
                 with self._native_construction_lock:
-                    if isinstance(native_capability, _NativeUpdateCapability):
+                    if passive_capability is not None:
+                        if not self._passive_region_capability_matches_locked(
+                            passive_capability,
+                            identity,
+                            generation=admitted_generation,
+                            state=admitted_state,
+                            deadline=deadline,
+                        ):
+                            raise DriverError("passive native region capture capability was revoked")
+                    elif isinstance(native_capability, _NativeUpdateCapability):
                         if not self._native_update_capability_matches_locked(native_capability, identity):
                             raise DriverError("native update identity capability was revoked")
                     elif native_capability is not None and not self._native_construction_capability_matches(
@@ -6572,16 +6706,17 @@ class SessionDaemon:
                         # final pre-Popen generation fence; an earlier sample
                         # would leave a revoke-first race at the callback.
                         expected_guardian_generation = (
-                            native_capability.guardian_generation
+                            passive_capability.guardian_generation
+                            if passive_capability is not None
+                            else native_capability.guardian_generation
                             if isinstance(native_capability, _NativeUpdateCapability)
                             else native_capability.get("guardianGeneration")
                             if native_capability is not None
                             else None
                         )
                         if (
-                            native_capability is not None
-                            and guardian.generation != expected_guardian_generation
-                        ):
+                            native_capability is not None or passive_capability is not None
+                        ) and guardian.generation != expected_guardian_generation:
                             raise DriverError("native region capture Guardian generation is stale")
                         return start()
 
@@ -6625,18 +6760,46 @@ class SessionDaemon:
             capture_kwargs["_receipt_sink"] = _receipt_sink
         return self.driver.capture_native_region_for_identity(identity, **capture_kwargs)
 
-    def _read_command_buffer(self) -> str:
+    def _read_command_buffer(
+        self,
+        *,
+        previous: Any | None = None,
+        frame_sink: Callable[[Any], None] | None = None,
+    ) -> str:
         # The addon publishes the native EditBox projection on its one-Hz
         # telemetry tick.  A command may be typed immediately after the last
         # frame, so consume only a fresh post-type frame within a bounded
         # interval; a duplicate pre-type frame can never prove the buffer.
         deadline = time.monotonic() + 3.0
         while time.monotonic() < deadline:
-            sample = self.capture_status()
+            sample = self.capture_status(deadline=deadline)
             if sample.kind == "FRESH" and sample.frame is not None:
-                value = sample.frame.snapshot.value.get("chatEdit")
+                frame = sample.frame
+                if previous is not None:
+                    if frame.boot != previous.boot:
+                        raise DriverError("client boot changed during command EditBox readback")
+                    try:
+                        delta = unsigned_delta(frame.sequence, previous.sequence)
+                    except ProtocolError as exc:
+                        raise DriverError("command EditBox readback sequence is malformed") from exc
+                    if delta == 0:
+                        time.sleep(0.05)
+                        continue
+                snapshot = frame.snapshot.value
+                render = snapshot.get("render")
+                if (
+                    not isinstance(render, dict)
+                    or render.get("nativePhase") != "normal"
+                    or isinstance(render.get("nativeOrdinal"), bool)
+                    or not isinstance(render.get("nativeOrdinal"), int)
+                    or render.get("nativeOrdinal") != 0
+                ):
+                    raise DriverError("command EditBox readback requires an ordinary native frame")
+                value = snapshot.get("chatEdit")
                 if not isinstance(value, dict) or not isinstance(value.get("text"), str):
                     raise DriverError("command readback omitted the active EditBox text")
+                if frame_sink is not None:
+                    frame_sink(frame)
                 return value["text"]
             time.sleep(0.05)
         raise DriverError("command readback did not contain a fresh frame")
@@ -6739,7 +6902,12 @@ class SessionDaemon:
         self.driver.revoke("unexpected active chat buffer")
         raise DriverError("unexpected active chat buffer; input is revoked")
 
-    def capture_status(self, *, deadline: float | None = None) -> Sample:
+    def capture_status(
+        self,
+        *,
+        deadline: float | None = None,
+        _passive_region_capability: _PassiveRegionCaptureCapability | None = None,
+    ) -> Sample:
         self.config.capture_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.capture_index += 1
         source = self.config.capture_dir / f"status-{self.capture_index:08d}.png"
@@ -6747,7 +6915,16 @@ class SessionDaemon:
             deadline_local = getattr(self, "_motion_deadline_local", None)
             deadline = getattr(deadline_local, "deadline", None) if deadline_local is not None else None
         expected = self._resolve_identity(deadline=deadline)
-        if self._native_region_enabled():
+        if self._native_region_enabled() and _passive_region_capability is not None:
+            crop = self._capture_native_region_for_identity(
+                expected,
+                destination=source,
+                deadline=deadline,
+                expected_generation=_passive_region_capability.generation,
+                expected_state=_passive_region_capability.state,
+                passive_capability=_passive_region_capability,
+            )
+        elif self._native_region_enabled():
             crop = self._capture_native_region_for_identity(expected, destination=source, deadline=deadline)
         else:
             crop = self._capture_client_crop(source, deadline=deadline)
@@ -6784,6 +6961,575 @@ class SessionDaemon:
                     target.unlink()
                 except FileNotFoundError:
                     pass
+
+    def passive_startup(self) -> RuntimeInputEvidence:
+        """Collect fresh read-only readiness without using the input lease."""
+
+        if not self._startup_lock.acquire(blocking=False):
+            raise DriverError("passive startup check is already running")
+        monitor = None
+        passive_capability = None
+        try:
+            self._startup_operation = {
+                "state": "checking",
+                "checkedAt": int(time.time()),
+                "advancingFrames": 0,
+                "failure": "",
+            }
+            with self.controller.lock:
+                entry_status = self.controller.status()
+                if entry_status.state not in {
+                    ControllerState.STOPPED,
+                    ControllerState.PAUSED,
+                    ControllerState.BLOCKED,
+                }:
+                    raise DriverError("passive startup is limited to stopped, paused, or blocked states")
+                if entry_status.stop_requested:
+                    raise DriverError("passive startup is cancelled by the controller stop request")
+                entry_generation = entry_status.generation
+                entry_state = entry_status.state
+            identity = self.driver.resolve_identity(require_foreground=True)
+            monitor = self.driver.start_input_observer()
+            if not monitor.alive or monitor.failure_diagnostic is not None:
+                raise DriverError("registered XI2 observer is not healthy")
+            deadline = time.monotonic() + PASSIVE_STARTUP_TIMEOUT_SECONDS
+            observer_process = getattr(getattr(monitor, "observer", None), "process", None)
+            observer_pid = getattr(observer_process, "pid", None)
+            if isinstance(observer_pid, bool) or not isinstance(observer_pid, int) or observer_pid <= 0:
+                raise DriverError("passive startup observer has no registered process identity")
+            with self.controller.lock:
+                current_status = self.controller.status()
+                if (
+                    current_status.generation != entry_generation
+                    or current_status.state is not entry_state
+                    or current_status.stop_requested
+                ):
+                    raise DriverError("controller state changed before passive startup capture admission")
+                with self._native_construction_lock:
+                    self._passive_region_epoch += 1
+                    passive_capability = _PassiveRegionCaptureCapability(
+                        epoch=self._passive_region_epoch,
+                        generation=entry_generation,
+                        state=entry_state,
+                        identity_fingerprint=identity.fingerprint,
+                        process_start=identity.process_start,
+                        guardian_generation=self.driver.guardian.generation,
+                        observer_pid=observer_pid,
+                        deadline_monotonic=deadline,
+                        observer=monitor,
+                    )
+                    self._passive_region_admission = passive_capability
+                    if not self._passive_region_capability_matches_locked(
+                        passive_capability,
+                        identity,
+                        generation=entry_generation,
+                        state=entry_state,
+                        deadline=deadline,
+                    ):
+                        self._passive_region_admission = None
+                        self._passive_region_epoch += 1
+                        passive_capability = None
+                        raise DriverError("passive startup observer ownership is not current")
+            last_boot = ""
+            last_sequence: int | None = None
+            advancing = 0
+            while advancing < 3:
+                if time.monotonic() >= deadline:
+                    raise DriverError("passive startup did not observe three advancing CRS1 frames")
+                if self._shutdown_event.is_set():
+                    raise DriverError("passive startup was cancelled by daemon shutdown")
+                if not monitor.alive or monitor.failure_diagnostic is not None:
+                    raise DriverError("registered XI2 observer died during passive startup")
+                with self.controller.lock:
+                    current_status = self.controller.status()
+                    if (
+                        current_status.generation != entry_generation
+                        or current_status.state is not entry_state
+                        or current_status.stop_requested
+                    ):
+                        raise DriverError("controller state changed during passive startup")
+                sample = self.capture_status(
+                    deadline=deadline,
+                    _passive_region_capability=passive_capability,
+                )
+                with self.controller.lock:
+                    current_status = self.controller.status()
+                    if (
+                        current_status.generation != entry_generation
+                        or current_status.state is not entry_state
+                        or current_status.stop_requested
+                    ):
+                        raise DriverError("controller state changed during passive startup capture")
+                if sample.window_identity != identity.fingerprint:
+                    raise DriverError("status telemetry identity changed during passive startup")
+                if sample.kind == "NO_CHANGE":
+                    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+                    continue
+                if sample.kind != "FRESH" or sample.frame is None:
+                    raise DriverError("passive startup status capture was not a valid advancing CRS1 frame")
+                frame = sample.frame
+                context = frame.snapshot.value.get("context")
+                if (
+                    not isinstance(context, dict)
+                    or context.get("character") != self.config.profile.character
+                    or context.get("realm") != self.config.profile.realm
+                ):
+                    raise DriverError("passive startup did not observe the configured character in world")
+                render = frame.snapshot.value.get("render")
+                native_ordinal = render.get("nativeOrdinal") if isinstance(render, dict) else None
+                if (
+                    not isinstance(render, dict)
+                    or render.get("nativePhase") != "normal"
+                    or isinstance(native_ordinal, bool)
+                    or not isinstance(native_ordinal, int)
+                    or native_ordinal != 0
+                ):
+                    raise DriverError("passive startup frame is not ordinary nativePhase=normal ordinal=0")
+                if last_boot and frame.boot != last_boot:
+                    raise DriverError("client boot changed during passive startup")
+                if last_sequence is not None:
+                    try:
+                        delta = unsigned_delta(frame.sequence, last_sequence)
+                    except ProtocolError as exc:
+                        raise DriverError("passive startup sequence order is malformed") from exc
+                    if delta == 0:
+                        raise DriverError("passive startup decoder marked a duplicate sequence as fresh")
+                last_boot = frame.boot
+                last_sequence = frame.sequence
+                advancing += 1
+                self._startup_operation["advancingFrames"] = advancing
+            current = self._resolve_identity(require_foreground=True, deadline=deadline)
+            with self.controller.lock:
+                current_status = self.controller.status()
+                if (
+                    current_status.generation != entry_generation
+                    or current_status.state is not entry_state
+                    or current_status.stop_requested
+                ):
+                    raise DriverError("controller state changed at passive startup completion")
+                with self._native_construction_lock:
+                    if not self._passive_region_capability_matches_locked(
+                        passive_capability,
+                        identity,
+                        generation=entry_generation,
+                        state=entry_state,
+                        deadline=deadline,
+                    ):
+                        raise DriverError("passive startup observer ownership changed at completion")
+            if current.fingerprint != identity.fingerprint or current.process_start != identity.process_start:
+                raise DriverError("game identity changed at passive startup completion")
+            # Bind the fresh input proof to the final ordinary advancing
+            # publication that completed readiness.  A seal minted before
+            # these checks would not carry any real capture provenance.
+            evidence = self.driver.mint_runtime_input_evidence(
+                identity,
+                readiness_boot=last_boot,
+                readiness_sequence=last_sequence if last_sequence is not None else 0,
+            )
+            if time.monotonic() >= deadline:
+                raise DriverError("passive startup deadline expired during read-only environment measurement")
+            current = self._resolve_identity(require_foreground=True, deadline=deadline)
+            if current.fingerprint != identity.fingerprint or current.process_start != identity.process_start:
+                raise DriverError("game identity changed during passive startup environment measurement")
+            with self.controller.lock:
+                current_status = self.controller.status()
+                if (
+                    current_status.generation != entry_generation
+                    or current_status.state is not entry_state
+                    or current_status.stop_requested
+                    or self._shutdown_event.is_set()
+                ):
+                    raise DriverError(
+                        "controller state changed during passive startup environment measurement"
+                    )
+                with self._native_construction_lock:
+                    if not self._passive_region_capability_matches_locked(
+                        passive_capability,
+                        identity,
+                        generation=entry_generation,
+                        state=entry_state,
+                        deadline=deadline,
+                    ):
+                        raise DriverError(
+                            "passive startup observer ownership changed during environment measurement"
+                        )
+            self._startup_evidence = evidence
+            self._startup_operation = {
+                "state": "ready",
+                "checkedAt": int(time.time()),
+                "advancingFrames": advancing,
+                "environmentFingerprint": evidence.environment_fingerprint,
+                "failure": "",
+            }
+            return evidence
+        except Exception as exc:
+            self._startup_evidence = None
+            self._revoke_passive_region_capability(passive_capability)
+            if monitor is not None and not self.driver.guardian.armed:
+                stop_observer = getattr(self.driver, "stop_input_observer", None)
+                if callable(stop_observer):
+                    try:
+                        stop_observer(monitor)
+                    except Exception as cleanup_error:
+                        _LOGGER.error(
+                            "passive startup observer cleanup failed: %s",
+                            _bounded_diagnostic_error(cleanup_error),
+                        )
+            self._startup_operation = {
+                "state": "blocked",
+                "checkedAt": int(time.time()),
+                "advancingFrames": int(self._startup_operation.get("advancingFrames", 0)),
+                "failure": _bounded_diagnostic_error(exc),
+            }
+            raise
+        finally:
+            self._revoke_passive_region_capability(passive_capability)
+            self._startup_lock.release()
+
+    def _revoke_passive_region_capability(self, capability: _PassiveRegionCaptureCapability | None) -> None:
+        if capability is None:
+            return
+        with self._native_construction_lock:
+            if self._passive_region_admission is capability:
+                self._passive_region_admission = None
+                self._passive_region_epoch += 1
+
+    def runtime_start(
+        self, *, expected_generation: int, mode: str = "repeat", resume: bool = False
+    ) -> dict[str, Any]:
+        """Use fresh passive readiness and only a matching persistent drill."""
+
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.generation != expected_generation:
+                raise DriverError("stale generation")
+            if status.state not in {ControllerState.STOPPED, ControllerState.PAUSED, ControllerState.BLOCKED}:
+                raise DriverError(
+                    f"runtime {'resume' if resume else 'start'} is not allowed in {status.state.value}"
+                )
+        # Validation mode is the explicit, opt-in native calibration run.
+        # It remains separate from ordinary repeat startup, which uses only
+        # passive readiness and a matching takeover drill.
+        if not resume and mode == "validation":
+            result = self.controller.start(mode, expected_generation=expected_generation)
+            return self.status_dict() | {
+                "controllerState": result.state.value,
+                "nextAction": "native_calibration",
+            }
+        evidence = self.passive_startup()
+        record = self.controller.takeover_drill_record
+        if record is None or not record.matches(evidence.environment):
+            self._startup_operation = {**self._startup_operation, "state": "takeover_needed"}
+            self._takeover_drill_operation = {"state": "needed", "failure": ""}
+            return self.status_dict() | {
+                "startup": dict(self._startup_operation),
+                "takeoverDrill": {
+                    "state": "needed",
+                    "environmentMatches": False,
+                },
+                "nextAction": "takeover_drill",
+            }
+        if resume:
+            result = self.controller.resume_with_runtime_evidence(
+                evidence, expected_generation=expected_generation
+            )
+        else:
+            result = self.controller.start_with_runtime_evidence(
+                evidence, mode, expected_generation=expected_generation
+            )
+        return self.status_dict() | {
+            "startup": dict(self._startup_operation),
+            "takeoverDrill": {"state": "passed", "environmentMatches": True},
+            "nextAction": "reconcile",
+            "controllerState": result.state.value,
+        }
+
+    def cancel_takeover_drill(self) -> dict[str, Any]:
+        with self._takeover_cancel_lock:
+            active = self._takeover_drill_operation.get("state") in {"running", "awaiting_input"}
+            if active:
+                self._takeover_cancel.set()
+                self._takeover_drill_operation = {"state": "canceling", "failure": ""}
+        if active and self.driver.guardian.armed:
+            self.driver.revoke("takeover drill canceled")
+        return self.status_dict()
+
+    def run_takeover_drill(
+        self,
+        *,
+        expected_generation: int,
+        timeout: float = TAKEOVER_DRILL_HUMAN_TIMEOUT_SECONDS,
+    ) -> dict[str, Any]:
+        """Run the explicit clickless hover, observe genuine input, then persist."""
+
+        if not self._takeover_drill_lock.acquire(blocking=False):
+            raise DriverError("takeover drill is already running")
+        monitor = None
+        armed_generation: int | None = None
+        drill_started_ns = 0
+        completed_hover_ns = 0
+        awaiting_input_ns = 0
+        cleanup_pending = bool(self._takeover_drill_operation.get("cleanupPending", False))
+        with self._takeover_cancel_lock:
+            self._takeover_cancel.clear()
+            self._takeover_event = None
+            self._takeover_drill_operation = {
+                "state": "running",
+                "failure": "",
+                "cleanupPending": cleanup_pending,
+            }
+        drill_generation: int | None = None
+
+        def require_drill_generation(stage: str) -> None:
+            status = self.controller.status()
+            if drill_generation is None or status.generation != drill_generation:
+                raise DriverError(f"takeover drill controller generation changed before {stage}")
+            if status.state != ControllerState.PAUSED:
+                raise DriverError(f"takeover drill controller left PAUSED before {stage}")
+            if status.stop_requested:
+                raise DriverError(f"takeover drill stop was requested before {stage}")
+            if status.action_intent and status.action_intent not in {"", "stop"}:
+                raise DriverError(f"takeover drill found an unresolved action before {stage}")
+            if self._takeover_cancel.is_set():
+                raise DriverError(f"takeover drill was canceled before {stage}")
+
+        try:
+            if cleanup_pending:
+                pending_monitor = getattr(self.driver, "_monitor", None)
+                if pending_monitor is not None:
+                    try:
+                        self.driver.stop_input_observer(pending_monitor)
+                    except Exception as exc:
+                        raise DriverError(
+                            "previous takeover drill cleanup remains unresolved: "
+                            + _bounded_diagnostic_error(exc)
+                        ) from exc
+                if self.driver.guardian.armed:
+                    self.driver.revoke("retry unresolved takeover drill cleanup")
+                if (
+                    getattr(self.driver, "_monitor", None) is not None
+                    or self.driver.guardian.armed
+                    or self.driver.guardian.held
+                    or self.driver.guardian.active_process_groups
+                    or self.driver.guardian.observer_process_groups
+                ):
+                    raise DriverError("previous takeover drill cleanup remains unresolved")
+                self._takeover_drill_operation["cleanupPending"] = False
+            with self.controller.lock:
+                status = self.controller.status()
+                if status.generation != expected_generation:
+                    raise DriverError("stale generation")
+                if status.state not in {ControllerState.STOPPED, ControllerState.PAUSED}:
+                    raise DriverError("takeover drill requires a stopped or paused controller")
+                if status.stop_requested:
+                    raise DriverError("takeover drill is refused while stop is requested")
+                if status.action_intent and status.action_intent not in {"", "stop"}:
+                    raise DriverError("takeover drill is refused while an external action is unresolved")
+            if status.state == ControllerState.STOPPED:
+                status = self.controller.pause("takeover drill preparation")
+            drill_generation = status.generation
+            evidence = self.passive_startup()
+            if not isinstance(self.driver, DesktopDriver) or not isinstance(self.driver.backend, X11Backend):
+                raise DriverError("takeover drill requires the owned native X11 driver")
+            monitor = self.driver._monitor
+            if monitor is None or not monitor.alive:
+                raise DriverError("takeover drill requires the registered passive XI2 observer")
+            with self.controller.lock:
+                require_drill_generation("arm")
+                with self._takeover_cancel_lock:
+                    require_drill_generation("arm")
+            # Native startup/arm can block on owned observers and X11 calls.
+            # Reserve the exact generation above, but keep pause/stop RPCs
+            # responsive while the driver performs that bounded work.
+            armed_generation = self.driver.arm(evidence)
+            drill_started_ns = time.monotonic_ns()
+            with self.controller.lock:
+                require_drill_generation("hover")
+                with self._takeover_cancel_lock:
+                    require_drill_generation("hover")
+            # The hover receives the exact arm generation. A pause racing this
+            # call revokes that generation; the production hover executor
+            # checks Guardian admission before every emitted pointer action.
+            self.driver.run_takeover_hover(armed_generation, evidence)
+            completed_hover_ns = time.monotonic_ns()
+            if not self.driver.guardian.armed or self.driver.guardian.generation != armed_generation:
+                raise DriverError("takeover hover was revoked before the human observation window")
+
+            def observe_human(event: Any) -> None:
+                if self._takeover_event is None and is_measured_human_action(event, evidence.environment):
+                    self._takeover_event = (event, time.monotonic_ns())
+
+            with self.controller.lock:
+                require_drill_generation("human observation")
+                with self._takeover_cancel_lock:
+                    require_drill_generation("human observation")
+                    self.driver.set_takeover_input_callback(observe_human)
+                    awaiting_input_ns = time.monotonic_ns()
+                    self._takeover_drill_operation = {"state": "awaiting_input", "failure": ""}
+            deadline = time.monotonic() + timeout
+            while self._takeover_event is None:
+                if self._takeover_cancel.is_set():
+                    raise DriverError("takeover drill was canceled")
+                if not self.driver.guardian.armed:
+                    raise DriverError("takeover lease was revoked without a genuine human input sample")
+                if not monitor.alive or monitor.failure_diagnostic is not None:
+                    raise DriverError("takeover observer was lost before a human sample")
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise DriverError("takeover human input deadline expired")
+                try:
+                    monitor.wait_for_human(
+                        lambda _events: self._takeover_event is not None, timeout=min(0.25, remaining)
+                    )
+                except DriverError as exc:
+                    if str(exc) != "human input sample deadline expired":
+                        raise
+            event, observed_ns = self._takeover_event
+            if not is_measured_human_action(event, evidence.environment):
+                raise DriverError(
+                    "takeover sample source is not a measured human device in the input hierarchy"
+                )
+            with self.controller.lock:
+                require_drill_generation("takeover release")
+            if self.driver.guardian.armed:
+                self.driver.revoke("genuine non-XTEST takeover observed")
+            if self.driver.guardian.armed or self.driver.guardian.held:
+                raise DriverError("Guardian did not revoke and release the takeover lease")
+            self.driver.set_takeover_input_callback(None)
+            self.driver.stop_input_observer(monitor)
+            if self.driver.guardian.active_process_groups or self.driver.guardian.observer_process_groups:
+                raise DriverError("takeover drill left an owned process group unreaped")
+            release_deadline = time.monotonic() + TAKEOVER_DRILL_RELEASE_TIMEOUT_SECONDS
+            while time.monotonic() < release_deadline:
+                native_state = self.driver.backend.observe_native_input_state(evidence.xtest_profile.root_xid)
+                if not native_state[1] and not native_state[2]:
+                    break
+                time.sleep(0.05)
+            else:
+                raise DriverError("native key or button remained held after takeover release")
+            release_completed_ns = time.monotonic_ns()
+            release_latency_ms = max(
+                0,
+                min(120_000, int((release_completed_ns - observed_ns) / 1_000_000)),
+            )
+            human_wait_ms = max(
+                0,
+                min(120_000, int((observed_ns - awaiting_input_ns) / 1_000_000)),
+            )
+            record = TakeoverDrillRecord.create(evidence.environment_fingerprint, release_latency_ms)
+            with self.controller.lock:
+                require_drill_generation("PASS persistence")
+                with self._takeover_cancel_lock:
+                    require_drill_generation("PASS persistence")
+                    self.controller.persist_takeover_drill(record)
+                    self._startup_operation = {
+                        **self._startup_operation,
+                        "state": "ready",
+                        "takeoverDrill": "passed",
+                    }
+                    self._takeover_drill_operation = {"state": "passed", "failure": ""}
+            return self.status_dict() | {
+                "startup": dict(self._startup_operation),
+                "takeoverDrill": {
+                    "state": "passed",
+                    "environmentMatches": True,
+                    "releaseLatencyMs": release_latency_ms,
+                    "humanWaitMs": human_wait_ms,
+                    "hoverDurationMs": max(0, int((completed_hover_ns - drill_started_ns) / 1_000_000)),
+                },
+                "nextAction": "resume",
+            }
+        except Exception as exc:
+            with self._takeover_cancel_lock:
+                self._takeover_drill_operation = {
+                    "state": "canceled" if self._takeover_cancel.is_set() else "failed",
+                    "failure": _bounded_diagnostic_error(exc),
+                    "cleanupPending": bool(self._takeover_drill_operation.get("cleanupPending", False)),
+                }
+            raise
+        finally:
+            pending_exception = sys.exc_info()[1]
+            cleanup_errors: list[str] = []
+            operation_passed = self._takeover_drill_operation.get("state") == "passed"
+
+            def record_cleanup_error(stage: str, error: Exception) -> None:
+                cleanup_errors.append(f"{stage}: {_bounded_diagnostic_error(error)}")
+
+            try:
+                # The success path already cleared the callback, revoked the
+                # lease, and stopped/reaped its observer before persisting PASS.
+                # Avoid introducing a post-persistence cleanup failure there.
+                if not operation_passed:
+                    try:
+                        self.driver.set_takeover_input_callback(None)
+                    except Exception as exc:
+                        record_cleanup_error("callback cleanup", exc)
+                    try:
+                        if self.driver.guardian.armed:
+                            self.driver.revoke("takeover drill cleanup")
+                    except Exception as exc:
+                        record_cleanup_error("lease cleanup", exc)
+                    current_monitor = getattr(self.driver, "_monitor", None)
+                    if monitor is not None and current_monitor is monitor:
+                        try:
+                            self.driver.stop_input_observer(monitor)
+                        except Exception as exc:
+                            record_cleanup_error("observer cleanup", exc)
+
+                current_monitor = getattr(self.driver, "_monitor", None)
+                try:
+                    owned_observers = self.driver.guardian.observer_process_groups
+                    active_groups = self.driver.guardian.active_process_groups
+                    lease_unresolved = self.driver.guardian.armed or self.driver.guardian.held
+                except Exception as exc:
+                    record_cleanup_error("ownership check", exc)
+                    owned_observers = (True,)
+                    active_groups = (True,)
+                    lease_unresolved = True
+                resources_unresolved = bool(
+                    current_monitor is not None or owned_observers or active_groups or lease_unresolved
+                )
+                if resources_unresolved and not cleanup_errors:
+                    record_cleanup_error(
+                        "ownership check", DriverError("owned observer or input resources remain")
+                    )
+
+                with self._takeover_cancel_lock:
+                    state = self._takeover_drill_operation.get("state", "failed")
+                    failure = str(self._takeover_drill_operation.get("failure", ""))
+                    if cleanup_errors:
+                        cleanup_summary = "; ".join(cleanup_errors)
+                        failure = (
+                            f"{failure}; cleanup failed: {cleanup_summary}"
+                            if failure
+                            else f"cleanup failed: {cleanup_summary}"
+                        )
+                        if state == "passed":
+                            state = "failed"
+                        self._takeover_drill_operation = {
+                            **self._takeover_drill_operation,
+                            "state": state,
+                            "failure": _bounded_diagnostic_error(DriverError(failure)),
+                        }
+                    elif state == "running":
+                        self._takeover_drill_operation = {
+                            **self._takeover_drill_operation,
+                            "state": "failed",
+                            "failure": "drill exited before evidence",
+                        }
+                    if resources_unresolved:
+                        self._takeover_drill_operation["cleanupPending"] = True
+                    elif not cleanup_errors:
+                        self._takeover_drill_operation["cleanupPending"] = False
+                    self._takeover_event = None
+
+                if cleanup_errors and pending_exception is None:
+                    raise DriverError("takeover drill cleanup failed: " + "; ".join(cleanup_errors))
+            finally:
+                # No exception from callback, revoke, observer stop, or status
+                # bookkeeping may strand the single-flight drill lock/event.
+                self._takeover_event = None
+                self._takeover_drill_lock.release()
 
     def _capture_model(self, *, deadline: float | None = None) -> bytes:
         if deadline is not None:
@@ -7988,17 +8734,16 @@ class SessionDaemon:
         return tuple(points)
 
     def _world_expected_state(self, frame: MotionFrame, expect: str) -> bool:
-        if expect != "ahOpen":
-            if expect != "mailOpen":
-                raise DriverError("world click expected state is not allowlisted")
+        if expect != "mailOpen":
+            raise DriverError("world click expected state is not allowlisted")
         key = (frame.boot, frame.sequence, frame.identity_fingerprint)
         snapshots = getattr(self, "_motion_snapshots", {})
         snapshot = snapshots.get(key) if isinstance(snapshots, dict) else None
-        value = snapshot.get(expect) if isinstance(snapshot, dict) else None
+        value = snapshot.get("mailOpen") if isinstance(snapshot, dict) else None
         # Small isolated fakes may provide the already-bound field directly;
         # never consult the mutable last-capture snapshot for a result.
         if value is None:
-            value = getattr(frame, "mail_open" if expect == "mailOpen" else "ah_open", None)
+            value = getattr(frame, "mail_open", None)
         if not isinstance(value, bool):
             raise DriverError(f"fresh motion frame omitted {expect} state")
         return value
@@ -8016,7 +8761,7 @@ class SessionDaemon:
     ) -> MotionFrame:
         if not isinstance(target_name, str) or not target_name or len(target_name.encode("utf-8")) > 48:
             raise DriverError("world click target name is malformed")
-        if expect not in {"mailOpen", "ahOpen"}:
+        if expect != "mailOpen":
             raise DriverError("world click expected state is not allowlisted")
         if (
             any(
@@ -8032,6 +8777,14 @@ class SessionDaemon:
         initial = self._observe_motion(generation)
         if initial.chat_focused:
             raise DriverError("world click is refused while the chat edit box is focused")
+        snapshots = getattr(self, "_motion_snapshots", {})
+        initial_snapshot = (
+            snapshots.get((initial.boot, initial.sequence, initial.identity_fingerprint))
+            if isinstance(snapshots, dict)
+            else None
+        )
+        if not isinstance(initial_snapshot, dict) or not self._blocking_ui_is_clear(initial_snapshot):
+            raise DriverError("world click is refused while blocking UI is shown")
         self._require_native_gate(initial)
         identity = self._resolve_identity(require_foreground=True, deadline=deadline)
         if identity.fingerprint != initial.identity_fingerprint:
@@ -8088,6 +8841,11 @@ class SessionDaemon:
                     or proof.hover_name != target_name
                 ):
                     raise DriverError("world click hover admission proof is stale or mismatched")
+                # Blocking UI can appear while probing or waiting for the permit, so the frame that
+                # admits the click must itself show it clear.
+                proof_snapshot = snapshots.get((proof.boot, proof.sequence, proof.identity_fingerprint))
+                if not isinstance(proof_snapshot, dict) or not self._blocking_ui_is_clear(proof_snapshot):
+                    raise DriverError("world click is refused while blocking UI is shown")
                 self.driver.run_hover_click(
                     probe,
                     proof,
@@ -9467,6 +10225,336 @@ class SessionDaemon:
             return self.config.ack_deadline_seconds
         return self.config.reload_deadline_seconds
 
+    def _fresh_status_after(
+        self,
+        identity: WindowIdentity,
+        *,
+        previous: Any | None = None,
+        timeout: float = 8.0,
+        cancellation_check: Callable[[], None] | None = None,
+    ) -> tuple[dict[str, Any], Any, float]:
+        """Read one advancing ordinary CRS1 frame bound to the same game."""
+
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if cancellation_check is not None:
+                cancellation_check()
+            sample = self.capture_status(deadline=deadline)
+            if cancellation_check is not None:
+                cancellation_check()
+            if sample.window_identity != identity.fingerprint:
+                raise DriverError("fresh command telemetry belongs to another game identity")
+            if sample.kind == "NO_CHANGE":
+                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+                continue
+            if sample.kind != "FRESH" or sample.frame is None:
+                raise DriverError("command effect lacks a valid advancing CRS1 frame")
+            frame = sample.frame
+            snapshot = frame.snapshot.value
+            render = snapshot.get("render") if isinstance(snapshot, dict) else None
+            native_ordinal = render.get("nativeOrdinal") if isinstance(render, dict) else None
+            if (
+                not isinstance(render, dict)
+                or render.get("nativePhase") != "normal"
+                or isinstance(native_ordinal, bool)
+                or not isinstance(native_ordinal, int)
+                or native_ordinal != 0
+            ):
+                raise DriverError("command effect requires an ordinary nativePhase=normal ordinal=0 frame")
+            if previous is not None:
+                if frame.boot != previous.boot:
+                    raise DriverError("client boot changed during the bounded auctioneer command route")
+                try:
+                    delta = unsigned_delta(frame.sequence, previous.sequence)
+                except ProtocolError as exc:
+                    raise DriverError("command telemetry sequence is malformed") from exc
+                if delta == 0:
+                    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+                    continue
+            current_identity = self.driver.resolve_identity(
+                require_foreground=True, deadline_monotonic=deadline
+            )
+            if current_identity.fingerprint != identity.fingerprint:
+                raise DriverError("game identity changed while reading command telemetry")
+            return snapshot, frame, sample.capture_monotonic
+        raise DriverError("fresh command telemetry did not arrive before its deadline")
+
+    @staticmethod
+    def _blocking_ui_is_clear(snapshot: dict[str, Any]) -> bool:
+        value = snapshot.get("blockingUI")
+        return (
+            isinstance(value, dict)
+            and value.get("staticPopupAvailable") is True
+            and value.get("staticPopupShown") is False
+            and value.get("gameMenuAvailable") is True
+            and value.get("gameMenuShown") is False
+        )
+
+    @staticmethod
+    def _require_keyboard_interaction_mode(auctioneer: dict[str, Any]) -> None:
+        mode = auctioneer.get("interactionMode")
+        if mode == "unavailable":
+            raise DriverError("native keyboard interaction mode is unavailable")
+        if mode not in {"keyboard", "any"}:
+            raise DriverError(f"native keyboard interaction is disabled (mode={mode!r})")
+
+    @staticmethod
+    def _require_auctioneer_telemetry(snapshot: dict[str, Any], *, binding: str | None = None) -> None:
+        auctioneer = snapshot.get("auctioneer")
+        if not isinstance(auctioneer, dict):
+            raise DriverError("native auctioneer telemetry is missing")
+        SessionDaemon._require_keyboard_interaction_mode(auctioneer)
+        if auctioneer.get("targetPresent") is not True or auctioneer.get("targetName") != "Auctioneer Jaxon":
+            raise DriverError("exact target Auctioneer Jaxon is not present")
+        if auctioneer.get("rangeAvailable") is not True or auctioneer.get("withinTradeRange") is not True:
+            raise DriverError("Auctioneer Jaxon is outside the native trade-range predicate")
+        if auctioneer.get("bindingAvailable") is not True:
+            raise DriverError("native CTRL-F12 binding telemetry is unavailable")
+        action = auctioneer.get("ctrlF12Action")
+        if binding is not None and action != binding:
+            raise DriverError(f"CTRL-F12 binding did not become {binding}")
+        if binding is None and action not in {"", "INTERACTTARGET"}:
+            raise DriverError("CTRL-F12 is bound to another action and will not be overwritten")
+
+    def _prepare_auctioneer_open(
+        self,
+        *,
+        generation: int,
+        expected_identity: str,
+        dispatch_allowed: Callable[[], None],
+    ) -> tuple[dict[str, Any], Any]:
+        """Prepare only the exact Stormwind target and session-only binding."""
+
+        identity = self.driver.resolve_identity(require_foreground=True)
+        if identity.fingerprint != expected_identity:
+            raise DriverError("auctioneer command route game identity changed")
+        snapshot, frame, _captured = self._fresh_status_after(identity)
+
+        def effect_frame_after(
+            previous: Any,
+            command: str,
+            *,
+            target_ready: bool,
+            binding_ready: bool,
+        ) -> tuple[dict[str, Any], Any]:
+            deadline = time.monotonic() + 8.0
+            while time.monotonic() < deadline:
+                dispatch_allowed()
+                fresh, next_frame, _captured = self._fresh_status_after(
+                    identity,
+                    previous=previous,
+                    timeout=max(0.001, deadline - time.monotonic()),
+                    cancellation_check=dispatch_allowed,
+                )
+                if not world_closed(fresh):
+                    raise DriverError("Stormwind scene or blocking UI changed during command readback")
+                chat = fresh.get("chatEdit")
+                if not isinstance(chat, dict):
+                    raise DriverError("command effect omitted native EditBox state")
+                if chat.get("active") is True:
+                    if chat.get("focused") is not True or chat.get("text") not in {"", command}:
+                        raise DriverError("command submission left an unexpected active EditBox buffer")
+                elif chat != {"active": False, "focused": False, "text": ""}:
+                    raise DriverError("command submission left an invalid inactive EditBox state")
+                if chat.get("active") is not True:
+                    auctioneer = fresh.get("auctioneer")
+                    if not isinstance(auctioneer, dict):
+                        raise DriverError("command effect omitted native Auctioneer state")
+                    action = auctioneer.get("ctrlF12Action")
+                    if action not in {"", "INTERACTTARGET"}:
+                        raise DriverError("CTRL-F12 changed to an unrelated action during command readback")
+                    if target_ready and auctioneer.get("targetPresent") is True:
+                        self._require_auctioneer_telemetry(fresh)
+                    if binding_ready and (
+                        auctioneer.get("targetPresent") is not True
+                        or auctioneer.get("targetName") != "Auctioneer Jaxon"
+                        or auctioneer.get("rangeAvailable") is not True
+                        or auctioneer.get("withinTradeRange") is not True
+                    ):
+                        raise DriverError("binding command lost the verified in-range Auctioneer target")
+                    if binding_ready and auctioneer.get("ctrlF12Action") == "INTERACTTARGET":
+                        self._require_auctioneer_telemetry(fresh, binding="INTERACTTARGET")
+                    if (
+                        not target_ready
+                        or (
+                            auctioneer.get("targetPresent") is True
+                            and auctioneer.get("targetName") == "Auctioneer Jaxon"
+                            and auctioneer.get("rangeAvailable") is True
+                            and auctioneer.get("withinTradeRange") is True
+                        )
+                    ) and (not binding_ready or auctioneer.get("ctrlF12Action") == "INTERACTTARGET"):
+                        return fresh, next_frame
+                previous = next_frame
+            raise DriverError("native command effect did not arrive before its bounded readback deadline")
+
+        def world_closed(value: dict[str, Any]) -> bool:
+            context = value.get("context", {})
+            return (
+                isinstance(context, dict)
+                and context.get("character") == self.config.profile.character
+                and context.get("realm") == self.config.profile.realm
+                and context.get("zone") == "Stormwind City"
+                and value.get("ahOpen") is False
+                and self._blocking_ui_is_clear(value)
+            )
+
+        def wait_for_chat_open(previous: Any) -> tuple[dict[str, Any], Any]:
+            deadline = time.monotonic() + 8.0
+            while time.monotonic() < deadline:
+                current, next_frame, _captured = self._fresh_status_after(
+                    identity,
+                    previous=previous,
+                    timeout=max(0.001, deadline - time.monotonic()),
+                    cancellation_check=dispatch_allowed,
+                )
+                if not world_closed(current):
+                    raise DriverError("Stormwind scene or blocking UI changed while opening chat")
+                edit = current.get("chatEdit")
+                if not isinstance(edit, dict):
+                    raise DriverError("chat-open readback omitted native EditBox state")
+                if edit == {"active": True, "focused": True, "text": ""}:
+                    return current, next_frame
+                if edit.get("active") is True:
+                    if edit.get("text") != "" or not isinstance(edit.get("focused"), bool):
+                        raise DriverError("opening chat produced a nonempty or malformed EditBox")
+                    previous = next_frame
+                    continue
+                if edit != {"active": False, "focused": False, "text": ""}:
+                    raise DriverError("opening chat produced an invalid EditBox state")
+                previous = next_frame
+            raise DriverError("empty focused chat EditBox did not appear before its bounded deadline")
+
+        def close_empty_chat() -> None:
+            nonlocal snapshot, frame
+            edit = snapshot.get("chatEdit")
+            if edit == {"active": False, "focused": False, "text": ""}:
+                return
+            if edit != {"active": True, "focused": True, "text": ""}:
+                raise DriverError("Auction House interaction requires an empty focused or closed chat buffer")
+            self.driver.run(
+                "escape_command_buffer",
+                generation,
+                precondition=identity_guard,
+                postcondition=identity_guard,
+            )
+            deadline = time.monotonic() + 8.0
+            previous = frame
+            while time.monotonic() < deadline:
+                dispatch_allowed()
+                current, next_frame, _captured = self._fresh_status_after(
+                    identity,
+                    previous=previous,
+                    timeout=max(0.001, deadline - time.monotonic()),
+                    cancellation_check=dispatch_allowed,
+                )
+                if not world_closed(current):
+                    raise DriverError("Stormwind scene or blocking UI changed while closing chat")
+                current_edit = current.get("chatEdit")
+                if current_edit == {"active": False, "focused": False, "text": ""}:
+                    snapshot, frame = current, next_frame
+                    return
+                if current_edit != {"active": True, "focused": True, "text": ""}:
+                    raise DriverError("Escape left an unexpected active chat buffer")
+                previous = next_frame
+            raise DriverError("empty chat EditBox did not close before its bounded deadline")
+
+        def identity_guard(current: Any) -> bool:
+            dispatch_allowed()
+            return current.fingerprint == expected_identity and world_closed(snapshot)
+
+        def ensure_chat() -> None:
+            nonlocal snapshot, frame
+            edit = snapshot.get("chatEdit", {})
+            if edit == {"active": True, "focused": True, "text": ""}:
+                return
+            if isinstance(edit, dict) and edit.get("active") is True:
+                raise DriverError("active chat buffer is not an empty focused command line")
+            if not world_closed(snapshot):
+                raise DriverError("Stormwind world scene is not verified before opening chat")
+            self.driver.run(
+                "open_chat",
+                generation,
+                precondition=identity_guard,
+                postcondition=identity_guard,
+            )
+            snapshot, frame = wait_for_chat_open(frame)
+
+        def send(command: str) -> tuple[dict[str, Any], Any]:
+            ensure_chat()
+            if not world_closed(snapshot):
+                raise DriverError("Stormwind world scene or closed-AH fact changed before command")
+            if snapshot.get("chatEdit") != {"active": True, "focused": True, "text": ""}:
+                raise DriverError("command route requires a fresh empty focused chat buffer")
+            dispatch_allowed()
+            readback_frames: list[Any] = []
+
+            def readback() -> str:
+                dispatch_allowed()
+                captured_frames: list[Any] = []
+                observed = self._read_command_buffer(previous=frame, frame_sink=captured_frames.append)
+                dispatch_allowed()
+                if len(captured_frames) != 1:
+                    raise DriverError("typed command lacks one captured pre-submit EditBox frame")
+                readback_frames.extend(captured_frames)
+                before_submit = captured_frames[0].snapshot.value
+                if not world_closed(before_submit):
+                    raise DriverError("Stormwind scene or blocking UI changed before command submission")
+                chat = before_submit.get("chatEdit")
+                if (
+                    not isinstance(chat, dict)
+                    or chat.get("active") is not True
+                    or chat.get("focused") is not True
+                ):
+                    raise DriverError("pre-submit EditBox is not the owned focused command buffer")
+                return observed
+
+            self.driver.prepare_command(
+                generation,
+                command,
+                snapshot,
+                readback=readback,
+                precondition=identity_guard,
+                postcondition=identity_guard,
+            )
+            if len(readback_frames) != 1:
+                raise DriverError("typed command lacks one captured pre-submit EditBox frame")
+            return effect_frame_after(
+                readback_frames[0],
+                command,
+                target_ready=command == DesktopDriver.TARGET_AUCTIONEER_COMMAND,
+                binding_ready=command == DesktopDriver.CONDITIONAL_INTERACTION_BINDING_COMMAND,
+            )
+
+        auctioneer = snapshot.get("auctioneer")
+        if not isinstance(auctioneer, dict):
+            raise DriverError("native auctioneer telemetry is malformed")
+        self._require_keyboard_interaction_mode(auctioneer)
+        if auctioneer.get("bindingAvailable") is not True:
+            raise DriverError("native CTRL-F12 binding telemetry is unavailable")
+        if auctioneer.get("ctrlF12Action") not in {"", "INTERACTTARGET"}:
+            raise DriverError("CTRL-F12 is bound to another action and will not be overwritten")
+        target_exact = (
+            auctioneer.get("targetPresent") is True and auctioneer.get("targetName") == "Auctioneer Jaxon"
+        )
+        if target_exact:
+            self._require_auctioneer_telemetry(snapshot)
+        else:
+            if auctioneer.get("targetPresent") is False and auctioneer.get("targetName") != "":
+                raise DriverError("absent native target has a nonempty target name")
+            snapshot, frame = send(DesktopDriver.TARGET_AUCTIONEER_COMMAND)
+            if not world_closed(snapshot):
+                raise DriverError("target command did not preserve the verified closed Stormwind world")
+            self._require_auctioneer_telemetry(snapshot)
+        if snapshot["auctioneer"]["ctrlF12Action"] == "":
+            snapshot, frame = send(DesktopDriver.CONDITIONAL_INTERACTION_BINDING_COMMAND)
+            if not world_closed(snapshot):
+                raise DriverError("binding command did not preserve the verified closed Stormwind world")
+            self._require_auctioneer_telemetry(snapshot, binding="INTERACTTARGET")
+        else:
+            self._require_auctioneer_telemetry(snapshot, binding="INTERACTTARGET")
+        close_empty_chat()
+        return snapshot, frame
+
     def _run_action(self, name: str, snapshot: dict[str, Any], **kwargs: Any) -> None:
         with self.controller.lock:
             status = self.controller.status()
@@ -9522,19 +10610,117 @@ class SessionDaemon:
                     return False
             return True
 
+        native_auctioneer = isinstance(self.driver.backend, X11Backend) and name == "open_ah"
         native_named = isinstance(self.driver.backend, X11Backend) and name in {
             "dismiss_disconnect",
             "reconnect_game",
             "select_arthur",
             "enter_world",
-            "open_ah",
         }
         if native_named:
             dispatch_allowed()
             self.driver.verify_named_action(name, "before")
         before_observation = self.driver.last_named_observation if native_named else None
         dispatch_allowed()
-        self.driver.run(name, generation, precondition=guard, postcondition=guard, **kwargs)
+        action_precondition = guard
+        action_postcondition = guard
+        action_snapshot: dict[str, Any] = {"value": snapshot, "frame": None}
+        if native_auctioneer:
+            prepared, prepared_frame = self._prepare_auctioneer_open(
+                generation=generation,
+                expected_identity=expected_identity,
+                dispatch_allowed=dispatch_allowed,
+            )
+            action_snapshot["value"] = prepared
+            action_snapshot["frame"] = prepared_frame
+
+            def auctioneer_snapshot_matches(current: dict[str, Any], *, expected_open: bool) -> bool:
+                if current.get("ahOpen") is not expected_open:
+                    return False
+                if not self._blocking_ui_is_clear(current):
+                    return False
+                context = current.get("context")
+                if (
+                    not isinstance(context, dict)
+                    or context.get("character") != self.config.profile.character
+                    or context.get("realm") != self.config.profile.realm
+                    or context.get("zone") != "Stormwind City"
+                ):
+                    return False
+                if current.get("chatEdit") != {"active": False, "focused": False, "text": ""}:
+                    return False
+                self._require_auctioneer_telemetry(current, binding="INTERACTTARGET")
+                return True
+
+            def auctioneer_precondition(identity: Any) -> bool:
+                dispatch_allowed()
+                current, frame, _captured = self._fresh_status_after(
+                    identity,
+                    previous=action_snapshot["frame"],
+                    timeout=5.0,
+                    cancellation_check=dispatch_allowed,
+                )
+                self._require_auctioneer_telemetry(current, binding="INTERACTTARGET")
+                if identity.fingerprint != expected_identity:
+                    raise DriverError("game identity changed before Auction House interaction")
+                if not auctioneer_snapshot_matches(current, expected_open=False):
+                    raise DriverError(
+                        "unsafe Stormwind scene or blocking UI before Auction House interaction"
+                    )
+                action_snapshot.update(value=current, frame=frame)
+                return True
+
+            def auctioneer_postcondition(identity: Any) -> bool:
+                deadline = time.monotonic() + 8.0
+                while time.monotonic() < deadline:
+                    dispatch_allowed()
+                    current, frame, _captured = self._fresh_status_after(
+                        identity,
+                        previous=action_snapshot["frame"],
+                        timeout=max(0.001, deadline - time.monotonic()),
+                        cancellation_check=dispatch_allowed,
+                    )
+                    if identity.fingerprint != expected_identity:
+                        raise DriverError("game identity changed during Auction House readback")
+                    context = current.get("context")
+                    if (
+                        not isinstance(context, dict)
+                        or context.get("character") != self.config.profile.character
+                        or context.get("realm") != self.config.profile.realm
+                        or context.get("zone") != "Stormwind City"
+                        or not self._blocking_ui_is_clear(current)
+                    ):
+                        raise DriverError("unsafe scene or blocking UI changed during Auction House readback")
+                    chat = current.get("chatEdit")
+                    if chat == {"active": True, "focused": True, "text": ""}:
+                        action_snapshot.update(value=current, frame=frame)
+                        continue
+                    if chat != {"active": False, "focused": False, "text": ""}:
+                        raise DriverError("Auction House readback found an unexpected active chat buffer")
+                    self._require_auctioneer_telemetry(current, binding="INTERACTTARGET")
+                    if current.get("ahOpen") is True:
+                        action_snapshot.update(value=current, frame=frame)
+                        return True
+                    if current.get("ahOpen") is not False:
+                        raise DriverError("Auction House state is malformed during bounded readback")
+                    action_snapshot.update(value=current, frame=frame)
+                raise DriverError("Auction House did not open before its bounded readback deadline")
+
+            action_precondition = auctioneer_precondition
+            action_postcondition = auctioneer_postcondition
+        self.driver.run(
+            name,
+            generation,
+            precondition=action_precondition,
+            postcondition=action_postcondition,
+            **kwargs,
+        )
+        if native_auctioneer:
+            completed = action_snapshot.get("value")
+            if not isinstance(completed, dict) or not auctioneer_snapshot_matches(
+                completed, expected_open=True
+            ):
+                raise DriverError("native Auction House reopen lacks fresh exact postcondition telemetry")
         if native_named:
             if before_observation is None:
                 raise DriverError(f"{name} has no sealed pre-action observation")
@@ -10110,6 +11296,34 @@ class SessionDaemon:
         if lock is None:
             return self.status_dict()
         try:
+            # Controller construction turns an interrupted active repeat
+            # checkpoint into PAUSED and marks that restart-created pause
+            # once.  Reuse the public runtime resume path here so a matching
+            # durable takeover drill gets fresh passive checks before ordinary
+            # reconciliation.  Persisted user PAUSED/STOPPED holds never set
+            # this process-local marker and remain untouched.
+            startup_generation = self.controller.claim_restart_startup_resume()
+            if startup_generation is not None:
+                try:
+                    self.runtime_start(expected_generation=startup_generation, resume=True)
+                except (DriverError, RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+                    self.last_error = str(exc)
+                    invalidation_cause = getattr(exc, "invalidation_cause", InvalidationCause.UNKNOWN)
+                    if not isinstance(invalidation_cause, InvalidationCause):
+                        invalidation_cause = InvalidationCause.UNKNOWN
+                    # The one restart-created automatic attempt is fail-closed.
+                    # Persist its failure so the owner does not remain an
+                    # indefinitely paused repeat session with no retry path;
+                    # an explicit public start/resume can perform fresh checks.
+                    self.controller.block(
+                        f"automatic restart startup failed: {exc}",
+                        invalidation_cause=invalidation_cause,
+                        expected_generation=startup_generation,
+                        expected_state=ControllerState.PAUSED,
+                    )
+                else:
+                    self.last_error = ""
+                return self.status_dict()
             return self._run_once_owned()
         finally:
             lock.release()
@@ -10218,7 +11432,11 @@ class SessionDaemon:
             )
             if isinstance(exc, ProtocolError) and not menu_or_logout_reconcile:
                 self.last_error = str(exc)
-                self._block_if_current(f"corrupt telemetry frame: {exc}", generation)
+                self._block_if_current(
+                    f"corrupt telemetry frame: {exc}",
+                    generation,
+                    invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+                )
                 return self.status_dict()
             if status.state in {ControllerState.SAVE_RELOAD_SENT, ControllerState.ACK_RELOAD_SENT}:
                 return self.status_dict()
@@ -10269,7 +11487,11 @@ class SessionDaemon:
                             return self.status_dict()
                         if isinstance(exc, ProtocolError):
                             self.last_error = str(exc)
-                            self._block_if_current(f"corrupt telemetry frame: {exc}", generation)
+                            self._block_if_current(
+                                f"corrupt telemetry frame: {exc}",
+                                generation,
+                                invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+                            )
                             return self.status_dict()
                         return self.status_dict()
                     if status.state != ControllerState.LOGIN_REQUIRED:
@@ -10296,7 +11518,11 @@ class SessionDaemon:
             return self.status_dict()
         if sample.capture_monotonic < 0:
             self.last_error = "stale capture sample"
-            self._block_if_current(self.last_error, generation)
+            self._block_if_current(
+                self.last_error,
+                generation,
+                invalidation_cause=InvalidationCause.TELEMETRY_INVALID,
+            )
             return self.status_dict()
         snapshot = sample.frame.snapshot.value if sample.frame else {}
         self.last_snapshot = snapshot
@@ -10373,7 +11599,13 @@ class SessionDaemon:
             self.last_error = ""
         return self.status_dict()
 
-    def _block_if_current(self, reason: str, generation: int) -> None:
+    def _block_if_current(
+        self,
+        reason: str,
+        generation: int,
+        *,
+        invalidation_cause: InvalidationCause = InvalidationCause.UNKNOWN,
+    ) -> None:
         """Block only the live observation epoch that raised ``reason``.
 
         Capture, model, and durable-file I/O happen outside the controller
@@ -10391,6 +11623,7 @@ class SessionDaemon:
                 return
             self.controller.block(
                 reason,
+                invalidation_cause=invalidation_cause,
                 expected_generation=current.generation,
                 expected_state=current.state,
                 fence=self.controller.observation_fence(),
@@ -10645,7 +11878,11 @@ class SessionDaemon:
                     fence=fence,
                 )
                 return
-            if phase == "ready" and snapshot["wallTime"] >= scanner["dueAt"]:
+            last_actual_start = status.started_at
+            addon_due_at = int(scanner.get("dueAt", 0) or 0)
+            anchored_due_at = last_actual_start + self.config.cadence_seconds if last_actual_start > 0 else 0
+            effective_due_at = max(addon_due_at, anchored_due_at)
+            if phase == "ready" and snapshot["wallTime"] >= effective_due_at:
                 if not snapshot.get("ahOpen"):
                     self._run_action("open_ah", snapshot)
                     return
@@ -10963,6 +12200,34 @@ class SessionDaemon:
     def status_dict(self) -> dict[str, Any]:
         value = self.controller.status()
         durable = self.controller.journal.read()
+        drill = self.controller.takeover_drill_record
+        startup_evidence = self._startup_evidence
+        drill_matches = bool(
+            drill is not None and startup_evidence is not None and drill.matches(startup_evidence.environment)
+        )
+        operation_state = self._takeover_drill_operation.get("state", "idle")
+        drill_state = (
+            operation_state
+            if operation_state in {"running", "awaiting_input", "canceling", "canceled", "failed"}
+            else "needed"
+            if drill is None
+            else "passed"
+            if drill_matches
+            else "stored_unverified"
+        )
+        if drill_state in {"running", "canceling"}:
+            next_action = "wait"
+        elif drill_state == "awaiting_input":
+            next_action = "provide_human_input"
+        elif drill is None or (startup_evidence is not None and not drill_matches):
+            next_action = "takeover_drill"
+        elif self.driver.guardian.armed:
+            next_action = "automatic"
+        else:
+            next_action = "start_or_resume"
+        route_walk = dict(getattr(self, "_route_walk_status", self._NO_ROUTE_WALK_STATUS))
+        if isinstance(route_walk.get("segments"), tuple):
+            route_walk["segments"] = list(route_walk["segments"])
         return {
             "state": value.state.value,
             "mode": value.mode.value,
@@ -10995,6 +12260,19 @@ class SessionDaemon:
             },
             "calibrationHistory": durable.get("calibrationHistory", []),
             "calibrationInvalidated": durable.get("calibrationInvalidated", ""),
+            "runtimeReadinessInvalidation": (
+                self.controller.runtime_readiness_invalidation.value
+                if self.controller.runtime_readiness_invalidation is not None
+                else None
+            ),
+            "startup": dict(self._startup_operation),
+            "takeoverDrill": {
+                "state": drill_state,
+                "environmentMatches": drill_matches if startup_evidence is not None else None,
+                "fingerprint": drill.fingerprint if drill is not None else "",
+                "failure": self._takeover_drill_operation.get("failure", ""),
+            },
+            "nextAction": next_action,
             "nativeResourceAssessment": self.controller.native_resource_assessment(),
             "nativeBootstrapPending": self._native_bootstrap_ready.is_set(),
             "nativeBootstrapReady": self._native_baseline_ready.is_set(),
@@ -11003,7 +12281,7 @@ class SessionDaemon:
             # are facts emitted by callbacks from the live runner, not claims
             # inferred from a calibration boolean.
             "nativeHandshake": dict(self._native_handshake),
-            "routeWalk": copy.deepcopy(self._route_walk_status),
+            "routeWalk": copy.deepcopy(route_walk),
         }
 
     def _calibration_operation_snapshot(self) -> dict[str, Any]:

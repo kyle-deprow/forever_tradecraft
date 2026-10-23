@@ -38,6 +38,7 @@ OBSERVED_CONTROLS = {
     "arthur_row",
     "enter_world",
     "auctioneer_buckler",
+    "auction_house",
     "world",
 }
 CLI_VERSION = "codex-cli 0.162.1"
@@ -92,7 +93,10 @@ class LunaAdapter:
         timeout: float = 45.0,
         model: str = "gpt-6-luna",
         cli_version: str = CLI_VERSION,
-        codex_path: str | os.PathLike[str] = "/home/dev/.local/share/pnpm/nodejs/22.23.1/bin/codex",
+        codex_path: str | os.PathLike[str] = (
+            "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/"
+            "vendor/x86_64-unknown-linux-musl/bin/codex"
+        ),
     ):
         self.neutral_dir = Path(neutral_dir)
         self.timeout = timeout

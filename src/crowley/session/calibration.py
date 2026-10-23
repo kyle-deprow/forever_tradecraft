@@ -50,6 +50,8 @@ class CalibrationError(RuntimeError):
 
 
 _SEAL = object()
+GTK_LAYOUT_MUTTER_FRAME = "mutter-managed-frame-v1"
+GTK_LAYOUT_ROOT_CHILD = "x11-root-child-v1"
 XTEST_ABSOLUTE_COMMAND_SCHEMA = "private-xdotool-absolute-pointer-v1"
 
 
@@ -236,6 +238,7 @@ from gi.repository import Gtk, GLib, GdkX11
 
 window = Gtk.Window()
 window.set_title("CROWLEY INPUT CALIBRATION ONLY")
+window.set_decorated(False)
 window.set_default_size(480, 240)
 window.set_resizable(False)
 box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -336,6 +339,11 @@ class InputCalibrationEvidence:
     #  post_x, post_y, post_window), captured by the native producer around
     # the absolute XTEST move and included in the evidence seal.
     synthetic_motion_query: tuple[Any, ...] = ()
+    target_layout_kind: str = GTK_LAYOUT_MUTTER_FRAME
+    target_root_xid: int = 0
+    target_parent_xid: int = 0
+    target_descendant_xids: tuple[int, ...] = ()
+    target_excluded_input_only_xids: tuple[int, ...] = ()
     keyboard_keymap: tuple[tuple[str, int], ...] = ()
     keyboard_profile: tuple[KeyboardProfileRow, ...] = ()
     provenance: str = "owned-live"
@@ -381,6 +389,11 @@ class InputCalibrationEvidence:
             ),
             "synthetic_motion_transitions": self.synthetic_motion_transitions,
             "synthetic_motion_query": self.synthetic_motion_query,
+            "target_layout_kind": self.target_layout_kind,
+            "target_root_xid": self.target_root_xid,
+            "target_parent_xid": self.target_parent_xid,
+            "target_descendant_xids": self.target_descendant_xids,
+            "target_excluded_input_only_xids": self.target_excluded_input_only_xids,
             "keyboard_keymap": self.keyboard_keymap,
             "keyboard_profile": self.keyboard_profile,
             "provenance": self.provenance,
@@ -662,17 +675,16 @@ class InputCalibrationEvidence:
             or not self.target_executable
             or not self.target_process_start
             or not self.game_identity_fingerprint
+            or not isinstance(self.target_layout_kind, str)
+            or self.target_layout_kind not in {GTK_LAYOUT_MUTTER_FRAME, GTK_LAYOUT_ROOT_CHILD}
+            or isinstance(self.target_root_xid, bool)
+            or not isinstance(self.target_root_xid, int)
+            or self.target_root_xid < 0
+            or isinstance(self.target_parent_xid, bool)
+            or not isinstance(self.target_parent_xid, int)
+            or self.target_parent_xid < 0
             or isinstance(self.managed_frame_xid, bool)
             or not isinstance(self.managed_frame_xid, int)
-            or self.managed_frame_xid <= 0
-            or self.managed_frame_xid == self.target_xid
-            or not isinstance(self.managed_frame_geometry, (tuple, list))
-            or len(self.managed_frame_geometry) != 4
-            or any(
-                isinstance(value, bool) or not isinstance(value, int) for value in self.managed_frame_geometry
-            )
-            or self.managed_frame_geometry[2] <= 0
-            or self.managed_frame_geometry[3] <= 0
             or not self.target_event_xids
             or any(
                 isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0
@@ -681,7 +693,19 @@ class InputCalibrationEvidence:
             or len(set(self.target_event_xids)) != len(self.target_event_xids)
             or self.target_xid not in self.target_event_xids
             or self.target_child_xid not in self.target_event_xids
-            or self.managed_frame_xid not in self.target_event_xids
+            or not isinstance(self.target_descendant_xids, (tuple, list))
+            or any(
+                isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0
+                for xid in self.target_descendant_xids
+            )
+            or len(set(self.target_descendant_xids)) != len(self.target_descendant_xids)
+            or not isinstance(self.target_excluded_input_only_xids, (tuple, list))
+            or any(
+                isinstance(xid, bool) or not isinstance(xid, int) or xid <= 0
+                for xid in self.target_excluded_input_only_xids
+            )
+            or len(set(self.target_excluded_input_only_xids)) != len(self.target_excluded_input_only_xids)
+            or set(self.target_event_xids) & set(self.target_excluded_input_only_xids)
             or not isinstance(self.synthetic_modifiers, (tuple, list))
             or len(self.synthetic_modifiers) != 3
             or any(
@@ -690,6 +714,44 @@ class InputCalibrationEvidence:
             )
         ):
             raise CalibrationError("input evidence identity is incomplete")
+        if self.target_layout_kind == GTK_LAYOUT_ROOT_CHILD:
+            descendants = set(self.target_descendant_xids)
+            excluded = set(self.target_excluded_input_only_xids)
+            if (
+                self.target_root_xid <= 0
+                or self.target_parent_xid != self.target_root_xid
+                or self.target_root_xid in self.target_event_xids
+                or self.managed_frame_xid != 0
+                or tuple(self.managed_frame_geometry) != ()
+                or not descendants
+                or self.target_xid not in descendants
+                or self.target_xid in excluded
+                or len(excluded) != 1
+                or not excluded.issubset(descendants)
+                or self.target_root_xid in descendants
+                or descendants != {self.target_xid, *excluded}
+                or set(self.target_event_xids) != {self.target_xid}
+            ):
+                raise CalibrationError("input evidence root-child target certificate is invalid")
+        else:
+            frame_geometry = tuple(self.managed_frame_geometry)
+            if (
+                self.managed_frame_xid <= 0
+                or self.managed_frame_xid == self.target_xid
+                or self.managed_frame_xid not in self.target_event_xids
+                or len(frame_geometry) != 4
+                or any(isinstance(value, bool) or not isinstance(value, int) for value in frame_geometry)
+                or frame_geometry[2] <= 0
+                or frame_geometry[3] <= 0
+                or (self.target_root_xid > 0 and self.target_root_xid in self.target_event_xids)
+                or (self.target_root_xid > 0 and self.target_root_xid in self.target_descendant_xids)
+                or (self.target_root_xid > 0 and self.target_parent_xid != self.managed_frame_xid)
+                or (
+                    self.target_descendant_xids
+                    and set(self.target_event_xids) != {self.managed_frame_xid, *self.target_descendant_xids}
+                )
+            ):
+                raise CalibrationError("input evidence managed-frame target certificate is invalid")
         self._verify_keyboard_profile()
         for name, geometry in (
             ("target", self.target_geometry),
@@ -703,7 +765,9 @@ class InputCalibrationEvidence:
                 or geometry[3] <= 0
             ):
                 raise CalibrationError(f"input evidence {name} geometry is incomplete")
-        if not _rect_contains(tuple(self.managed_frame_geometry), tuple(self.target_geometry)):
+        if self.target_layout_kind == GTK_LAYOUT_MUTTER_FRAME and not _rect_contains(
+            tuple(self.managed_frame_geometry), tuple(self.target_geometry)
+        ):
             raise CalibrationError("input evidence managed frame does not enclose its GTK client")
         if not self.synthetic_events or not self.human_events or not self.forwarded_events:
             raise CalibrationError("input evidence event proof is incomplete")
@@ -2238,6 +2302,10 @@ class OwnedWindow:
     managed_frame_xid: int | None = None
     managed_frame_geometry: tuple[int, int, int, int] = ()
     certified_event_target_xids: frozenset[int] = frozenset()
+    layout_kind: str = GTK_LAYOUT_MUTTER_FRAME
+    root_xid: int = 0
+    parent_xid: int = 0
+    excluded_input_only_xids: frozenset[int] = frozenset()
 
     @property
     def child_xid(self) -> int:
@@ -2392,6 +2460,26 @@ def _xprop_single_window_id(text: str, property_name: str) -> int:
     return int(matches[0], 16)
 
 
+def _xprop_optional_window_id(text: str, property_name: str) -> int | None:
+    """Read one published WINDOW property, distinguishing absence from damage."""
+
+    mentions = [
+        line
+        for line in text.splitlines()
+        if re.match(rf"^[ \t]*{re.escape(property_name)}(?=$|[ \t(:=])", line)
+    ]
+    if not mentions:
+        return None
+    if len(mentions) != 1:
+        raise CalibrationError(f"X11 property {property_name} is malformed or duplicated")
+    if re.fullmatch(rf"[ \t]*{re.escape(property_name)}:[ \t]*not found\.[ \t]*", mentions[0]):
+        return None
+    xid = _xprop_single_window_id(text, property_name)
+    if xid <= 0:
+        raise CalibrationError(f"X11 property {property_name} has an invalid window ID")
+    return xid
+
+
 def _xprop_single_cardinal(text: str, property_name: str) -> int:
     lines = _xprop_property_lines(text, property_name)
     matches = [
@@ -2490,10 +2578,43 @@ def _xprop_single_frame_extents(text: str) -> tuple[int, int, int, int]:
     return tuple(int(value) for value in matches[0])  # type: ignore[return-value]
 
 
+def _xprop_single_undecorated_motif_hints(text: str) -> tuple[int, int, int, int, int]:
+    lines = _xprop_property_lines(text, "_MOTIF_WM_HINTS")
+    pattern = re.compile(
+        r"^[ \t]*_MOTIF_WM_HINTS\([^)]*\)[ \t]*=[ \t]*"
+        r"(0x[0-9a-fA-F]+|\d+)[ \t]*,[ \t]*"
+        r"(0x[0-9a-fA-F]+|\d+)[ \t]*,[ \t]*"
+        r"(0x[0-9a-fA-F]+|\d+)[ \t]*,[ \t]*"
+        r"(0x[0-9a-fA-F]+|\d+)[ \t]*,[ \t]*"
+        r"(0x[0-9a-fA-F]+|\d+)[ \t]*$"
+    )
+    matches = [match.groups() for line in lines if (match := pattern.fullmatch(line))]
+    if len(lines) != 1 or len(matches) != 1:
+        raise CalibrationError("GTK undecorated Motif hints are missing or malformed")
+    try:
+        values = tuple(int(value, 0) for value in matches[0])
+    except ValueError as exc:
+        raise CalibrationError("GTK undecorated Motif hints are malformed") from exc
+    if values != (0x2, 0, 0, 0, 0):
+        raise CalibrationError("GTK client decoration hints changed from the observed undecorated layout")
+    return values  # type: ignore[return-value]
+
+
+def _xwininfo_tree_root_parent(text: str, expected_xid: int) -> tuple[int, int]:
+    headers = re.findall(r"^xwininfo:\s+Window id:\s+(0x[0-9a-fA-F]+)\b", text, re.MULTILINE)
+    roots = re.findall(r"^[ \t]*Root window id:[ \t]*(0x[0-9a-fA-F]+)(?:[ \t].*)?$", text, re.MULTILINE)
+    parents = re.findall(r"^[ \t]*Parent window id:[ \t]*(0x[0-9a-fA-F]+)(?:[ \t].*)?$", text, re.MULTILINE)
+    if len(headers) != 1 or int(headers[0], 16) != expected_xid or len(roots) != 1 or len(parents) != 1:
+        raise CalibrationError("owned GTK client tree has incomplete root/parent identity")
+    return int(roots[0], 16), int(parents[0], 16)
+
+
 class OwnedGtkCalibrationWindow:
     """Create and verify the ephemeral GTK/X11 target used by input calibration."""
 
     TITLE = "CROWLEY INPUT CALIBRATION ONLY"
+    LAYOUT_MUTTER_FRAME = GTK_LAYOUT_MUTTER_FRAME
+    LAYOUT_ROOT_CHILD = GTK_LAYOUT_ROOT_CHILD
 
     def __init__(
         self,
@@ -2503,12 +2624,16 @@ class OwnedGtkCalibrationWindow:
         python_executable: str = "/usr/bin/python3",
         command: CommandRunner = _run_command,
         size: tuple[int, int] = (480, 240),
+        layout_kind: str = GTK_LAYOUT_MUTTER_FRAME,
     ) -> None:
+        if layout_kind not in {GTK_LAYOUT_MUTTER_FRAME, GTK_LAYOUT_ROOT_CHILD}:
+            raise CalibrationError("GTK calibration layout kind is unsupported")
         self.display = display
         self.xauthority = xauthority
         self.python_executable = python_executable
         self.command = command
         self.size = size
+        self.layout_kind = layout_kind
         self.window: OwnedWindow | None = None
 
     def create(
@@ -2800,6 +2925,13 @@ class OwnedGtkCalibrationWindow:
             or refreshed.title != window.title
             or refreshed.geometry != window.geometry
             or refreshed.allowed_event_target_xids != window.allowed_event_target_xids
+            or refreshed.descendant_xids != window.descendant_xids
+            or refreshed.excluded_input_only_xids != window.excluded_input_only_xids
+            or refreshed.layout_kind != window.layout_kind
+            or refreshed.root_xid != window.root_xid
+            or refreshed.parent_xid != window.parent_xid
+            or refreshed.managed_frame_xid != window.managed_frame_xid
+            or refreshed.managed_frame_geometry != window.managed_frame_geometry
             or refreshed.executable != window.executable
             or refreshed.process_start != window.process_start
         ):
@@ -2868,6 +3000,11 @@ class OwnedGtkCalibrationWindow:
                 pending_or_hard("owned GTK client is not in wmctrl yet")
             raise CalibrationError("owned GTK target title/PID is not unique")
         props = run_command(["xprop", "-id", hex(xid)])
+        advertised_helper_xid: int | None = None
+        if self.layout_kind == GTK_LAYOUT_ROOT_CHILD:
+            advertised_helper_xid = _xprop_optional_window_id(props, "_NET_WM_USER_TIME_WINDOW")
+            if advertised_helper_xid == xid:
+                raise CalibrationError("GTK client advertises itself as its metadata helper")
         name_lines = _xprop_property_lines(props, "WM_NAME")
         pid_lines = _xprop_property_lines(props, "_NET_WM_PID")
         client_name: str | None = None
@@ -2899,11 +3036,38 @@ class OwnedGtkCalibrationWindow:
             map_state = _xwininfo_single_map_state(geometry_text)
         except _GtkStartupPending as exc:
             map_pending = exc
-        extents_pending: _GtkStartupPending | None = None
-        try:
-            _xprop_single_frame_extents(props)
-        except _GtkStartupPending as exc:
-            extents_pending = exc
+        if self.layout_kind == GTK_LAYOUT_ROOT_CHILD:
+            if _xprop_property_lines(props, "_NET_FRAME_EXTENTS"):
+                raise CalibrationError("GTK root-child client unexpectedly publishes frame extents")
+            _xprop_single_undecorated_motif_hints(props)
+            if _xwininfo_single_class(geometry_text) != "InputOutput":
+                raise CalibrationError("GTK root-child target is not an InputOutput window")
+            if advertised_helper_xid is None:
+                pending_or_hard("GTK client metadata helper identity is not published yet")
+            root_child_window = self._verify_root_child_layout(
+                pid=pid,
+                xid=xid,
+                process=process,
+                executable=executable,
+                process_start=process_start,
+                geometry=geometry,
+                advertised_helper_xid=advertised_helper_xid,
+                startup_readiness=startup_readiness,
+                run_command=run_command,
+            )
+            if map_pending is not None:
+                pending_or_hard(str(map_pending))
+                raise AssertionError("unreachable")
+            assert map_state is not None
+            if map_state != "IsViewable":
+                pending_or_hard(f"owned GTK client is {map_state}")
+            return root_child_window
+        else:
+            extents_pending: _GtkStartupPending | None = None
+            try:
+                _xprop_single_frame_extents(props)
+            except _GtkStartupPending as exc:
+                extents_pending = exc
         if map_pending is not None:
             pending_or_hard(str(map_pending))
             raise AssertionError("unreachable")
@@ -3054,6 +3218,113 @@ class OwnedGtkCalibrationWindow:
             managed_frame_xid,
             frame_geometry,
             certified_targets,
+            GTK_LAYOUT_MUTTER_FRAME,
+            root,
+            managed_frame_xid,
+            frozenset({helper_xid}),
+        )
+
+    def _verify_root_child_layout(
+        self,
+        *,
+        pid: int,
+        xid: int,
+        process: subprocess.Popen[str],
+        executable: str,
+        process_start: str,
+        geometry: tuple[int, int, int, int],
+        advertised_helper_xid: int,
+        startup_readiness: bool,
+        run_command: Callable[[list[str]], str],
+    ) -> OwnedWindow:
+        """Certify the observed undecorated client as a direct root child."""
+
+        tree = run_command(["xwininfo", "-id", hex(xid), "-tree"])
+        root_xid, parent_xid = _xwininfo_tree_root_parent(tree, xid)
+        if root_xid <= 0 or xid == root_xid or parent_xid != root_xid:
+            raise CalibrationError("GTK root-child target is not directly parented by the X11 root")
+        if advertised_helper_xid in {root_xid, xid}:
+            raise CalibrationError("GTK client advertises an invalid metadata helper identity")
+        try:
+            from .driver import _parse_xwininfo_tree
+
+            tree_client, parents, tree_geometries = _parse_xwininfo_tree(tree)
+        except Exception as exc:
+            if startup_readiness and str(exc) == "X11 window tree contains no structural window rows":
+                raise _GtkStartupPending("GTK metadata helper subtree is not published yet") from exc
+            raise CalibrationError("GTK root-child client tree is not structurally valid") from exc
+        if tree_client != xid or xid in parents or xid in tree_geometries:
+            raise CalibrationError("GTK root-child client tree identity changed")
+        descendants: set[int] = {xid}
+        pending = [xid]
+        while pending:
+            ancestor = pending.pop()
+            children = [child for child, parent in parents.items() if parent == ancestor]
+            for child in children:
+                if child == root_xid or child in descendants:
+                    raise CalibrationError("GTK root-child client tree contains a cycle or root target")
+                descendants.add(child)
+                pending.append(child)
+        if len(descendants) == 1:
+            if startup_readiness:
+                raise _GtkStartupPending("GTK metadata helper subtree is not published yet")
+            raise CalibrationError("GTK root-child client is missing its advertised metadata helper")
+        if descendants != {xid, advertised_helper_xid}:
+            raise CalibrationError("GTK metadata helper subtree does not match its advertised identity")
+
+        excluded: set[int] = set()
+        event_targets: set[int] = {xid}
+        helper_xids: list[int] = []
+        for child_xid in sorted(descendants - {xid}):
+            stats = run_command(["xwininfo", "-id", hex(child_xid), "-stats"])
+            headers = re.findall(r"^xwininfo:\s+Window id:\s+(0x[0-9a-fA-F]+)\b", stats, re.MULTILINE)
+            if len(headers) != 1 or int(headers[0], 16) != child_xid:
+                raise CalibrationError("GTK root-child descendant geometry identity changed")
+            child_class = _xwininfo_single_class(stats)
+            if child_class == "InputOutput":
+                raise CalibrationError("GTK root-child layout has an unexpected client descendant")
+            if child_class != "InputOnly":
+                raise CalibrationError("GTK root-child descendant class is unsupported")
+            child_geometry = _parse_xwininfo_geometry(stats)
+            parent_relative = (
+                _xwininfo_single_stat(stats, "Relative upper-left X"),
+                _xwininfo_single_stat(stats, "Relative upper-left Y"),
+            )
+            if (
+                parents.get(child_xid) != xid
+                or child_geometry[2:] != (1, 1)
+                or parent_relative != (-1, -1)
+                or _xwininfo_single_stat(stats, "Depth") != 0
+                or _xwininfo_single_stat(stats, "Border width") != 0
+                or tree_geometries.get(child_xid) != (-1, -1, 1, 1)
+            ):
+                raise CalibrationError("GTK InputOnly metadata helper layout is invalid")
+            helper_xids.append(child_xid)
+            excluded.add(child_xid)
+        if (
+            len(helper_xids) != 1
+            or descendants != {xid, helper_xids[0]}
+            or event_targets != {xid}
+            or event_targets & excluded
+            or root_xid in event_targets
+        ):
+            raise CalibrationError("GTK root-child metadata helper certificate is incomplete")
+        return OwnedWindow(
+            pid=pid,
+            xid=xid,
+            title=self.TITLE,
+            geometry=geometry,
+            process=process,
+            descendant_xids=frozenset(descendants),
+            executable=executable,
+            process_start=process_start,
+            managed_frame_xid=None,
+            managed_frame_geometry=(),
+            certified_event_target_xids=frozenset(event_targets),
+            layout_kind=GTK_LAYOUT_ROOT_CHILD,
+            root_xid=root_xid,
+            parent_xid=parent_xid,
+            excluded_input_only_xids=frozenset(excluded),
         )
 
     def close(self) -> None:
@@ -3129,7 +3400,11 @@ class InputCalibrationWorkflow:
         self.display = display or driver.profile.display
         xauthority = getattr(driver, "xauthority", "") or getattr(driver.profile, "xauthority", "")
         self.window_factory = window_factory or (
-            lambda: OwnedGtkCalibrationWindow(display=self.display, xauthority=xauthority)
+            lambda: OwnedGtkCalibrationWindow(
+                display=self.display,
+                xauthority=xauthority,
+                layout_kind=GTK_LAYOUT_ROOT_CHILD,
+            )
         )
         self.monotonic = monotonic
         self.on_ready = on_ready
@@ -3151,6 +3426,7 @@ class InputCalibrationWorkflow:
         self._keyboard_keymap: tuple[tuple[str, int], ...] = ()
         self._game_identity: Any | None = None
         self._predicate_reasons: dict[str, Any] = {"count": 0, "first": None, "last": None}
+        self._target_placement_diagnostic: dict[str, Any] | None = None
 
     @staticmethod
     def _bounded_error(value: Any, *, limit: int = 1024) -> str:
@@ -3160,7 +3436,18 @@ class InputCalibrationWorkflow:
     @staticmethod
     def _safe_target_facts(target: Any) -> dict[str, Any] | None:
         window = getattr(target, "window", target)
-        names = ("pid", "process_start", "xid", "frame_xid", "child_xid", "geometry", "executable")
+        names = (
+            "pid",
+            "process_start",
+            "xid",
+            "frame_xid",
+            "child_xid",
+            "geometry",
+            "executable",
+            "layout_kind",
+            "root_xid",
+            "parent_xid",
+        )
         result: dict[str, Any] = {}
         for name in names:
             value = getattr(window, name, None)
@@ -3174,6 +3461,7 @@ class InputCalibrationWorkflow:
             "managed_frame_geometry",
             "descendant_xids",
             "certified_event_target_xids",
+            "excluded_input_only_xids",
             "allowed_event_target_xids",
             "event_target_xids",
         ):
@@ -3237,6 +3525,20 @@ class InputCalibrationWorkflow:
             and observer_snapshot.get("observerAlive") is False
         )
         observer_truncated = bool(observer_snapshot and observer_snapshot.get("rawTruncated"))
+        synthetic_pointer_diagnostic = None
+        try:
+            backend = getattr(self.driver, "backend", None)
+            pointer_diagnostic = getattr(backend, "_last_synthetic_pointer_diagnostic", None)
+            if isinstance(pointer_diagnostic, dict):
+                # This is a bounded, producer-owned primitive payload. Copy
+                # the top-level mapping so cleanup cannot replace it while the
+                # workflow assembles the failure record.
+                synthetic_pointer_diagnostic = dict(pointer_diagnostic)
+        except Exception:
+            synthetic_pointer_diagnostic = None
+        target_placement_diagnostic = None
+        if isinstance(self._target_placement_diagnostic, dict):
+            target_placement_diagnostic = dict(self._target_placement_diagnostic)
         complete_binding = bool(
             self._target_certificate
             and self._game_identity
@@ -3269,6 +3571,8 @@ class InputCalibrationWorkflow:
                 "inputToolDigest": tool_digest,
             },
             "syntheticPredicate": dict(self._predicate_reasons),
+            "syntheticPointer": synthetic_pointer_diagnostic,
+            "targetPlacement": target_placement_diagnostic,
             "observer": observer_snapshot,
             "replayable": bool(observer_complete and complete_binding and not observer_truncated),
         }
@@ -3351,6 +3655,9 @@ class InputCalibrationWorkflow:
 
         from .driver import X11Backend
 
+        backend = getattr(self.driver, "backend", None)
+        if isinstance(backend, X11Backend):
+            backend._last_synthetic_pointer_diagnostic = None
         target = self.window_factory()
         self._target = target
         # Open the calibration epoch before any owned helper is created.  The
@@ -3455,6 +3762,47 @@ class InputCalibrationWorkflow:
             if not callable(focus_target):
                 raise CalibrationError("input calibration focus capability is not configured")
             focus_target(window, calibration_ticket=calibration_ticket)
+            if isinstance(getattr(self.driver, "backend", None), X11Backend):
+                self._stage = "target_pointer_preflight"
+                pointer_position = getattr(self.driver.backend, "pointer_position", None)
+                if not callable(pointer_position):
+                    self._target_placement_diagnostic = {
+                        "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+                        "targetXid": window.xid,
+                        "targetGeometry": list(window.geometry),
+                        "queryError": "native pointer position provider is unavailable",
+                    }
+                    raise CalibrationError(
+                        "owned GTK target pointer cannot be verified before synthetic input"
+                    )
+                try:
+                    pointer_x, pointer_y, pointer_xid = pointer_position()
+                except Exception as exc:
+                    self._target_placement_diagnostic = {
+                        "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+                        "targetXid": window.xid,
+                        "targetGeometry": list(window.geometry),
+                        "queryError": self._bounded_error(exc, limit=256),
+                    }
+                    raise CalibrationError(
+                        "owned GTK target pointer cannot be verified before synthetic input"
+                    ) from exc
+                left, top, width, height = window.geometry
+                pointer_certified = window.contains_xid(pointer_xid)
+                pointer_inside = left <= pointer_x < left + width and top <= pointer_y < top + height
+                self._target_placement_diagnostic = {
+                    "producer": "InputCalibrationWorkflow.target_pointer_preflight",
+                    "targetXid": window.xid,
+                    "targetGeometry": [left, top, width, height],
+                    "origin": {"x": pointer_x, "y": pointer_y, "windowXid": pointer_xid},
+                    "predicates": {
+                        "certifiedHitWindow": pointer_certified,
+                        "insideTargetGeometry": pointer_inside,
+                    },
+                }
+                if not pointer_certified or not pointer_inside:
+                    raise CalibrationError("owned GTK target does not contain the current pointer")
+                self._stage = "synthetic"
             synthetic_input = getattr(self.driver, "synthetic_target_keyboard_profile", None)
             if not callable(synthetic_input):
                 raise CalibrationError("input calibration keyboard probe capability is not configured")
@@ -4333,16 +4681,39 @@ class InputCalibrationWorkflow:
             raise CalibrationError("input evidence identity, geometry, and game binding are incomplete")
         if xtest_profile is not None and not synthetic_motion_query:
             raise CalibrationError("input evidence has no query-bound synthetic XTEST producer result")
-        if (
-            window.managed_frame_xid is None
-            or window.managed_frame_xid <= 0
-            or window.managed_frame_xid == window.xid
-            or len(window.managed_frame_geometry) != 4
-            or not window.allowed_event_target_xids
-            or window.managed_frame_xid not in window.allowed_event_target_xids
-            or window.xid not in window.allowed_event_target_xids
-        ):
-            raise CalibrationError("input evidence has no certified managed-frame target")
+        if window.layout_kind == GTK_LAYOUT_ROOT_CHILD:
+            if (
+                window.root_xid <= 0
+                or window.parent_xid != window.root_xid
+                or window.root_xid in window.allowed_event_target_xids
+                or window.managed_frame_xid is not None
+                or window.managed_frame_geometry
+                or window.xid not in window.descendant_xids
+                or window.xid in window.excluded_input_only_xids
+                or len(window.excluded_input_only_xids) != 1
+                or not window.excluded_input_only_xids.issubset(window.descendant_xids)
+                or window.root_xid in window.descendant_xids
+                or window.descendant_xids != {window.xid, *window.excluded_input_only_xids}
+                or window.allowed_event_target_xids
+                != window.descendant_xids - window.excluded_input_only_xids
+                or window.xid not in window.allowed_event_target_xids
+            ):
+                raise CalibrationError("input evidence has no certified root-child target")
+        elif window.layout_kind == GTK_LAYOUT_MUTTER_FRAME:
+            if (
+                window.managed_frame_xid is None
+                or window.managed_frame_xid <= 0
+                or window.managed_frame_xid == window.xid
+                or len(window.managed_frame_geometry) != 4
+                or not window.allowed_event_target_xids
+                or window.managed_frame_xid not in window.allowed_event_target_xids
+                or window.xid not in window.allowed_event_target_xids
+                or (window.root_xid > 0 and window.parent_xid != window.managed_frame_xid)
+                or (window.root_xid > 0 and window.root_xid in window.allowed_event_target_xids)
+            ):
+                raise CalibrationError("input evidence has no certified managed-frame target")
+        else:
+            raise CalibrationError("input evidence target layout is unsupported")
         if synthetic_key_source is None:
             synthetic_key_source = next(
                 (event.source_device for event in records if event.event_class is EventClass.KEY_PRESS),
@@ -4533,9 +4904,14 @@ class InputCalibrationWorkflow:
             target_executable=target_executable,
             target_process_start=target_process_start,
             target_geometry=target_geometry,
-            managed_frame_xid=window.managed_frame_xid,
+            managed_frame_xid=window.managed_frame_xid or 0,
             managed_frame_geometry=window.managed_frame_geometry,
             target_event_xids=tuple(sorted(window.allowed_event_target_xids)),
+            target_layout_kind=window.layout_kind,
+            target_root_xid=window.root_xid,
+            target_parent_xid=window.parent_xid,
+            target_descendant_xids=tuple(sorted(window.descendant_xids)),
+            target_excluded_input_only_xids=tuple(sorted(window.excluded_input_only_xids)),
             synthetic_modifiers=synthetic_modifiers,
             synthetic_echo_proof=synthetic_echo_proof,
             xtest_profile=xtest_profile,
