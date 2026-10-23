@@ -16,6 +16,17 @@ the last fully verified complete/uploaded/loaded-ACK sweep. Partial291 is not
 yet durable or uploaded. Native eventual-echo delivery remains explicitly
 unqualified; no live acceptance is authorized by these code changes.
 
+**Worktree and branch cleanup (2026-10-23, data agent with user-granted ownership).** All 90 old worktrees and the
+fix/* and checkpoint/executor-20261018 branches were audited and removed. Every worktree's uncommitted diff and
+untracked files are archived privately in `~/.local/state/crowley/worktree-archive-20261023/<name>/` (manifest.json,
+tracked.diff, untracked.tar.gz) and the three unaccepted checkpoint commits in `checkpoint-executor-20261018.bundle`;
+114 `.archive` evidence files that existed only in worktrees were copied into this checkout's `.archive/`. Findings:
+everything was integrated or superseded except `process-matching-cost` (live adjudication FAIL; intentionally not
+merged) and the input92 fix, whose production change (no `select_chat_all` chord) is already on MAIN — its regression
+tests and keyboard rehearsal module were ported (`tests/test_session_keyboard_rehearsal.py`). Twelve leaked test
+"release actor" processes (from `test_native_calibration_operator.py`, 4+ days old) were still emitting
+`keyup Return`/`mouseup 1` against test display `:2` and were killed.
+
 **HUD visibility implemented and promoted to source.** `/crowley hud` toggles;
 `/crowley hud hide`, `show`, `status` make/check an explicit choice. Preference
 persists across reloads. Hidden HUD has no periodic updates or stale frame bytes;
