@@ -8,8 +8,11 @@ import json
 import os
 import select
 import shutil
+import stat
 import subprocess
 import threading
+import time
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -854,7 +857,7 @@ def test_takeover_hover_uses_positive_passive_frame_binding_and_guarded_motion_p
     try:
         gesture = driver.run_takeover_hover(generation, evidence)
         assert gesture.click is None
-        assert gesture.movement_duration >= 0.8
+        assert gesture.movement_duration + 1e-12 >= 0.8
         assert gesture.trajectory.binding.capture_sequence == evidence.readiness_sequence
         assert evidence.readiness_boot in gesture.trajectory.binding.capture_id
         assert driver.guardian.action is None
@@ -865,6 +868,331 @@ def test_takeover_hover_uses_positive_passive_frame_binding_and_guarded_motion_p
         if driver.guardian.armed:
             driver.revoke("private hover test cleanup")
         driver.guardian.close()
+
+
+@pytest.mark.skipif(
+    shutil.which("Xvfb") is None or shutil.which("cc") is None, reason="private X11 fixture unavailable"
+)
+@pytest.mark.parametrize(
+    ("failure_kind", "snapshot_failure"),
+    [
+        ("raw_event", False),
+        ("parser_error", False),
+        ("raw_event", True),
+        ("emitter_error", False),
+    ],
+)
+def test_takeover_hover_failure_retains_monitor_after_guardian_kills_emitter(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure_kind: str, snapshot_failure: bool
+) -> None:
+    """Retain the parsed XI2 cause after Guardian revokes and terminates dispatch."""
+
+    from crowley.session.input_tool import PinnedInputTool
+    from tests.test_session_input_tool import fixture_input_tool
+
+    source_identity, base_environment, base_evidence = _runtime_evidence()
+    del source_identity
+
+    source = tmp_path / "blocking-input-tool.c"
+    executable = tmp_path / "blocking-input-tool"
+    source.write_text(
+        """
+#include <fcntl.h>
+#include <stdlib.h>
+#include <unistd.h>
+int main(void) {
+    const char *marker = getenv("CROWLEY_HOVER_EMITTER_MARKER");
+    if (marker == NULL) return 2;
+    int fd = open(marker, O_WRONLY | O_CREAT | O_TRUNC, 0600);
+    if (fd < 0) return 3;
+    if (write(fd, "ready", 5) != 5) return 4;
+    close(fd);
+    if (getenv("CROWLEY_HOVER_EMITTER_FAILURE") != NULL) return 23;
+    for (;;) pause();
+}
+""",
+        encoding="utf-8",
+    )
+    subprocess.run(["cc", "-O2", str(source), "-o", str(executable)], check=True)
+    tool: PinnedInputTool | None = None
+    driver: DesktopDriver | None = None
+    server: subprocess.Popen[str] | None = None
+    read_fd, display_fd = os.pipe()
+    server = subprocess.Popen(
+        ["Xvfb", "-displayfd", str(display_fd), "-screen", "0", "1920x1080x24", "-ac"],
+        pass_fds=(display_fd,),
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+    os.close(display_fd)
+    writer_fd = -1
+    reader = None
+    injector: threading.Thread | None = None
+    injector_errors: list[BaseException] = []
+    monitor: InputMonitor | None = None
+    try:
+        ready, _, _ = select.select([read_fd], [], [], 5.0)
+        assert ready, "private Xvfb did not publish a display number"
+        number = os.read(read_fd, 32).decode("ascii").strip()
+        assert number.isdigit()
+        display = f":{number}"
+        os.close(read_fd)
+        read_fd = -1
+
+        xauthority = tmp_path / "private-Xauthority"
+        xauthority.touch(mode=0o600)
+        xauthority.chmod(0o600)
+        marker = tmp_path / "emitter-started"
+        monkeypatch.setenv("CROWLEY_HOVER_EMITTER_MARKER", str(marker))
+        if failure_kind == "emitter_error":
+            monkeypatch.setenv("CROWLEY_HOVER_EMITTER_FAILURE", "1")
+        else:
+            monkeypatch.delenv("CROWLEY_HOVER_EMITTER_FAILURE", raising=False)
+        tool = fixture_input_tool(tmp_path / "private-xdotool", str(executable))
+        from crowley.session.driver import DriverProfile
+
+        profile = DriverProfile(display=display, xauthority=str(xauthority))
+        backend = X11Backend(profile, input_tool=tool)
+        driver = DesktopDriver(profile=profile, backend=backend, lease_path=tmp_path / "private-desktop.lock")
+
+        identity = WindowIdentity(
+            xid=0x600100,
+            pid=os.getpid(),
+            executable="/usr/bin/wine",
+            title="World of Warcraft",
+            wm_class="wow.exe",
+            child_xid=0x600101,
+            outer_geometry=(10, 20, 800, 600),
+            child_geometry=(10, 20, 800, 600),
+            foreground_xid=0x600100,
+            process_start="private-hover-failure-test",
+            display=display,
+            fingerprint="private-hover-failure-identity",
+            root_xid=base_evidence.xtest_profile.root_xid,
+            managed_frame_xid=0x600100,
+            target_event_xids=frozenset({0x600101}),
+        )
+        environment = replace(base_environment, display=display)
+        evidence = mint_runtime_evidence(
+            readiness_boot="private-hover-failure-boot",
+            readiness_sequence=38,
+            environment=environment,
+            identity=identity,
+            keyboard_keymap=base_evidence.keyboard_keymap,
+            native_modifiers=base_evidence.native_modifiers,
+            native_held_keycodes=(),
+            native_held_buttons=(),
+            keyboard_profile=base_evidence.keyboard_profile,
+        )
+        driver.resolve_identity = lambda *, require_foreground=True, **_kwargs: identity
+        driver._is_owned_client_target = lambda xid, _identity: xid in identity.target_event_xids
+        driver.input_hierarchy = lambda **_kwargs: environment.hierarchy
+        driver.xtest_input_profile = lambda _hierarchy=None, **_kwargs: evidence.xtest_profile
+        backend.observe_keymap_levels = lambda **_kwargs: dict(environment.keymap_levels)
+        backend.observe_native_input_state = lambda _root: (evidence.native_modifiers, (), ())
+        backend.pointer_position = lambda *, generation: (410, 320, identity.child_xid)
+
+        controller = Controller(tmp_path / "session.json", driver=driver)
+        paused = controller.pause("private takeover hover failure fixture")
+
+        read_fd, writer_fd = os.pipe()
+        reader = os.fdopen(read_fd, "r", encoding="ascii", buffering=1)
+        read_fd = -1
+
+        class PipeProcess:
+            stdout = reader
+
+            def __init__(self) -> None:
+                self.returncode: int | None = None
+
+            def poll(self):
+                return self.returncode
+
+            def terminate(self):
+                if self.returncode is None:
+                    self.returncode = 0
+                    try:
+                        os.close(writer_fd)
+                    except OSError:
+                        pass
+
+            def wait(self, timeout=None):
+                del timeout
+                self.terminate()
+                return self.returncode
+
+            def kill(self):
+                self.terminate()
+
+        process = PipeProcess()
+
+        class PipeObserver:
+            def __init__(self) -> None:
+                self.process = process
+
+            def stop(self):
+                process.terminate()
+                return ""
+
+        monitor = InputMonitor(display, driver._external_input, xauthority=str(xauthority))
+        monitor.observer = PipeObserver()  # type: ignore[assignment]
+        monitor.thread = threading.Thread(target=monitor._read, name="private-hover-xi2-reader", daemon=True)
+        driver._monitor = monitor
+        monitor.thread.start()
+        assert monitor._started.wait(1.0)
+        assert monitor.alive
+
+        daemon = SessionDaemon.__new__(SessionDaemon)
+        daemon.controller = controller
+        daemon.driver = driver
+        daemon.config = SimpleNamespace(journal=tmp_path / "session.json")
+        daemon.passive_startup = lambda: evidence
+        daemon.status_dict = lambda: {"controllerState": controller.status().state.value}
+        daemon._startup_operation = {"state": "ready"}
+        daemon._takeover_drill_operation = {"state": "idle", "failure": ""}
+        daemon._takeover_drill_lock = threading.Lock()
+        daemon._takeover_cancel_lock = threading.Lock()
+        daemon._takeover_cancel = threading.Event()
+        daemon._takeover_event = None
+
+        raw_record = (
+            "EVENT type 17 (RawMotion)\ndevice: 4 (2)\ntime: 10\ndetail: 0\n\n"
+            if failure_kind == "parser_error"
+            else "EVENT type 13 (RawKeyPress)\ndevice: 3 (9)\ntime: 10\ndetail: 50\n\n"
+        )
+
+        def inject_unattributed_event_after_emitter_start() -> None:
+            try:
+                deadline = time.monotonic() + 2.0
+                while not marker.exists() and time.monotonic() < deadline:
+                    time.sleep(0.005)
+                assert marker.exists(), "guarded emitter did not reach its admitted child"
+                if failure_kind == "emitter_error":
+                    return
+                os.write(writer_fd, raw_record.encode("ascii"))
+                assert monitor is not None and monitor.thread is not None
+                monitor.thread.join(timeout=2.0)
+                assert not monitor.thread.is_alive(), "XI2 reader did not finish after Guardian stop"
+            except BaseException as exc:
+                injector_errors.append(exc)
+
+        injector = threading.Thread(
+            target=inject_unattributed_event_after_emitter_start,
+            name="private-hover-failure-injector",
+            daemon=True,
+        )
+        injector.start()
+        if snapshot_failure:
+            monitor.diagnostic_snapshot = lambda: (_ for _ in ()).throw(OSError("snapshot unavailable"))  # type: ignore[method-assign]
+        with pytest.raises(DriverError, match="desktop command failed") as failure:
+            daemon.run_takeover_drill(expected_generation=paused.generation)
+        injector.join(timeout=2.0)
+        assert not injector.is_alive()
+        assert not injector_errors, injector_errors
+        assert not driver.guardian.armed
+        assert driver._monitor is None
+        context = driver._last_takeover_hover_failure_context
+        assert isinstance(context, dict)
+        assert context["stage"] == "pointer_emission"
+        expected_reason = (
+            "malformed XI2 event stream"
+            if failure_kind == "parser_error"
+            else "unattributed XI2 event class=RawKeyPress"
+        )
+        if failure_kind == "emitter_error":
+            assert context["guardianBeforeCleanup"]["armed"] is True
+            assert context["guardianBeforeCleanup"]["revokedReason"] in {"", "startup"}
+            assert context["guardianAfterCleanup"]["armed"] is False
+            assert context["guardianAfterCleanup"]["revokedReason"] == (
+                "takeover hover failed before its motion trace completed"
+            )
+        else:
+            assert context["guardianBeforeCleanup"]["revokedReason"].startswith(expected_reason)
+        assert isinstance(context["observerRegisteredAtFailureCapture"], bool)
+        assert context["expectedAction"]["expectedMotionCount"] > 0
+        assert context["expectedAction"]["argv"][0] == "xdotool"
+        assert "mousemove" in context["expectedAction"]["argv"]
+        if failure_kind == "emitter_error":
+            assert "23" in context["exception"]
+        else:
+            assert "-15" in context["exception"]
+        assert daemon._takeover_drill_operation["state"] == "failed"
+        assert controller.takeover_drill_record is None
+        public_failure = daemon._takeover_drill_operation["failure"]
+        if failure_kind == "emitter_error":
+            assert public_failure.startswith("takeover hover failed during pointer_emission;")
+            assert "Guardian revocation: takeover hover failed before" not in public_failure
+        else:
+            assert public_failure.startswith(f"takeover hover Guardian revocation: {expected_reason}")
+        assert "EVENT type 13" not in public_failure
+        artifact_path = tmp_path / "takeover-drill-diagnostics" / "latest-hover-failure.json"
+        artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+        assert artifact["persistedAtNs"] > 0
+        assert {"daemon.py", "driver.py"} <= set(artifact["sourceBindings"])
+        assert all(len(value) == 64 for value in artifact["sourceBindings"].values())
+        assert artifact["cleanup"]["resourcesUnresolved"] is False
+        assert artifact["cleanup"]["driverMonitorRegisteredAfterCleanup"] is False
+        assert artifact["guardianBeforeCleanup"] == context["guardianBeforeCleanup"]
+        assert artifact["guardianAfterCleanup"] == context["guardianAfterCleanup"]
+        assert stat.S_IMODE(artifact_path.stat().st_mode) == 0o600
+        assert stat.S_IMODE(artifact_path.parent.stat().st_mode) == 0o700
+        if snapshot_failure:
+            assert "snapshot unavailable" in artifact["observerSnapshotError"]
+            assert "snapshot unavailable" in artifact["observerSnapshotAfterCleanupError"]
+            assert "observer" not in context
+            assert "observer" not in artifact
+        elif failure_kind == "parser_error":
+            observer = artifact["observer"]
+            assert observer["parsedEventCount"] == 0
+            assert observer["rawBlocks"] == [raw_record]
+            assert observer["partialRaw"] == ""
+            assert observer["parserFailure"]["reason"] == "RawMotion: missing valuators section"
+            assert observer["failureDiagnostic"]["reason"] == "RawMotion: missing valuators section"
+        elif failure_kind == "emitter_error":
+            observer = artifact["observer"]
+            assert observer["parsedEventCount"] == 0
+            assert observer["rawBlocks"] == []
+            assert observer["partialRaw"] == ""
+            assert observer["parserFailure"] is None
+            assert observer["failureDiagnostic"] is None
+            assert "23" in artifact["commandError"]["message"]
+        else:
+            observer = artifact["observer"]
+            assert observer["parsedEventCount"] == 1
+            # The parser emits once the event fields are complete, before it
+            # consumes the blank record delimiter. Guardian stop therefore
+            # truthfully retains this event as a partial raw tail.
+            assert observer["rawBlocks"] == []
+            assert observer["partialRaw"].startswith("EVENT type 13 (RawKeyPress)")
+            assert "detail: 50" in observer["partialRaw"]
+            assert observer["parserFailure"] is None
+            assert observer["rawTruncated"] is False
+        assert "desktop command failed" in str(failure.value)
+    finally:
+        if injector is not None and injector.is_alive():
+            if writer_fd >= 0:
+                try:
+                    os.close(writer_fd)
+                except OSError:
+                    pass
+            injector.join(timeout=2.0)
+        if monitor is not None and driver is not None and driver._monitor is monitor:
+            try:
+                driver.stop_input_observer(monitor)
+            except Exception:
+                pass
+        if reader is not None:
+            reader.close()
+        if driver is not None:
+            driver.close()
+        elif tool is not None:
+            tool.close()
+        if read_fd >= 0:
+            os.close(read_fd)
+        if server is not None:
+            server.terminate()
+            server.wait(timeout=5)
 
 
 class _TestGuardian:
@@ -1548,6 +1876,125 @@ def _takeover_drill_fixture(tmp_path, evidence, human_event):
     daemon._takeover_event = None
     daemon_ref["daemon"] = daemon
     return daemon, driver, guardian, monitor, controller
+
+
+def _hover_failure_context(raw_blocks: list[str]) -> dict[str, Any]:
+    reason = "unattributed XI2 event class=RawKeyPress source=9 target=None"
+    return {
+        "schema": "crowley.takeover-hover-failure",
+        "schemaVersion": 1,
+        "stage": "pointer_emission",
+        "guardianBeforeCleanup": {
+            "generation": 72,
+            "armed": False,
+            "held": False,
+            "revokedReason": reason,
+        },
+        "guardianAfterCleanup": {
+            "generation": 72,
+            "armed": False,
+            "held": False,
+            "revokedReason": reason,
+        },
+        "expectedAction": {
+            "name": "takeover_hover",
+            "expectedMotionCount": 31,
+            "argv": ["xdotool", "mousemove", "10", "20", "sleep", "0.1"],
+        },
+        "observer": {
+            "rawBlocks": raw_blocks,
+            "partialRaw": "",
+            "rawBytes": sum(len(block.encode("utf-8")) for block in raw_blocks),
+            "rawBytesSeen": sum(len(block.encode("utf-8")) for block in raw_blocks),
+            "rawBlocksSeen": len(raw_blocks),
+            "rawCompleteBlocksSeen": len(raw_blocks),
+            "rawBlocksRetained": len(raw_blocks),
+            "rawTruncated": False,
+            "parsedEventCount": len(raw_blocks),
+            "parserFailure": None,
+            "failureDiagnostic": None,
+            "observerAlive": False,
+        },
+    }
+
+
+def test_takeover_hover_failure_is_private_bounded_and_preserves_first_cause(tmp_path: Path) -> None:
+    _identity, _environment, evidence = _runtime_evidence()
+    raw_record = "EVENT type 13 (RawKeyPress)\ndevice: 3 (9)\ntime: 10\ndetail: 50\n\n"
+    daemon, driver, guardian, _monitor, controller = _takeover_drill_fixture(tmp_path, evidence, None)
+    daemon.config = SimpleNamespace(journal=tmp_path / "session.json")
+    driver._last_takeover_hover_failure_context = _hover_failure_context([raw_record])
+
+    def failed_hover(_generation, _evidence):
+        guardian.armed = False
+        raise DriverError(
+            "desktop command failed: xdotool mousemove 123 456 sleep 0.1 " + ("long-argv " * 200)
+        )
+
+    driver.run_takeover_hover = failed_hover
+    with pytest.raises(DriverError) as failure:
+        daemon.run_takeover_drill(expected_generation=70)
+
+    assert str(failure.value).startswith("takeover hover Guardian revocation: unattributed XI2 event")
+    assert str(failure.value).index("unattributed XI2 event") < str(failure.value).index(
+        "desktop command failed"
+    )
+    assert controller.persisted == []
+    assert daemon._takeover_drill_operation["state"] == "failed"
+    artifact_path = tmp_path / "takeover-drill-diagnostics" / "latest-hover-failure.json"
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+    assert artifact["observer"]["rawBlocks"] == [raw_record]
+    assert "-15" not in artifact["commandError"]["message"]
+    assert "desktop command failed" in artifact["commandError"]["message"]
+    assert artifact["cleanup"]["resourcesUnresolved"] is False
+    assert artifact["cleanup"]["driverMonitorRegisteredAfterCleanup"] is False
+    assert artifact["cleanup"]["guardianArmed"] is False
+    assert stat.S_IMODE(artifact_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(artifact_path.parent.stat().st_mode) == 0o700
+
+
+def test_takeover_hover_failure_diagnostic_write_error_does_not_mask_command_error(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _identity, _environment, evidence = _runtime_evidence()
+    daemon, driver, guardian, _monitor, controller = _takeover_drill_fixture(tmp_path, evidence, None)
+    daemon.config = SimpleNamespace(journal=tmp_path / "session.json")
+    driver._last_takeover_hover_failure_context = _hover_failure_context([])
+
+    def failed_hover(_generation, _evidence):
+        guardian.armed = False
+        raise DriverError("desktop command failed: private emitter terminated with signal 15")
+
+    driver.run_takeover_hover = failed_hover
+
+    def failed_persist(_context):
+        raise OSError("private diagnostic disk write failed")
+
+    monkeypatch.setattr(daemon, "_persist_takeover_hover_failure", failed_persist)
+    with pytest.raises(DriverError, match="Guardian revocation: unattributed XI2 event") as failure:
+        daemon.run_takeover_drill(expected_generation=70)
+
+    assert "desktop command failed" in str(failure.value)
+    assert "private diagnostic disk write failed" not in str(failure.value)
+    assert controller.persisted == []
+    assert daemon._takeover_drill_operation["state"] == "failed"
+    assert not (tmp_path / "takeover-drill-diagnostics" / "latest-hover-failure.json").exists()
+
+
+def test_takeover_hover_failure_artifact_discards_raw_overflow(tmp_path: Path) -> None:
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon.config = SimpleNamespace(journal=tmp_path / "session.json")
+    raw_overflow = "x" * (2 * 1024 * 1024 + 1)
+    artifact_path = daemon._persist_takeover_hover_failure(_hover_failure_context([raw_overflow]))
+    artifact = json.loads(artifact_path.read_text(encoding="utf-8"))
+
+    assert artifact["artifactTruncated"] is True
+    assert artifact["observer"]["rawBlocks"] == []
+    assert artifact["observer"]["partialRaw"] == ""
+    assert artifact["observer"]["rawTruncated"] is True
+    assert artifact_path.stat().st_size <= 2 * 1024 * 1024
+    assert stat.S_IMODE(artifact_path.stat().st_mode) == 0o600
+    assert stat.S_IMODE(artifact_path.parent.stat().st_mode) == 0o700
 
 
 def test_takeover_drill_requires_non_xtest_sample_and_releases_before_persist(tmp_path) -> None:

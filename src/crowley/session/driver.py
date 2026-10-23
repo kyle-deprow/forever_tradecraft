@@ -5154,6 +5154,7 @@ class DesktopDriver:
         self._measured_anchor_generations: dict[str, int] = {}
         self._consumed_anchor_seals: set[str] = set()
         self._pointer_gesture_receipts: list[dict[str, Any]] = []
+        self._last_takeover_hover_failure_context: dict[str, Any] | None = None
 
     @property
     def queued_calibration_count(self) -> int:
@@ -8140,6 +8141,10 @@ class DesktopDriver:
     def run_takeover_hover(self, generation: int, evidence: RuntimeInputEvidence) -> HumanPointerPlan:
         """Emit one guarded clickless curved hover for the takeover drill."""
 
+        self._last_takeover_hover_failure_context = None
+        started_wall_ns = time.time_ns()
+        started_monotonic_ns = time.monotonic_ns()
+        stage = "validate_evidence"
         if not isinstance(self.backend, X11Backend) or not isinstance(evidence, RuntimeInputEvidence):
             raise DriverError("takeover hover requires live native runtime evidence")
         evidence.verify_seal()
@@ -8194,6 +8199,7 @@ class DesktopDriver:
             max_duration=max(0.8, self.pointer_motion_profile.max_duration),
         )
         try:
+            stage = "plan_motion"
             gesture = plan_human_pointer(start, target, client_bounds, button=None, profile=motion_profile)
             trajectory = gesture.trajectory
             if gesture.click is not None or trajectory.endpoint == start:
@@ -8232,6 +8238,7 @@ class DesktopDriver:
             for event_class in event_classes
         }
         expected_origin = (root_x, root_y, root_x, root_y)
+        monitor = self._monitor
         action = self.guardian.begin_action(
             generation,
             target_xid=identity.child_xid,
@@ -8262,22 +8269,25 @@ class DesktopDriver:
                 if current_pointer != (root_x, root_y, pointer_window):
                     raise DriverError("takeover hover pointer moved before owned dispatch")
 
+            stage = "dispatch_admission"
             self.guardian.dispatch_admission(generation, admit_hover)
+            stage = "pointer_emission"
             self.backend._run(
                 chain,
                 generation=generation,
                 input_schema="pointer-motion",
                 expected_argv=tuple(chain),
             )
-            monitor = self._monitor
             if monitor is None or not monitor.alive:
                 raise DriverError("takeover hover lost the registered XI2 observer")
+            stage = "wait_for_motion_trace"
             monitor.wait_for_event(
                 lambda _events: self.guardian.action is not None and self.guardian.action.complete,
                 timeout=max(TAKEOVER_DRILL_HOVER_OBSERVATION_TIMEOUT_SECONDS, trajectory.duration + 1.0),
             )
             if self.guardian.action is not action or not action.complete:
                 raise DriverError("takeover hover lacks a complete raw/delivered motion trace")
+            stage = "verify_post_dispatch_identity"
             fresh = self.resolve_identity(require_foreground=True)
             if fresh.fingerprint != identity.fingerprint:
                 raise DriverError("takeover hover game identity changed during dispatch")
@@ -8286,9 +8296,109 @@ class DesktopDriver:
                 action="takeover_hover", generation=generation, gesture=gesture, accepted=True
             )
             return gesture
-        except Exception:
+        except Exception as exc:
+
+            def guardian_snapshot() -> dict[str, Any]:
+                try:
+                    return {
+                        "generation": self.guardian.generation,
+                        "armed": self.guardian.armed,
+                        "held": self.guardian.held,
+                        "revokedReason": self.guardian.revoked_reason,
+                    }
+                except Exception as snapshot_exc:
+                    return {
+                        "snapshotError": (
+                            f"{type(snapshot_exc).__name__}: {' '.join(str(snapshot_exc).split())[:2048]}"
+                        )
+                    }
+
+            guardian_before_cleanup = guardian_snapshot()
+            context: dict[str, Any] = {
+                "schema": "crowley.takeover-hover-failure",
+                "schemaVersion": 1,
+                "startedWallTimeNs": started_wall_ns,
+                "failedWallTimeNs": time.time_ns(),
+                "startedMonotonicNs": started_monotonic_ns,
+                "failedMonotonicNs": time.monotonic_ns(),
+                "stage": stage,
+                "exceptionType": type(exc).__name__,
+                "exception": " ".join(str(exc).split())[:8192],
+                "guardianBeforeCleanup": guardian_before_cleanup,
+                "identity": {
+                    "fingerprint": identity.fingerprint,
+                    "processStart": identity.process_start,
+                    "clientXid": identity.child_xid,
+                    "geometry": list(identity.child_geometry),
+                    "targetEventXids": sorted(identity.target_event_xids),
+                },
+                "inputBinding": {
+                    "runtimeGeneration": generation,
+                    "environmentFingerprint": evidence.environment_fingerprint,
+                    "syntheticPointerMaster": master,
+                    "syntheticPointerSource": source,
+                    "forwardedEchoSources": sorted(evidence.forwarded_echo_sources),
+                },
+                "expectedAction": {
+                    "name": "takeover_hover",
+                    "targetXid": action.target_xid,
+                    "targetEventXids": sorted(action.expected_child_xids),
+                    "sourceDevice": action.source_device,
+                    "masterDevice": action.master_device,
+                    "eventClasses": sorted(action.event_classes),
+                    "expectedMotionTrace": [list(row) for row in action.expected_motion_trace],
+                    "expectedMotionCount": len(action.expected_motion_trace),
+                    "motionIndex": action.motion_index,
+                    "sequenceIndex": action.sequence_index,
+                    "pendingEchoCount": len(action.pending_echoes),
+                    "rawMotionPending": bool(action.raw_motion_pairing.pending),
+                    "complete": action.complete,
+                    "argv": list(chain),
+                    "gesture": {
+                        "seed": gesture.seed,
+                        "endpoint": [int(gesture.endpoint.x), int(gesture.endpoint.y)],
+                        "movementDuration": gesture.movement_duration,
+                        "dwell": gesture.dwell,
+                        "submovementCount": len(gesture.waypoints),
+                    },
+                },
+            }
+            process = getattr(getattr(monitor, "observer", None), "process", None)
+            observer_pid = getattr(process, "pid", None)
+            if isinstance(observer_pid, int) and not isinstance(observer_pid, bool) and observer_pid > 0:
+                context["observerProcessId"] = observer_pid
+            cleanup_error: str | None = None
             if self.guardian.armed and self.guardian.generation == generation:
-                self.revoke("takeover hover failed before its motion trace completed")
+                try:
+                    self.revoke("takeover hover failed before its motion trace completed")
+                except Exception as cleanup_exc:
+                    cleanup_error = (
+                        f"{type(cleanup_exc).__name__}: {' '.join(str(cleanup_exc).split())[:2048]}"
+                    )
+            context["guardianAfterCleanup"] = guardian_snapshot()
+            # The native process can report signal termination while the
+            # observer's revocation callback is still finishing on its reader
+            # thread. Record what was true at this failure snapshot; the
+            # daemon adds a separate post-cleanup ownership result.
+            context["observerRegisteredAtFailureCapture"] = self._monitor is monitor
+            if monitor is not None:
+                try:
+                    context["observerAliveAtFailureCapture"] = bool(monitor.alive)
+                except Exception as snapshot_exc:
+                    context["observerAliveSnapshotError"] = (
+                        f"{type(snapshot_exc).__name__}: {' '.join(str(snapshot_exc).split())[:2048]}"
+                    )
+            if cleanup_error is not None:
+                context["driverCleanupError"] = cleanup_error
+            snapshot = getattr(monitor, "diagnostic_snapshot", None)
+            if callable(snapshot):
+                try:
+                    context["observer"] = snapshot()
+                except Exception as snapshot_exc:
+                    context["observerSnapshotError"] = (
+                        f"{type(snapshot_exc).__name__}: {' '.join(str(snapshot_exc).split())[:2048]}"
+                    )
+            self._last_takeover_hover_failure_context = context
             raise
 
     def prepare_command(
