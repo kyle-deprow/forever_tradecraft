@@ -2537,6 +2537,295 @@ def test_agent_samples_actual_motion_and_changed_values_are_fresh():
     assert decoded.snapshot["motion"] == second["motion"]
 
 
+def test_hud_visibility_hides_all_cells_stops_publication_and_bare_command_toggles():
+    client = WowClient()
+    client.set_canonical_plan()
+    client.login()
+
+    agent = client.ns.Agent
+    surface = agent.Surface()
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is False
+    original_bytes = client.agent_frame
+    original = decode_frame(original_bytes).snapshot
+    original_boot = agent.Boot()
+    original_count = int(agent.Snapshot().render.updateCount)
+    old_update = surface.onUpdate
+    geometry = (
+        surface.scale,
+        surface.width,
+        surface.height,
+        surface.point[1],
+        surface.point[2].name,
+        surface.point[3],
+        surface.point[4],
+        surface.point[5],
+    )
+    texture_count = client.texture_count
+
+    client.slash("hud hide")
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is True
+    assert agent.HudHidden() is True
+    assert surface.IsShown(surface) is False
+    assert surface.onUpdate is None
+    assert client.visible_native_textures and not any(client.visible_native_textures)
+    assert agent.FrameBytes() is None
+    assert client._json_table(client.lua.globals().CrowleyDB.settings)["hudHidden"] is True
+    assert "required for agent operation" in client.chat[-1]
+    assert "does not pause the controller" in client.chat[-1]
+
+    # Even a callback captured before SetScript(nil) cannot publish while hidden.
+    old_update(surface, 1)
+    assert int(agent.Snapshot().render.updateCount) == original_count
+    with pytest.raises(Exception, match="agent_hud_hidden"):
+        agent.Publish()
+
+    client.slash("hud status")
+    assert "telemetry HUD is hidden" in client.chat[-1]
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.advance_with_timers(5)
+    assert agent.HudHidden() is True
+    assert surface.IsShown(surface) is False
+    assert surface.onUpdate is None
+
+    client.slash("hud")
+    assert agent.HudHidden() is False
+    assert agent.FrameBytes() is not None
+    shown = decode_frame(client.agent_frame).snapshot
+    assert shown["sequence"] > original["sequence"]
+    assert shown["schema"] == original["schema"]
+    assert agent.Boot() == original_boot
+    assert surface.IsShown(surface) is True
+    assert surface.onUpdate is not None
+    assert all(client.visible_native_textures)
+    assert client.texture_count == texture_count
+    assert (
+        surface.scale,
+        surface.width,
+        surface.height,
+        surface.point[1],
+        surface.point[2].name,
+        surface.point[3],
+        surface.point[4],
+        surface.point[5],
+    ) == geometry
+
+    current_update_count = int(agent.Snapshot().render.updateCount)
+    client.slash("hud show")
+    assert int(agent.Snapshot().render.updateCount) == current_update_count
+    assert surface.onUpdate is not None
+    assert client.texture_count == texture_count
+    client.update_agent(1)
+    assert int(agent.Snapshot().render.updateCount) == current_update_count + 1
+
+    client.slash("hud hide")
+    client.slash("hud hide")
+    assert agent.HudHidden() is True
+    assert agent.FrameBytes() is None
+    assert surface.onUpdate is None
+
+    persisted = savedvars.loads(client.saved_variables())["CrowleyDB"]
+    reloaded = WowClient(initial_savedvars=persisted)
+    reloaded.login()
+    assert reloaded.lua.globals().CrowleyDB.settings.hudHidden is True
+    assert reloaded.ns.Agent.Surface() is None
+    assert reloaded.ns.Agent.FrameBytes() is None
+
+
+def test_persisted_hidden_hud_boot_has_no_surface_and_show_publishes_fresh_frame():
+    client = WowClient(initial_savedvars={"settings": {"hudHidden": True}})
+    client.login()
+
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is True
+    assert client.ns.Agent.HudHidden() is True
+    assert client.ns.Agent.Surface() is None
+    assert client.ns.Agent.FrameBytes() is None
+    assert client.texture_count == 0
+    with pytest.raises(Exception, match="agent_hud_hidden"):
+        client.ns.Agent.Publish()
+
+    client.fire("AUCTION_HOUSE_SHOW")
+    client.advance_with_timers(10)
+    assert client.ns.Agent.Surface() is None
+
+    client.slash("hud show")
+    surface = client.ns.Agent.Surface()
+    assert surface is not None and surface.IsShown(surface)
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is False
+    assert client.ns.Agent.HudHidden() is False
+    assert client.ns.Agent.FrameBytes() is not None
+    assert surface.onUpdate is not None
+    assert client.texture_count == 2048
+
+
+def test_hud_show_publication_failure_stays_hidden_and_hide_works_after_publish_failure():
+    hidden = WowClient(initial_savedvars={"settings": {"hudHidden": True}})
+    hidden.login()
+    codec = hidden.lua.globals().C_EncodingUtil
+    serialize = codec.SerializeJSON
+    codec.SerializeJSON = hidden.lua.eval("function(_) error('forced publication failure') end")
+
+    hidden.slash("hud show")
+    assert "refused" in hidden.chat[-1]
+    assert "publication_failed" in hidden.chat[-1]
+    assert hidden.lua.globals().CrowleyDB.settings.hudHidden is True
+    assert hidden.ns.Agent.HudHidden() is True
+    assert hidden.ns.Agent.Surface() is None
+    assert hidden.ns.Agent.FrameBytes() is None
+    assert hidden.texture_count == 2048
+    assert not any(hidden.visible_native_textures)
+
+    codec.SerializeJSON = serialize
+    hidden.slash("hud show")
+    assert "telemetry HUD visible" in hidden.chat[-1]
+    assert hidden.ns.Agent.FrameBytes() is not None
+
+    visible = WowClient()
+    visible.login()
+    visible_codec = visible.lua.globals().C_EncodingUtil
+    visible_codec.SerializeJSON = visible.lua.eval("function(_) error('forced publication failure') end")
+    with pytest.raises(Exception, match="forced publication failure"):
+        visible.ns.Agent.Publish()
+    assert visible.ns.Agent.FrameBytes() is not None  # Previous bytes are retained until Hide.
+
+    visible.slash("hud hide")
+    assert "telemetry HUD hidden" in visible.chat[-1]
+    assert visible.lua.globals().CrowleyDB.settings.hudHidden is True
+    assert visible.ns.Agent.FrameBytes() is None
+    assert visible.ns.Agent.Surface().onUpdate is None
+    assert not any(visible.visible_native_textures)
+
+
+@pytest.mark.parametrize("transaction", ["agent hold", "agent defer"])
+def test_hud_visibility_mutation_refuses_while_native_lifecycle_owns_surface(transaction: str):
+    client = WowClient()
+    client.login()
+    client.slash(transaction)
+    assert "accepted" in client.chat[-1]
+    before_marker = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    before_lifecycle = client.ns.Agent.Lifecycle()
+    before_native = client._json_table(client.ns.Agent.NativeState())
+    before_fence = client.ns.Scanner.NativeConstructionFence()
+
+    client.slash("hud hide")
+    assert "native_lifecycle_owns_surface" in client.chat[-1]
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is False
+    assert client.ns.Agent.HudHidden() is False
+    assert client.ns.Agent.Surface().IsShown(client.ns.Agent.Surface()) is True
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == before_marker
+    assert client.ns.Agent.Lifecycle() == before_lifecycle
+    assert client._json_table(client.ns.Agent.NativeState()) == before_native
+    assert client.ns.Scanner.NativeConstructionFence() == before_fence
+    assert client.reload_calls == 0
+
+
+@pytest.mark.parametrize("persisted_hidden", [False, True], ids=["hide-existing", "hidden-boot"])
+@pytest.mark.parametrize("entry", ["agent hold", "agent defer"])
+def test_hidden_hud_rejects_native_entry_before_mutation_and_show_restores_entry(
+    persisted_hidden: bool, entry: str
+):
+    saved = {"settings": {"hudHidden": True}} if persisted_hidden else None
+    client = WowClient(initial_savedvars=saved)
+    client.login()
+    if not persisted_hidden:
+        client.slash("hud hide")
+
+    agent = client.ns.Agent
+    assert agent.HudHidden() is True
+    before_lifecycle = agent.Lifecycle()
+    before_native = client._json_table(agent.NativeState())
+    before_marker = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    before_fence = client.ns.Scanner.NativeConstructionFence()
+    before_timers = queued_timer_count(client)
+    before_reload_calls = client.reload_calls
+
+    client.slash(entry)
+    assert "agent_hud_hidden" in client.chat[-1]
+    assert agent.Lifecycle() == before_lifecycle
+    assert client._json_table(agent.NativeState()) == before_native
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) == before_marker
+    assert client.ns.Scanner.NativeConstructionFence() == before_fence
+    assert queued_timer_count(client) == before_timers
+    assert client.reload_calls == before_reload_calls
+    assert agent.HudHidden() is True
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is True
+    surface = agent.Surface()
+    assert surface is None or surface.IsShown(surface) is False
+
+    client.slash("hud show")
+    assert "telemetry HUD visible" in client.chat[-1]
+    assert agent.HudHidden() is False
+    assert agent.FrameBytes() is not None
+    assert agent.Surface().IsShown(agent.Surface()) is True
+
+    client.slash(entry)
+    assert "accepted" in client.chat[-1]
+    if entry == "agent hold":
+        assert client._json_table(agent.NativeState()) == {"phase": "held", "ordinal": 0}
+        assert client.lua.globals().CrowleyDB.nativeConstruction is None
+        assert client.ns.Scanner.NativeConstructionFence() is False
+    else:
+        assert client.lua.globals().CrowleyDB.nativeConstruction.state == "armed"
+        assert client.ns.Scanner.NativeConstructionFence() is True
+
+
+def test_hidden_hud_rejects_all_public_native_lifecycle_apis_without_side_effects():
+    client = WowClient(initial_savedvars={"settings": {"hudHidden": True}})
+    client.login()
+    agent = client.ns.Agent
+    before_lifecycle = agent.Lifecycle()
+    before_native = client._json_table(agent.NativeState())
+    before_marker = client._json_table(client.lua.globals().CrowleyDB.nativeConstruction)
+    before_fence = client.ns.Scanner.NativeConstructionFence()
+    before_timers = queued_timer_count(client)
+
+    for name in (
+        "AdmitRelease",
+        "BeginRecovery",
+        "Construct",
+        "Restore",
+        "Finalize",
+        "Hold",
+        "Measure",
+        "Resume",
+    ):
+        assert getattr(agent, name)() == (False, "agent_hud_hidden"), name
+
+    assert agent.Lifecycle() == before_lifecycle == "ordinary"
+    assert client._json_table(agent.NativeState()) == before_native
+    assert before_marker is None
+    assert client._json_table(client.lua.globals().CrowleyDB.nativeConstruction) is before_marker
+    assert before_fence is False
+    assert client.ns.Scanner.NativeConstructionFence() == before_fence
+    assert queued_timer_count(client) == before_timers
+    assert client.reload_calls == 0
+    assert agent.FrameBytes() is None
+    assert agent.HudHidden() is True
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is True
+
+    client.slash("hud show")
+    assert "telemetry HUD visible" in client.chat[-1]
+    assert agent.FrameBytes() is not None
+
+
+def test_hud_command_rejects_extra_or_unknown_arguments():
+    client = WowClient()
+    client.login()
+    surface = client.ns.Agent.Surface()
+
+    client.slash("hud hide extra")
+    assert "usage: /crowley hud" in client.chat[-2]
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is False
+    assert surface.IsShown(surface) is True
+
+    client.slash("hud toggle")
+    assert "usage: /crowley hud" in client.chat[-2]
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is False
+
+    client.slash("hud unknown")
+    assert "usage: /crowley hud" in client.chat[-2]
+    assert client.lua.globals().CrowleyDB.settings.hudHidden is False
+
+
 def test_agent_publishes_strict_auctioneer_and_ctrl_f12_native_facts():
     client = WowClient()
     client.set_canonical_plan()

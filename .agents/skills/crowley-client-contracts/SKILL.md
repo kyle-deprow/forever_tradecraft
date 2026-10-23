@@ -25,6 +25,9 @@ Pinned development dependencies permit offline composition before live acceptanc
 finish assigned composition tests instead of deferring them as parent verification.
 Before claiming completion, map each assigned race/deadline requirement to its
 actual regression and result; a broad green total does not cover an omitted case.
+Test ownership transitions in both orders. A hidden resource can still exist;
+diagnostic admission must check its active state before changing markers or
+fences, and refusal must leave the normal restore controls usable.
 Exercise an input that distinguishes the fix from the old behavior: ordinary
 focus does not test an ancestor walk. Freeze only after the final edit and checks;
 any later source edit invalidates that manifest and needs a new explicit freeze.

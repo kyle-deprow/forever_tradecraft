@@ -1,13 +1,56 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-23 01:13 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-23 01:43 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**CURRENT: ASSISTED COLLECTION WORKS; LIVE HOVER BLOCKS HUMAN DRILL.**
+**USER DIRECTION: ASSUME THE BETA IS OVER.** End live collection, reconnects,
+recovery and calibration appointments. The game operator has been told to stop;
+`crowley-session.service` is stopped and disabled (independently verified
+inactive/disabled). Do not re-enable or resume scans without a new user update.
+Keep existing data/evidence and focus on offline launch readiness. Scan290 is
+the last fully verified complete/uploaded/loaded-ACK sweep. Partial291 is not
+yet durable or uploaded. The separately scoped
+motion-correlation fix continues offline, with native eventual-echo delivery
+explicitly unqualified; no live acceptance is authorized by these code changes.
+
+**HUD visibility implemented and promoted to source.** `/crowley hud` toggles;
+`/crowley hud hide`, `show`, `status` make/check an explicit choice. Preference
+persists across reloads. Hidden HUD has no periodic updates or stale frame bytes;
+show publishes fresh bytes at original geometry. Native diagnostic ownership
+is protected in both command orders. This is display-only, not a controller
+pause or scanner mode change. The installed addon symlinks MAIN; commands become
+available at the next user-owned addon load/reload. No live reload was sent.
+Luna265PASS22.25s; parent265PASS21.82s/Ruff/format/diff; Sol READY/no Must or
+Should. Read [the plan](../.archive/PLAN-hud-visibility-20261023.md).
+Private R2 `executor-evidence/hud-visibility-20261023-r2/`, cumulative patch
+3165f785af01b282b66329a2b71336c31afca98fbade4568361a67d9fdb9ce5b;
+Sol review6c28576bba3198ff93575270674d8f0a34d28e26cdd89033b91c8c9790d7f6e4.
+Agent.lua source now05ddf75815b322e2e925cacda7d588bead223d3f9bbe162c82061886982ec4ea.
+Earlier live runtime manifests below describe the pre-HUD baseline, not current
+source; do not reuse them as current dispatch pins. Service stays disabled.
+
+**NEW LIVE BLOCKER: ARTHUR DIED BESIDE JAXON.** At01:17:07UTC the retained
+scan291 watcher image shows the Release Spirit dialog and Arthur's corpse.
+No input had been sent since the scan-start click at01:11:11. Death cause is
+unknown; the adjacent protected/secret-value telemetry error does not establish
+causation. User has been notified; all game input is held pending recovery
+preference. Do not release spirit, navigate or run the ordinary reload helper
+through the modal. Scan291 terminated early: UID
+`beta-normal-alliance-1792717871-Arthur-6563`, finished1792718223,
+254attempts/177failures/370rows/428planned, pending1 in retainedHUD.
+**This partial is still memory/HUD-only:** preserved pre-reload SavedVariables
+does not contain its UID; no upload or loadedACK exists. Preserve evidence under
+`scan291-partial-preserve-20261023T0118Z/preservation.json` in assisted-collection
+evidence. Screenshot `scan291-watch-prestage-20261023T0106Z/029-full.png` also
+shows Agent.lua165/586 failing on a secret number. Offline motion-correlation
+work continues in its isolated worktree; earlier active291 statements below
+are superseded by this death/hold.
+
+**Last live collection state (superseded by beta cutoff above).**
 Exclusive GUI owner `/root/luna_assisted_scanner` is explicitly authorized to
 collect. Arthur remains in Stormwind next to Jaxon; no navigation/trades.
 **Active assisted scan291:** actual start01:11:11UTC (1792717871), due01:26:11UTC
