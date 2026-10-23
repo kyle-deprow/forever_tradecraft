@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import grp
 import hashlib
 import os
+import pwd
 import re
 import stat
 import tomllib
@@ -18,6 +20,53 @@ from .driver import DriverProfile
 _CANONICAL_CLIENT_VERSION, _CANONICAL_CLIENT_BUILD = load_catalog().client_build.rsplit(".", 1)
 
 
+def _private_group_error(gid: int) -> str | None:
+    """Return why *gid* is not the current user's private primary group."""
+
+    current_gid = os.getgid()
+    if gid != current_gid:
+        return f"gid {gid} differs from the current user's gid {current_gid}"
+    try:
+        user_name = pwd.getpwuid(os.getuid()).pw_name
+    except (KeyError, OSError) as exc:
+        return f"current user cannot be resolved for gid {gid}: {exc}"
+    try:
+        group = grp.getgrgid(gid)
+    except KeyError:
+        return f"gid {gid} has no group entry"
+    if group.gr_name != user_name:
+        return f"group name {group.gr_name!r} does not match user {user_name!r}"
+    if group.gr_mem not in ([], [user_name]):
+        return f"group {group.gr_name!r} has members other than {user_name!r}"
+    try:
+        current_uid = os.getuid()
+        other_primary_users = [
+            entry.pw_name for entry in pwd.getpwall() if entry.pw_gid == gid and entry.pw_uid != current_uid
+        ]
+    except (KeyError, OSError) as exc:
+        return f"primary-group accounts cannot be resolved for gid {gid}: {exc}"
+    if other_primary_users:
+        return f"gid {gid} is also a primary group for {other_primary_users[0]!r}"
+    return None
+
+
+def _validate_route_metadata(metadata: object, *, parent: bool) -> None:
+    if parent:
+        if not stat.S_ISDIR(metadata.st_mode):
+            raise ValueError("routes_file parent directory must be a directory")
+        label = "routes_file parent directory"
+    else:
+        if not stat.S_ISREG(metadata.st_mode) or metadata.st_uid != os.getuid():
+            raise ValueError("routes_file must be a user-owned regular file")
+        label = "routes_file"
+    if metadata.st_mode & stat.S_IWOTH:
+        raise ValueError(f"{label} must not be world writable")
+    if metadata.st_mode & stat.S_IWGRP:
+        reason = _private_group_error(metadata.st_gid)
+        if reason is not None:
+            raise ValueError(f"{label} group write requires a private group: {reason}")
+
+
 def open_routes_descriptor(path: Path) -> int:
     """Open a configured routes file and validate the opened objects.
 
@@ -30,19 +79,13 @@ def open_routes_descriptor(path: Path) -> int:
     parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
     try:
         parent_stat = os.fstat(parent_fd)
-        if not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
-            raise ValueError("routes_file parent directory must not be group/world writable")
+        _validate_route_metadata(parent_stat, parent=True)
         descriptor = os.open(path.name, flags, dir_fd=parent_fd)
     finally:
         os.close(parent_fd)
     try:
         metadata = os.fstat(descriptor)
-        if (
-            not stat.S_ISREG(metadata.st_mode)
-            or metadata.st_uid != os.getuid()
-            or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
-        ):
-            raise ValueError("routes_file must be a user-owned regular file without group/world write access")
+        _validate_route_metadata(metadata, parent=False)
         return descriptor
     except Exception:
         os.close(descriptor)

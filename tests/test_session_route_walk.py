@@ -1381,16 +1381,119 @@ def test_world_click_emits_exactly_one_click_and_uses_after_release_boundary(
     assert state["observations"][0] is True
 
 
-def test_routes_descriptor_rejects_writable_parent_and_file(tmp_path: Path) -> None:
+def _patch_route_group(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    gid: int,
+    group_name: str = "route-user",
+    members: list[str] | None = None,
+    other_primary_users: list[str] | None = None,
+) -> None:
+    user_name = "route-user"
+    monkeypatch.setattr(config_module.os, "getgid", lambda: gid)
+    monkeypatch.setattr(
+        config_module.pwd,
+        "getpwuid",
+        lambda _uid: SimpleNamespace(pw_name=user_name),
+    )
+    monkeypatch.setattr(
+        config_module.grp,
+        "getgrgid",
+        lambda _gid: SimpleNamespace(gr_name=group_name, gr_mem=members or []),
+    )
+    uid = os.getuid()
+    primary_users = [SimpleNamespace(pw_name=user_name, pw_uid=uid, pw_gid=gid)]
+    primary_users.extend(
+        SimpleNamespace(pw_name=name, pw_uid=uid + 1 + index, pw_gid=gid)
+        for index, name in enumerate(other_primary_users or [])
+    )
+    monkeypatch.setattr(config_module.pwd, "getpwall", lambda: primary_users)
+
+
+def _patch_route_stat_gid(monkeypatch: pytest.MonkeyPatch, gid: int) -> None:
+    real_fstat = config_module.os.fstat
+
+    def with_gid(fd: int) -> object:
+        metadata = real_fstat(fd)
+        return SimpleNamespace(
+            st_mode=metadata.st_mode,
+            st_uid=metadata.st_uid,
+            st_gid=gid,
+        )
+
+    monkeypatch.setattr(config_module.os, "fstat", with_gid)
+
+
+def test_routes_descriptor_accepts_private_group_writable_parent_and_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     routes = tmp_path / "routes.json"
     routes.write_text("{}", encoding="utf-8")
     os.chmod(routes, 0o664)
-    with pytest.raises(ValueError, match="user-owned regular file"):
+    os.chmod(tmp_path, 0o775)
+    _patch_route_group(monkeypatch, gid=41000)
+    _patch_route_stat_gid(monkeypatch, 41000)
+    descriptor = open_routes_descriptor(routes)
+    os.close(descriptor)
+
+
+@pytest.mark.parametrize("members", [[], ["route-user"]], ids=["no-members", "only-the-user"])
+def test_routes_descriptor_accepts_private_group_membership_forms(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, members: list[str]
+) -> None:
+    routes = tmp_path / "routes.json"
+    routes.write_text("{}", encoding="utf-8")
+    os.chmod(routes, 0o664)
+    os.chmod(tmp_path, 0o775)
+    _patch_route_group(monkeypatch, gid=41000, members=members)
+    _patch_route_stat_gid(monkeypatch, 41000)
+    os.close(open_routes_descriptor(routes))
+
+
+@pytest.mark.parametrize("writable", ["parent", "file"])
+@pytest.mark.parametrize(
+    ("group", "message"),
+    [
+        ({"members": ["route-user", "other-user"]}, "members other"),
+        ({"other_primary_users": ["other-user"]}, "primary group"),
+        # Same name, different uid: still a foreign account.
+        ({"other_primary_users": ["route-user"]}, "primary group"),
+        ({"group_name": "shared"}, "does not match user"),
+        ({"gid": 41001}, "differs"),
+    ],
+    ids=["shared-member", "other-primary-account", "same-name-other-uid", "group-name-mismatch", "other-gid"],
+)
+def test_routes_descriptor_rejects_non_private_group_write_on_parent_or_file(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    writable: str,
+    group: dict[str, object],
+    message: str,
+) -> None:
+    # Only one of parent and file is group-writable, so each check is exercised on its own.
+    routes = tmp_path / "routes.json"
+    routes.write_text("{}", encoding="utf-8")
+    os.chmod(routes, 0o664 if writable == "file" else 0o644)
+    os.chmod(tmp_path, 0o775 if writable == "parent" else 0o755)
+    settings = {"gid": 41000, **group}
+    _patch_route_group(monkeypatch, **settings)  # type: ignore[arg-type]
+    _patch_route_stat_gid(monkeypatch, 41000)
+    label = "parent directory" if writable == "parent" else "routes_file group write"
+    with pytest.raises(ValueError, match=message) as error:
+        open_routes_descriptor(routes)
+    assert label in str(error.value)
+
+
+def test_routes_descriptor_rejects_world_writable_file_or_parent(tmp_path: Path) -> None:
+    routes = tmp_path / "routes.json"
+    routes.write_text("{}", encoding="utf-8")
+    os.chmod(routes, 0o666)
+    with pytest.raises(ValueError, match="world writable"):
         open_routes_descriptor(routes)
     os.chmod(routes, 0o600)
     os.chmod(tmp_path, 0o777)
     try:
-        with pytest.raises(ValueError, match="parent directory"):
+        with pytest.raises(ValueError, match="world writable"):
             open_routes_descriptor(routes)
     finally:
         os.chmod(tmp_path, 0o700)
