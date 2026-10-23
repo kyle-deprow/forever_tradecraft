@@ -1160,6 +1160,15 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
     ordinary_snapshot["render"]["nativePhase"] = "normal"
     ordinary_snapshot["render"]["nativeOrdinal"] = 0
     ordinary_frame = snapshot_png(ordinary_snapshot)
+    passive_frames = []
+    for offset in range(1, 10):
+        passive_snapshot = copy.deepcopy(ordinary_snapshot)
+        passive_snapshot["sequence"] = ordinary_snapshot["sequence"] + offset
+        passive_snapshot["wallTime"] = ordinary_snapshot["wallTime"] + offset
+        passive_snapshot["uptimeMs"] = ordinary_snapshot["uptimeMs"] + offset
+        passive_snapshot["context"]["character"] = "Arthur"
+        passive_snapshot["context"]["realm"] = "Classic Beta PvE 2"
+        passive_frames.append(snapshot_png(passive_snapshot))
 
     rectangle = (123, 77, 256, 256)
     full_desktop = Image.new("RGB", (1920, 1080), (31, 37, 41))
@@ -1182,6 +1191,16 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
     _install_private_shell_compositor_bus(monkeypatch, tmp_path)
     with harness.private_shell_compositor(
         payloads=[
+            png_bytes(passive_frames[0]),
+            png_bytes(passive_frames[0]),  # one decoder NO_CHANGE while producer admission remains passive
+            png_bytes(passive_frames[1]),
+            png_bytes(passive_frames[2]),
+            png_bytes(passive_frames[3]),
+            png_bytes(passive_frames[4]),
+            png_bytes(passive_frames[5]),
+            png_bytes(passive_frames[6]),
+            png_bytes(passive_frames[7]),
+            png_bytes(passive_frames[8]),
             png_bytes(native_frame),
             png_bytes(first_status),
             png_bytes(constructor_frame),
@@ -1323,6 +1342,175 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
             plan_json=plan_json,
             codex_path=str(codex_path),
         )
+        passive_backend = X11Backend(profile)
+        passive_backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+        passive_driver = DesktopDriver(
+            profile=profile,
+            backend=passive_backend,
+            lease_path=session_dir / "passive-desktop.lock",
+        )
+        passive_config = replace(
+            config,
+            journal=session_dir / "passive-journal.json",
+            socket=session_dir / "passive-session.sock",
+            capture_dir=session_dir / "passive-captures",
+        )
+        passive_daemon = SessionDaemon(passive_config, driver=passive_driver)
+        try:
+            initial = passive_daemon.controller.status()
+            assert initial.state is ControllerState.STOPPED
+            # The complete producer route must run for all three advancing
+            # publications (with one duplicate NO_CHANGE). This private Xvfb does
+            # not expose the live desktop's Xwayland relative-pointer relay, so
+            # runtime evidence minting then refuses rather than inventing a
+            # hierarchy row or bypassing that admission contract.
+            with pytest.raises(
+                DriverError,
+                match="passive startup cannot identify the forwarded XI2 pointer source",
+            ):
+                passive_daemon.passive_startup()
+            assert passive_daemon._startup_operation["state"] == "blocked"
+            assert passive_daemon._startup_operation["advancingFrames"] == 3
+            assert passive_daemon._startup_evidence is None
+            assert passive_daemon.controller.status().generation == initial.generation
+            assert passive_daemon.controller.status().state is ControllerState.STOPPED
+            assert not passive_driver.guardian.armed
+            assert passive_driver._monitor is None
+            assert not passive_driver.guardian.observer_process_groups
+            assert passive_daemon._passive_region_admission is None
+            passive_area_rows = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
+            passive_area_count = len(passive_area_rows)
+            assert passive_area_count == 4
+            assert all(row["x"] == rectangle[0] and row["y"] == rectangle[1] for row in passive_area_rows)
+            with pytest.raises(DriverError, match="controller state does not admit a native region capture"):
+                passive_daemon.capture_status(deadline=time.monotonic() + 5.0)
+            assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == passive_area_count
+
+            # PAUSED and BLOCKED are also supported passive entry states. Use
+            # the real controller transitions and the same compiled producer
+            # route, then require the identical truthful Xvfb relay refusal.
+            for entry_state in (ControllerState.PAUSED, ControllerState.BLOCKED):
+                if entry_state is ControllerState.PAUSED:
+                    passive_daemon.controller.pause("passive startup state coverage")
+                else:
+                    passive_daemon.controller.block("passive startup state coverage")
+                assert passive_daemon.controller.status().state is entry_state
+                area_before = len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                with pytest.raises(
+                    DriverError,
+                    match="passive startup cannot identify the forwarded XI2 pointer source",
+                ):
+                    passive_daemon.passive_startup()
+                area_after = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
+                assert len(area_after) - area_before == 3
+                assert passive_daemon._startup_operation["advancingFrames"] == 3
+                assert passive_daemon._startup_evidence is None
+                assert passive_daemon._passive_region_admission is None
+                assert passive_daemon.driver._monitor is None
+                assert not passive_daemon.driver.guardian.observer_process_groups
+                assert not passive_daemon.driver.guardian.armed
+            passive_area_rows = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
+            passive_area_count = len(passive_area_rows)
+            assert passive_area_count == 10
+            with pytest.raises(DriverError, match="controller state does not admit a native region capture"):
+                passive_daemon.capture_status(deadline=time.monotonic() + 5.0)
+            assert len(json.loads(compositor["area_log"].read_text(encoding="utf-8"))) == passive_area_count
+
+            # Pause and stop both linearize while the internal passive
+            # capability exists but before capture_status reaches the
+            # configured producer admission callback.
+            for race_action in ("pause", "stop"):
+                race_dir = session_dir / f"passive-{race_action}-race"
+                race_dir.mkdir(mode=0o700)
+                race_backend = X11Backend(profile)
+                race_backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+                race_driver = DesktopDriver(
+                    profile=profile,
+                    backend=race_backend,
+                    lease_path=race_dir / "desktop.lock",
+                )
+                race_config = replace(
+                    passive_config,
+                    journal=race_dir / "journal.json",
+                    socket=race_dir / "session.sock",
+                    capture_dir=race_dir / "captures",
+                )
+                race_daemon = SessionDaemon(race_config, driver=race_driver)
+                before_capture = threading.Event()
+                release_capture = threading.Event()
+                original_capture_status = race_daemon.capture_status
+
+                def wait_before_capture(
+                    *,
+                    deadline,
+                    _passive_region_capability,
+                    race_daemon=race_daemon,
+                    before_capture=before_capture,
+                    release_capture=release_capture,
+                    original_capture_status=original_capture_status,
+                ):
+                    assert _passive_region_capability is race_daemon._passive_region_admission
+                    before_capture.set()
+                    if not release_capture.wait(3.0):
+                        raise TimeoutError("passive pre-capture race barrier was not released")
+                    return original_capture_status(
+                        deadline=deadline,
+                        _passive_region_capability=_passive_region_capability,
+                    )
+
+                race_daemon.capture_status = wait_before_capture
+                race_errors: list[BaseException] = []
+
+                def run_passive(
+                    race_daemon=race_daemon,
+                    race_errors=race_errors,
+                ) -> None:
+                    try:
+                        race_daemon.passive_startup()
+                    except BaseException as exc:
+                        race_errors.append(exc)
+
+                area_count_before_race = len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                race_thread = threading.Thread(target=run_passive, name=f"passive-{race_action}-race")
+                try:
+                    race_thread.start()
+                    assert before_capture.wait(3.0)
+                    if race_action == "pause":
+                        race_daemon.controller.pause("passive region race")
+                    else:
+                        race_daemon.controller.stop()
+                    release_capture.set()
+                    race_thread.join(timeout=3.0)
+                    assert not race_thread.is_alive()
+                    assert len(race_errors) == 1 and isinstance(race_errors[0], DriverError)
+                    assert "controller generation does not admit" in str(race_errors[0])
+                    assert race_daemon._passive_region_admission is None
+                    assert race_daemon.driver._monitor is None
+                    assert not race_daemon.driver.guardian.observer_process_groups
+                    assert (
+                        len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                        == area_count_before_race
+                    )
+                    assert not race_backend._active_processes
+                    assert not race_backend.active_process_groups
+                    refusal = (
+                        "PAUSED native region capture requires a live recovery capability"
+                        if race_action == "pause"
+                        else "controller state does not admit a native region capture"
+                    )
+                    with pytest.raises(DriverError, match=refusal):
+                        original_capture_status(deadline=time.monotonic() + 5.0)
+                    assert (
+                        len(json.loads(compositor["area_log"].read_text(encoding="utf-8")))
+                        == area_count_before_race
+                    )
+                finally:
+                    release_capture.set()
+                    if race_thread.is_alive():
+                        race_thread.join(timeout=3.0)
+                    race_driver.close()
+        finally:
+            passive_driver.close()
         daemon = SessionDaemon(config, driver=driver)
         admission_events: list[tuple[str, float, int | None]] = []
         original_observer_admission = driver.guardian.observer_dispatch_admission
@@ -1461,8 +1649,8 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
             assert backend.last_region_receipt is not None
             assert backend.last_region_receipt.nonce == before_model_nonce
             area_calls = json.loads(compositor["area_log"].read_text(encoding="utf-8"))
-            assert len(area_calls) == 7
-            assert [call["index"] for call in area_calls] == [1, 2, 3, 4, 5, 6, 7]
+            assert len(area_calls) == 17  # ten passive-startup captures precede the original seven
+            assert [call["index"] for call in area_calls] == list(range(1, 18))
             assert all(
                 (call["x"], call["y"], call["width"], call["height"], call["flash"]) == (*rectangle, False)
                 for call in area_calls
@@ -1473,7 +1661,7 @@ def test_compiled_region_composes_through_default_daemon_and_stock_model(
                 name for _ in range(7) for name in ("admission_enter", "gate_released")
             ]
             assert all(
-                admission_events[index * 2 + 1][1] * 1_000_000 <= area_calls[index]["monotonic_us"]
+                admission_events[index * 2 + 1][1] * 1_000_000 <= area_calls[index + 10]["monotonic_us"]
                 for index in range(6)
             )
 

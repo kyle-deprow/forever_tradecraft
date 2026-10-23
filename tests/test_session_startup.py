@@ -1155,8 +1155,11 @@ def test_runtime_arm_rejection_blocks_with_observed_typed_cause_and_retains_dril
     ("native_phase", "native_ordinal", "accepted"),
     [("normal", 0, True), ("updates", 0, False), ("normal", 1, False), ("held", 100, False)],
 )
+@pytest.mark.parametrize(
+    "entry_state", [ControllerState.STOPPED, ControllerState.PAUSED, ControllerState.BLOCKED]
+)
 def test_passive_startup_requires_three_advancing_ordinary_frames_without_input(
-    native_phase: str, native_ordinal: int, accepted: bool
+    native_phase: str, native_ordinal: int, accepted: bool, entry_state: ControllerState
 ) -> None:
     from crowley.session.daemon import SessionDaemon
 
@@ -1166,19 +1169,31 @@ def test_passive_startup_requires_three_advancing_ordinary_frames_without_input(
         alive = True
         failure_diagnostic = None
 
+        def __init__(self) -> None:
+            self.observer = SimpleNamespace(process=SimpleNamespace(pid=4242))
+
     class Driver:
         def __init__(self):
-            self.guardian = SimpleNamespace(armed=False)
+            self.guardian = SimpleNamespace(armed=False, generation=7, observer_process_groups=(4242,))
             self.monitor = Monitor()
+            self._monitor = None
             self.input_calls = []
 
-        def resolve_identity(self, *, require_foreground):
+        def resolve_identity(self, *, require_foreground, deadline_monotonic=None):
             assert require_foreground is True
+            assert deadline_monotonic is None or deadline_monotonic > 0
             return identity
 
         def start_input_observer(self):
             self.input_calls.append("observer")
+            self._monitor = self.monitor
             return self.monitor
+
+        def stop_input_observer(self, monitor):
+            assert monitor is self.monitor
+            monitor.alive = False
+            self._monitor = None
+            self.guardian.observer_process_groups = ()
 
         def mint_runtime_input_evidence(self, measured_identity, *, readiness_boot, readiness_sequence):
             assert measured_identity.fingerprint == identity.fingerprint
@@ -1202,6 +1217,14 @@ def test_passive_startup_requires_three_advancing_ordinary_frames_without_input(
     daemon._startup_lock = threading.Lock()
     daemon._startup_evidence = None
     daemon._startup_operation = {"state": "not_checked", "advancingFrames": 0}
+    daemon.controller = SimpleNamespace(
+        lock=threading.RLock(),
+        status=lambda: SimpleNamespace(generation=70, state=entry_state, stop_requested=False),
+    )
+    daemon._native_construction_lock = threading.RLock()
+    daemon._passive_region_epoch = 0
+    daemon._passive_region_admission = None
+    daemon._shutdown_event = threading.Event()
     frames = [
         Frame(
             Snapshot(
@@ -1219,11 +1242,19 @@ def test_passive_startup_requires_three_advancing_ordinary_frames_without_input(
         )
         for index in (1, 2, 3)
     ]
-    samples = [
+    samples = [Sample("NO_CHANGE", None, 0.0, (0, 0, 1, 1), 0, identity.fingerprint)] + [
         Sample("FRESH", frame, float(frame.sequence), (0, 0, 1, 1), frame.crc32, identity.fingerprint)
         for frame in frames
     ]
-    daemon.capture_status = lambda *, deadline: samples.pop(0)
+
+    def capture_status(*, deadline, _passive_region_capability):
+        assert deadline == _passive_region_capability.deadline_monotonic
+        assert _passive_region_capability is daemon._passive_region_admission
+        assert _passive_region_capability.generation == 70
+        assert _passive_region_capability.state is entry_state
+        return samples.pop(0)
+
+    daemon.capture_status = capture_status
 
     if accepted:
         ready = daemon.passive_startup()
@@ -1231,14 +1262,119 @@ def test_passive_startup_requires_three_advancing_ordinary_frames_without_input(
         assert (ready.readiness_boot, ready.readiness_sequence) == ("boot-a", 3)
         assert daemon._startup_operation["advancingFrames"] == 3
         assert daemon._startup_operation["state"] == "ready"
+        assert daemon._passive_region_admission is None
     else:
         with pytest.raises(DriverError, match="ordinary nativePhase=normal ordinal=0"):
             daemon.passive_startup()
         assert daemon._startup_operation["advancingFrames"] == 0
         assert daemon._startup_operation["state"] == "blocked"
+        assert daemon._passive_region_admission is None
     assert daemon.driver.input_calls == (
         ["observer", "measure-readonly-environment"] if accepted else ["observer"]
     )
+
+
+@pytest.mark.parametrize("failure", ["observer", "identity", "generation"])
+def test_passive_startup_refuses_drift_and_reaps_private_admission(failure: str) -> None:
+    from crowley.session.daemon import SessionDaemon
+
+    identity, _environment, _evidence = _runtime_evidence()
+
+    class Monitor:
+        alive = True
+        failure_diagnostic = None
+        observer = SimpleNamespace(process=SimpleNamespace(pid=5151))
+
+    monitor = Monitor()
+    state = SimpleNamespace(generation=18, state=ControllerState.STOPPED, stop_requested=False)
+
+    class Driver:
+        def __init__(self) -> None:
+            self.guardian = SimpleNamespace(armed=False, generation=3, observer_process_groups=(5151,))
+            self._monitor = None
+            self.identity_calls = 0
+            self.capture_calls = 0
+
+        def resolve_identity(self, *, require_foreground, deadline_monotonic=None):
+            assert require_foreground is True
+            assert deadline_monotonic is None or deadline_monotonic > 0
+            self.identity_calls += 1
+            if failure == "identity" and self.identity_calls > 1:
+                return SimpleNamespace(fingerprint="changed-window", process_start="43")
+            return identity
+
+        def start_input_observer(self):
+            self._monitor = monitor
+            return monitor
+
+        def stop_input_observer(self, current):
+            assert current is monitor
+            current.alive = False
+            self._monitor = None
+            self.guardian.observer_process_groups = ()
+
+        def mint_runtime_input_evidence(self, *_args, **_kwargs):
+            pytest.fail("invalidated passive startup minted runtime evidence")
+
+    frames = [
+        Frame(
+            Snapshot(
+                {
+                    "context": {"character": "Arthur", "realm": "Beta"},
+                    "render": {"nativePhase": "normal", "nativeOrdinal": 0},
+                }
+            ),
+            "boot-a",
+            sequence,
+            100 + sequence,
+            sequence,
+            sequence,
+            1,
+        )
+        for sequence in (1, 2, 3)
+    ]
+    samples = [
+        Sample("FRESH", frame, float(frame.sequence), (0, 0, 1, 1), frame.crc32, identity.fingerprint)
+        for frame in frames
+    ]
+    driver = Driver()
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon.config = SimpleNamespace(profile=SimpleNamespace(character="Arthur", realm="Beta"))
+    daemon.driver = driver
+    daemon.controller = SimpleNamespace(lock=threading.RLock(), status=lambda: state)
+    daemon._startup_lock = threading.Lock()
+    daemon._startup_evidence = None
+    daemon._startup_operation = {"state": "not_checked", "advancingFrames": 0}
+    daemon._native_construction_lock = threading.RLock()
+    daemon._passive_region_epoch = 0
+    daemon._passive_region_admission = None
+    daemon._shutdown_event = threading.Event()
+
+    def capture_status(*, deadline, _passive_region_capability):
+        assert deadline == _passive_region_capability.deadline_monotonic
+        driver.capture_calls += 1
+        sample = samples.pop(0)
+        if failure == "observer":
+            monitor.alive = False
+        elif failure == "generation":
+            state.generation += 1
+        return sample
+
+    daemon.capture_status = capture_status
+    expected_message = {
+        "observer": "registered XI2 observer died during passive startup",
+        "identity": "game identity changed at passive startup completion",
+        "generation": "controller state changed during passive startup capture",
+    }[failure]
+    with pytest.raises(DriverError, match=expected_message):
+        daemon.passive_startup()
+
+    assert daemon._startup_evidence is None
+    assert daemon._startup_operation["state"] == "blocked"
+    assert daemon._passive_region_admission is None
+    assert driver._monitor is None
+    assert not driver.guardian.observer_process_groups
+    assert not driver.guardian.armed
 
 
 def test_runtime_start_reports_drill_needed_without_arming_or_legacy_calibration(tmp_path) -> None:

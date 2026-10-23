@@ -1432,6 +1432,21 @@ class _NativeUpdateCapability:
     expires_monotonic: float
 
 
+@dataclass(frozen=True, slots=True)
+class _PassiveRegionCaptureCapability:
+    """One passive-startup operation's read-only region-capture authority."""
+
+    epoch: int
+    generation: int
+    state: ControllerState
+    identity_fingerprint: str
+    process_start: str
+    guardian_generation: int
+    observer_pid: int
+    deadline_monotonic: float
+    observer: Any
+
+
 def _serialized_motion(method):
     """Serialize all interaction producers around one physical intent.
 
@@ -1608,6 +1623,11 @@ class SessionDaemon:
         # returned by status_dict so B0, reservation IDs, and identity fields
         # cannot leak through public status.
         self._native_construction_lock = threading.RLock()
+        # Passive startup has a separate, read-only capture authority.  It is
+        # never exposed through status or IPC and is valid only while the
+        # exact startup operation owns its registered XI2 observer.
+        self._passive_region_epoch = 0
+        self._passive_region_admission: _PassiveRegionCaptureCapability | None = None
         self._native_construction_reservation: dict[str, Any] | None = None
         self._native_construction_ticket: dict[str, Any] | None = None
         self._native_construction_handshake: dict[str, Any] = {}
@@ -6465,6 +6485,50 @@ class SessionDaemon:
         digest = getattr(profile, "telemetry_region_executable_sha256", None)
         return executable is not None and digest is not None
 
+    def _passive_region_capability_matches_locked(
+        self,
+        capability: _PassiveRegionCaptureCapability | None,
+        identity: WindowIdentity,
+        *,
+        generation: int,
+        state: ControllerState,
+        deadline: float | None,
+    ) -> bool:
+        """Check one live passive operation while holding construction lock."""
+
+        if capability is None or capability is not self._passive_region_admission:
+            return False
+        if capability.epoch != self._passive_region_epoch:
+            return False
+        if capability.generation != generation or capability.state is not state:
+            return False
+        if (
+            capability.identity_fingerprint != identity.fingerprint
+            or capability.process_start != identity.process_start
+            or capability.deadline_monotonic != deadline
+            or time.monotonic() >= capability.deadline_monotonic
+        ):
+            return False
+        shutdown = getattr(self, "_shutdown_event", None)
+        if shutdown is not None and shutdown.is_set():
+            return False
+        guardian = self.driver.guardian
+        if guardian.generation != capability.guardian_generation:
+            return False
+        monitor = capability.observer
+        if (
+            getattr(self.driver, "_monitor", None) is not monitor
+            or not getattr(monitor, "alive", False)
+            or getattr(monitor, "failure_diagnostic", None) is not None
+        ):
+            return False
+        process = getattr(getattr(monitor, "observer", None), "process", None)
+        if getattr(process, "pid", None) != capability.observer_pid:
+            return False
+        if capability.observer_pid not in getattr(guardian, "observer_process_groups", ()):
+            return False
+        return True
+
     def _capture_native_region_for_identity(
         self,
         identity: WindowIdentity,
@@ -6474,17 +6538,23 @@ class SessionDaemon:
         expected_generation: int | None = None,
         expected_state: ControllerState | None = None,
         native_capability: dict[str, Any] | _NativeUpdateCapability | None = None,
+        passive_capability: _PassiveRegionCaptureCapability | None = None,
         native_update_ordinal: int | None = None,
         _receipt_sink: Callable[[Any], None] | None = None,
     ) -> Path:
         with self.controller.lock:
             admitted_status = self.controller.status()
             required_state = expected_state or admitted_status.state
+            if passive_capability is not None and native_capability is not None:
+                raise DriverError("passive region admission cannot borrow a native recovery capability")
             if expected_generation is not None and admitted_status.generation != expected_generation:
                 raise DriverError("controller generation does not admit a native region capture")
             if expected_state is not None and admitted_status.state is not expected_state:
                 raise DriverError("controller state does not admit a native region capture")
-            if required_state in {ControllerState.BLOCKED, ControllerState.STOPPED}:
+            if (
+                required_state in {ControllerState.BLOCKED, ControllerState.STOPPED}
+                and passive_capability is None
+            ):
                 raise DriverError("controller state does not admit a native region capture")
             if admitted_status.stop_requested:
                 raise DriverError("controller stop request does not admit a native region capture")
@@ -6500,7 +6570,25 @@ class SessionDaemon:
         if not isinstance(self.driver.backend, X11Backend):
             raise DriverError("native region capture requires the configured X11 backend")
 
-        if admitted_state is ControllerState.PAUSED:
+        if passive_capability is not None:
+            if admitted_state not in {
+                ControllerState.STOPPED,
+                ControllerState.PAUSED,
+                ControllerState.BLOCKED,
+            }:
+                raise DriverError(
+                    "passive region admission is limited to stopped, paused, or blocked startup"
+                )
+            with self._native_construction_lock:
+                if not self._passive_region_capability_matches_locked(
+                    passive_capability,
+                    identity,
+                    generation=admitted_generation,
+                    state=admitted_state,
+                    deadline=deadline,
+                ):
+                    raise DriverError("passive native region capture capability was revoked")
+        elif admitted_state is ControllerState.PAUSED:
             # A generic status/model capture in PAUSED is closed.  Only the
             # exact generation-bound provisional/recovery owner may use the
             # configured telemetry-region producer here.
@@ -6546,7 +6634,16 @@ class SessionDaemon:
                 # owner under construction lock, so keep that lock through
                 # the actual Guardian process admission.
                 with self._native_construction_lock:
-                    if isinstance(native_capability, _NativeUpdateCapability):
+                    if passive_capability is not None:
+                        if not self._passive_region_capability_matches_locked(
+                            passive_capability,
+                            identity,
+                            generation=admitted_generation,
+                            state=admitted_state,
+                            deadline=deadline,
+                        ):
+                            raise DriverError("passive native region capture capability was revoked")
+                    elif isinstance(native_capability, _NativeUpdateCapability):
                         if not self._native_update_capability_matches_locked(native_capability, identity):
                             raise DriverError("native update identity capability was revoked")
                     elif native_capability is not None and not self._native_construction_capability_matches(
@@ -6560,16 +6657,17 @@ class SessionDaemon:
                         # final pre-Popen generation fence; an earlier sample
                         # would leave a revoke-first race at the callback.
                         expected_guardian_generation = (
-                            native_capability.guardian_generation
+                            passive_capability.guardian_generation
+                            if passive_capability is not None
+                            else native_capability.guardian_generation
                             if isinstance(native_capability, _NativeUpdateCapability)
                             else native_capability.get("guardianGeneration")
                             if native_capability is not None
                             else None
                         )
                         if (
-                            native_capability is not None
-                            and guardian.generation != expected_guardian_generation
-                        ):
+                            native_capability is not None or passive_capability is not None
+                        ) and guardian.generation != expected_guardian_generation:
                             raise DriverError("native region capture Guardian generation is stale")
                         return start()
 
@@ -6755,7 +6853,12 @@ class SessionDaemon:
         self.driver.revoke("unexpected active chat buffer")
         raise DriverError("unexpected active chat buffer; input is revoked")
 
-    def capture_status(self, *, deadline: float | None = None) -> Sample:
+    def capture_status(
+        self,
+        *,
+        deadline: float | None = None,
+        _passive_region_capability: _PassiveRegionCaptureCapability | None = None,
+    ) -> Sample:
         self.config.capture_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
         self.capture_index += 1
         source = self.config.capture_dir / f"status-{self.capture_index:08d}.png"
@@ -6763,7 +6866,16 @@ class SessionDaemon:
             deadline_local = getattr(self, "_motion_deadline_local", None)
             deadline = getattr(deadline_local, "deadline", None) if deadline_local is not None else None
         expected = self._resolve_identity(deadline=deadline)
-        if self._native_region_enabled():
+        if self._native_region_enabled() and _passive_region_capability is not None:
+            crop = self._capture_native_region_for_identity(
+                expected,
+                destination=source,
+                deadline=deadline,
+                expected_generation=_passive_region_capability.generation,
+                expected_state=_passive_region_capability.state,
+                passive_capability=_passive_region_capability,
+            )
+        elif self._native_region_enabled():
             crop = self._capture_native_region_for_identity(expected, destination=source, deadline=deadline)
         else:
             crop = self._capture_client_crop(source, deadline=deadline)
@@ -6798,6 +6910,7 @@ class SessionDaemon:
         if not self._startup_lock.acquire(blocking=False):
             raise DriverError("passive startup check is already running")
         monitor = None
+        passive_capability = None
         try:
             self._startup_operation = {
                 "state": "checking",
@@ -6805,20 +6918,90 @@ class SessionDaemon:
                 "advancingFrames": 0,
                 "failure": "",
             }
+            with self.controller.lock:
+                entry_status = self.controller.status()
+                if entry_status.state not in {
+                    ControllerState.STOPPED,
+                    ControllerState.PAUSED,
+                    ControllerState.BLOCKED,
+                }:
+                    raise DriverError("passive startup is limited to stopped, paused, or blocked states")
+                if entry_status.stop_requested:
+                    raise DriverError("passive startup is cancelled by the controller stop request")
+                entry_generation = entry_status.generation
+                entry_state = entry_status.state
             identity = self.driver.resolve_identity(require_foreground=True)
             monitor = self.driver.start_input_observer()
             if not monitor.alive or monitor.failure_diagnostic is not None:
                 raise DriverError("registered XI2 observer is not healthy")
             deadline = time.monotonic() + PASSIVE_STARTUP_TIMEOUT_SECONDS
+            observer_process = getattr(getattr(monitor, "observer", None), "process", None)
+            observer_pid = getattr(observer_process, "pid", None)
+            if isinstance(observer_pid, bool) or not isinstance(observer_pid, int) or observer_pid <= 0:
+                raise DriverError("passive startup observer has no registered process identity")
+            with self.controller.lock:
+                current_status = self.controller.status()
+                if (
+                    current_status.generation != entry_generation
+                    or current_status.state is not entry_state
+                    or current_status.stop_requested
+                ):
+                    raise DriverError("controller state changed before passive startup capture admission")
+                with self._native_construction_lock:
+                    self._passive_region_epoch += 1
+                    passive_capability = _PassiveRegionCaptureCapability(
+                        epoch=self._passive_region_epoch,
+                        generation=entry_generation,
+                        state=entry_state,
+                        identity_fingerprint=identity.fingerprint,
+                        process_start=identity.process_start,
+                        guardian_generation=self.driver.guardian.generation,
+                        observer_pid=observer_pid,
+                        deadline_monotonic=deadline,
+                        observer=monitor,
+                    )
+                    self._passive_region_admission = passive_capability
+                    if not self._passive_region_capability_matches_locked(
+                        passive_capability,
+                        identity,
+                        generation=entry_generation,
+                        state=entry_state,
+                        deadline=deadline,
+                    ):
+                        self._passive_region_admission = None
+                        self._passive_region_epoch += 1
+                        passive_capability = None
+                        raise DriverError("passive startup observer ownership is not current")
             last_boot = ""
             last_sequence: int | None = None
             advancing = 0
             while advancing < 3:
                 if time.monotonic() >= deadline:
                     raise DriverError("passive startup did not observe three advancing CRS1 frames")
+                if self._shutdown_event.is_set():
+                    raise DriverError("passive startup was cancelled by daemon shutdown")
                 if not monitor.alive or monitor.failure_diagnostic is not None:
                     raise DriverError("registered XI2 observer died during passive startup")
-                sample = self.capture_status(deadline=deadline)
+                with self.controller.lock:
+                    current_status = self.controller.status()
+                    if (
+                        current_status.generation != entry_generation
+                        or current_status.state is not entry_state
+                        or current_status.stop_requested
+                    ):
+                        raise DriverError("controller state changed during passive startup")
+                sample = self.capture_status(
+                    deadline=deadline,
+                    _passive_region_capability=passive_capability,
+                )
+                with self.controller.lock:
+                    current_status = self.controller.status()
+                    if (
+                        current_status.generation != entry_generation
+                        or current_status.state is not entry_state
+                        or current_status.stop_requested
+                    ):
+                        raise DriverError("controller state changed during passive startup capture")
                 if sample.window_identity != identity.fingerprint:
                     raise DriverError("status telemetry identity changed during passive startup")
                 if sample.kind == "NO_CHANGE":
@@ -6857,14 +7040,26 @@ class SessionDaemon:
                 last_sequence = frame.sequence
                 advancing += 1
                 self._startup_operation["advancingFrames"] = advancing
-            current = self.driver.resolve_identity(require_foreground=True)
-            if (
-                not monitor.alive
-                or monitor.failure_diagnostic is not None
-                or current.fingerprint != identity.fingerprint
-                or current.process_start != identity.process_start
-            ):
-                raise DriverError("game identity or XI2 observer changed at passive startup completion")
+            current = self._resolve_identity(require_foreground=True, deadline=deadline)
+            with self.controller.lock:
+                current_status = self.controller.status()
+                if (
+                    current_status.generation != entry_generation
+                    or current_status.state is not entry_state
+                    or current_status.stop_requested
+                ):
+                    raise DriverError("controller state changed at passive startup completion")
+                with self._native_construction_lock:
+                    if not self._passive_region_capability_matches_locked(
+                        passive_capability,
+                        identity,
+                        generation=entry_generation,
+                        state=entry_state,
+                        deadline=deadline,
+                    ):
+                        raise DriverError("passive startup observer ownership changed at completion")
+            if current.fingerprint != identity.fingerprint or current.process_start != identity.process_start:
+                raise DriverError("game identity changed at passive startup completion")
             # Bind the fresh input proof to the final ordinary advancing
             # publication that completed readiness.  A seal minted before
             # these checks would not carry any real capture provenance.
@@ -6873,6 +7068,33 @@ class SessionDaemon:
                 readiness_boot=last_boot,
                 readiness_sequence=last_sequence if last_sequence is not None else 0,
             )
+            if time.monotonic() >= deadline:
+                raise DriverError("passive startup deadline expired during read-only environment measurement")
+            current = self._resolve_identity(require_foreground=True, deadline=deadline)
+            if current.fingerprint != identity.fingerprint or current.process_start != identity.process_start:
+                raise DriverError("game identity changed during passive startup environment measurement")
+            with self.controller.lock:
+                current_status = self.controller.status()
+                if (
+                    current_status.generation != entry_generation
+                    or current_status.state is not entry_state
+                    or current_status.stop_requested
+                    or self._shutdown_event.is_set()
+                ):
+                    raise DriverError(
+                        "controller state changed during passive startup environment measurement"
+                    )
+                with self._native_construction_lock:
+                    if not self._passive_region_capability_matches_locked(
+                        passive_capability,
+                        identity,
+                        generation=entry_generation,
+                        state=entry_state,
+                        deadline=deadline,
+                    ):
+                        raise DriverError(
+                            "passive startup observer ownership changed during environment measurement"
+                        )
             self._startup_evidence = evidence
             self._startup_operation = {
                 "state": "ready",
@@ -6884,6 +7106,7 @@ class SessionDaemon:
             return evidence
         except Exception as exc:
             self._startup_evidence = None
+            self._revoke_passive_region_capability(passive_capability)
             if monitor is not None and not self.driver.guardian.armed:
                 stop_observer = getattr(self.driver, "stop_input_observer", None)
                 if callable(stop_observer):
@@ -6902,7 +7125,16 @@ class SessionDaemon:
             }
             raise
         finally:
+            self._revoke_passive_region_capability(passive_capability)
             self._startup_lock.release()
+
+    def _revoke_passive_region_capability(self, capability: _PassiveRegionCaptureCapability | None) -> None:
+        if capability is None:
+            return
+        with self._native_construction_lock:
+            if self._passive_region_admission is capability:
+                self._passive_region_admission = None
+                self._passive_region_epoch += 1
 
     def runtime_start(
         self, *, expected_generation: int, mode: str = "repeat", resume: bool = False

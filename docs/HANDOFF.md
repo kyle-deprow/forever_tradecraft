@@ -1,49 +1,56 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-23 00:13 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-23 00:44 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**R2 INSTALLED; LIVE ACCEPTANCE IN PROGRESS.** Root promoted the reviewed
-Agent.lua at00:10:29 UTC, Luna sent exactly one guarded reload, and root
-independently CRC-decoded the retained schema4 HUD (boot1792714266-396905/seq6).
-Arthur/build70450/Stormwind, pending0, no active sweep, closed empty editor,
-interactionMode=any, binding empty and no selected target. Root then promoted
-all23 reviewed files at00:12:08 and restarted crowley-session. New public state
-is PAUSED94, startup not_checked, takeoverDrill needed, reconciliationfalse.
-Legacy native/input flags are false as expected; do not retry old GTK/native
-calibration. Installed source bytes match the frozen manifest. The existing
-profile/configSHA89580ebd... already uses private Codex0.162.1 and was unchanged.
+**CURRENT: ASSISTED COLLECTION WORKS; LIVE HOVER BLOCKS HUMAN DRILL.**
+Exclusive GUI owner `/root/luna_assisted_scanner` is explicitly authorized to
+collect. Arthur remains in Stormwind next to Jaxon; no navigation/trades.
+Latest complete scan289: UID`beta-normal-alliance-1792715123-Arthur-7274`,
+started00:25:23UTC, finished00:33:33UTC,428attempts/0failures/728rows.
+Original SHA34215f81082a95f679d5121a02dc415e31b2ae2535fe6e51e54397fb3947adee;
+exact companion/Data.lua ACK timestamp00:34:24 (51safterfinish); parent separately
+CRC-decoded loadedACK boot1792715682-139726/seq5/pending0/AHclosed. Proof:
+`scan289-postprocess-stage-20261023T0027Z/scan288-save-upload-ack-20261023T003402683971Z/parent-loaded-ack-verification.json`
+under assisted-collection-luna-20261021. Next actual due00:40:23UTC; post-reload
+zero due is not permission to start early. Scan290 start remains unconfirmed;
+Luna is reopening after the reviewed controller update/hover test. Preserve the
+real earlier collection gap. No working autonomous15-minute cadence claim.
 
-**Next:** Exclusive GUI owner `/root/luna_assisted_scanner` runs public repeat
-start to collect passive readiness, then tests the actual clickless hover through
-awaiting_input and cancels if no human is present. Request the user only when the
-installed path is actually ready. A genuine human sample is required for a durable
-PASS; do not fabricate one. Keep assisted schema4 collection available while the
-human is away. Actual autonomous scan/ACK/reopen/takeover-resume remains unqualified.
+**Simplification installed and code-reviewed.** R2 is committed/pushed asb769d57;
+23 reviewed files include strict schema4, passive startup, durable genuine drill,
+typed invalidation, deterministic Jaxon opener and actual-start900s scheduling.
+Parent753PASS/562.59s, Ruff22/format/diff clean; Sol READY/no Must or Should.
+Addon-first one-shot reload was separately CRC-verified before Python promotion.
+Private R2 artifacts: `executor-evidence/autonomous-startup-takeover-20261022-r2/`.
 
-**Code verification complete:** Luna implementation / Sol independent review
-READY, with no Must-Fix or Should-Fix; root independently753PASS in562.59s,
-Ruff22/format/diff checks passed. R2 fixes positive passive-frame hover provenance,
-XTEST/motion-profile shadowing, pre-transition XI2 modifier expectations,
-cleanup ownership/lock recovery and typed BLOCKED after failed restart startup.
-The complete23-file diff SHA is
-4a56f4bde080eb9ccee1990c5972317ec2cc032b70129618354f4b85a24934a3,
-base644dc14. Private manifest, review, parent checks and promotion receipts are
-under `executor-evidence/autonomous-startup-takeover-20261022-r2/`; independent
-HUD proof is `schema4-addon-transition-attempt-20261023T001049Z/parent-strict4-verification.json`
-under assisted-collection-luna-20261021. Source worktree is
-`~/.cache/crowley/worktrees/autonomous-startup-takeover-20261022-r2`.
+**Configured capture admission FIXED live:** the old PAUSED recovery-capability
+refusal is corrected by the isolated three-file passive-region patch. Sol READY,
+parent149PASS/287.49s, Ruff3/format/diff clean. Promoted/restarted00:40:24UTC.
+Public repeat start generation95 now succeeds with three advancing ordinary
+frames, no input and startup takeover_needed. Driver/Agent/protocol unchanged.
+Read [the narrow plan](../.archive/PLAN-passive-region-admission-20261023.md).
+Private artifacts: `executor-evidence/passive-region-admission-20261023/`.
+Canonical installed24-file pin manifest is `installed-runtime-manifest.json`,
+SHA2cfa592341b33f88352906e7456c6433d6ad43f9bbd64771c6a322cf82f4374d.
+ConfigSHA89580ebd... already pins private Codex0.162.1 and was unchanged.
 
-**Collection gap remains real:** Latest completed scan is288, finished20:43:13
-UTC on October22; no289 start is confirmed. Its original/upload/loaded-ACK proof
-is preserved below. No claim of working15-minute cadence. Keyboard interaction
-was independently verified enabled (SoftTargetInteract=3), and new native HUD
-mode removes chat OCR from the normal target/binding/interaction route. The
-latest user explicitly handed control back to Luna. No other GUI owner.
+**Actual clickless hover FAILED before human window.** Public takeover-drill95
+terminated its pointer subprocess with signal15; the visible error only contains
+xdotool path/argv and masks the Guardian reason. No click, keyboard action, human
+sample or PASS. State remainsPAUSED95/startup.ready/3frames; controls released.
+No raw XI2 blocks were retained, so do not invent a cause or weaken Guardian.
+Private evidence: `takeover-drill-preflight-20261023T0041Z/` under assisted-collection.
+Next offline work must retain actual Guardian reason plus the existing observer's
+bounded diagnostic_snapshot on this error path, then review/test before a live
+instrumented attempt. Don't retry unchanged or ask the user to calibrate yet.
+Continue assisted scans while fixing this seam. No legacy native/GTK diagnostic,
+no fake human record, no second GUI owner. Genuine drill and a full autonomous
+save/upload/loadedACK/reopen/takeover-resume cycle remain live acceptance work.
 
 ### Historical work notes (superseded by the installed state above)
 

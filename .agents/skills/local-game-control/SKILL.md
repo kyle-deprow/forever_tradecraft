@@ -132,8 +132,9 @@ within existing authorization; respect any current movement limits.
   preserving both fields rather than treating raw data as endpoint evidence.
   Update every endpoint consumer together, including readiness predicates,
   proof-helper waits, calibration, runtime correlation and receipts. Tests must
-  traverse the native argv gate and actual producer/seal/arm path; replacing
-  those methods can conceal a broken command schema or incomplete evidence.
+  traverse the native argv gate and actual producer/seal/arm path, including
+  the configured capture admission from paused startup; replacing those methods
+  can conceal a broken command schema, state gate or incomplete evidence.
   Keep measured phase-start evidence immutable and separate from callback cursors.
   Exercise callback delivery before final validation; prepopulating only the
   initial state can hide a failure caused by the real lifecycle's state updates.

@@ -146,12 +146,12 @@ sequence and window-identity checks. Scan state, command-buffer readback and
 movement feedback use this deterministic path. A larger screenshot feeds Luna
 when semantic visual evidence is required. The installed assisted path measures
 its auctioneer with Luna and refreshes that measurement after pointer movement.
-The replacement under review targets Auctioneer Jaxon in Stormwind, verifies
+The installed runtime targets Auctioneer Jaxon in Stormwind, verifies
 native target/range/session-binding facts, dispatches CTRL-F12 through the
 guarded keyboard executor, and requires fresh AH-open telemetry. Deployment and
 live acceptance are tracked in [HANDOFF.md](HANDOFF.md).
 
-The replacement separates passive startup from a persistent takeover drill.
+The runtime separates passive startup from a persistent takeover drill.
 Startup checks identity/focus, native held state, keymap, measured input hierarchy,
 the registered observer and three advancing ordinary HUD frames without game
 input. It mints fresh process-local input evidence for Guardian admission. A
@@ -204,8 +204,8 @@ and regression implementation is undergoing final verification; no fresh native
 qualification is claimed. Human relative motion keeps its separate interpretation.
 
 `session/motion.py` consumes decoded native position, facing, speed, combat/death
-and primary bindings. The installed status body is schema3; the replacement's
-strict schema4 adds auctioneer facts and requires a staged addon reload. This
+and primary bindings. The installed strict schema4 status body includes auctioneer facts; its
+addon/controller transition used a staged one-shot reload. This
 status-body version is distinct from CRS1 framing and saved scan formats.
 Movement pulses are capped at 0.35 seconds;
 waypoints are local, capped at two world units and a finite 20-second budget.
@@ -223,7 +223,7 @@ additional role probes or sealing. Native capture-start uses the driver's clock;
 settling validates each observation at receipt and the latest at decision time.
 Waypoint execution requires measured camera response and a movement basis,
 fresh visual route evidence and current native feedback. Interaction mode leaves
-scan scheduling idle; the replacement uses passive startup and the matching
+scan scheduling idle; the runtime uses passive startup and the matching
 takeover drill for input admission. Camera and movement measurements remain
 specific prerequisites for their respective motion actions.
 The engine and interaction producers share one capture/action fence; stop
