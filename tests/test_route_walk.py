@@ -12,6 +12,7 @@ import crowley.session.route_walk as route_walk
 from crowley.session.route_walk import (
     KEYBOARD_TURN_RATE,
     KINEMATICS_PROVENANCE,
+    MAX_KEY_HOLD_SECONDS,
     MIN_HUMAN_HOLD_SECONDS,
     RUN_SPEED,
     KeyEvent,
@@ -568,6 +569,30 @@ def test_long_turns_and_plans_have_real_same_key_gaps() -> None:
             0,
             1,
         )
+
+
+def test_long_forward_and_turn_spans_are_split_below_autorepeat_delay() -> None:
+    route = _route()
+    style = Style(
+        (1.5, 1.6, 1.7),
+        (0.15, 0.2, 0.25),
+        (0.15, 0.2, 0.25),
+        (1.5, 1.6, 1.7),
+        (0.08, 0.1, 0.12),
+        (0.08, 0.1, 0.12),
+        (0.7, 0.9, 1.1),
+        (0.4, 0.5, 0.6),
+    )
+    kinematics = Kinematics(7, math.pi, -math.pi, 0.6)
+    plan = plan_open_loop_walk(route, route.start, style, kinematics, 11)
+    open_events: dict[str, float] = {}
+    for event in plan.events:
+        if event.down:
+            open_events[event.key] = event.t
+        else:
+            assert event.key in open_events
+            assert event.t - open_events.pop(event.key) <= MAX_KEY_HOLD_SECONDS + 1e-9
+    assert not open_events
 
 
 def test_segment_jump_rules_and_final_facing() -> None:

@@ -38,7 +38,7 @@ from .calibration import (
     NativeRenderObservation,
     NativeRestorationReceipt,
 )
-from .config import SessionConfig
+from .config import SessionConfig, open_routes_descriptor
 from .controller import Controller, ControllerState
 from .decoder import PixelDecoder, Sample
 from .driver import (
@@ -116,8 +116,10 @@ from .motion import (
     normalize_angle,
     waypoint_heading_error,
 )
+from .pointer_execution import PointerExecutionError, acquire_click_rate_permit
 from .preferences import load_motion_profile
 from .protocol import ProtocolError, unsigned_delta
+from .route_walk import Pose, RouteFile, check_fix, plan_segment, walk_budget
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1451,7 +1453,13 @@ def _serialized_motion(method):
                     "calibrate_camera_mapping": MOTION_CAMERA_OPERATION_SECONDS,
                     "calibrate_movement_basis": MOTION_CALIBRATION_OPERATION_SECONDS,
                     "execute_waypoint": MAX_WAYPOINT_SECONDS,
+                    "execute_world_click": 60.0,
                 }.get(method.__name__)
+                if method.__name__ == "execute_route_walk":
+                    route_name = kwargs.get("route_name", args[0] if args else None)
+                    route_file = getattr(self, "route_file", None)
+                    route = route_file.routes.get(route_name) if isinstance(route_file, RouteFile) else None
+                    operation_seconds = min(walk_budget(route)[1], 60) if route is not None else 60.0
                 if operation_seconds is None:
                     raise DriverError(f"motion operation {method.__name__!r} has no bounded deadline")
                 try:
@@ -1495,6 +1503,25 @@ class SessionDaemon:
     _MIN_CAMERA_DRAG_PIXELS = MIN_CAMERA_CALIBRATION_PIXELS
 
     @staticmethod
+    def _load_routes(config: SessionConfig) -> RouteFile | None:
+        path = getattr(config, "routes_file", None)
+        if path is None:
+            return None
+        descriptor: int | None = None
+        try:
+            descriptor = open_routes_descriptor(path)
+            with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+                descriptor = None
+                return RouteFile.from_json(handle.read())
+        except DriverError:
+            raise
+        except (OSError, UnicodeError, ValueError) as exc:
+            raise DriverError(f"routes_file is invalid: {path}: {exc}") from exc
+        finally:
+            if descriptor is not None:
+                os.close(descriptor)
+
+    @staticmethod
     def _load_motion_profiles(config: SessionConfig) -> dict[str, Any]:
         profiles = {
             "pointer": (config.pointer_profile, "pointer"),
@@ -1530,6 +1557,7 @@ class SessionDaemon:
         # driver retains the supplied profile object and records measured
         # anchors there after real actions.
         self.config = copy.deepcopy(config)
+        self.route_file = self._load_routes(self.config)
         self._loaded_config_semantic_sha256 = session_config_semantic_sha256(self.config)
         self._model_counter_lock = threading.RLock()
         self._model_call_counters = {"started": 0, "succeeded": 0, "failed": 0}
@@ -1737,6 +1765,16 @@ class SessionDaemon:
         )
         self.last_snapshot: dict[str, Any] = journal_value.get("telemetry", {})
         self._last_action_generation = 0
+        self._last_motion_snapshot: dict[str, Any] = {}
+        self._motion_snapshots: dict[tuple[str, int, str], dict[str, Any]] = {}
+        self._route_walk_lock = threading.RLock()
+        self._route_walk_status: dict[str, Any] = {
+            "state": "idle",
+            "route": "",
+            "generation": 0,
+            "segments": [],
+            "error": "",
+        }
 
         # Revocation can be raised by the independent XI2 guardian while a
         # bounded visual turn is running.  Cancel the complete model process
@@ -6730,6 +6768,15 @@ class SessionDaemon:
                 if sample.kind == "FRESH" and sample.frame is not None:
                     self._last_addon_sequence = sample.frame.sequence
                     self._last_addon_boot = sample.frame.boot
+                    snapshot = copy.deepcopy(sample.frame.snapshot.value)
+                    self._last_motion_snapshot = snapshot
+                    key = (sample.frame.boot, sample.frame.sequence, sample.window_identity)
+                    snapshots = getattr(self, "_motion_snapshots", None)
+                    if snapshots is None:
+                        snapshots = self._motion_snapshots = {}
+                    snapshots[key] = snapshot
+                    while len(snapshots) > 256:
+                        snapshots.pop(next(iter(snapshots)))
                 return sample
         finally:
             for target in (source, crop):
@@ -7059,10 +7106,21 @@ class SessionDaemon:
         *,
         not_before: float | None = None,
         after_release: bool = False,
+        deadline_monotonic: float | None = None,
     ) -> MotionFrame:
         try:
             self._require_motion_interaction(generation)
             deadline = self._motion_deadline()
+            if deadline_monotonic is not None:
+                if (
+                    isinstance(deadline_monotonic, bool)
+                    or not isinstance(deadline_monotonic, (int, float))
+                    or not math.isfinite(float(deadline_monotonic))
+                ):
+                    raise DriverError("motion observation deadline is malformed")
+                deadline = min(deadline, float(deadline_monotonic))
+                if deadline <= self._native_clock():
+                    raise DriverError("motion observation deadline expired")
             if after_release:
                 if previous is None:
                     raise DriverError("post-release motion observation requires its pre-action frame")
@@ -7735,6 +7793,332 @@ class SessionDaemon:
         )
         self.movement_basis = basis
         return basis
+
+    def _set_route_walk_status(self, **updates: Any) -> None:
+        with self._route_walk_lock:
+            self._route_walk_status.update(copy.deepcopy(updates))
+
+    @staticmethod
+    def _motion_result(frame: MotionFrame) -> dict[str, Any]:
+        return {
+            "boot": frame.boot,
+            "sequence": frame.sequence,
+            "identity": frame.identity_fingerprint,
+            "zone": frame.zone,
+            "instance": frame.instance,
+            "x": frame.x,
+            "y": frame.y,
+            "z": frame.z,
+            "facing": frame.facing,
+            "speed": frame.speed,
+            "hover": {"kind": frame.hover_kind, "name": frame.hover_name},
+            "mailOpen": frame.mail_open,
+        }
+
+    def _observe_settled_motion(
+        self,
+        generation: int,
+        *,
+        previous: MotionFrame | None = None,
+        released_at: float | None = None,
+    ) -> MotionFrame:
+        """Require the measured post-release two-frame settled-fix rule."""
+
+        if released_at is not None and (
+            isinstance(released_at, bool)
+            or not isinstance(released_at, (int, float))
+            or not math.isfinite(float(released_at))
+        ):
+            raise DriverError("motion release timestamp is malformed")
+        settle_origin = self._native_clock() if released_at is None else float(released_at)
+        not_before = settle_origin + 1.2
+        while self._native_clock() < not_before:
+            self._require_motion_interaction(generation)
+            self._remaining_motion_budget(self._motion_deadline())
+            time.sleep(min(0.05, max(0.001, not_before - self._native_clock())))
+        first = self._observe_motion(generation, previous=previous, not_before=not_before)
+        while True:
+            second = self._observe_motion(generation, previous=first)
+            if (
+                first.speed == 0.0
+                and second.speed == 0.0
+                and first.x == second.x
+                and first.y == second.y
+                and first.facing == second.facing
+            ):
+                return second
+            first = second
+
+    def _route_frame_guard(self, frame: MotionFrame, route: Any) -> None:
+        if frame.instance != route.instance:
+            self._invalidate_motion_admission()
+            raise DriverError("route walk instance changed")
+        if frame.combat:
+            raise DriverError("route walk is refused during combat")
+        if frame.dead_or_ghost:
+            raise DriverError("route walk is refused while dead or a ghost")
+        if frame.chat_focused:
+            raise DriverError("route walk is refused while the chat edit box is focused")
+        self._require_native_gate(frame)
+
+    @_serialized_motion
+    def execute_route_walk(self, route_name: str, *, generation: int) -> MotionFrame:
+        if self.route_file is None:
+            raise DriverError("route walking is not configured")
+        if not isinstance(route_name, str) or not route_name:
+            raise DriverError("route name is malformed")
+        try:
+            route = self.route_file.routes[route_name]
+        except KeyError as exc:
+            raise DriverError(f"unknown route: {route_name}") from exc
+        max_segments, max_seconds = walk_budget(route)
+        self._set_route_walk_status(
+            state="running",
+            route=route_name,
+            generation=generation,
+            maxSegments=max_segments,
+            maxSeconds=max_seconds,
+            segments=[],
+            error="",
+        )
+        previous_segment = None
+        try:
+            lease_generation = self._require_motion_interaction(generation)
+            actual = self._observe_settled_motion(generation)
+            self._route_frame_guard(actual, route)
+            if math.dist((actual.x, actual.y), (route.start.x, route.start.y)) > 1.5:
+                raise DriverError("route walk start pose is outside the route start tolerance")
+            for index in range(max_segments):
+                self._require_motion_interaction(generation)
+                self._route_frame_guard(actual, route)
+                if previous_segment is not None:
+                    verdict = check_fix(
+                        route, previous_segment.expected, Pose(actual.x, actual.y, actual.facing)
+                    )
+                    if not verdict.ok:
+                        raise DriverError(
+                            "route walk fix failed: "
+                            f"position={verdict.position_error:.6f}, "
+                            f"facing={verdict.facing_error:.6f}, "
+                            f"corridor={verdict.corridor_distance:.6f}"
+                        )
+                seed = secrets.randbits(63)
+                try:
+                    segment = plan_segment(
+                        route,
+                        Pose(actual.x, actual.y, actual.facing),
+                        self.route_file.style,
+                        self.route_file.kinematics,
+                        seed,
+                    )
+                except (TypeError, ValueError) as exc:
+                    raise DriverError(f"route segment planning failed: {exc}") from exc
+                record = {
+                    "index": index,
+                    "segmentIndex": index,
+                    "seed": seed,
+                    "targetIndex": segment.target_index,
+                    "final": segment.final,
+                    "events": [[event.t, event.key, event.down] for event in segment.events],
+                    "expected": segment.expected.to_dict(),
+                }
+                with self._route_walk_lock:
+                    self._route_walk_status["segments"].append(record)
+                deadline = getattr(getattr(self, "_motion_deadline_local", None), "deadline", None)
+                lease_generation = self._require_motion_interaction(generation)
+                self.driver.run_key_timeline(
+                    segment.events,
+                    actual,
+                    generation=lease_generation,
+                    deadline_monotonic=deadline,
+                )
+                released_at = self._native_clock()
+                settled = self._observe_settled_motion(
+                    generation,
+                    previous=actual,
+                    released_at=released_at,
+                )
+                self._route_frame_guard(settled, route)
+                verdict = check_fix(route, segment.expected, Pose(settled.x, settled.y, settled.facing))
+                if not verdict.ok:
+                    raise DriverError(
+                        "route walk fix failed: "
+                        f"position={verdict.position_error:.6f}, "
+                        f"facing={verdict.facing_error:.6f}, "
+                        f"corridor={verdict.corridor_distance:.6f}"
+                    )
+                actual = settled
+                previous_segment = segment
+                if segment.final:
+                    self._set_route_walk_status(
+                        state="complete",
+                        final=self._motion_result(actual),
+                        error="",
+                    )
+                    return actual
+            raise DriverError("route walk exceeded its segment budget")
+        except Exception as exc:
+            self._set_route_walk_status(state="error", error=str(exc))
+            raise
+
+    @staticmethod
+    def _world_probe_points(hint: Point, radius: float, bounds: Rect) -> tuple[Point, ...]:
+        clipped = bounds.clip(hint).to_pixel()
+        points = [clipped]
+        seen = {(int(clipped.x), int(clipped.y))}
+        x = y = 0
+        leg = 1
+        directions = ((1, 0), (0, 1), (-1, 0), (0, -1))
+        while len(points) < 16 and leg * 60 <= radius + 60:
+            for direction_index, (dx, dy) in enumerate(directions):
+                distance = leg if direction_index < 2 else leg + 1
+                for _ in range(distance):
+                    x += dx
+                    y += dy
+                    if math.hypot(x * 60, y * 60) > radius + 1e-9:
+                        continue
+                    candidate = bounds.clip(Point(hint.x + x * 60, hint.y + y * 60)).to_pixel()
+                    key = (int(candidate.x), int(candidate.y))
+                    if key not in seen:
+                        seen.add(key)
+                        points.append(candidate)
+                        if len(points) == 16:
+                            return tuple(points)
+            leg += 2
+        return tuple(points)
+
+    def _world_expected_state(self, frame: MotionFrame, expect: str) -> bool:
+        if expect != "ahOpen":
+            if expect != "mailOpen":
+                raise DriverError("world click expected state is not allowlisted")
+        key = (frame.boot, frame.sequence, frame.identity_fingerprint)
+        snapshots = getattr(self, "_motion_snapshots", {})
+        snapshot = snapshots.get(key) if isinstance(snapshots, dict) else None
+        value = snapshot.get(expect) if isinstance(snapshot, dict) else None
+        # Small isolated fakes may provide the already-bound field directly;
+        # never consult the mutable last-capture snapshot for a result.
+        if value is None:
+            value = getattr(frame, "mail_open" if expect == "mailOpen" else "ah_open", None)
+        if not isinstance(value, bool):
+            raise DriverError(f"fresh motion frame omitted {expect} state")
+        return value
+
+    @_serialized_motion
+    def execute_world_click(
+        self,
+        target_name: str,
+        hint_x: float,
+        hint_y: float,
+        radius: float,
+        *,
+        expect: str,
+        generation: int,
+    ) -> MotionFrame:
+        if not isinstance(target_name, str) or not target_name or len(target_name.encode("utf-8")) > 48:
+            raise DriverError("world click target name is malformed")
+        if expect not in {"mailOpen", "ahOpen"}:
+            raise DriverError("world click expected state is not allowlisted")
+        if (
+            any(
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(float(value))
+                for value in (hint_x, hint_y, radius)
+            )
+            or not 0.0 <= float(radius) <= 300.0
+        ):
+            raise DriverError("world click probe geometry is malformed")
+        deadline = getattr(getattr(self, "_motion_deadline_local", None), "deadline", None)
+        initial = self._observe_motion(generation)
+        if initial.chat_focused:
+            raise DriverError("world click is refused while the chat edit box is focused")
+        self._require_native_gate(initial)
+        identity = self._resolve_identity(require_foreground=True, deadline=deadline)
+        if identity.fingerprint != initial.identity_fingerprint:
+            raise DriverError("world click client identity changed before probing")
+        bounds = Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3])
+        probes = self._world_probe_points(Point(float(hint_x), float(hint_y)), float(radius), bounds)
+        current = initial
+        for probe in probes:
+            lease_generation = self._require_motion_interaction(generation)
+            gesture = self.driver.run_pointer_motion(
+                probe,
+                generation=lease_generation,
+                deadline_monotonic=deadline,
+            )
+            gesture_end = self._native_clock()
+            hover = self._observe_motion(
+                generation,
+                previous=current,
+                not_before=gesture_end,
+            )
+            current = hover
+            hover_capture = getattr(hover, "capture_monotonic", None)
+            if (
+                isinstance(hover_capture, bool)
+                or not isinstance(hover_capture, (int, float))
+                or hover_capture <= gesture_end
+            ):
+                continue
+            if hover.hover_kind not in {"unit", "object"} or hover.hover_name != target_name:
+                continue
+            try:
+                permit = acquire_click_rate_permit(
+                    deadline_monotonic=deadline,
+                    cancellation_check=lambda: self._require_motion_interaction(generation),
+                )
+            except (PointerExecutionError, DriverError, GuardianError) as exc:
+                raise DriverError(f"world click rate admission failed: {exc}") from exc
+            try:
+                lease_generation = self._require_motion_interaction(generation)
+                proof = self._observe_motion(
+                    generation,
+                    previous=current,
+                    not_before=gesture_end,
+                )
+                current = proof
+                proof_age = self._native_clock() - proof.capture_monotonic
+                if (
+                    proof.identity_fingerprint != identity.fingerprint
+                    or proof_age < 0.0
+                    or proof_age > MAX_FRAME_AGE
+                    or proof.capture_monotonic <= gesture_end
+                    or proof.chat_focused
+                    or proof.hover_kind not in {"unit", "object"}
+                    or proof.hover_name != target_name
+                ):
+                    raise DriverError("world click hover admission proof is stale or mismatched")
+                self.driver.run_hover_click(
+                    probe,
+                    proof,
+                    gesture=gesture,
+                    gesture_ended_monotonic=gesture_end,
+                    generation=lease_generation,
+                    deadline_monotonic=deadline,
+                    click_rate_permit=permit,
+                    target_name=target_name,
+                )
+            finally:
+                permit.close()
+            expect_deadline = self._native_clock() + 3.0
+            if deadline is not None:
+                expect_deadline = min(expect_deadline, deadline)
+            after_click_boundary = True
+            while True:
+                final = self._observe_motion(
+                    generation,
+                    previous=current,
+                    after_release=after_click_boundary,
+                    deadline_monotonic=expect_deadline,
+                )
+                current = final
+                if self._world_expected_state(final, expect):
+                    return final
+                if self._native_clock() >= expect_deadline:
+                    break
+                after_click_boundary = False
+            raise DriverError(f"world click did not produce {expect}")
+        raise DriverError(f"world click target was not found: {target_name}")
 
     @_serialized_motion
     def execute_motion_key(self, role: KeyRole, duration: float, *, generation: int) -> MotionFrame:
@@ -10619,6 +11003,7 @@ class SessionDaemon:
             # are facts emitted by callbacks from the live runner, not claims
             # inferred from a calibration boolean.
             "nativeHandshake": dict(self._native_handshake),
+            "routeWalk": copy.deepcopy(self._route_walk_status),
         }
 
     def _calibration_operation_snapshot(self) -> dict[str, Any]:

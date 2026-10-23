@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
@@ -15,6 +16,37 @@ from crowley.core.watchlist import load_catalog
 from .driver import DriverProfile
 
 _CANONICAL_CLIENT_VERSION, _CANONICAL_CLIENT_BUILD = load_catalog().client_build.rsplit(".", 1)
+
+
+def open_routes_descriptor(path: Path) -> int:
+    """Open a configured routes file and validate the opened objects.
+
+    The parent directory is opened first and the file is then opened relative
+    to that descriptor.  Both checks therefore apply to the objects actually
+    used by the caller; the caller must read and close the returned descriptor.
+    """
+
+    flags = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW
+    parent_fd = os.open(path.parent, os.O_RDONLY | os.O_DIRECTORY | os.O_CLOEXEC | os.O_NOFOLLOW)
+    try:
+        parent_stat = os.fstat(parent_fd)
+        if not stat.S_ISDIR(parent_stat.st_mode) or parent_stat.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            raise ValueError("routes_file parent directory must not be group/world writable")
+        descriptor = os.open(path.name, flags, dir_fd=parent_fd)
+    finally:
+        os.close(parent_fd)
+    try:
+        metadata = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(metadata.st_mode)
+            or metadata.st_uid != os.getuid()
+            or metadata.st_mode & (stat.S_IWGRP | stat.S_IWOTH)
+        ):
+            raise ValueError("routes_file must be a user-owned regular file without group/world write access")
+        return descriptor
+    except Exception:
+        os.close(descriptor)
+        raise
 
 
 @dataclass(frozen=True)
@@ -50,6 +82,7 @@ class SessionConfig:
     telemetry_region_executable_sha256: str | None = None
     identity_observer_executable: Path | None = None
     identity_observer_executable_sha256: str | None = None
+    routes_file: Path | None = None
 
 
 def load_config(path: str | Path) -> SessionConfig:
@@ -206,6 +239,19 @@ def load_config(path: str | Path) -> SessionConfig:
     saved_path = Path(session["saved_variables"]).expanduser() if session.get("saved_variables") else None
     companion_path = Path(session["companion_state"]).expanduser() if session.get("companion_state") else None
     data_path = Path(session["data_lua"]).expanduser() if session.get("data_lua") else None
+    routes_path: Path | None = None
+    if "routes_file" in session:
+        configured_routes = session["routes_file"]
+        if not isinstance(configured_routes, str) or not configured_routes:
+            raise ValueError("routes_file must be an absolute path")
+        routes_path = Path(configured_routes).expanduser()
+        if not routes_path.is_absolute():
+            raise ValueError("routes_file must be an absolute path")
+        try:
+            descriptor = open_routes_descriptor(routes_path)
+            os.close(descriptor)
+        except (OSError, ValueError) as exc:
+            raise ValueError(f"routes_file is unavailable: {routes_path}") from exc
     motion_profiles: dict[str, Path | None] = {}
     for role in ("pointer", "camera", "move"):
         configured = session.get(f"{role}_profile")
@@ -269,7 +315,8 @@ def load_config(path: str | Path) -> SessionConfig:
         telemetry_region_executable_sha256=telemetry_digest,
         identity_observer_executable=observer_path,
         identity_observer_executable_sha256=observer_digest,
+        routes_file=routes_path,
     )
 
 
-__all__ = ["SessionConfig", "load_config"]
+__all__ = ["SessionConfig", "load_config", "open_routes_descriptor"]

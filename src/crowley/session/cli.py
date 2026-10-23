@@ -33,6 +33,19 @@ _IPC_REQUEST_MAX_BYTES = 4096
 _IPC_RESPONSE_MAX_BYTES = 524288
 
 
+def _parse_hint(value: str) -> tuple[float, float]:
+    parts = value.split(",")
+    if len(parts) != 2:
+        raise argparse.ArgumentTypeError("expected X,Y")
+    try:
+        result = tuple(float(part) for part in parts)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("hint coordinates must be finite numbers") from exc
+    if any(not math.isfinite(item) for item in result):
+        raise argparse.ArgumentTypeError("hint coordinates must be finite numbers")
+    return result  # type: ignore[return-value]
+
+
 class SessionIPC:
     def __init__(self, controller: Controller, owner: SessionDaemon | None = None):
         self.controller = controller
@@ -258,6 +271,8 @@ class SessionIPC:
             "motion_camera_calibrate",
             "motion_movement_calibrate",
             "motion_waypoint",
+            "route_walk",
+            "world_click",
         }
         if command in interaction_commands:
             if self.owner is None:
@@ -278,6 +293,16 @@ class SessionIPC:
                 "motion_camera_calibrate": {"command", "generation", "deltaPixels"},
                 "motion_movement_calibrate": {"command", "generation", "pulseSeconds"},
                 "motion_waypoint": {"command", "generation", "x", "y"},
+                "route_walk": {"command", "generation", "route"},
+                "world_click": {
+                    "command",
+                    "generation",
+                    "target",
+                    "hintX",
+                    "hintY",
+                    "radius",
+                    "expect",
+                },
             }[command]
             if set(request) != allowed_fields:
                 return {"ok": False, "error": "interaction request fields are malformed"}
@@ -369,6 +394,55 @@ class SessionIPC:
                             "handedness": basis.handedness,
                             "convention": basis.convention,
                         },
+                    }
+                elif command == "route_walk":
+                    route = request["route"]
+                    if not isinstance(route, str) or not route or len(route) > 128:
+                        raise DriverError("route name is malformed")
+                    with self._interaction_slot():
+                        frame = self.owner.execute_route_walk(route, generation=generation)
+                    result = self.owner._motion_result(frame)
+                    return {
+                        "ok": True,
+                        "status": self.owner.status_dict(),
+                        "motion": result,
+                        "hover": result["hover"],
+                    }
+                elif command == "world_click":
+                    target = request["target"]
+                    hint_x = request["hintX"]
+                    hint_y = request["hintY"]
+                    radius = request["radius"]
+                    expect = request["expect"]
+                    if not isinstance(target, str) or not target or len(target.encode("utf-8")) > 48:
+                        raise DriverError("world click target name is malformed")
+                    if (
+                        any(
+                            isinstance(value, bool)
+                            or not isinstance(value, (int, float))
+                            or not math.isfinite(float(value))
+                            for value in (hint_x, hint_y, radius)
+                        )
+                        or not 0.0 <= float(radius) <= 300.0
+                    ):
+                        raise DriverError("world click probe geometry is malformed")
+                    if expect not in {"mailOpen", "ahOpen"}:
+                        raise DriverError("world click expected state is not allowlisted")
+                    with self._interaction_slot():
+                        frame = self.owner.execute_world_click(
+                            target,
+                            float(hint_x),
+                            float(hint_y),
+                            float(radius),
+                            expect=expect,
+                            generation=generation,
+                        )
+                    result = self.owner._motion_result(frame)
+                    return {
+                        "ok": True,
+                        "status": self.owner.status_dict(),
+                        "motion": result,
+                        "hover": result["hover"],
                     }
                 else:
                     target_x = request["x"]
@@ -935,6 +1009,15 @@ def main(argv: list[str] | None = None) -> int:
     motion_waypoint.add_argument("--generation", type=int, required=True)
     motion_waypoint.add_argument("--x", type=float, required=True)
     motion_waypoint.add_argument("--y", type=float, required=True)
+    route_walk = subparsers.add_parser("route-walk")
+    route_walk.add_argument("--generation", type=int, required=True)
+    route_walk.add_argument("--route", required=True)
+    world_click = subparsers.add_parser("world-click")
+    world_click.add_argument("--generation", type=int, required=True)
+    world_click.add_argument("--target", required=True)
+    world_click.add_argument("--hint", type=_parse_hint, required=True)
+    world_click.add_argument("--radius", type=float, required=True)
+    world_click.add_argument("--expect", choices=("mailOpen", "ahOpen"), required=True)
     subparsers.add_parser("calibration-status")
     motion_profile = subparsers.add_parser("motion-profile")
     motion_profile_subparsers = motion_profile.add_subparsers(dest="motion_profile_command", required=True)
@@ -1006,6 +1089,16 @@ def main(argv: list[str] | None = None) -> int:
         request["pulseSeconds"] = args.pulse_seconds
     elif args.command == "motion-waypoint":
         request.update(x=args.x, y=args.y)
+    elif args.command == "route-walk":
+        request["route"] = args.route
+    elif args.command == "world-click":
+        request.update(
+            target=args.target,
+            hintX=args.hint[0],
+            hintY=args.hint[1],
+            radius=args.radius,
+            expect=args.expect,
+        )
     if args.command == "native-construction-bootstrap":
         request.update(
             reservationId=args.reservation_id,
@@ -1039,11 +1132,14 @@ def main(argv: list[str] | None = None) -> int:
             operation_timeout = MOTION_CAMERA_OPERATION_SECONDS
         elif args.command == "motion-key":
             operation_timeout = MOTION_KEY_OPERATION_SECONDS
+        elif args.command in {"route-walk", "world-click"}:
+            operation_timeout = 60.0
         else:
             operation_timeout = 5.0
         request_timeout = (
             operation_timeout + MOTION_TRANSPORT_MARGIN_SECONDS
             if args.command.startswith(("motion-", "native-construction-"))
+            or args.command in {"route-walk", "world-click"}
             else operation_timeout
         )
         response = _socket_request(config.socket, request, timeout=request_timeout)

@@ -19,6 +19,10 @@ from typing import Any, NamedTuple
 
 TAU = math.tau
 MIN_HUMAN_HOLD_SECONDS = 0.03
+# The live display has GNOME repeat delay 500 ms and X autorepeat delay
+# 660 ms.  Keep every route key hold below both measured delays so a held
+# movement key cannot produce an unmodeled repeat event.
+MAX_KEY_HOLD_SECONDS = 0.45
 TRACE_STEP_SECONDS = 0.005
 # Measured live on WoW client build 1.60.1.70450.  These are deliberately
 # constants rather than values fitted from the one-Hz recording stream.
@@ -1388,7 +1392,7 @@ def _turn_events(
     rate = abs(_turn_rate(key, kinematics))
     if rate <= _EPS:
         raise ValueError("turn rate must be non-zero")
-    maximum = max(style.turn_tap)
+    maximum = min(max(style.turn_tap), MAX_KEY_HOLD_SECONDS)
     minimum = MIN_HUMAN_HOLD_SECONDS
     sign = 1.0 if _turn_rate(key, kinematics) > 0 else -1.0
     remaining = abs(delta)
@@ -1418,7 +1422,8 @@ def _forward_events(
     if distance <= _EPS:
         return [], start_time, ()
     duration = distance / kinematics.run_speed
-    count = max(1, math.ceil(duration / max(style.forward_hold)))
+    maximum_hold = min(max(style.forward_hold), MAX_KEY_HOLD_SECONDS)
+    count = max(1, math.ceil(duration / maximum_hold))
     hold = duration / count
     intervals: list[tuple[float, float]] = []
     events: list[KeyEvent] = []

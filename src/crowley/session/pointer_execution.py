@@ -445,12 +445,23 @@ def _write_state(directory: Path, state: dict[str, object]) -> None:
 class ClickRatePermit:
     """Exclusive timing permit held from pre-capture wait through release."""
 
-    def __init__(self, fd: int, directory: Path, boot_id: str, *, _issuer: object):
+    def __init__(
+        self,
+        fd: int,
+        directory: Path,
+        boot_id: str,
+        *,
+        acquired_monotonic: float,
+        _issuer: object,
+    ):
         if _issuer is not _PERMIT_ISSUER:
             raise PointerExecutionError("click timing permits are issued only by the canonical gate")
+        if not math.isfinite(acquired_monotonic):
+            raise PointerExecutionError("click timing permit acquisition time is malformed")
         self._fd = fd
         self._directory = directory
         self._boot_id = boot_id
+        self._acquired_monotonic = float(acquired_monotonic)
         self._precommitted = False
         self._recorded = False
         self._closed = False
@@ -458,6 +469,12 @@ class ClickRatePermit:
     @property
     def is_open(self) -> bool:
         return not self._closed and self._fd >= 0
+
+    @property
+    def acquired_monotonic(self) -> float:
+        """Monotonic time at which this permit was issued by the rate gate."""
+
+        return self._acquired_monotonic
 
     def precommit(self) -> int:
         if self._closed or self._precommitted:
@@ -544,13 +561,25 @@ def acquire_click_rate_permit(
             now = time.monotonic_ns()
             state = _read_state(directory)
             if state is None or state["bootId"] != boot_id:
-                return ClickRatePermit(fd, directory, boot_id, _issuer=_PERMIT_ISSUER)
+                return ClickRatePermit(
+                    fd,
+                    directory,
+                    boot_id,
+                    acquired_monotonic=time.monotonic(),
+                    _issuer=_PERMIT_ISSUER,
+                )
             next_allowed = state["nextAllowedMonotonicNs"]
             assert isinstance(next_allowed, int)
             if next_allowed - now > _MAX_STATE_FUTURE_NS:
                 raise PointerExecutionError("pointer timing deadline is implausibly far in the future")
             if now >= next_allowed:
-                return ClickRatePermit(fd, directory, boot_id, _issuer=_PERMIT_ISSUER)
+                return ClickRatePermit(
+                    fd,
+                    directory,
+                    boot_id,
+                    acquired_monotonic=time.monotonic(),
+                    _issuer=_PERMIT_ISSUER,
+                )
             if time.monotonic() >= wait_deadline:
                 raise PointerExecutionError("click rate spacing wait exceeded its bounded deadline")
             if deadline_monotonic is not None and time.monotonic() >= float(deadline_monotonic):

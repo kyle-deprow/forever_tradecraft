@@ -10,7 +10,9 @@ import hashlib
 import json
 import math
 import os
+import random
 import re
+import secrets
 import select
 import selectors
 import shutil
@@ -1905,9 +1907,17 @@ class X11Backend:
             raise DriverError("desktop action cannot carry game and calibration authority together")
         if expected_argv is not None and tuple(args) != tuple(expected_argv):
             raise DriverError("desktop command does not match its sealed typed input plan")
-        known_input_schemas = {"motion-key", "camera-drag", "pointer-motion", "single-click"}
+        known_input_schemas = {
+            "motion-key",
+            "motion-timeline",
+            "camera-drag",
+            "pointer-motion",
+            "single-click",
+        }
         if input_schema is not None and input_schema not in known_input_schemas:
             raise DriverError("unknown input schema")
+        if input_schema == "motion-timeline" and expected_argv is None:
+            raise DriverError("motion timeline requires a sealed expected argv")
 
         def xid(value: str) -> bool:
             return bool(re.fullmatch(r"(?:0x[0-9a-fA-F]+|[0-9]+)", value))
@@ -2037,6 +2047,57 @@ class X11Backend:
             held_valid, held_motion = pointer_segment(held, require_motion=True)
             return prefix_valid and held_valid and held_motion, prefix_valid and held_motion
 
+        def motion_timeline(tokens: list[str]) -> tuple[bool, bool, frozenset[str]]:
+            """Validate one sealed keyboard timeline and return its key set."""
+
+            if not tokens or len(tokens) > 256:
+                return False, False, frozenset()
+            index = 0
+            active: set[str] = set()
+            keys: set[str] = set()
+            pressed_at: dict[str, float] = {}
+            last_release: dict[str, float] = {}
+            elapsed = 0.0
+            event_count = 0
+            while index < len(tokens):
+                operation = tokens[index]
+                if operation in {"keydown", "keyup"}:
+                    if index + 1 >= len(tokens):
+                        return False, False, frozenset()
+                    key = tokens[index + 1]
+                    if key not in {"w", "q", "e", "space"}:
+                        return False, False, frozenset()
+                    if operation == "keydown":
+                        if key in active or key in last_release and elapsed == last_release[key]:
+                            return False, False, frozenset()
+                        active.add(key)
+                        pressed_at[key] = elapsed
+                    elif key not in active:
+                        return False, False, frozenset()
+                    else:
+                        hold = elapsed - pressed_at[key]
+                        if hold < 0.03 or hold > 0.45:
+                            return False, False, frozenset()
+                        active.remove(key)
+                        del pressed_at[key]
+                        last_release[key] = elapsed
+                    keys.add(key)
+                    event_count += 1
+                    if event_count > 64:
+                        return False, False, frozenset()
+                    index += 2
+                    continue
+                if operation == "sleep":
+                    if index + 1 >= len(tokens) or not bounded_sleep(tokens[index + 1]):
+                        return False, False, frozenset()
+                    elapsed += float(tokens[index + 1])
+                    if elapsed > 6.0:
+                        return False, False, frozenset()
+                    index += 2
+                    continue
+                return False, False, frozenset()
+            return event_count > 0 and not active, event_count > 0 and not active, frozenset(keys)
+
         # Every desktop subprocess is admitted by a positive argv schema.
         # This keeps newly added X11 utilities and shell-like xdotool modes
         # closed by default; a denylist cannot safely describe the mutation
@@ -2126,6 +2187,8 @@ class X11Backend:
                         and bounded_sleep(args[4])
                     )
                     mutating = valid
+                elif input_schema == "motion-timeline":
+                    valid, mutating, _timeline_keys = motion_timeline(args[1:])
                 elif input_schema == "camera-drag":
                     valid, mutating = camera_chain(args[1:])
                 elif input_schema == "single-click":
@@ -2178,6 +2241,9 @@ class X11Backend:
             expected_buttons: frozenset[int]
             if input_schema == "motion-key":
                 expected_keys = frozenset({args[2]})
+                expected_buttons = frozenset()
+            elif input_schema == "motion-timeline":
+                _timeline_valid, _timeline_mutating, expected_keys = motion_timeline(args[1:])
                 expected_buttons = frozenset()
             elif input_schema == "single-click":
                 expected_keys = frozenset()
@@ -6707,6 +6773,542 @@ class DesktopDriver:
         except Exception as exc:
             if self.guardian.armed and self.guardian.generation == generation:
                 self.revoke(f"motion key hold failed: {exc}")
+            raise
+        finally:
+            self._held_input = False
+
+    def run_key_timeline(
+        self,
+        segment_events: Any,
+        frame: Any,
+        *,
+        generation: int,
+        deadline_monotonic: float | None = None,
+    ) -> None:
+        """Dispatch one closed-loop route segment as one sealed key trace."""
+
+        if deadline_monotonic is not None and (
+            isinstance(deadline_monotonic, bool)
+            or not isinstance(deadline_monotonic, (int, float))
+            or not math.isfinite(float(deadline_monotonic))
+        ):
+            raise DriverError("motion timeline deadline is malformed")
+        if frame is None or not callable(getattr(frame, "binding", None)):
+            raise DriverError("motion timeline frame is malformed")
+        try:
+            from .route_walk import MAX_KEY_HOLD_SECONDS, KeyEvent
+
+            events = tuple(segment_events)
+        except (TypeError, ValueError) as exc:
+            raise DriverError("motion timeline events are malformed") from exc
+        if len(events) > 64:
+            raise DriverError("motion timeline contains too many events")
+        logical_keys = frozenset({"W", "Left", "Right", "space"})
+        active: set[str] = set()
+        pressed_at: dict[str, float] = {}
+        last_release: dict[str, float] = {}
+        normalized: list[KeyEvent] = []
+        previous_time = 0.0
+        for raw in events:
+            if not isinstance(raw, KeyEvent):
+                try:
+                    event = KeyEvent(raw[0], raw[1], raw[2])
+                except (IndexError, TypeError, ValueError) as exc:
+                    raise DriverError("motion timeline event is malformed") from exc
+            else:
+                event = raw
+            if (
+                isinstance(event.t, bool)
+                or not isinstance(event.t, (int, float))
+                or not math.isfinite(float(event.t))
+                or float(event.t) < 0.0
+                or float(event.t) < previous_time
+            ):
+                raise DriverError("motion timeline timestamps are not ordered and bounded")
+            if event.key not in logical_keys or type(event.down) is not bool:
+                raise DriverError("motion timeline key event is outside the sealed key set")
+            at = float(event.t)
+            if event.down:
+                if event.key in active:
+                    raise DriverError(f"motion timeline presses {event.key} while held")
+                if event.key in last_release and at == last_release[event.key]:
+                    raise DriverError(f"motion timeline re-presses {event.key} at the same time")
+                active.add(event.key)
+                pressed_at[event.key] = at
+            else:
+                if event.key not in active:
+                    raise DriverError(f"motion timeline releases {event.key} without a press")
+                hold = at - pressed_at[event.key]
+                if hold < 0.03 or hold > MAX_KEY_HOLD_SECONDS:
+                    raise DriverError(f"motion timeline {event.key} hold is outside the human bound")
+                active.remove(event.key)
+                del pressed_at[event.key]
+                last_release[event.key] = at
+            normalized.append(KeyEvent(at, event.key, event.down))
+            previous_time = at
+        if active:
+            raise DriverError("motion timeline leaves keys held")
+        duration = normalized[-1].t if normalized else 0.0
+        if duration > 6.0:
+            raise DriverError("motion timeline exceeds the six-second bound")
+        if not normalized:
+            return
+
+        identity, evidence, source, master, modifiers, keymap = self._motion_input_context(
+            generation, pointer=False, deadline_monotonic=deadline_monotonic
+        )
+        if getattr(frame, "identity_fingerprint", None) != identity.fingerprint:
+            raise DriverError("motion timeline frame identity is stale")
+        binding_fields = {
+            "W": "moveForward",
+            "Left": "turnLeft",
+            "Right": "turnRight",
+            "space": "jump",
+        }
+        keysyms: dict[str, str] = {}
+        keycodes: dict[str, int] = {}
+        for logical, binding_field in binding_fields.items():
+            binding = frame.binding(binding_field)
+            if logical == "space":
+                if binding != "SPACE":
+                    raise DriverError("native jump binding is not the observed SPACE keysym")
+                keysym = "space"
+            else:
+                if not isinstance(binding, str) or len(binding) != 1 or not re.fullmatch(r"[A-Z]", binding):
+                    raise DriverError("native route binding is not a single unmodified level-zero keysym")
+                keysym = binding.lower()
+            keycode = keymap.get(keysym)
+            if isinstance(keycode, bool) or not isinstance(keycode, int) or keycode <= 0:
+                raise DriverError("native route binding is absent from the calibrated keymap")
+            if isinstance(self.backend, X11Backend):
+                levels = (
+                    self.backend.observe_keymap_levels()
+                    if deadline_monotonic is None
+                    else self.backend.observe_keymap_levels(deadline_monotonic=deadline_monotonic)
+                ).get(keycode)
+                if not levels or levels[0] != keysym:
+                    raise DriverError("native route binding is not the sealed level-zero keysym")
+            keysyms[logical] = keysym
+            keycodes[logical] = keycode
+        plan_keys = {keysyms[event.key] for event in normalized}
+        argv = ["xdotool"]
+        current = 0.0
+        required_sequence: list[str] = []
+        expected_details: list[int] = []
+        expected_modifiers: list[tuple[int, int, int]] = []
+        for event in normalized:
+            delay = event.t - current
+            if delay > 0.0:
+                remaining = delay
+                while remaining > 0.0:
+                    piece = min(2.0, remaining)
+                    argv.extend(("sleep", f"{piece:.9f}"))
+                    remaining -= piece
+            keysym = keysyms[event.key]
+            if event.down:
+                argv.extend(("keydown", keysym))
+                required_sequence.extend((EventClass.RAW_KEY_PRESS.value, EventClass.KEY_PRESS.value))
+            else:
+                argv.extend(("keyup", keysym))
+                required_sequence.extend((EventClass.RAW_KEY_RELEASE.value, EventClass.KEY_RELEASE.value))
+            expected_details.extend((keycodes[event.key], keycodes[event.key]))
+            expected_modifiers.append(tuple(modifiers))
+            current = event.t
+
+        event_classes = {
+            EventClass.RAW_KEY_PRESS.value,
+            EventClass.KEY_PRESS.value,
+            EventClass.RAW_KEY_RELEASE.value,
+            EventClass.KEY_RELEASE.value,
+        }
+        action = None
+        try:
+            action_timeout = 10.0
+            if deadline_monotonic is not None:
+                action_timeout = max(0.001, float(deadline_monotonic) - time.monotonic())
+            action = self.guardian.begin_action(
+                generation,
+                target_xid=identity.child_xid,
+                source_device=source,
+                master_device=master,
+                event_classes=event_classes,
+                device_by_class={
+                    event_class: master if event_class.startswith("Raw") else source
+                    for event_class in event_classes
+                },
+                target_ancestor=lambda xid: self._is_owned_client_target(xid, identity),
+                required_sequence=tuple(required_sequence),
+                expected_details=tuple(expected_details),
+                expected_modifier_sequence=tuple(expected_modifiers),
+                expected_modifiers=modifiers,
+                held_keys=plan_keys,
+                modifier_group_size=2,
+                timeout=action_timeout,
+            )
+            self.guardian.dispatch_admission(generation, lambda: None)
+            self._held_input = True
+            self.backend._run(
+                argv,
+                generation=generation,
+                held_keys=plan_keys,
+                input_schema="motion-timeline",
+                expected_argv=tuple(argv),
+                deadline_monotonic=deadline_monotonic,
+            )
+            self.guardian.check(generation)
+            if self._monitor is None:
+                raise DriverError("motion timeline completion requires the live XI2 observer")
+            wait_timeout = 10.0
+            if deadline_monotonic is not None:
+                wait_timeout = min(wait_timeout, max(0.0, deadline_monotonic - time.monotonic()))
+            self._monitor.wait_for_event(lambda _events: action.complete, timeout=wait_timeout)
+            if not action.complete:
+                raise DriverError("motion timeline event trace did not complete")
+            self.guardian.finish_action(generation, action)
+        except GuardianError as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"motion timeline Guardian failure: {exc}")
+            raise DriverError(str(exc)) from exc
+        except Exception as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"motion timeline failed: {exc}")
+            raise
+        finally:
+            self._held_input = False
+
+    def run_pointer_motion(
+        self,
+        point: Point,
+        *,
+        generation: int,
+        deadline_monotonic: float | None = None,
+    ) -> HumanPointerPlan:
+        """Move to one verified client pixel with a Guardian-owned gesture."""
+
+        if not isinstance(point, Point):
+            raise DriverError("world pointer probe is malformed")
+        identity, evidence, source, master, modifiers, _keymap = self._motion_input_context(
+            generation, pointer=True, deadline_monotonic=deadline_monotonic
+        )
+        client_bounds = Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3])
+        target_point = point.to_pixel()
+        if not client_bounds.contains(target_point):
+            raise DriverError("world pointer probe is outside the verified client")
+        root_x, root_y, pointer_window = self.backend.pointer_position(
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        )
+        if not self._is_owned_client_target(pointer_window, identity):
+            raise DriverError("native pointer start is outside the verified client")
+        start = Point(root_x - identity.child_geometry[0], root_y - identity.child_geometry[1]).to_pixel()
+        binding = BindingMetadata(
+            identity.fingerprint,
+            f"world-pointer:{generation}:{identity.fingerprint}",
+            max(1, self._named_capture_sequence + 1),
+            generation,
+            identity.child_xid,
+            tuple(identity.target_event_xids) or (identity.child_xid,),
+            source="native-telemetry",
+        )
+        try:
+            gesture = plan_human_pointer(
+                start,
+                PointerTarget(
+                    "world-hover",
+                    Rect(int(target_point.x), int(target_point.y), 1, 1),
+                    binding,
+                    padding=0,
+                ),
+                client_bounds,
+                seed=secrets.randbits(64),
+                button=None,
+                profile=self.pointer_motion_profile,
+            )
+            chain = build_pointer_motion_chain(gesture.trajectory, identity.child_geometry)
+        except (ExecutorError, PointerExecutionError) as exc:
+            raise DriverError(f"world pointer gesture is invalid: {exc}") from exc
+        trace: list[tuple[int, int, int, int]] = []
+        prior = gesture.trajectory.samples[0].point
+        left, top, _width, _height = identity.child_geometry
+        for sample in gesture.trajectory.samples[1:]:
+            if sample.point == prior:
+                continue
+            root = (left + int(sample.point.x), top + int(sample.point.y))
+            trace.append(
+                (*root, *root)
+                if evidence.xtest_profile is not None
+                else (*root, int(sample.point.x), int(sample.point.y))
+            )
+            prior = sample.point
+        canonical_motion = isinstance(self.backend, X11Backend) and evidence.xtest_profile is not None
+        event_classes = {
+            EventClass.RAW_MOTION.value,
+            EventClass.MOTION.value,
+            EventClass.DEVICE_CHANGED.value,
+            EventClass.ENTER.value,
+            EventClass.LEAVE.value,
+        }
+        echo_proof = tuple(tuple(record) for record in getattr(evidence, "synthetic_echo_proof", ()))
+        action = None
+        try:
+            action_timeout = 10.0
+            if deadline_monotonic is not None:
+                action_timeout = max(0.001, float(deadline_monotonic) - time.monotonic())
+            action = self.guardian.begin_action(
+                generation,
+                target_xid=identity.child_xid,
+                source_device=source,
+                master_device=master,
+                event_classes=event_classes,
+                device_by_class={
+                    event_class: master
+                    if event_class.startswith("Raw") or event_class == EventClass.DEVICE_CHANGED.value
+                    else source
+                    for event_class in event_classes
+                },
+                target_ancestor=lambda xid: self._is_owned_client_target(xid, identity),
+                optional_classes={
+                    EventClass.DEVICE_CHANGED.value,
+                    EventClass.ENTER.value,
+                    EventClass.LEAVE.value,
+                },
+                expected_modifiers=modifiers,
+                expected_motion_trace=tuple(trace),
+                initial_origin=(root_x, root_y, root_x, root_y) if canonical_motion else None,
+                expected_root_xid=getattr(evidence.xtest_profile, "root_xid", None)
+                if canonical_motion
+                else None,
+                expected_event_xid=getattr(evidence.xtest_profile, "root_xid", None)
+                if canonical_motion
+                else None,
+                expected_child_xids=(
+                    frozenset(identity.target_event_xids) if canonical_motion else frozenset()
+                ),
+                canonical_motion=canonical_motion,
+                echo_proof=echo_proof,
+                timeout=action_timeout,
+            )
+            self.guardian.dispatch_admission(generation, lambda: None)
+            self._held_input = True
+            self.backend._run(
+                chain,
+                generation=generation,
+                input_schema="pointer-motion",
+                expected_argv=tuple(chain),
+                deadline_monotonic=deadline_monotonic,
+            )
+            self.guardian.check(generation)
+            if self._monitor is None:
+                raise DriverError("world pointer completion requires the live XI2 observer")
+            wait_timeout = 3.0
+            if deadline_monotonic is not None:
+                wait_timeout = min(wait_timeout, max(0.0, deadline_monotonic - time.monotonic()))
+            self._monitor.wait_for_event(lambda _events: action.complete, timeout=wait_timeout)
+            if not action.complete:
+                raise DriverError("world pointer event trace did not complete")
+            self.guardian.finish_action(generation, action)
+            final_x, final_y, final_window = self.backend.pointer_position(
+                generation=generation,
+                deadline_monotonic=deadline_monotonic,
+            )
+            if not self._is_owned_client_target(final_window, identity) or (
+                final_x,
+                final_y,
+            ) != (left + int(gesture.endpoint.x), top + int(gesture.endpoint.y)):
+                raise DriverError("native pointer probe endpoint changed")
+            return gesture
+        except GuardianError as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"world pointer Guardian failure: {exc}")
+            raise DriverError(str(exc)) from exc
+        except Exception as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"world pointer motion failed: {exc}")
+            raise
+        finally:
+            self._held_input = False
+
+    def run_hover_click(
+        self,
+        point: Point,
+        hover_frame: Any,
+        *,
+        gesture: HumanPointerPlan,
+        gesture_ended_monotonic: float,
+        generation: int,
+        deadline_monotonic: float | None = None,
+        click_rate_permit: ClickRatePermit | None = None,
+        target_name: str,
+    ) -> None:
+        """Click one pointer endpoint only after a matching fresh hover frame."""
+
+        if not isinstance(point, Point) or not isinstance(gesture, HumanPointerPlan):
+            raise DriverError("world click gesture is malformed")
+        if (
+            isinstance(gesture_ended_monotonic, bool)
+            or not isinstance(gesture_ended_monotonic, (int, float))
+            or not math.isfinite(float(gesture_ended_monotonic))
+        ):
+            raise DriverError("world click gesture timestamp is malformed")
+        if not isinstance(click_rate_permit, ClickRatePermit) or not click_rate_permit.is_open:
+            raise DriverError("world click requires a held post-hover rate permit")
+        if not isinstance(target_name, str) or not target_name or len(target_name.encode("utf-8")) > 48:
+            raise DriverError("world click target name is malformed")
+        from .motion import MAX_FRAME_AGE
+
+        identity, evidence, source, master, modifiers, _keymap = self._motion_input_context(
+            generation, pointer=True, deadline_monotonic=deadline_monotonic
+        )
+        if getattr(hover_frame, "identity_fingerprint", None) != identity.fingerprint:
+            raise DriverError("world click hover identity is stale")
+        capture_monotonic = getattr(hover_frame, "capture_monotonic", None)
+        frame_age = (
+            time.monotonic() - float(capture_monotonic)
+            if isinstance(capture_monotonic, (int, float))
+            else math.inf
+        )
+        if (
+            isinstance(capture_monotonic, bool)
+            or not isinstance(capture_monotonic, (int, float))
+            or capture_monotonic <= float(gesture_ended_monotonic)
+            or capture_monotonic <= click_rate_permit.acquired_monotonic
+            or frame_age < 0.0
+            or frame_age > MAX_FRAME_AGE
+        ):
+            raise DriverError("world click hover frame is stale or predates the completed gesture")
+        hover_kind = getattr(hover_frame, "hover_kind", None)
+        hover_name = getattr(hover_frame, "hover_name", None)
+        if hover_kind not in {"unit", "object"} or not isinstance(hover_name, str):
+            raise DriverError("world click hover frame has no clickable target")
+        if hover_name != target_name:
+            raise DriverError("world click hover target name changed")
+        if getattr(hover_frame, "chat_focused", True):
+            raise DriverError("world click hover frame has focused chat")
+        client_bounds = Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3])
+        endpoint = point.to_pixel()
+        if not client_bounds.contains(endpoint):
+            raise DriverError("world click endpoint is outside the verified client")
+        binding = gesture.trajectory.binding
+        if (
+            binding.identity_fingerprint != identity.fingerprint
+            or binding.generation != generation
+            or gesture.trajectory.endpoint != endpoint
+        ):
+            raise DriverError("world click gesture binding or endpoint is stale")
+        left, top, _width, _height = identity.child_geometry
+        actual_x, actual_y, actual_window = self.backend.pointer_position(
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        )
+        expected = (left + int(endpoint.x), top + int(endpoint.y))
+        if not self._is_owned_client_target(actual_window, identity) or (actual_x, actual_y) != expected:
+            raise DriverError("native pointer moved after the admitted hover frame")
+        seed = gesture.seed ^ 0x9E3779B97F4A7C15
+        dwell = random.Random(seed).uniform(
+            self.pointer_motion_profile.min_dwell,
+            self.pointer_motion_profile.max_dwell,
+        )
+        click_argv = ["xdotool", "mousedown", "1", "sleep", f"{dwell:.6f}", "mouseup", "1"]
+        canonical_motion = isinstance(self.backend, X11Backend) and evidence.xtest_profile is not None
+        event_classes = {
+            EventClass.RAW_BUTTON_PRESS.value,
+            EventClass.BUTTON_PRESS.value,
+            EventClass.RAW_BUTTON_RELEASE.value,
+            EventClass.BUTTON_RELEASE.value,
+        }
+        action = None
+        try:
+            action_timeout = 10.0
+            if deadline_monotonic is not None:
+                action_timeout = max(0.001, float(deadline_monotonic) - time.monotonic())
+            action = self.guardian.begin_action(
+                generation,
+                target_xid=identity.child_xid,
+                source_device=source,
+                master_device=master,
+                event_classes=event_classes,
+                detail=1,
+                device_by_class={
+                    event_class: master if event_class.startswith("Raw") else source
+                    for event_class in event_classes
+                },
+                target_ancestor=lambda xid: self._is_owned_client_target(xid, identity),
+                required_sequence=(
+                    EventClass.RAW_BUTTON_PRESS.value,
+                    EventClass.BUTTON_PRESS.value,
+                    EventClass.RAW_BUTTON_RELEASE.value,
+                    EventClass.BUTTON_RELEASE.value,
+                ),
+                expected_details=(1, 1, 1, 1),
+                expected_modifiers=modifiers,
+                expected_coordinates=(float(actual_x), float(actual_y)),
+                expected_event_coordinates=(
+                    (float(actual_x), float(actual_y))
+                    if canonical_motion
+                    else (float(endpoint.x), float(endpoint.y))
+                ),
+                expected_root_xid=getattr(evidence.xtest_profile, "root_xid", None)
+                if canonical_motion
+                else None,
+                expected_event_xid=getattr(evidence.xtest_profile, "root_xid", None)
+                if canonical_motion
+                else None,
+                expected_child_xids=(
+                    frozenset(identity.target_event_xids) if canonical_motion else frozenset()
+                ),
+                canonical_motion=canonical_motion,
+                held_buttons={1},
+                timeout=action_timeout,
+            )
+            self.guardian.dispatch_admission(generation, lambda: None)
+            self._held_input = True
+            try:
+                self.last_pointer_execution = {
+                    "action": "world-click",
+                    "generation": generation,
+                    "seed": seed,
+                    "frozenEndpoint": (int(endpoint.x), int(endpoint.y)),
+                    "phase": "click_planned",
+                    "rateGate": "canonical-user-session",
+                }
+                self.last_pointer_execution["clickPrecommitMonotonicNs"] = click_rate_permit.precommit()
+            except PointerExecutionError as exc:
+                raise DriverError(str(exc)) from exc
+            self.backend._run(
+                click_argv,
+                generation=generation,
+                held_buttons={1},
+                input_schema="single-click",
+                expected_argv=tuple(click_argv),
+                deadline_monotonic=deadline_monotonic,
+            )
+            self.guardian.check(generation)
+            if self._monitor is None:
+                raise DriverError("world click completion requires the live XI2 observer")
+            wait_timeout = 3.0
+            if deadline_monotonic is not None:
+                wait_timeout = min(wait_timeout, max(0.0, deadline_monotonic - time.monotonic()))
+            self._monitor.wait_for_event(lambda _events: action.complete, timeout=wait_timeout)
+            if not action.complete:
+                raise DriverError("world click event trace did not complete")
+            self.guardian.finish_action(generation, action)
+            try:
+                self.last_pointer_execution["rateRecordMonotonicNs"] = click_rate_permit.record_press()
+            except PointerExecutionError as exc:
+                raise DriverError(str(exc)) from exc
+            final_x, final_y, final_window = self.backend.pointer_position(
+                generation=generation,
+                deadline_monotonic=deadline_monotonic,
+            )
+            if not self._is_owned_client_target(final_window, identity) or (final_x, final_y) != expected:
+                raise DriverError("native pointer postcondition endpoint changed")
+        except GuardianError as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"world click Guardian failure: {exc}")
+            raise DriverError(str(exc)) from exc
+        except Exception as exc:
+            if self.guardian.armed and self.guardian.generation == generation:
+                self.revoke(f"world click failed: {exc}")
             raise
         finally:
             self._held_input = False
