@@ -153,3 +153,28 @@ Results land in `CrowleyDB.executions`, are uploaded append-only, and `queue rec
 unless armed twice: an armed queue published with its full queueId as confirmation (`queue preview --armed --out` then
 `queue publish --armed --confirm-real-trades <queueId>`), and `/crowley arm <queueId>` typed in the current game
 session. Paper-derived queues are always unarmed. The step-by-step test plan is [LIVE_TRADING_TEST.md](LIVE_TRADING_TEST.md).
+
+## Two-profession pairs (beta, 2026-10-23)
+
+A character has two primary professions, so every pair of crafting strategies was backtested with `dip_reversion`
+and `vendor_arb` (20 g split equally, demand share 0.5, 24 h wind-down, build 1.60.1.70450, 5.8 days of sweeps).
+Realized = cash after the wind-down; equity also marks unsold stock, which exceeded 2-day market capacity
+1–3× in every run, so realized is the number to trust.
+
+| Pair | Realized | Equity | Clicks |
+|---|---:|---:|---:|
+| alchemy + engineering | 60.8 g | 694.6 g | 3658 |
+| alchemy + leatherworking | 45.8 g | 704.7 g | 4160 |
+| alchemy + blacksmithing | 45.7 g | 1064.4 g | 3187 |
+| blacksmithing + engineering | 40.3 g | 486.2 g | 2728 |
+| engineering + leatherworking | 33.4 g | 110.1 g | 3516 |
+| alchemy + tailoring | 33.4 g | 702.6 g | 2720 |
+| engineering + tailoring | 27.3 g | 118.9 g | 2324 |
+| blacksmithing + leatherworking | 22.6 g | 507.6 g | 3226 |
+| blacksmithing + tailoring | 8.4 g | 459.3 g | 1812 |
+| leatherworking + tailoring | 7.4 g | 113.7 g | 2768 |
+
+Alchemy is the robust core (≈33 g realized in every pairing); tailoring lost money in every pairing. Engineering is the
+best second profession in-model, but its profit includes Bronze Tube, which needs an anvil and a Blacksmith Hammer;
+the engine does not model crafting stations yet, so engineering is provisional until station requirements
+(`SpellCastingRequirements.RequiresSpellFocus`, `SpellTotems`) gate recipes. Gathering professions are not modelled.
