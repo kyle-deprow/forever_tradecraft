@@ -323,6 +323,75 @@ local function movementTelemetry()
   }
 end
 
+local function auctioneerTelemetry()
+  -- These facts are sourced only from the native client APIs.  A missing API
+  -- or unusable result remains explicit so the executor cannot confuse it
+  -- with an empty binding or an out-of-range target.
+  local exists = UnitExists("target")
+  if type(exists) ~= "boolean" then error("auctioneer_target_presence_unavailable") end
+  local name, rangeAvailable, inTradeRange = "", false, false
+  if exists then
+    name = UnitName("target")
+    if type(name) ~= "string" or name == "" then error("auctioneer_target_name_unavailable") end
+    if type(CheckInteractDistance) == "function" then
+      -- Blizzard's trade interaction uses distance index 2.  Index 1 is the
+      -- shorter melee check and can reject a valid Auction House approach.
+      local measured = CheckInteractDistance("target", 2)
+      if type(measured) == "boolean" then
+        rangeAvailable, inTradeRange = true, measured
+      end
+    end
+  end
+  local bindingAvailable, action = false, ""
+  if type(GetBindingAction) == "function" then
+    local measured = GetBindingAction("CTRL-F12")
+    if type(measured) == "string" then
+      bindingAvailable, action = true, measured
+    end
+  end
+  local interactionMode = "unavailable"
+  if type(GetCVar) == "function" then
+    local ok, measured = pcall(GetCVar, "SoftTargetInteract")
+    if ok and type(measured) == "string" then
+      local modes = {
+        ["0"] = "disabled", ["1"] = "gamepad", ["2"] = "keyboard", ["3"] = "any",
+      }
+      interactionMode = modes[measured] or "unavailable"
+    end
+  end
+  return {
+    targetPresent = exists, targetName = name,
+    rangeAvailable = rangeAvailable, withinTradeRange = inTradeRange,
+    bindingAvailable = bindingAvailable, ctrlF12Action = action,
+    interactionMode = interactionMode,
+  }
+end
+
+local function blockingUITelemetry()
+  -- Normal world context does not prove that Return cannot activate a native
+  -- popup. Publish explicit availability and visibility for both known
+  -- blockers; consumers refuse input if either API is unavailable.
+  local popupAvailable, popupShown = false, false
+  if type(StaticPopup_IsAnyDialogShown) == "function" then
+    local ok, measured = pcall(StaticPopup_IsAnyDialogShown)
+    if ok and type(measured) == "boolean" then
+      popupAvailable, popupShown = true, measured
+    end
+  end
+  local menuAvailable, menuShown = false, false
+  local menu = rawget(_G, "GameMenuFrame")
+  if menu ~= nil and type(menu.IsShown) == "function" then
+    local ok, measured = pcall(function() return menu:IsShown() end)
+    if ok and type(measured) == "boolean" then
+      menuAvailable, menuShown = true, measured
+    end
+  end
+  return {
+    staticPopupAvailable = popupAvailable, staticPopupShown = popupShown,
+    gameMenuAvailable = menuAvailable, gameMenuShown = menuShown,
+  }
+end
+
 function Agent.Snapshot()
   if not bootReady or not surface then error("agent_unconstructed") end
   local context = ns.Context.Snapshot()
@@ -343,7 +412,7 @@ function Agent.Snapshot()
   -- fence attempt.
   scannerValue.scheduleFence = copy(scanner.scheduleFence)
   local value = {
-    schema = 3, boot = boot, sequence = sequence + 1, wallTime = now, uptimeMs = uptime,
+    schema = 4, boot = boot, sequence = sequence + 1, wallTime = now, uptimeMs = uptime,
     context = {
       addonVersion = context.addonVersion or ns.VERSION, interface = context.interface or 0,
       clientBuild = context.clientBuild or "", character = context.character or "", realm = context.realm or "",
@@ -351,6 +420,7 @@ function Agent.Snapshot()
       locale = context.locale or "", clientVersion = context.clientVersion or "",
     },
     house = { key = house.key, source = house.source }, plan = planInfo(scanner.plan), ahOpen = ns.ahOpen == true,
+    auctioneer = auctioneerTelemetry(), blockingUI = blockingUITelemetry(),
     scanner = scannerValue,
     lastSaved = {
       memoryUid = last.memoryUid or "", finishedAt = last.finishedAt or 0, planned = last.planned or 0,

@@ -37,7 +37,7 @@ from .wow_harness import WowClient
 
 def snapshot(sequence: int = 1) -> dict:
     return {
-        "schema": 3,
+        "schema": 4,
         "boot": "boot-1",
         "sequence": sequence,
         "wallTime": 1_000,
@@ -63,6 +63,21 @@ def snapshot(sequence: int = 1) -> dict:
             "initialPriceLevels": 20,
         },
         "ahOpen": True,
+        "blockingUI": {
+            "staticPopupAvailable": True,
+            "staticPopupShown": False,
+            "gameMenuAvailable": True,
+            "gameMenuShown": False,
+        },
+        "auctioneer": {
+            "targetPresent": False,
+            "targetName": "",
+            "rangeAvailable": False,
+            "withinTradeRange": False,
+            "bindingAvailable": True,
+            "ctrlF12Action": "",
+            "interactionMode": "any",
+        },
         "scanner": {
             "phase": "ready",
             "activeSweepId": "",
@@ -523,7 +538,7 @@ def test_lua_frame_roundtrips_through_pixel_packer_and_python_decoder() -> None:
     assert "mutated" not in client.publish_agent()["pending"]["ids"]
 
 
-def test_protocol_requires_schema3_motion_and_rejects_legacy_or_malformed_motion() -> None:
+def test_protocol_requires_schema4_motion_and_auctioneer_facts() -> None:
     legacy = snapshot()
     legacy["schema"] = 1
     with pytest.raises(ProtocolError, match="schema"):
@@ -531,11 +546,30 @@ def test_protocol_requires_schema3_motion_and_rejects_legacy_or_malformed_motion
     legacy["schema"] = 2
     with pytest.raises(ProtocolError, match="schema"):
         encode_frame(legacy)
+    legacy["schema"] = 3
+    with pytest.raises(ProtocolError, match="schema"):
+        encode_frame(legacy)
 
     missing = snapshot()
     del missing["motion"]
     with pytest.raises(ProtocolError, match="motion"):
         encode_frame(missing)
+
+    missing = snapshot()
+    del missing["blockingUI"]
+    with pytest.raises(ProtocolError, match="blockingUI"):
+        encode_frame(missing)
+
+    malformed = snapshot()
+    malformed["blockingUI"]["staticPopupAvailable"] = 1
+    with pytest.raises(ProtocolError, match="blockingUI.staticPopupAvailable"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["blockingUI"]["gameMenuAvailable"] = False
+    malformed["blockingUI"]["gameMenuShown"] = True
+    with pytest.raises(ProtocolError, match="cannot be true when unavailable"):
+        encode_frame(malformed)
 
     malformed = snapshot()
     malformed["motion"]["bindings"]["turnRight"] = "D"
@@ -550,6 +584,33 @@ def test_protocol_requires_schema3_motion_and_rejects_legacy_or_malformed_motion
     malformed = snapshot()
     malformed["motion"]["bindings"]["moveForward"] = "shift w"
     with pytest.raises(ProtocolError, match="moveForward"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"]["targetName"] = "Auctioneer Jaxon"
+    with pytest.raises(ProtocolError, match="absent target"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"].update(targetPresent=True, targetName="Auctioneer Jaxon")
+    malformed["auctioneer"]["withinTradeRange"] = True
+    with pytest.raises(ProtocolError, match="cannot be true"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"]["bindingAvailable"] = False
+    malformed["auctioneer"]["ctrlF12Action"] = "INTERACTTARGET"
+    with pytest.raises(ProtocolError, match="unavailable binding"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    del malformed["auctioneer"]["interactionMode"]
+    with pytest.raises(ProtocolError, match="interactionMode"):
+        encode_frame(malformed)
+
+    malformed = snapshot()
+    malformed["auctioneer"]["interactionMode"] = "1"
+    with pytest.raises(ProtocolError, match="invalid native SoftTargetInteract mode"):
         encode_frame(malformed)
 
 
@@ -1417,12 +1478,17 @@ def test_xi2_calibration_requires_real_sources_and_forwarded_correlation() -> No
     driver.close()
 
 
-def test_game_actions_require_calibrated_anchors(tmp_path: Path) -> None:
+def test_native_pointer_action_requires_a_seeded_planned_gesture(tmp_path: Path) -> None:
     from crowley.session.driver import DriverProfile, X11Backend
 
-    profile = DriverProfile(action_anchors={})
+    profile = DriverProfile(
+        display=":test",
+        xauthority="/tmp/test-Xauthority",
+        wine_prefix="/tmp/test-wine-prefix",
+        action_anchors={},
+    )
     backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
     backend._find_window = lambda: "window"  # type: ignore[method-assign]
     backend._run = lambda args, timeout=5.0: type("Result", (), {"stdout": "", "returncode": 0})()  # type: ignore[method-assign]
-    with pytest.raises(DriverError, match="anchor"):
-        backend.action("open_ah", generation=1)
+    with pytest.raises(DriverError, match="validated planned gesture"):
+        backend.action("logout", generation=1)

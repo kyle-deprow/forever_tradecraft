@@ -22,7 +22,6 @@ from crowley.session.decoder import PixelDecoder, Sample
 from crowley.session.driver import (
     DriverError,
     DriverProfile,
-    NamedStateObservation,
     WindowIdentity,
     X11Backend,
 )
@@ -38,6 +37,7 @@ from crowley.session.motion import (
     MovementBasis,
     NativeMotionProvider,
 )
+from crowley.session.protocol import Frame, Snapshot
 
 from .test_session_input_tool import fixture_input_tool
 from .test_session_native_regressions import _evidence
@@ -708,7 +708,22 @@ def _motion_sample(
     chat_focused: bool = False,
 ) -> Sample:
     snapshot = {
-        "schema": 3,
+        "schema": 4,
+        "blockingUI": {
+            "staticPopupAvailable": True,
+            "staticPopupShown": False,
+            "gameMenuAvailable": True,
+            "gameMenuShown": False,
+        },
+        "auctioneer": {
+            "targetPresent": False,
+            "targetName": "",
+            "rangeAvailable": False,
+            "withinTradeRange": False,
+            "bindingAvailable": False,
+            "ctrlF12Action": "",
+            "interactionMode": "any",
+        },
         "chatEdit": {"active": chat_focused, "focused": chat_focused},
         "motion": {
             "position": {"x": position[0], "y": position[1], "z": 3.0, "instance": 4},
@@ -1765,10 +1780,10 @@ def test_session_ipc_rechecks_original_route_age_after_pose_confirmation(tmp_pat
         driver.close()
 
 
-def test_runtime_named_consumer_settles_after_three_second_model_receipts() -> None:
-    """The daemon consumer retains an admitted first receipt during model latency."""
+def test_stormwind_reopen_uses_fresh_native_telemetry_without_model_observation() -> None:
+    """The ordinary Auction House route proves its outcome from native telemetry."""
 
-    identity = SimpleNamespace(fingerprint="runtime-client", child_xid=17, xid=18)
+    identity = SimpleNamespace(fingerprint="runtime-client")
     status = SimpleNamespace(
         state=ControllerState.READY,
         stop_requested=False,
@@ -1805,65 +1820,69 @@ def test_runtime_named_consumer_settles_after_three_second_model_receipts() -> N
     class _Driver:
         backend = object.__new__(X11Backend)
         guardian = _Guardian()
-        _NAMED_ACTION_STATES = {"open_ah": ("world", "auction_house_open")}
 
-        def __init__(self) -> None:
-            self._last_named_observation: NamedStateObservation | None = None
-            self.receipts = 0
-
-        @property
-        def last_named_observation(self):
-            return self._last_named_observation
-
-        def resolve_identity(self):
+        def resolve_identity(self, *, require_foreground=False, deadline_monotonic=None):
+            del deadline_monotonic
+            if require_foreground is not False:
+                assert require_foreground is True
             return identity
 
-        def verify_named_action(self, name: str, stage: str, *, observation=None):
-            assert name == "open_ah"
-            if stage == "before":
-                self._last_named_observation = NamedStateObservation.from_facts(
-                    state="world",
-                    identity_fingerprint=identity.fingerprint,
-                    target_xid=identity.child_xid,
-                    capture_id="before",
-                    capture_sequence=1,
-                    facts={"scene": "world"},
-                    source="native-visual",
-                    observed_monotonic=time.monotonic(),
-                )
-            else:
-                assert observation is not None
+        def verify_named_action(self, *_args, **_kwargs):
+            raise AssertionError("ordinary Auction House reopening must not query named-state vision")
+
+        def observe_named_state(self, *_args, **_kwargs):
+            raise AssertionError("ordinary Auction House reopening must not invoke Luna")
 
         def run(self, name: str, generation: int, **kwargs: object) -> None:
             assert name == "open_ah"
             assert generation == self.guardian.generation
-            assert callable(kwargs["precondition"])
             assert kwargs["precondition"](identity)
+            assert kwargs["postcondition"](identity)
 
-        def observe_named_state(self, expected_context: str) -> NamedStateObservation:
-            assert expected_context == "auction_house_open"
-            started = time.monotonic()
-            time.sleep(3.0)
-            self.receipts += 1
-            return NamedStateObservation.from_facts(
-                state=expected_context,
-                identity_fingerprint=identity.fingerprint,
-                target_xid=identity.child_xid,
-                capture_id=f"receipt-{self.receipts}",
-                capture_sequence=1 + self.receipts,
-                facts={"scene": "world"},
-                source="native-visual",
-                observed_monotonic=started,
-            )
+    def snapshot(*, ah_open: bool) -> dict[str, object]:
+        return {
+            "context": {"character": "Arthur", "realm": "Beta", "zone": "Stormwind City"},
+            "render": {"nativePhase": "normal", "nativeOrdinal": 0},
+            "ahOpen": ah_open,
+            "blockingUI": {
+                "staticPopupAvailable": True,
+                "staticPopupShown": False,
+                "gameMenuAvailable": True,
+                "gameMenuShown": False,
+            },
+            "chatEdit": {"active": False, "focused": False, "text": ""},
+            "auctioneer": {
+                "targetPresent": True,
+                "targetName": "Auctioneer Jaxon",
+                "rangeAvailable": True,
+                "withinTradeRange": True,
+                "bindingAvailable": True,
+                "ctrlF12Action": "INTERACTTARGET",
+                "interactionMode": "any",
+            },
+        }
 
     daemon = SessionDaemon.__new__(SessionDaemon)
     daemon.controller = _Controller()
     daemon.driver = _Driver()
-    daemon.config = SimpleNamespace(reload_deadline_seconds=20)
+    daemon.config = SimpleNamespace(
+        profile=SimpleNamespace(character="Arthur", realm="Beta"), reload_deadline_seconds=20
+    )
     daemon._native_clock = time.monotonic
+    statuses = [snapshot(ah_open=False), snapshot(ah_open=False), snapshot(ah_open=True)]
+    frames = [
+        Frame(Snapshot(value), "boot", sequence, 1000 + sequence, sequence, sequence, 1)
+        for sequence, value in enumerate(statuses, 1)
+    ]
+    samples = [
+        Sample("FRESH", frame, float(frame.sequence), (0, 0, 1, 1), frame.crc32, identity.fingerprint)
+        for frame in frames
+    ]
+    daemon.capture_status = lambda *, deadline: samples.pop(0)
 
     daemon._run_action("open_ah", {"ahOpen": False})
-    assert daemon.driver.receipts == 2
+    assert not samples
+    assert status.action_intent == ""
 
 
 def test_session_ipc_movement_calibrate_uses_installed_feedback_and_all_bindings(tmp_path: Path) -> None:
@@ -2551,7 +2570,22 @@ def test_session_ipc_interaction_stop_revokes_inflight_physical_process(tmp_path
 
 def _frame(*, facing: float = 0.0) -> MotionFrame:
     snapshot = {
-        "schema": 3,
+        "schema": 4,
+        "blockingUI": {
+            "staticPopupAvailable": True,
+            "staticPopupShown": False,
+            "gameMenuAvailable": True,
+            "gameMenuShown": False,
+        },
+        "auctioneer": {
+            "targetPresent": False,
+            "targetName": "",
+            "rangeAvailable": False,
+            "withinTradeRange": False,
+            "bindingAvailable": False,
+            "ctrlF12Action": "",
+            "interactionMode": "any",
+        },
         "chatEdit": {"active": False, "focused": False},
         "motion": {
             "position": {"x": 10.0, "y": 20.0, "z": 3.0, "instance": 4},
@@ -2764,7 +2798,22 @@ def test_native_provider_forwards_one_absolute_deadline_to_production_capture() 
             sequence=motion.sequence,
             snapshot=SimpleNamespace(
                 value={
-                    "schema": 3,
+                    "schema": 4,
+                    "blockingUI": {
+                        "staticPopupAvailable": True,
+                        "staticPopupShown": False,
+                        "gameMenuAvailable": True,
+                        "gameMenuShown": False,
+                    },
+                    "auctioneer": {
+                        "targetPresent": False,
+                        "targetName": "",
+                        "rangeAvailable": False,
+                        "withinTradeRange": False,
+                        "bindingAvailable": False,
+                        "ctrlF12Action": "",
+                        "interactionMode": "any",
+                    },
                     "chatEdit": {"active": False, "focused": False},
                     "motion": {
                         "position": {

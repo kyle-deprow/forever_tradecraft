@@ -92,6 +92,9 @@ within existing authorization; respect any current movement limits.
 
 - Verify the foreground screen before a click or command; inspect the result before
   the next dependent action. Tool exit code zero proves input dispatch, not success.
+  A 1 Hz HUD can retain the previous phase or return NO_CHANGE after dispatch.
+  Poll within the original deadline for fresh effect evidence; do not replay the
+  action, restamp old evidence, or clean up merely because its first frame lags.
   Before starting an in-game calibration/recovery helper, inspect a fresh full
   scene as well as process/focus identity. A disconnected login screen can retain
   the same Wine identity; its background is not evidence of a chat classifier bug.
@@ -215,6 +218,12 @@ within existing authorization; respect any current movement limits.
   Keep required calibration keyboard operations aligned with the current runtime
   vocabulary. An unused calibration-only chord can introduce native modifier
   transitions that no runtime action needs; verify exact vocabulary coverage.
+  Named modifier keys can trigger xdotool's own modifier compensation even in
+  explicit down/up chains. Verify the native trace; measured physical keycodes
+  avoid that implicit compensation while preserving exact held-key ownership.
+  Human takeover tests must start with the actual raw event, then delivered
+  events. Guardian can revoke and stop the observer before the latter arrives;
+  a delivered-only fixture cannot prove the real human step works.
   For diagnostic format changes, pass actual persisted producer receipts through
   the public evaluator with bindings derived independently from known fixture
   files before the run. Separate synthetic evaluator tests and bindings copied
@@ -225,6 +234,10 @@ within existing authorization; respect any current movement limits.
   A failed owned-target bootstrap must reap and unregister its process so a
   fresh attempt on the same driver can start without rebuilding the session.
   Retain every owned resource before recording optional identity/diagnostics.
+  Mirror native ctypes structures against the installed C headers, including
+  field widths and alignment; verify read-only state queries on a private display.
+  Exercise new receipt/image-stat code on retained frames before input. A failure
+  after dispatch must preserve the completed action and never cause its replay.
   Build diagnostic helpers from the actual profile and cleanup interfaces;
   verify field names and resource ownership before a live run. A nonexistent
   cleanup method can mask an otherwise completed capture or button release.
@@ -320,6 +333,9 @@ within existing authorization; respect any current movement limits.
   buffer is empty before replacing it; Ctrl+U can leave a suffix after the cursor.
   Use verified paste or a measured typing rate and inspect both ends of a
   horizontally scrolled command before submission.
+  Chat can double typed pipe characters. Keep probe markers plain; color escapes
+  require actual client buffer evidence before use. Prefer retained visual readback
+  over repeatedly redesigning a marker when OCR misses legible output.
   Slash-command success does not prove shifted punctuation works. Compare the
   entire actual buffer, including parentheses and quotes, before Return; cancel
   malformed input and retain the refusal instead of trying another live route.

@@ -35,7 +35,7 @@ from crowley.session.calibration import (
     OwnedWindow,
     XTestInputProfile,
 )
-from crowley.session.cli import _socket_request, serve
+from crowley.session.cli import SessionIPC, _socket_request, serve
 from crowley.session.daemon import _NativeObservationDiagnostic
 from crowley.session.decoder import PixelDecoder, Sample
 from crowley.session.driver import (
@@ -51,6 +51,12 @@ from crowley.session.input_events import EventClass, XI2Event
 from crowley.session.journal import DEFAULT_STATE, Journal, JournalError
 from crowley.session.model import ModelDecision, ModelObservation
 from crowley.session.protocol import decode_frame
+from crowley.session.startup import (
+    InvalidationCause,
+    StartupEnvironment,
+    TakeoverDrillRecord,
+    mint_runtime_evidence,
+)
 from tests.test_session_input_tool import fixture_input_tool
 
 from .wow_harness import Auction, WowClient
@@ -158,7 +164,13 @@ class _FixtureNativeMemoryMeter(LinuxProcStatusVmHwmReset5):
 
 def _snapshot(wall: int, *, boot: str = "boot-1", sequence: int = 1) -> dict:
     return {
-        "schema": 3,
+        "schema": 4,
+        "blockingUI": {
+            "staticPopupAvailable": True,
+            "staticPopupShown": False,
+            "gameMenuAvailable": True,
+            "gameMenuShown": False,
+        },
         "boot": boot,
         "sequence": sequence,
         "wallTime": wall,
@@ -184,6 +196,15 @@ def _snapshot(wall: int, *, boot: str = "boot-1", sequence: int = 1) -> dict:
             "initialPriceLevels": 20,
         },
         "ahOpen": True,
+        "auctioneer": {
+            "targetPresent": False,
+            "targetName": "",
+            "rangeAvailable": False,
+            "withinTradeRange": False,
+            "bindingAvailable": True,
+            "ctrlF12Action": "",
+            "interactionMode": "any",
+        },
         "scanner": {
             "phase": "ready",
             "activeSweepId": "",
@@ -376,7 +397,6 @@ def _attach_recording_anchor_provider(driver: DesktopDriver, root: Path) -> None
         "reconnect_game": "game_client",
         "select_arthur": "character_select",
         "enter_world": "character_select",
-        "open_ah": "world",
         "logout": "world",
     }
     state = {"generation": 0, "sequence": 0}
@@ -508,7 +528,8 @@ class LifecycleBackend(X11Backend):
         if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
             raise DriverError("fixture pointer query exceeded its deadline")
         left, top, _width, _height = self.identity.child_geometry
-        return left + self.pointer[0], top + self.pointer[1], self.identity.child_xid
+        hit_xid = getattr(self, "calibration_target_xid", self.identity.child_xid)
+        return left + self.pointer[0], top + self.pointer[1], hit_xid
 
     def verify_identity(self, identity: WindowIdentity) -> WindowIdentity:
         if identity.fingerprint != self.identity.fingerprint:
@@ -528,8 +549,17 @@ class LifecycleBackend(X11Backend):
             "Return": 36,
             "Escape": 9,
             "Control_L": 37,
-            "slash": 47,
+            "Shift_L": 50,
+            "F12": 96,
+            "slash": 61,
             "space": 65,
+            "9": 18,
+            "0": 19,
+            "minus": 20,
+            "equal": 21,
+            "semicolon": 47,
+            "apostrophe": 48,
+            "comma": 59,
             **{character: index for index, character in enumerate("abcdefghijklmnopqrstuvwxyz", 10)},
         }
 
@@ -659,7 +689,7 @@ class LifecycleBackend(X11Backend):
         self.agent_client = WowClient(
             faction="Alliance",
             realm="Classic Beta PvE 2",
-            zone="Stormwind",
+            zone="Stormwind City",
             current_region=110,
             current_region_name="beta",
         )
@@ -687,7 +717,7 @@ class LifecycleBackend(X11Backend):
         client = WowClient(
             faction="Alliance",
             realm="Classic Beta PvE 2",
-            zone="Stormwind",
+            zone="Stormwind City",
             current_region=110,
             current_region_name="beta",
         )
@@ -698,6 +728,7 @@ class LifecycleBackend(X11Backend):
         self.agent_client = client
         self.lifecycle_agent = True
         self.lifecycle_sequence = 0
+        self.current["context"]["zone"] = "Stormwind City"
         self._publish_lifecycle_agent()
 
     def _publish_lifecycle_agent(self) -> None:
@@ -737,7 +768,7 @@ class LifecycleBackend(X11Backend):
         client = WowClient(
             faction="Alliance",
             realm="Classic Beta PvE 2",
-            zone="Stormwind",
+            zone="Stormwind City",
             current_region=110,
             current_region_name="beta",
         )
@@ -792,6 +823,8 @@ class LifecycleBackend(X11Backend):
         child: int | None = None,
         root_coordinates: tuple[float, float] | None = None,
         event_coordinates: tuple[float, float] | None = None,
+        modifiers: tuple[int, int, int] | None = None,
+        modifier_effective: int | None = None,
     ) -> XI2Event:
         event = _fixture_event(
             self.runtime_event_number,
@@ -803,6 +836,8 @@ class LifecycleBackend(X11Backend):
             self.identity.child_xid if child is None and not event_class.name.startswith("RAW_") else child,
             root_xy=root_coordinates,
             event_xy=event_coordinates,
+            modifiers=modifiers,
+            modifier_effective=modifier_effective,
         )
         self.runtime_event_number += 1
         self.runtime_timestamp += 1
@@ -814,7 +849,7 @@ class LifecycleBackend(X11Backend):
         evidence = getattr(driver, "_input_evidence", None)
         if observer is None or driver is None or evidence is None:
             raise AssertionError("runtime fixture has no owned observer/input evidence")
-        for phase, _keysym, detail, _modifiers, _effective in driver._keyboard_operation_facts(
+        for phase, _keysym, detail, modifiers, effective in driver._keyboard_operation_facts(
             operation, payload, evidence
         ):
             raw_class = EventClass.RAW_KEY_PRESS if phase == "press" else EventClass.RAW_KEY_RELEASE
@@ -822,7 +857,13 @@ class LifecycleBackend(X11Backend):
             observer._add(self._runtime_event(raw_class, master=3, source=5, detail=detail, child=None))
             observer._add(
                 self._runtime_event(
-                    delivered_class, master=5, source=5, detail=detail, child=self.identity.child_xid
+                    delivered_class,
+                    master=5,
+                    source=5,
+                    detail=detail,
+                    child=self.identity.child_xid,
+                    modifiers=tuple(modifiers),
+                    modifier_effective=int(effective),
                 )
             )
 
@@ -897,31 +938,10 @@ class LifecycleBackend(X11Backend):
             self._emit_runtime_key_operation("open_chat")
         elif name == "submit_command":
             self._emit_runtime_key_operation("submit_command")
+        elif name == "escape_command_buffer":
+            self._emit_runtime_key_operation("escape_command_buffer")
         elif name == "open_ah":
-            gesture = kwargs.get("_gesture_plan")
-            click = kwargs.get("_click_plan")
-            point = getattr(click, "point", None)
-            permit = kwargs.get("_click_rate_permit")
-            if point is None or gesture is None or not callable(getattr(permit, "precommit", None)):
-                raise AssertionError(
-                    "runtime pointer fixture did not receive its seeded plan and rate permit"
-                )
-            if int(point.x) < 0 or int(point.y) < 0:
-                raise AssertionError("runtime pointer action has no measured click point")
-            self._emit_runtime_pointer_gesture(gesture)
-            permit.precommit()
-            client_x, client_y = int(point.x), int(point.y)
-            left, top, _width, _height = self.identity.child_geometry
-            if not callable(getattr(permit, "record_press", None)):
-                raise AssertionError("runtime pointer fixture has no press recorder")
-            self._emit_runtime_pointer_click(
-                3,
-                coordinates=(
-                    (float(left + client_x), float(top + client_y)),
-                    (float(client_x), float(client_y)),
-                ),
-            )
-            permit.record_press()
+            self._emit_runtime_key_operation("interact_target")
         if name == "type_allowlisted_command":
             self.command_buffer = str(kwargs["command"])
             self.current["chatEdit"]["text"] = self.command_buffer
@@ -934,7 +954,22 @@ class LifecycleBackend(X11Backend):
         elif name == "submit_command":
             self.command_buffer = ""
             self.current["chatEdit"]["text"] = ""
-            if command == "/crowley scan":
+            if command == DesktopDriver.TARGET_AUCTIONEER_COMMAND:
+                self.current["chatEdit"] = {"active": False, "focused": False, "text": ""}
+                self.current["auctioneer"].update(
+                    targetPresent=True,
+                    targetName="Auctioneer Jaxon",
+                    rangeAvailable=True,
+                    withinTradeRange=True,
+                )
+                if self.lifecycle_agent:
+                    self._publish_lifecycle_agent()
+            elif command == DesktopDriver.CONDITIONAL_INTERACTION_BINDING_COMMAND:
+                self.current["chatEdit"] = {"active": False, "focused": False, "text": ""}
+                self.current["auctioneer"]["ctrlF12Action"] = "INTERACTTARGET"
+                if self.lifecycle_agent:
+                    self._publish_lifecycle_agent()
+            elif command == "/crowley scan":
                 self.cycle += 1
                 started = self.current["wallTime"]
                 self.uid = ""
@@ -1019,8 +1054,18 @@ class LifecycleBackend(X11Backend):
                     self.agent_client.publish_agent()
                 elif self.lifecycle_agent:
                     self._publish_lifecycle_agent()
+        elif name == "escape_command_buffer":
+            self.command_buffer = ""
+            self.current["chatEdit"] = {"active": False, "focused": False, "text": ""}
+            if self.agent_client is not None:
+                self.agent_client.set_chat_edit(active=False, focused=False, text="")
+                if self.lifecycle_agent:
+                    self._publish_lifecycle_agent()
+                else:
+                    self.agent_client.publish_agent()
         elif name == "open_chat":
             if self.agent_client is not None:
+                self.current["chatEdit"] = {"active": True, "focused": True, "text": ""}
                 self.agent_client.set_chat_edit(active=True, focused=True)
                 if self.lifecycle_agent:
                     self._publish_lifecycle_agent()
@@ -1600,6 +1645,7 @@ def _runtime_daemon(
     journal_changes: dict[str, object] | None = None,
     backend: LifecycleBackend | None = None,
     lease_path: Path | None = None,
+    recover_on_restart: bool = False,
 ) -> tuple[SessionDaemon, LifecycleBackend, DesktopDriver, Controller, SessionConfig, _VirtualMonotonic]:
     """Build one real daemon consumer around the production fixture backend."""
 
@@ -1638,11 +1684,379 @@ def _runtime_daemon(
         driver=driver,
         clock=virtual_clock.monotonic,
         wall_clock=lambda: backend.current["wallTime"],
-        recover_on_restart=False,
+        recover_on_restart=recover_on_restart,
     )
     with patch("crowley.session.daemon.LunaAdapter", _RuntimeFixtureModel):
         daemon = SessionDaemon(config, controller=controller, driver=driver)
     return daemon, backend, driver, controller, config, virtual_clock
+
+
+def test_fresh_repeat_owner_automatically_passively_resumes_without_replaying_intent(
+    tmp_path: Path,
+) -> None:
+    """The real default owner path resumes only a restart-created active repeat pause."""
+
+    from tests.test_session_startup import _runtime_evidence
+
+    _identity, environment, evidence = _runtime_evidence()
+    drill = TakeoverDrillRecord.create(environment.fingerprint, 41, observed_at=1_800_000_000)
+    daemon, backend, driver, controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        recover_on_restart=True,
+        journal_changes={
+            "state": ControllerState.SCANNING.value,
+            "mode": "repeat",
+            "generation": 40,
+            "nativeCalibration": True,
+            "inputCalibration": True,
+            "takeoverDrill": drill.to_json(),
+            "current": {
+                "pending": True,
+                "uid": "uid-before-owner-restart",
+                "startedAt": 1_800_000_001,
+                "expectedBoot": "boot-before-owner-restart",
+                "action": "scan",
+                "actionAttempt": 9,
+                "actionResult": "pending",
+                "actionStartedAt": 1_800_000_002,
+                "frameBoot": "boot-before-owner-restart",
+                "frameSequence": 77,
+                "frameCrc32": 123,
+                "deadlineAt": 1_800_000_500,
+                "evidence": {},
+            },
+        },
+    )
+
+    def passive_startup():
+        daemon._startup_operation = {"state": "ready"}
+        return evidence
+
+    daemon.passive_startup = passive_startup
+    assert controller._restart_startup_resume_pending, controller.journal.read()
+    try:
+        recovered = daemon.run_once()
+
+        assert controller.status().state is ControllerState.RECONCILE
+        assert recovered["state"] == ControllerState.RECONCILE.value
+        assert controller.status().action_intent == "scan"
+        assert controller.journal.read()["current"]["actionAttempt"] == 9
+        assert controller.journal.read()["current"]["actionResult"] == "pending"
+        assert controller.journal.read()["restartUncertain"] is True
+        assert daemon._startup_operation["state"] == "ready"
+        assert daemon._takeover_drill_operation["state"] == "idle"
+        assert not driver.guardian.armed
+        assert backend.events == []
+        assert daemon._calibration_thread is None
+    finally:
+        daemon.request_shutdown()
+
+
+def test_failed_automatic_restart_startup_persists_block_and_explicit_resume_recovers(
+    tmp_path: Path,
+) -> None:
+    """One failed passive attempt is durable and an explicit fresh resume can recover."""
+
+    from tests.test_session_startup import _runtime_evidence
+
+    _identity, environment, evidence = _runtime_evidence()
+    drill = TakeoverDrillRecord.create(environment.fingerprint, 41, observed_at=1_800_000_000)
+    daemon, backend, driver, controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        recover_on_restart=True,
+        journal_changes={
+            "state": ControllerState.SCANNING.value,
+            "mode": "repeat",
+            "generation": 40,
+            "nativeCalibration": True,
+            "inputCalibration": True,
+            "takeoverDrill": drill.to_json(),
+            "current": {
+                "pending": True,
+                "uid": "uid-before-failed-startup",
+                "startedAt": 1_800_000_001,
+                "expectedBoot": "boot-before-owner-restart",
+                "action": "scan",
+                "actionAttempt": 9,
+                "actionResult": "pending",
+                "actionStartedAt": 1_800_000_002,
+                "frameBoot": "boot-before-owner-restart",
+                "frameSequence": 77,
+                "frameCrc32": 123,
+                "deadlineAt": 1_800_000_500,
+                "evidence": {},
+            },
+        },
+    )
+
+    class ObserverLost(DriverError):
+        invalidation_cause = InvalidationCause.OBSERVER_LOST
+
+    attempts = []
+
+    def passive_startup():
+        attempts.append("passive")
+        if len(attempts) == 1:
+            raise ObserverLost("registered XI2 observer died during passive startup")
+        daemon._startup_operation = {"state": "ready", "advancingFrames": 3}
+        return evidence
+
+    daemon.passive_startup = passive_startup
+    assert controller._restart_startup_resume_pending
+    try:
+        failed = daemon.run_once()
+        journal = controller.journal.read()
+        assert failed["state"] == ControllerState.BLOCKED.value
+        assert controller.status().state is ControllerState.BLOCKED
+        assert journal["runtimeReadinessInvalidation"] == InvalidationCause.OBSERVER_LOST.value
+        assert "automatic restart startup failed" in journal["blocker"]
+        assert journal["current"]["actionAttempt"] == 9
+        assert journal["current"]["actionResult"] == "pending"
+        assert backend.events == []
+        assert not driver.guardian.armed
+
+        resumed = daemon.runtime_start(expected_generation=controller.status().generation, resume=True)
+        assert resumed["controllerState"] == ControllerState.RECONCILE.value
+        assert controller.status().action_intent == "scan"
+        assert controller.journal.read()["current"]["actionAttempt"] == 9
+        assert controller.journal.read()["current"]["actionResult"] == "pending"
+        assert attempts == ["passive", "passive"]
+        assert backend.events == []
+        assert not driver.guardian.armed
+    finally:
+        daemon.request_shutdown()
+
+
+def test_restart_reconcile_rearms_fresh_lease_before_next_admitted_driver_action(tmp_path: Path) -> None:
+    """Resolve one old named effect read-only, then admit only a new action."""
+
+    backend = LifecycleBackend(tmp_path)
+    daemon, backend, driver, controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        backend=backend,
+        recover_on_restart=True,
+        journal_changes={
+            "state": ControllerState.REOPEN.value,
+            "mode": "repeat",
+            "generation": 40,
+            "current": {
+                "uid": "",
+                "pending": False,
+                "action": "open_ah",
+                "actionAttempt": 9,
+                "actionResult": "dispatched",
+                "actionStartedAt": 1_800_000_002,
+                "frameBoot": "boot-before-owner-restart",
+                "frameSequence": 77,
+                "frameCrc32": 123,
+            },
+        },
+    )
+
+    hierarchy = (
+        (2, 3, "master", "pointer:Virtual core pointer"),
+        (3, 2, "master", "keyboard:Virtual core keyboard"),
+        (4, 2, "slave", "XTEST pointer"),
+        (5, 3, "slave", "keyboard:Virtual core XTEST keyboard"),
+        (6, 2, "slave", "pointer:xwayland-pointer:17"),
+        (7, 2, "slave", "pointer:xwayland-relative-pointer:17"),
+        (8, 2, "slave", "pointer:xwayland-pointer-gestures:17"),
+        (9, 3, "slave", "keyboard:xwayland-keyboard:17"),
+    )
+    keymap = backend.observe_keymap()
+    # The ordinary lifecycle fixture exposes only the digits used by older
+    # commands. Model the additional number-row keysyms used by the complete
+    # default command profile without changing its shared keymap contract.
+    keymap.update({str(digit): 100 + digit for digit in range(10) if str(digit) not in keymap})
+    levels_by_code: dict[int, list[str]] = {}
+    for symbol, code in keymap.items():
+        levels_by_code.setdefault(code, []).append(symbol)
+        if len(symbol) == 1 and symbol.isascii() and symbol.isalpha() and symbol.islower():
+            levels_by_code[code].append(symbol.upper())
+    levels = {code: tuple(sorted(set(symbols))) for code, symbols in levels_by_code.items()}
+    modifier_masks = (1, 4)
+    keyboard_profile = DesktopDriver._runtime_keyboard_profile(
+        tuple(driver.COMMANDS), levels, keymap, (0, 0, 0), modifier_masks
+    )
+    xtest_profile = backend.xtest_input_profile(hierarchy)
+    environment = StartupEnvironment(
+        display=driver.profile.display,
+        hierarchy=hierarchy,
+        keyboard_source=5,
+        keyboard_master=3,
+        pointer_source=4,
+        pointer_master=2,
+        forwarded_echo_sources=(7,),
+        xtest_profile=xtest_profile,
+        keymap_levels=tuple(sorted(levels.items())),
+        modifier_masks=(("Shift_L", 1), ("Control_L", 4)),
+        input_tool_version=backend.input_tool.version,
+        input_tool_sha256=backend.input_tool.digest,
+    )
+    evidence = mint_runtime_evidence(
+        readiness_boot="boot-before-owner-restart",
+        readiness_sequence=80,
+        environment=environment,
+        identity=backend.identity,
+        keyboard_keymap=tuple(sorted(keymap.items())),
+        native_modifiers=(0, 0, 0),
+        native_held_keycodes=(),
+        native_held_buttons=(),
+        keyboard_profile=keyboard_profile,
+    )
+    record = TakeoverDrillRecord.create(environment.fingerprint, 18, observed_at=1_800_000_000)
+    controller.persist_takeover_drill(record)
+
+    def passive_startup():
+        daemon._startup_evidence = evidence
+        daemon._startup_operation = {"state": "ready", "advancingFrames": 3}
+        start_runtime_observer()
+        return evidence
+
+    daemon.passive_startup = passive_startup
+    backend.observe_keymap = lambda **_kwargs: keymap
+    backend.observe_keymap_levels = lambda **_kwargs: levels
+    backend.observe_native_input_state = lambda _root: ((0, 0, 0), (), ())
+    driver.input_hierarchy = lambda **_kwargs: hierarchy
+
+    class RuntimeObserver(_FixtureInputObserver):
+        alive = True
+        failure_diagnostic = None
+
+        def wait_ready(self) -> None:
+            return None
+
+        def wait_for_event(self, predicate, *, timeout: float) -> None:
+            del timeout
+            if not predicate(self.events()):
+                raise AssertionError("the actual admitted runtime event trace did not complete")
+
+        def stop(self) -> str:
+            self.alive = False
+            return _fixture_event_trace(self.events())
+
+    observer = RuntimeObserver(driver._external_input, [], [])
+
+    def start_runtime_observer(**_kwargs):
+        driver._monitor = observer
+        driver._monitor_calibration = False
+        backend.runtime_observer = observer
+        backend.runtime_driver = driver
+        return observer
+
+    def stop_runtime_observer(_monitor=None, **_kwargs):
+        observer.stop()
+        driver._monitor = None
+        driver._monitor_calibration = False
+
+    driver.start_input_observer = start_runtime_observer  # type: ignore[method-assign]
+    driver.stop_input_observer = stop_runtime_observer  # type: ignore[method-assign]
+
+    try:
+        automatic = daemon.run_once()
+        assert automatic["state"] == ControllerState.RECONCILE.value
+        assert automatic["actionIntent"] == "open_ah"
+        assert controller.journal.read()["restartUncertain"] is True
+        assert not driver.guardian.armed
+        assert backend.events == []
+
+        before_resolution = controller.status()
+        resolved = controller.reconcile_restart(
+            observed_scene="auction_house",
+            observed_ah_open=True,
+            action_postcondition=True,
+            expected_generation=before_resolution.generation,
+            expected_state=ControllerState.RECONCILE,
+        )
+        assert resolved.state is ControllerState.ARMED
+        assert resolved.action_intent == ""
+        assert controller.journal.read()["restartUncertain"] is False
+        assert backend.events == []
+
+        reconciled = controller.reconcile(
+            identity_ok=True,
+            world_ready=True,
+            expected_generation=resolved.generation,
+            expected_state=ControllerState.ARMED,
+        )
+        assert reconciled.state is ControllerState.WAIT_DUE
+        assert driver.guardian.armed
+        assert reconciled.lease_generation == driver.guardian.generation
+        assert observer.alive
+
+        driver.run(
+            "open_chat",
+            reconciled.lease_generation,
+            precondition=lambda identity: identity.fingerprint == backend.identity.fingerprint,
+            postcondition=lambda identity: identity.fingerprint == backend.identity.fingerprint,
+        )
+        assert driver.guardian.armed
+        assert driver.guardian.generation == reconciled.lease_generation
+        dispatched = [item["name"] for item in backend.events]
+        assert dispatched == ["activate_generation", "open_chat"]
+        assert "open_ah" not in dispatched
+        assert controller.journal.read()["current"]["action"] == ""
+        assert [event.event_class.value for event in observer.events()] == [
+            EventClass.RAW_KEY_PRESS.value,
+            EventClass.KEY_PRESS.value,
+            EventClass.RAW_KEY_RELEASE.value,
+            EventClass.KEY_RELEASE.value,
+        ]
+    finally:
+        daemon.request_shutdown()
+
+
+@pytest.mark.parametrize("held_state", [ControllerState.PAUSED, ControllerState.STOPPED])
+def test_fresh_owner_keeps_persisted_human_hold_until_public_resume(
+    tmp_path: Path, held_state: ControllerState
+) -> None:
+    """A pre-existing operator hold is not mistaken for a restart-created pause."""
+
+    from tests.test_session_startup import _runtime_evidence
+
+    _identity, environment, evidence = _runtime_evidence()
+    drill = TakeoverDrillRecord.create(environment.fingerprint, 41, observed_at=1_800_000_000)
+    daemon, backend, driver, controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        recover_on_restart=True,
+        journal_changes={
+            "state": held_state.value,
+            "mode": "repeat",
+            "generation": 40,
+            "takeoverDrill": drill.to_json(),
+        },
+    )
+
+    def passive_startup():
+        daemon._startup_operation = {"state": "ready"}
+        return evidence
+
+    daemon.passive_startup = passive_startup
+    try:
+        held = daemon.run_once()
+        assert held["state"] == held_state.value
+        assert daemon._startup_operation["state"] == "not_checked"
+        assert not driver.guardian.armed
+        assert backend.events == []
+
+        # This is the real IPC dispatcher and the real daemon resume method;
+        # only the physical arm is replaced because the fixture backend is not
+        # a live X11 environment.
+        def fixture_arm(_evidence):
+            driver.guardian.generation += 1
+            driver.guardian.armed = True
+            return driver.guardian.generation
+
+        driver.arm = fixture_arm
+        ipc = SessionIPC(controller, daemon)
+        result = ipc.dispatch({"command": "resume", "generation": controller.status().generation})
+        assert result["ok"] is True
+        assert result["status"]["controllerState"] == ControllerState.RECONCILE.value
+        assert controller.status().state is ControllerState.RECONCILE
+        assert daemon._startup_operation["state"] == "ready"
+        assert not backend.events
+    finally:
+        daemon.request_shutdown()
 
 
 def _fixture_event(
@@ -1657,6 +2071,8 @@ def _fixture_event(
     root_xy: tuple[float, float] | None = None,
     event_xy: tuple[float, float] | None = None,
     valuators: tuple[tuple[int, float, float | None], ...] = (),
+    modifiers: tuple[int, int, int] | None = None,
+    modifier_effective: int | None = None,
 ) -> XI2Event:
     delivered = event_class in {
         EventClass.KEY_PRESS,
@@ -1665,6 +2081,12 @@ def _fixture_event(
         EventClass.BUTTON_RELEASE,
     }
     has_modifiers = delivered or event_class is EventClass.MOTION
+    modifier_values = modifiers if modifiers is not None else (0, 0, 0)
+    effective_value = (
+        modifier_effective
+        if modifier_effective is not None
+        else modifier_values[0] | modifier_values[1] | modifier_values[2]
+    )
     if coordinates is None:
         coordinates = (1.0, 1.0) if child is not None else None
     if root_xy is None:
@@ -1683,9 +2105,9 @@ def _fixture_event(
         child,
         root_xy,
         event_xy,
-        (0, 0, 0) if has_modifiers else None,
+        modifier_values if has_modifiers else None,
         (),
-        0 if has_modifiers else None,
+        effective_value if has_modifiers else None,
         valuators,
     )
 
@@ -1727,6 +2149,8 @@ class _FixtureInputObserver:
         self.callback = callback
         self.synthetic = synthetic
         self.human = human
+        self.alive = True
+        self.failure_diagnostic = None
         self._events: list[XI2Event] = []
 
     def _add(self, event: XI2Event) -> None:
@@ -1749,7 +2173,12 @@ class _FixtureInputObserver:
             self._add(event)
         assert predicate(self.events())  # type: ignore[operator]
 
+    def wait_for_event(self, predicate: object, *, timeout: float) -> None:
+        del timeout
+        assert predicate(self.events()), "the actual admitted runtime event trace did not complete"  # type: ignore[operator]
+
     def stop(self) -> str:
+        self.alive = False
         return _fixture_event_trace(self._events)
 
 
@@ -1878,7 +2307,7 @@ class _FixtureLunaAdapter:
                 "realm": "Classic Beta PvE 2",
                 "modal": "auction_house",
                 "code": "",
-                "control": "auctioneer_buckler",
+                "control": "auction_house",
                 "idle": "true",
             },
         }[state]
@@ -1926,6 +2355,7 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
             (5, 3, "slave", "XTEST keyboard"),
             (7, 2, "slave", "human pointer"),
             (9, 3, "slave", "human keyboard"),
+            (10, 2, "slave", "pointer:xwayland-relative-pointer:17"),
         )
         synthetic = [
             _fixture_event(13, EventClass.RAW_KEY_PRESS, 3, 5, 100, 8, None),
@@ -1970,6 +2400,15 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
         # the same finite raw/delivered pairs to the deterministic observer so
         # this headless lifecycle exercises that production validator.
         keymap = backend.observe_keymap()
+        keymap.update({str(digit): 100 + digit for digit in range(10) if str(digit) not in keymap})
+        next_keycode = max(keymap.values(), default=31) + 1
+        for operation in driver.calibration_keyboard_operations():
+            for step in operation.steps:
+                base = step.keysym.rsplit("+", 1)[-1]
+                for symbol in (step.keysym, base):
+                    if symbol not in keymap:
+                        keymap[symbol] = next_keycode
+                        next_keycode += 1
         event_number = 100
         timestamp = 300
         for operation in driver.calibration_keyboard_operations():
@@ -2021,14 +2460,82 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
         ) -> _FixtureInputObserver:
             if calibration:
                 assert callback is not None
-                return _FixtureInputObserver(callback, synthetic, human)
-            observer = _FixtureInputObserver(driver._external_input, (), ())
-            backend.runtime_observer = observer
-            backend.runtime_driver = driver
+                observer = _FixtureInputObserver(callback, synthetic, human)
+            else:
+                observer = _FixtureInputObserver(driver._external_input, (), ())
+            driver._monitor = observer
+            driver._monitor_calibration = calibration
+            if not calibration:
+                backend.runtime_observer = observer
+                backend.runtime_driver = driver
             return observer
 
+        def stop_input_observer(observer=None, *, already_stopped: bool = False) -> None:
+            del already_stopped
+            if observer is None or driver._monitor is observer:
+                driver._monitor = None
+                driver._monitor_calibration = False
+
         driver.start_input_observer = start_input_observer  # type: ignore[method-assign]
-        driver.stop_input_observer = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+        driver.stop_input_observer = stop_input_observer  # type: ignore[method-assign]
+
+        # Public validation startup now passes the same passive-startup and
+        # environment-bound takeover gates as ordinary repeat startup.  Seed a
+        # matching durable drill and return a freshly minted private fixture
+        # environment; this test remains focused on the three-cycle native
+        # calibration/runtime integration below.
+        levels_by_code: dict[int, list[str]] = {}
+        for symbol, code in keymap.items():
+            levels_by_code.setdefault(code, []).append(symbol)
+            if len(symbol) == 1 and symbol.isascii() and symbol.isalpha() and symbol.islower():
+                levels_by_code[code].append(symbol.upper())
+        levels = {code: tuple(sorted(set(symbols))) for code, symbols in levels_by_code.items()}
+        keyboard_profile = DesktopDriver._runtime_keyboard_profile(
+            tuple(driver.COMMANDS), levels, keymap, (0, 0, 0), (1, 4)
+        )
+        xtest_profile = backend.xtest_input_profile(hierarchy)
+        startup_environment = StartupEnvironment(
+            display=driver.profile.display,
+            hierarchy=hierarchy,
+            keyboard_source=5,
+            keyboard_master=3,
+            pointer_source=4,
+            pointer_master=2,
+            forwarded_echo_sources=(10,),
+            xtest_profile=xtest_profile,
+            keymap_levels=tuple(sorted(levels.items())),
+            modifier_masks=(("Shift_L", 1), ("Control_L", 4)),
+            input_tool_version=backend.input_tool.version,
+            input_tool_sha256=backend.input_tool.digest,
+        )
+        startup_evidence = mint_runtime_evidence(
+            readiness_boot="boot-runtime-fixture",
+            readiness_sequence=44,
+            environment=startup_environment,
+            identity=backend.identity,
+            keyboard_keymap=tuple(sorted(keymap.items())),
+            native_modifiers=(0, 0, 0),
+            native_held_keycodes=(),
+            native_held_buttons=(),
+            keyboard_profile=keyboard_profile,
+        )
+        controller.pause("fixture takeover drill setup")
+        controller.persist_takeover_drill(
+            TakeoverDrillRecord.create(startup_environment.fingerprint, 18, observed_at=1_800_000_000)
+        )
+        backend.observe_keymap = lambda **_kwargs: keymap
+        backend.observe_keymap_levels = lambda **_kwargs: levels
+        backend.observe_native_input_state = lambda _root: ((0, 0, 0), (), ())
+        driver.input_hierarchy = lambda **_kwargs: hierarchy  # type: ignore[method-assign]
+
+        def passive_startup():
+            if driver._monitor is None:
+                driver.start_input_observer()
+            daemon._startup_evidence = startup_evidence
+            daemon._startup_operation = {"state": "ready", "advancingFrames": 3}
+            return startup_evidence
+
+        daemon.passive_startup = passive_startup
 
         server = threading.Thread(target=serve, args=(config.socket, controller, daemon), daemon=True)
         server.start()
@@ -2066,7 +2573,11 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
                 real_sleep(0.005)
             raise AssertionError(f"{kind} calibration did not finish")
 
-        start = _socket_request(config.socket, {"command": "start", "generation": 0, "mode": "validation"})
+        start = _socket_request(
+            config.socket,
+            {"command": "start", "generation": controller.status().generation, "mode": "validation"},
+        )
+        assert start.get("ok") is True, start
         start_generation = start["status"]["generation"]
         bootstrap_calls: list[int | None] = []
 
@@ -2137,6 +2648,7 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
         real_focus_target = driver.focus_calibration_target
         real_notify_ready = driver.notify_input_calibration_ready
         real_queue_delayed = driver.queue_delayed_calibration_action
+        pointer_before_focus = backend.pointer_position()
 
         def issue_ticket(window):
             calibration_trace.append("ticket")
@@ -2144,7 +2656,12 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
 
         def focus_target(window, *, calibration_ticket):
             calibration_trace.append("focus")
-            return real_focus_target(window, calibration_ticket=calibration_ticket)
+            result = real_focus_target(window, calibration_ticket=calibration_ticket)
+            backend.calibration_target_xid = window.xid
+            pointer_after_focus = backend.pointer_position()
+            assert pointer_after_focus[:2] == pointer_before_focus[:2]
+            assert pointer_after_focus[2] == window.xid
+            return result
 
         def notify_ready(readiness):
             calibration_trace.append("ready")
@@ -2212,18 +2729,38 @@ def test_three_cycle_daemon_and_socket_lifecycle(tmp_path: Path, monkeypatch) ->
         assert final_status["state"] == "STOPPED", final_status
         pointer_events = [event for event in backend.events if event["name"] in driver.POINTER_ACTIONS]
         gesture_receipts = driver.pointer_gesture_receipts
-        assert len(gesture_receipts) == len(pointer_events) > 0
-        assert all(
-            isinstance(receipt["seed"], int)
-            and len(receipt["frozenEndpoint"]) == 2
-            and receipt["movementDuration"] > 0
-            and receipt["submovementCount"] > 0
-            and receipt["accepted"] is True
-            for receipt in gesture_receipts
-        )
-        rate_state = json.loads((tmp_path / "pointer-click-rate" / "pointer-click-rate.json").read_text())
-        assert isinstance(rate_state["lastPressMonotonicNs"], int)
-        assert rate_state["nextAllowedMonotonicNs"] - rate_state["lastPressMonotonicNs"] == 1_000_000_000
+        assert len(gesture_receipts) == len(pointer_events)
+        if pointer_events:
+            assert all(
+                isinstance(receipt["seed"], int)
+                and len(receipt["frozenEndpoint"]) == 2
+                and receipt["movementDuration"] > 0
+                and receipt["submovementCount"] > 0
+                and receipt["accepted"] is True
+                for receipt in gesture_receipts
+            )
+            rate_state = json.loads((tmp_path / "pointer-click-rate" / "pointer-click-rate.json").read_text())
+            assert isinstance(rate_state["lastPressMonotonicNs"], int)
+            assert rate_state["nextAllowedMonotonicNs"] - rate_state["lastPressMonotonicNs"] == 1_000_000_000
+        interaction_events = [event for event in backend.events if event["name"] == "open_ah"]
+        assert interaction_events
+        assert backend.runtime_observer is not None
+        keyboard_facts = driver._keyboard_operation_facts("interact_target", "", driver._input_evidence)
+        expected_chord = []
+        for phase, _keysym, detail, _modifiers, _effective in keyboard_facts:
+            raw = EventClass.RAW_KEY_PRESS if phase == "press" else EventClass.RAW_KEY_RELEASE
+            delivered = EventClass.KEY_PRESS if phase == "press" else EventClass.KEY_RELEASE
+            expected_chord.extend(((raw, detail), (delivered, detail)))
+        observed = [(event.event_class, event.detail) for event in backend.runtime_observer.events()]
+        matched_chords = 0
+        index = 0
+        while index <= len(observed) - len(expected_chord):
+            if observed[index : index + len(expected_chord)] == expected_chord:
+                matched_chords += 1
+                index += len(expected_chord)
+            else:
+                index += 1
+        assert matched_chords == len(interaction_events)
         assert any(
             event["name"] == "submit_command" and event.get("command") == "/logout"
             for event in backend.events
@@ -2527,6 +3064,38 @@ def test_runtime_ack_reload_missing_full_evidence_does_not_complete(tmp_path: Pa
         assert status.state in {ControllerState.ACK_RELOAD_WAIT, ControllerState.BLOCKED}
         assert controller.journal.read()["current"]["pending"] is True
         assert controller.journal.read()["qualification"]["totalAccepted"] == 0
+    finally:
+        daemon.request_shutdown()
+        driver.close()
+
+
+def test_due_at_zero_is_anchored_to_the_last_actual_scan_start(tmp_path: Path) -> None:
+    daemon, backend, driver, controller, _config, _clock = _runtime_daemon(
+        tmp_path,
+        journal_changes={
+            "state": ControllerState.READY.value,
+            "generation": 4,
+            "current": {"startedAt": 1_000},
+        },
+    )
+    commands: list[str] = []
+    daemon._command = lambda _snapshot, command: commands.append(command) or True  # type: ignore[method-assign]
+    try:
+        early = _snapshot(1_500)
+        early["scanner"]["dueAt"] = 0
+        early["ahOpen"] = True
+        daemon._advance(early, fence=controller.observation_fence())
+        assert commands == []
+        assert controller.status().state is ControllerState.READY
+
+        due = _snapshot(1_900, sequence=2)
+        due["scanner"]["dueAt"] = 0
+        due["ahOpen"] = True
+        backend.current = due
+        daemon._advance(due, fence=controller.observation_fence())
+        assert commands == ["/crowley scan"]
+        assert controller.status().state is ControllerState.SCANNING
+        assert controller.status().started_at == 1_900
     finally:
         daemon.request_shutdown()
         driver.close()
@@ -4152,7 +4721,9 @@ def test_native_update_fast_trace_replay_uses_real_runner_and_provider(
             )
             assert first_shot["phase_age_ms"] is not None
             assert first_shot["phase_age_ms"] == pytest.approx(spec["phase_age_ms"], abs=0.01)
-            assert first_shot["phase_age_ms"] <= 900.0
+            # The stored nanosecond clock converts to milliseconds with a
+            # sub-microsecond floating-point rounding tail at this boundary.
+            assert first_shot["phase_age_ms"] <= 900.001
         else:
             # Negative cases must fail through the real runner/provider graph
             # or visibly exceed active work; they may not be converted into a

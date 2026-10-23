@@ -12,6 +12,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from crowley.session import pointer_execution as pointer_execution_module
 from crowley.session.calibration import OwnedGtkCalibrationWindow, OwnedWindow, XTestInputProfile
 from crowley.session.driver import (
     DesktopDriver,
@@ -34,6 +35,15 @@ from crowley.session.input_events import (
 from tests.test_session_input_tool import fixture_input_tool
 
 
+@pytest.fixture(autouse=True)
+def _private_pointer_click_rate_state(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep real click admission tests away from host-global rate state."""
+
+    state_directory = tmp_path / "pointer-click-rate"
+    state_directory.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_execution_module, "_session_state_directory", lambda: state_directory)
+
+
 def test_keyboard_profile_exposes_owned_chord_without_new_public_action(tmp_path: Path) -> None:
     class KeymapBackend(RecordingBackend):
         def observe_keymap(self) -> dict[str, int]:
@@ -53,18 +63,318 @@ def test_keyboard_profile_exposes_owned_chord_without_new_public_action(tmp_path
     try:
         operations = driver.calibration_keyboard_operations()
         by_name = {(operation.operation, operation.payload): operation for operation in operations}
-        chord = by_name[("select_chat_all", "")]
+        assert ("select_chat_all", "") not in by_name
+        chord = by_name[("interact_target", "")]
         assert tuple((step.phase, step.keysym) for step in chord.steps) == (
             ("press", "Control_L"),
-            ("press", "a"),
-            ("release", "a"),
+            ("press", "F12"),
+            ("release", "F12"),
             ("release", "Control_L"),
         )
         assert "select_chat_all" not in driver.ACTIONS
+        conditional = by_name[("type_allowlisted_command", driver.CONDITIONAL_INTERACTION_BINDING_COMMAND)]
+        assert any(step.keysym == "comma" for step in conditional.steps)
+        target = by_name[("type_allowlisted_command", driver.TARGET_AUCTIONEER_COMMAND)]
+        assert (
+            ("press", "Shift_L"),
+            ("press", "a"),
+            ("release", "a"),
+            ("release", "Shift_L"),
+        ) in tuple(
+            tuple((step.phase, step.keysym) for step in target.steps[index : index + 4])
+            for index in range(len(target.steps) - 3)
+        )
         assert ("type_allowlisted_command", "/reload") in by_name
         fence = by_name[("type_allowlisted_command", "/crowley session fence")]
         assert all(step.keysym not in {"Shift_L", "Shift_R"} for step in fence.steps)
         assert not any("agent" in operation.payload for operation in operations)
+    finally:
+        driver.close()
+
+
+def test_runtime_evidence_keyboard_dispatch_guards_shifted_text_punctuation_and_ctrl_f12(
+    tmp_path: Path,
+) -> None:
+    """The passive-runtime profile and Guardian agree on physical key transitions."""
+
+    from crowley.session.startup import StartupEnvironment, mint_runtime_evidence
+
+    identity = WindowIdentity(
+        0x700100,
+        os.getpid(),
+        "WowB.exe",
+        "World of Warcraft",
+        "wowb.exe",
+        0x700101,
+        (0, 0, 1928, 1092),
+        (0, 0, 1920, 1080),
+        0x700100,
+        "runtime-keyboard-test-start",
+        ":dispatch",
+        "runtime-keyboard-test-identity",
+        0x1,
+        0x700100,
+        frozenset({0x700100, 0x700101}),
+    )
+    hierarchy = (
+        (2, 3, "master", "pointer:Virtual core pointer"),
+        (3, 2, "master", "keyboard:Virtual core keyboard"),
+        (4, 2, "slave", "pointer:Virtual core XTEST pointer"),
+        (5, 3, "slave", "keyboard:Virtual core XTEST keyboard"),
+        (6, 2, "slave", "pointer:xwayland-pointer:17"),
+        (7, 2, "slave", "pointer:xwayland-relative-pointer:17"),
+        (8, 2, "slave", "pointer:xwayland-pointer-gestures:17"),
+        (9, 3, "slave", "keyboard:xwayland-keyboard:17"),
+    )
+    keymap = {
+        "Control_L": 37,
+        "F12": 96,
+        "Shift_L": 50,
+        "Return": 36,
+        "Escape": 9,
+        "a": 38,
+        "b": 56,
+        "c": 54,
+        "d": 40,
+        "e": 26,
+        "f": 41,
+        "g": 42,
+        "h": 43,
+        "i": 31,
+        "j": 44,
+        "k": 45,
+        "l": 46,
+        "m": 58,
+        "n": 57,
+        "o": 32,
+        "p": 33,
+        "q": 24,
+        "r": 27,
+        "s": 39,
+        "t": 28,
+        "u": 30,
+        "v": 55,
+        "w": 25,
+        "x": 53,
+        "y": 29,
+        "z": 52,
+        "0": 19,
+        "1": 10,
+        "2": 11,
+        "9": 18,
+        "comma": 59,
+        "apostrophe": 48,
+        "equal": 21,
+        "minus": 20,
+        "semicolon": 47,
+        "slash": 61,
+        "space": 65,
+    }
+    levels_by_code: dict[int, list[str]] = {}
+    for symbol, code in keymap.items():
+        levels_by_code.setdefault(code, []).append(symbol)
+        if len(symbol) == 1 and symbol.isascii() and symbol.isalpha() and symbol.islower():
+            levels_by_code[code].append(symbol.upper())
+    levels = {code: tuple(sorted(set(symbols))) for code, symbols in levels_by_code.items()}
+    profile = XTestInputProfile(
+        4,
+        2,
+        "pointer:Virtual core XTEST pointer",
+        3,
+        ((0, "Rel X", "relative", -1.0, -1.0, 0), (1, "Rel Y", "relative", -1.0, -1.0, 0)),
+        1,
+        1,
+        (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
+        0x374,
+        (0, 0, 1920, 1080),
+        hierarchy,
+    )
+    backend = X11Backend(
+        DriverProfile(display=":dispatch", xauthority="/tmp/private-Xauthority"),
+        input_tool=fixture_input_tool(tmp_path / "runtime-keyboard-tool"),
+    )
+    driver = DesktopDriver(
+        profile=backend.profile,
+        backend=backend,
+        lease_path=tmp_path / "runtime-keyboard.lock",
+    )
+    keyboard_profile = DesktopDriver._runtime_keyboard_profile(
+        tuple(driver.COMMANDS), levels, keymap, (0x10, 0, 0), (1, 4)
+    )
+    environment = StartupEnvironment(
+        display=driver.profile.display,
+        hierarchy=hierarchy,
+        keyboard_source=5,
+        keyboard_master=3,
+        pointer_source=4,
+        pointer_master=2,
+        forwarded_echo_sources=(7,),
+        xtest_profile=profile,
+        keymap_levels=tuple(sorted(levels.items())),
+        modifier_masks=(("Shift_L", 1), ("Control_L", 4)),
+        input_tool_version=backend.input_tool.version,
+        input_tool_sha256=backend.input_tool.digest,
+    )
+    evidence = mint_runtime_evidence(
+        readiness_boot="boot-dispatch",
+        readiness_sequence=77,
+        environment=environment,
+        identity=identity,
+        keyboard_keymap=tuple(sorted(keymap.items())),
+        native_modifiers=(0x10, 0, 0),
+        native_held_keycodes=(),
+        native_held_buttons=(),
+        keyboard_profile=keyboard_profile,
+    )
+    backend.resolve_identity = lambda require_foreground=True, **_kwargs: identity  # type: ignore[method-assign]
+    backend._is_owned_client_target = lambda xid, _identity: xid in identity.target_event_xids  # type: ignore[method-assign]
+    backend._check_published_tool = lambda **_kwargs: None  # type: ignore[method-assign]
+    backend.activate_generation = lambda _generation: None  # type: ignore[method-assign]
+    backend.observe_keymap = lambda **_kwargs: keymap  # type: ignore[method-assign]
+    backend.observe_keymap_levels = lambda **_kwargs: levels  # type: ignore[method-assign]
+    backend.observe_native_input_state = lambda _root: ((0x10, 0, 0), (), ())  # type: ignore[method-assign]
+    driver.input_hierarchy = lambda **_kwargs: hierarchy  # type: ignore[method-assign]
+    driver.xtest_input_profile = lambda _hierarchy=None, **_kwargs: profile  # type: ignore[method-assign]
+
+    class RuntimeMonitor:
+        alive = True
+        failure_diagnostic = None
+
+        def __init__(self) -> None:
+            self._events: list[XI2Event] = []
+
+        def events(self) -> list[XI2Event]:
+            return list(self._events)
+
+        def push(self, event: XI2Event) -> None:
+            self._events.append(event)
+            driver._external_input(event)
+
+        def wait_for_event(self, predicate, *, timeout: float) -> None:
+            del timeout
+            assert predicate(self.events()), "the runtime Guardian did not complete the emitted key sequence"
+
+        def stop(self) -> str:
+            self.alive = False
+            return ""
+
+    monitor = RuntimeMonitor()
+    driver._monitor = monitor  # type: ignore[assignment]
+    driver._monitor_calibration = False
+    generation = driver.arm(evidence)
+    emitted_sequences: list[tuple[tuple[str, str, int], ...]] = []
+    modifier_masks = {"Shift_L": 1, "Control_L": 4}
+    next_time = 1
+
+    def emit_physical_sequence(name: str, **kwargs: object) -> None:
+        nonlocal next_time
+        if name == "type_allowlisted_command":
+            command = str(kwargs["command"])
+            physical_steps: list[tuple[str, str]] = []
+            for char in command:
+                mapped = X11Backend._keysym_for_char(char)
+                assert mapped is not None
+                parts = mapped.split("+")
+                if len(parts) == 1:
+                    physical_steps.extend((("press", parts[0]), ("release", parts[0])))
+                else:
+                    assert parts[0] == "Shift_L"
+                    physical_steps.extend(
+                        (
+                            ("press", parts[0]),
+                            ("press", parts[1]),
+                            ("release", parts[1]),
+                            ("release", parts[0]),
+                        )
+                    )
+        elif name == "open_ah":
+            physical_steps = [
+                ("press", "Control_L"),
+                ("press", "F12"),
+                ("release", "F12"),
+                ("release", "Control_L"),
+            ]
+        else:
+            raise AssertionError(f"unexpected keyboard action {name}")
+        measured_keymap = kwargs["_keyboard_keymap"]
+        assert isinstance(measured_keymap, dict)
+        transitions = tuple((phase, keysym, measured_keymap[keysym]) for phase, keysym in physical_steps)
+        emitted_sequences.append(transitions)
+        locked, latched, base = evidence.native_modifiers
+        for phase, keysym, detail in transitions:
+            raw_class = EventClass.RAW_KEY_PRESS if phase == "press" else EventClass.RAW_KEY_RELEASE
+            delivered_class = EventClass.KEY_PRESS if phase == "press" else EventClass.KEY_RELEASE
+            event_type = 13 if phase == "press" else 14
+            monitor.push(
+                XI2Event(
+                    type_number=event_type,
+                    event_class=raw_class,
+                    master_device=3,
+                    source_device=5,
+                    timestamp_ms=next_time,
+                    detail=detail,
+                    root_xid=None,
+                    event_xid=None,
+                    child_xid=None,
+                )
+            )
+            current = (locked, latched, base)
+            monitor.push(
+                XI2Event(
+                    type_number=2 if phase == "press" else 3,
+                    event_class=delivered_class,
+                    master_device=5,
+                    source_device=5,
+                    timestamp_ms=next_time,
+                    detail=detail,
+                    root_xid=0x374,
+                    event_xid=identity.child_xid,
+                    child_xid=identity.child_xid,
+                    root_xy=(30.0, 40.0),
+                    event_xy=(30.0, 40.0),
+                    modifiers=current,
+                    modifier_effective=locked | latched | base,
+                )
+            )
+            next_time += 1
+            if keysym in modifier_masks:
+                bit = modifier_masks[keysym]
+                base = base | bit if phase == "press" else base & ~bit
+
+    backend.action = emit_physical_sequence  # type: ignore[method-assign]
+    try:
+        driver.run(
+            "type_allowlisted_command",
+            generation,
+            command=driver.TARGET_AUCTIONEER_COMMAND,
+            precondition=lambda _identity: True,
+        )
+        driver.run(
+            "type_allowlisted_command",
+            generation,
+            command=driver.CONDITIONAL_INTERACTION_BINDING_COMMAND,
+            precondition=lambda _identity: True,
+        )
+        driver.run(
+            "open_ah",
+            generation,
+            precondition=lambda _identity: True,
+            postcondition=lambda _identity: True,
+        )
+        assert driver.guardian.armed
+        assert not driver.guardian.held
+        assert not driver._held_input
+        assert len(emitted_sequences) == 3
+        assert any(step[:2] == ("press", "Shift_L") for step in emitted_sequences[0])
+        assert any(step[:2] == ("press", "Shift_L") for step in emitted_sequences[1])
+        assert any(step[:2] == ("press", "comma") for step in emitted_sequences[1])
+        assert emitted_sequences[2] == (
+            ("press", "Control_L", 37),
+            ("press", "F12", 96),
+            ("release", "F12", 96),
+            ("release", "Control_L", 37),
+        )
+        assert len(monitor.events()) == sum(len(sequence) for sequence in emitted_sequences) * 2
     finally:
         driver.close()
 
@@ -1403,11 +1713,16 @@ def test_guardian_rejects_unpaired_or_unowned_raw_motion(tmp_path: Path, variant
 
 
 def test_production_pointer_dispatch_pairs_current_motion_with_forwarded_echo(
+    monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """The real DesktopDriver map admits only a current 4->7 Motion pair."""
+    """A seeded native gesture admits only its current source-4/7 Motion pairs."""
 
+    from crowley.session import driver as driver_module
     from crowley.session.driver import DesktopDriver, WindowIdentity
+    from crowley.session.executor import BindingMetadata, Point, PointerButton, PointerTarget, Rect
+    from crowley.session.pointer_execution import plan_human_pointer
+    from crowley.session.startup import StartupEnvironment, mint_runtime_evidence
 
     profile = DriverProfile(display=":test", xauthority="/tmp/Xauthority")
     backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
@@ -1432,29 +1747,20 @@ def test_production_pointer_dispatch_pairs_current_motion_with_forwarded_echo(
     driver = DesktopDriver(profile=profile, backend=backend, lease_path=tmp_path / "production-echo.lock")
 
     modifiers = (0x10, 0, 0)
-    proof = (
-        ("KeyPress", 5, 5, 8, 1, 0x374, 0x374, 0x700101, (30.0, 40.0), (30.0, 40.0), modifiers, 0x10),
-        ("KeyRelease", 5, 5, 8, 2, 0x374, 0x374, 0x700101, (30.0, 40.0), (30.0, 40.0), modifiers, 0x10),
-        ("ButtonPress", 4, 4, 1, 3, 0x374, 0x374, 0x700101, (30.0, 40.0), (30.0, 40.0), modifiers, 0x10),
-        ("ButtonRelease", 4, 4, 1, 4, 0x374, 0x374, 0x700101, (30.0, 40.0), (30.0, 40.0), modifiers, 0x10),
+    hierarchy = (
+        (2, 3, "master", "pointer:Virtual core pointer"),
+        (3, 2, "master", "keyboard:Virtual core keyboard"),
+        (4, 2, "slave", "pointer:Virtual core XTEST pointer"),
+        (5, 3, "slave", "keyboard:Virtual core XTEST keyboard"),
+        (6, 2, "slave", "pointer:xwayland-pointer:17"),
+        (7, 2, "slave", "pointer:xwayland-relative-pointer:17"),
+        (8, 2, "slave", "pointer:xwayland-pointer-gestures:17"),
+        (9, 3, "slave", "keyboard:xwayland-keyboard:17"),
     )
-    evidence = SimpleNamespace(
-        is_live=True,
-        fingerprint="production-echo-evidence",
-        synthetic_key_source=5,
-        synthetic_pointer_source=4,
-        synthetic_modifiers=modifiers,
-        xinput_hierarchy=(
-            (4, 2, "slave", "pointer:test"),
-            (5, 3, "slave", "keyboard:test"),
-        ),
-        event_proof=proof,
-        synthetic_echo_proof=(("MotionEcho", 11, 7, 7, 0x700101, (10.0, 20.0), (1.0, 2.0), 9, 4, 0x700101),),
-    )
-    evidence.xtest_profile = XTestInputProfile(
+    xtest_profile = XTestInputProfile(
         4,
         2,
-        "pointer:test",
+        "pointer:Virtual core XTEST pointer",
         3,
         ((0, "Rel X", "relative", -1.0, -1.0, 0), (1, "Rel Y", "relative", -1.0, -1.0, 0)),
         1,
@@ -1462,8 +1768,36 @@ def test_production_pointer_dispatch_pairs_current_motion_with_forwarded_echo(
         (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
         0x374,
         (0, 0, 1920, 1080),
-        evidence.xinput_hierarchy,
+        hierarchy,
     )
+    environment = StartupEnvironment(
+        display=profile.display,
+        hierarchy=hierarchy,
+        keyboard_source=5,
+        keyboard_master=3,
+        pointer_source=4,
+        pointer_master=2,
+        forwarded_echo_sources=(7,),
+        xtest_profile=xtest_profile,
+        keymap_levels=((38, ("a", "A")),),
+        modifier_masks=(("Shift_L", 1), ("Control_L", 4)),
+        input_tool_version="private-test-input-tool",
+        input_tool_sha256="c" * 64,
+    )
+    evidence = mint_runtime_evidence(
+        readiness_boot="boot-runtime",
+        readiness_sequence=12,
+        environment=environment,
+        identity=identity,
+        keyboard_keymap=(("a", 38),),
+        native_modifiers=modifiers,
+        native_held_keycodes=(),
+        native_held_buttons=(),
+        keyboard_profile=(),
+    )
+    assert evidence.forwarded_echo_sources == frozenset({7})
+    assert evidence.synthetic_pointer_master == 2
+    assert evidence.forwarded_echo_sources != frozenset({evidence.synthetic_pointer_master})
     backend.xtest_input_profile = lambda _hierarchy, **_kwargs: evidence.xtest_profile  # type: ignore[method-assign]
 
     def driver_input_hierarchy(**_kwargs: object):
@@ -1472,16 +1806,61 @@ def test_production_pointer_dispatch_pairs_current_motion_with_forwarded_echo(
     driver.input_hierarchy = driver_input_hierarchy  # type: ignore[method-assign]
     driver._input_evidence = evidence
 
-    anchor = SimpleNamespace(
+    seed = 0x51A7
+
+    def seeded_plan(*args: object, **kwargs: object):
+        kwargs["seed"] = seed
+        return plan_human_pointer(*args, **kwargs)
+
+    monkeypatch.setattr(driver_module, "plan_human_pointer", seeded_plan)
+    anchor = MeasuredAnchor(
+        action="logout",
         x=30,
         y=40,
         identity_fingerprint=identity.fingerprint,
+        target_xid=identity.child_xid,
+        capture_id="pointer-dispatch-capture",
+        capture_sequence=1,
+        source="native-measured",
+        observed_monotonic=time.monotonic(),
         capture_monotonic=time.monotonic(),
-        evidence_hash="current-anchor",
+        generation=1,
+        bounds=(26, 36, 12, 12),
+        target_ancestry=(identity.child_xid,),
+    ).with_hash()
+
+    binding = BindingMetadata(
+        identity_fingerprint=identity.fingerprint,
+        capture_id=anchor.capture_id,
+        capture_sequence=anchor.capture_sequence,
+        generation=1,
+        target_xid=anchor.target_xid,
+        target_ancestry=anchor.target_ancestry,
+        source=anchor.source,
     )
+    precomputed_plan = plan_human_pointer(
+        Point(10, 20),
+        PointerTarget("world", Rect(*anchor.bounds), binding, padding=1),
+        Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3]),
+        seed=seed,
+        button=PointerButton.LEFT,
+        profile=driver.pointer_motion_profile,
+    )
+    planned_trace: list[tuple[int, int, int, int]] = []
+    prior = precomputed_plan.trajectory.samples[0].point
+    for sample in precomputed_plan.trajectory.samples[1:]:
+        if sample.point == prior:
+            continue
+        root = (
+            identity.child_geometry[0] + int(sample.point.x),
+            identity.child_geometry[1] + int(sample.point.y),
+        )
+        planned_trace.append((*root, *root))
+        prior = sample.point
+    assert planned_trace
 
     def measure(action: str, *, generation: int | None = None) -> object:
-        assert action == "open_ah"
+        assert action == "logout"
         assert generation == 1
         driver._measured_anchors[action] = anchor
         return anchor
@@ -1498,44 +1877,125 @@ def test_production_pointer_dispatch_pairs_current_motion_with_forwarded_echo(
             return ""
 
     driver._monitor = Monitor()  # type: ignore[assignment]
+    driver.backend.pointer_position = lambda **_kwargs: (10, 20, identity.child_xid)  # type: ignore[method-assign]
+    driver.backend._is_owned_client_target = lambda xid, current: xid in current.target_event_xids  # type: ignore[method-assign]
+    backend.pointer_position = lambda **_kwargs: (10, 20, identity.child_xid)  # type: ignore[method-assign]
+    backend._is_owned_client_target = lambda xid, current: xid in current.target_event_xids  # type: ignore[method-assign]
 
     def action(name: str, *, generation: int, **kwargs: object) -> None:
-        del name, kwargs
+        assert name == "logout" and generation == 1
+        gesture = kwargs.get("_gesture_plan")
+        assert gesture is not None and gesture.seed == seed
+        assert gesture.trajectory == precomputed_plan.trajectory
+        assert gesture.endpoint == precomputed_plan.endpoint
 
         def event(
-            event_class: str,
+            event_class: EventClass,
             source: int,
             master: int,
             timestamp: int,
             *,
+            detail: int | None,
             target: int | None,
-            detail: int | None = None,
+            point: tuple[float, float] | None = None,
             raw: bool = False,
-        ) -> SimpleNamespace:
-            return SimpleNamespace(
+        ) -> XI2Event:
+            return XI2Event(
                 event_class=event_class,
-                source_device=source,
+                type_number={
+                    EventClass.RAW_MOTION: 17,
+                    EventClass.MOTION: 6,
+                    EventClass.RAW_BUTTON_PRESS: 15,
+                    EventClass.BUTTON_PRESS: 4,
+                    EventClass.RAW_BUTTON_RELEASE: 16,
+                    EventClass.BUTTON_RELEASE: 5,
+                }[event_class],
                 master_device=master,
-                target_xid=target,
-                detail=detail,
+                source_device=source,
                 timestamp_ms=timestamp,
+                detail=detail,
+                root_xid=None if raw else evidence.xtest_profile.root_xid,
+                event_xid=None if raw else evidence.xtest_profile.root_xid,
+                child_xid=target,
+                root_xy=point,
+                event_xy=point,
                 modifiers=None if raw else modifiers,
                 modifier_effective=None if raw else 0x10,
-                is_raw=raw,
-                root_xy=None if raw else (30.0, 40.0),
-                event_xy=None if raw else (30.0, 40.0),
+                valuators=(() if point is None else ((0, point[0], None), (1, point[1], None))),
             )
 
-        records = (
-            # open_ah moves along its production curve before clicking; raw
-            # motion is diagnostic ancestry for the following source-4 Motion.
-            event(EventClass.RAW_MOTION.value, 4, 2, 100, target=None, detail=RAW_MOTION_DETAIL, raw=True),
-            event(EventClass.MOTION.value, 4, 4, 100, target=identity.child_xid),
-            event(EventClass.MOTION.value, 7, 7, 101, target=identity.child_xid),
-            event(EventClass.RAW_BUTTON_PRESS.value, 4, 2, 102, target=None, detail=3, raw=True),
-            event(EventClass.BUTTON_PRESS.value, 4, 4, 102, target=identity.child_xid, detail=3),
-            event(EventClass.RAW_BUTTON_RELEASE.value, 4, 2, 103, target=None, detail=3, raw=True),
-            event(EventClass.BUTTON_RELEASE.value, 4, 4, 103, target=identity.child_xid, detail=3),
+        records: list[XI2Event] = []
+        timestamp = 100
+        for root_x, root_y, _event_x, _event_y in planned_trace:
+            point = (float(root_x), float(root_y))
+            records.append(
+                event(
+                    EventClass.RAW_MOTION,
+                    4,
+                    2,
+                    timestamp,
+                    detail=RAW_MOTION_DETAIL,
+                    target=None,
+                    point=None,
+                    raw=True,
+                )
+            )
+            # Raw XI2 motion carries endpoint values through valuators, while
+            # the primary/forwarded pair carries the canonical root coords.
+            records[-1] = replace(
+                records[-1],
+                valuators=((0, float(root_x), None), (1, float(root_y), None)),
+            )
+            records.append(
+                event(
+                    EventClass.MOTION,
+                    4,
+                    4,
+                    timestamp,
+                    detail=RAW_MOTION_DETAIL,
+                    target=identity.child_xid,
+                    point=point,
+                )
+            )
+            records.append(
+                event(
+                    EventClass.MOTION,
+                    7,
+                    7,
+                    timestamp + 1,
+                    detail=RAW_MOTION_DETAIL,
+                    target=identity.child_xid,
+                    point=point,
+                )
+            )
+            timestamp += 2
+        endpoint = (
+            float(identity.child_geometry[0] + int(gesture.endpoint.x)),
+            float(identity.child_geometry[1] + int(gesture.endpoint.y)),
+        )
+        records.extend(
+            (
+                event(EventClass.RAW_BUTTON_PRESS, 4, 2, timestamp, detail=1, target=None, raw=True),
+                event(
+                    EventClass.BUTTON_PRESS,
+                    4,
+                    4,
+                    timestamp,
+                    detail=1,
+                    target=identity.child_xid,
+                    point=endpoint,
+                ),
+                event(EventClass.RAW_BUTTON_RELEASE, 4, 2, timestamp + 1, detail=1, target=None, raw=True),
+                event(
+                    EventClass.BUTTON_RELEASE,
+                    4,
+                    4,
+                    timestamp + 1,
+                    detail=1,
+                    target=identity.child_xid,
+                    point=endpoint,
+                ),
+            )
         )
         # Keep this assertion close to the production admission shape: Motion
         # stays on source 4 and raw button transitions use its measured master.
@@ -1545,17 +2005,50 @@ def test_production_pointer_dispatch_pairs_current_motion_with_forwarded_echo(
                 driver.guardian.revoked_reason,
                 driver.guardian.action,
             )
+        assert driver.guardian.action is not None
+        assert driver.guardian.action.echo_sources == frozenset({7})
+        assert driver.guardian.action.motion_index == len(planned_trace)
+        assert driver.guardian.action.echo_index == len(planned_trace)
 
     backend.action = action  # type: ignore[method-assign]
     try:
         generation = driver.guardian.arm(evidence)
         driver.run(
-            "open_ah",
+            "logout",
             generation,
             precondition=lambda _identity: True,
             postcondition=lambda _identity: True,
         )
         assert driver.guardian.armed
+        driver.guardian.begin_action(
+            generation,
+            target_xid=identity.child_xid,
+            source_device=evidence.synthetic_pointer_source,
+            master_device=evidence.synthetic_pointer_master,
+            event_classes={EventClass.MOTION.value},
+            device_by_class={EventClass.MOTION.value: evidence.synthetic_pointer_source},
+            optional_classes={EventClass.MOTION.value},
+            echo_sources=evidence.forwarded_echo_sources,
+        )
+        assert not driver.guardian.observe(
+            XI2Event(
+                event_class=EventClass.MOTION,
+                type_number=6,
+                master_device=7,
+                source_device=7,
+                timestamp_ms=50_000,
+                detail=RAW_MOTION_DETAIL,
+                root_xid=0x374,
+                event_xid=0x374,
+                child_xid=identity.child_xid,
+                root_xy=(40.0, 50.0),
+                event_xy=(40.0, 50.0),
+                modifiers=modifiers,
+                modifier_effective=0x10,
+            )
+        )
+        assert not driver.guardian.armed
+        assert "unattributed XI2 event" in driver.guardian.revoked_reason
     finally:
         driver.close()
 

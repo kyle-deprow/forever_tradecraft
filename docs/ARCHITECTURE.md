@@ -144,9 +144,22 @@ The addon publishes a read-only256x256pixel status surface once per second.
 `session/decoder.py` turns it into strict CRS1 frames with checksum, boot,
 sequence and window-identity checks. Scan state, command-buffer readback and
 movement feedback use this deterministic path. A larger screenshot feeds Luna
-when semantic visual evidence is required. AH reopening currently measures its
-target with Luna, then refreshes that measurement after pointer movement; a
-deterministic scan monitor does not imply a whole cycle without model calls.
+when semantic visual evidence is required. The installed assisted path measures
+its auctioneer with Luna and refreshes that measurement after pointer movement.
+The replacement under review targets Auctioneer Jaxon in Stormwind, verifies
+native target/range/session-binding facts, dispatches CTRL-F12 through the
+guarded keyboard executor, and requires fresh AH-open telemetry. Deployment and
+live acceptance are tracked in [HANDOFF.md](HANDOFF.md).
+
+The replacement separates passive startup from a persistent takeover drill.
+Startup checks identity/focus, native held state, keymap, measured input hierarchy,
+the registered observer and three advancing ordinary HUD frames without game
+input. It mints fresh process-local input evidence for Guardian admission. A
+one-time curved hover and genuine human input prove pause/release; that record
+binds the stable input environment and survives ordinary reloads and controller
+restarts. Typed invalidation causes distinguish telemetry loss from an actual
+input-environment change. Durable intents still require reconciliation before
+the driver can re-arm. Native memory and GTK diagnostics remain optional.
 
 The accepted capture path obtains a desktop image before cropping it. The
 default-off region producer under `tools/gnome-telemetry-region/` is native C,
@@ -171,7 +184,7 @@ against its vendored upstream source and executable manifest. The backend pins
 the ELF bytes in a sealed Linux memfd before acquiring input ownership. Normal
 dispatch, ordinary release and the independent spawned watchdog use that image;
 the watchdog acknowledges FD readiness before input can be admitted. Disk
-publication drift invalidates calibration while the pinned image remains
+publication drift invalidates input readiness while the pinned image remains
 available for releases. XI2 RawMotion is explicit metadata: shared forward-only
 one-to-one pairing requires a following primary Motion at the same server time;
 raw records alone cannot prove a target or endpoint. Complete raw records reach
@@ -190,9 +203,11 @@ measured two-axis device mapping, and recheck the actual final pointer. Its sour
 and regression implementation is undergoing final verification; no fresh native
 qualification is claimed. Human relative motion keeps its separate interpretation.
 
-`session/motion.py` consumes decoded schema-3 native position, facing, speed,
-combat/death and primary bindings. This status-body version is distinct from
-CRS1 framing and scan format 2. Movement pulses are capped at 0.35 seconds;
+`session/motion.py` consumes decoded native position, facing, speed, combat/death
+and primary bindings. The installed status body is schema3; the replacement's
+strict schema4 adds auctioneer facts and requires a staged addon reload. This
+status-body version is distinct from CRS1 framing and saved scan formats.
+Movement pulses are capped at 0.35 seconds;
 waypoints are local, capped at two world units and a finite 20-second budget.
 Waypoint admission supports one translation pulse whose full 2D endpoint
 uncertainty fits the arrival tolerance, minimum duration, profile ceiling and
@@ -207,8 +222,10 @@ Movement calibration supports handedness+1; a reflected basis is refused before
 additional role probes or sealing. Native capture-start uses the driver's clock;
 settling validates each observation at receipt and the latest at decision time.
 Waypoint execution requires measured camera response and a movement basis,
-fresh visual route evidence and current native feedback. Interaction mode uses
-the existing native/input calibration gates and leaves scan scheduling idle.
+fresh visual route evidence and current native feedback. Interaction mode leaves
+scan scheduling idle; the replacement uses passive startup and the matching
+takeover drill for input admission. Camera and movement measurements remain
+specific prerequisites for their respective motion actions.
 The engine and interaction producers share one capture/action fence; stop
 revokes without waiting for it. Calibration measures repeated forward movement
 at two headings, backward and both strafe directions within the cumulative

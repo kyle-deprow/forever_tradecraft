@@ -1,278 +1,166 @@
 # Repeating Crowley scans
 
-`crowley-session` is the local durable controller for the existing format-2
-Crowley addon and companion. It reads the lossless 128x128 telemetry surface,
-parses the stable `Crowley.lua` payload, waits for the companion's exact UID
-upload record, and verifies the exact `Crowley_Data/Data.lua` acknowledgement.
-The normal mode repeats every 900 seconds. Validation mode stops after three
-consecutive qualifying sweeps; the third acknowledgement goes directly to
-closeout and does not start a fourth sweep.
+The local session controller collects the curated 428-item watchlist every 900
+seconds, anchored to actual scan starts. It preserves the original SavedVariables,
+waits for the companion upload and exact Data.lua UID acknowledgment, reloads,
+verifies that UID in the loaded HUD, and reopens the AH for the next cycle.
+Normal scanning and acknowledgment use deterministic routines. Luna handles
+bounded visual recovery when the game disconnects or presents an unexpected scene.
 
-The pinned profile is one Forever beta 70450 client: Arthur on Classic Beta PvE
-2, Alliance, `enUS`, client `1.60.1`, interface 16001, addon `0.2.0`, and house
-`beta-normal-alliance`. The status canvas is the physical crop
-`(80,48,256,256)` inside the 1920x1080 game child. The GNOME panel and dock
-therefore cannot cover the canvas. The model receives a separately verified
-game-child crop and never receives a full desktop screenshot.
+See [HANDOFF.md](HANDOFF.md) for current deployment and live acceptance status.
+This runbook describes the new passive-startup flow. The previous native/GTK
+calibration instructions are preserved as
+[historical diagnostics](../.archive/REPEATING_SCANS-legacy-calibration-20261022.md).
+They are not prerequisites for normal scanning.
 
-Copy the example TOML outside the repository and fill in the canonical
-`plan_hash`/`plan_json` and the three durable paths:
+## Installation and profile
 
-```text
-saved_variables = ".../WTF/.../SavedVariables/Crowley.lua"
-companion_state = "~/.local/state/crowley/companion-state.json"
-data_lua = ".../Interface/AddOns/Crowley_Data/Data.lua"
-```
+Use `deploy/crowley-session.example.toml` for the measured client profile. Fill in
+its canonical plan hash/JSON and the existing SavedVariables, companion state and
+Data.lua paths. Keep the journal under `~/.local/state/crowley/`; it holds durable
+scan intents, acknowledgment evidence and the takeover record. Do not replace it
+with an empty journal to clear a blocker.
 
-The companion's default state file is `~/.local/state/crowley/companion-state.json`
-(or `$XDG_STATE_HOME/crowley/companion-state.json` when that environment variable
-is set). Use that exact path in the session profile; the controller never creates a
-second companion state file.
+The current client is Arthur, Classic Beta PvE 2, Alliance, build70450/interface
+16001. The deterministic AH opener expects Auctioneer Jaxon in Stormwind City
+within native interaction range. Positioning/navigation is separate from this
+routine. The schema4 HUD publishes the target, range and CTRL-F12 binding facts
+needed to verify that interaction.
 
-Keep the session journal at `~/.local/state/crowley/session.json` (or the matching
-`$XDG_STATE_HOME` directory). It contains restart intent, intervention history,
-and accepted evidence, so it must not live under `/run/user`.
+Enable the game's **Enable Interact Key** option during setup. Forever's
+[controls implementation](https://raw.githubusercontent.com/Gethe/wow-ui-source/forever/Interface/AddOns/Blizzard_SettingsDefinitions_Frame/Controls.lua)
+sets `SoftTargetInteract=3` for that checkbox; its
+[native enum](https://raw.githubusercontent.com/Gethe/wow-ui-source/forever/Interface/AddOns/Blizzard_APIDocumentationGenerated/SoftTargetConstantsDocumentation.lua)
+defines1 as gamepad-only and2 as keyboard/mouse. The controller reads this mode
+and refuses a disabled or unavailable keyboard interaction before pressing the
+chord. Keep the prior setting in the setup receipt when changing it.
 
-Successful native calibration retains the final lossless review crop in the private
-`native-evidence/` directory beside that journal with mode `0700`/`0600` permissions;
-the temporary construction and update crops are removed after the runner consumes them.
+Build the pinned native input tool and install the editable controller:
 
-The live X11 driver requires the configured `wowb.exe` WM class, one matching
-client child, the measured geometry, foreground identity, and a process start
-fingerprint. Configure the measured Wine prefix in the profile; leave
-`xauthority` empty so the user service inherits the current session's
-`XAUTHORITY` value. It captures through `gnome-screenshot`, crops only after identity
-verification, and uses one XTEST injection path. Missing anchors, an identity
-change, stale pixels, an unexpected XI2 event, a lost lease, or a missing
-postcondition blocks the session.
-
-Install the entry point and start the user service before running the socket gates.
-The unit expects the executable installed by `uv tool install` at
-`~/.local/bin/crowley-session`:
-
-Build Crowley's private input tool from the pinned source archive in `vendor/`:
-
-```text
+```sh
 uv run python tools/build_crowley_xdotool.py
-```
-
-Building requires `cc`, `make`, `readelf`, `objdump` and the development packages
-`libx11-dev`, `libxtst-dev`, `libxinerama-dev`, `libxkbcommon-dev`. The builder
-verifies the source checksum and publishes under `~/.cache/crowley/xdotool`.
-It verifies an existing publication and rejects an invalid one. The native
-backend requires this tool and screen zero (`:0` or `:0.0` on this machine).
-The executable is copied into a sealed image shared with the release watchdog;
-its digest is part of window and calibration identity.
-
-Copy and review the filled profile before starting the service:
-
-```text
 uv tool install --editable /home/dev/repos/pegasus
-mkdir -p ~/.config/crowley
+mkdir -p ~/.config/crowley ~/.config/systemd/user
 cp deploy/crowley-session.example.toml ~/.config/crowley/session.toml
-# edit and review ~/.config/crowley/session.toml before continuing
-mkdir -p ~/.config/systemd/user
+# Fill and review the profile before starting the service.
 cp deploy/crowley-session.service ~/.config/systemd/user/
 systemctl --user daemon-reload
 systemctl --user enable --now crowley-session.service
 ```
 
-The daemon starts unarmed, so it is safe for the service to run while the
-operator completes the native and input gates. If the repository is elsewhere,
-install that checkout with `uv tool install --editable <repository>` and keep the
-unit's executable path aligned with the resulting `~/.local/bin/crowley-session`
-entry point.
+The input-tool builder needs `cc`, `make`, `readelf`, `objdump`, `libx11-dev`,
+`libxtst-dev`, `libxinerama-dev` and `libxkbcommon-dev`. It verifies the source and
+published executable. The input owner and independent release watchdog share its
+sealed executable image.
 
-The daemon starts without input ownership. The operator first starts a mode and
-uses the daemon's own socket for the preconstruction boundary and two live gates:
+The model adapter pins Codex CLI0.162.1 and `gpt-6-luna`. Configure the provisioned
+private CLI executable shown in the example, and verify it with `--version`.
+A mutable global installation can update beyond that pin. The configured version
+must match; the controller does not select another model or executable on failure.
 
-```text
+Leave profile `xauthority` empty to inherit the current graphical session's
+XAUTHORITY. The service uses the measured Wine process, window and display profile.
+The native identity/region executable paths and their hashes must match the
+installed artifacts specified by the profile.
+
+## Startup and one-time takeover drill
+
+Log into Arthur, leave the game idle near the auctioneer, and read status:
+
+```sh
 crowley-session --config ~/.config/crowley/session.toml status
-crowley-session --config ~/.config/crowley/session.toml start --mode validation --generation <status-generation>
-crowley-session --config ~/.config/crowley/session.toml native-bootstrap --generation <start-generation>
-crowley-session --config ~/.config/crowley/session.toml native-calibrate --generation <start-generation>
-crowley-session --config ~/.config/crowley/session.toml calibration-status
-crowley-session --config ~/.config/crowley/session.toml input-calibrate --generation <start-generation>
-crowley-session --config ~/.config/crowley/session.toml calibration-status
-crowley-session --config ~/.config/crowley/session.toml resume --generation <input-calibration-generation>
 ```
 
-Use the generation returned by each command. Native calibration keeps the
-generation unchanged; the deliberate input sample revokes it and returns a new
-paused generation, which is the value required by `resume`.
-The `start` example assumes a fresh session. For a persisted `PAUSED` session
-whose mode is already correct, use `resume` with the current generation instead.
-If native calibration is missing, that resumes into `NATIVE_CALIBRATION` while
-input stays unarmed. A rejected `start` does not establish that the generation
-changed; inspect the actual state before repeating it.
-To change mode from a persisted `PAUSED` session, first verify there is no pending
-scan or action intent, issue `stop --generation <current-generation>`, and then
-`start --mode repeat --generation <returned-stop-generation>` from `STOPPED`.
-The public socket rejects `start` from `PAUSED` as `stale generation` even when
-the supplied generation matches; retrying the same command does not change mode.
-Pending scan work requires reconciliation through `resume`, rather than this
-empty-session mode-change sequence.
-The two calibration commands are supervised single-flight starts and return
-within the normal five-second socket timeout. Poll `calibration-status` for the
-readiness, completion result, or durable error before issuing the next gate.
+Each mutating command requires the current generation from status. For the first
+start with no pending scan work:
 
-For deferred construction, the daemon also exposes a reservation-based public
-protocol. `native-construction-control-preflight --generation <generation>`
-requires an idle, unarmed `PAUSED` owner; `native-construction-prepare` requires
-`NATIVE_CALIBRATION`. Both capture the ordinary addon frame and retain its boot
-in a durable checkpoint. Use the returned reservation ID and generation for
-subsequent calls. The reservation expires; a new model turn does not renew it.
-
-The addon command `/crowley agent defer` creates the actual Construct and Restore
-controls and blocks scheduled scans. A preflight leaves the addon loaded;
-measurement crosses a reload to the deferred, absent-surface boundary, then uses
-`native-construction-bootstrap` with the returned expected constructor boot.
-The normal hold/measure/resume gates still apply. After finalize readiness,
-`native-construction-finalize-admit` admits the final fresh-frame transaction.
-
-Public recovery starts with `native-construction-recovery-begin` while `PAUSED`.
-A live preflight hands off its exact reservation ID; recovery after a revoked
-measurement uses an empty ID and the current generation. Follow the returned
-recovery kind: `restore` uses `/crowley agent recover` and the verified Restore
-control; `ordinary_reload` uses a reload. Complete with
-`native-construction-recovery-complete` and the new recovery reservation ID.
-Completion requires a fresh ordinary boot and inactive schedule fence and clears
-the durable checkpoint. A recovered error remains a failed calibration attempt.
-These commands establish native calibration and recovery evidence; the separate
-physical input gate is still required before autonomous input can be armed.
-
-Before `native-calibrate`, the authorized sole operator leaves the verified
-client at the external bootstrap boundary where the new Agent surface has not
-been constructed. While the controller remains in its unarmed
-`NATIVE_CALIBRATION` state, issue `native-bootstrap` through the daemon socket.
-That command captures the calibrated child crop and rejects an existing or
-malformed status surface; it does not create addon textures or accept caller
-metrics. Start `native-calibrate` while the client remains at this boundary.
-The runner proves the absence capture, samples process `VmHWM`, and then
-publishes `nativeBootstrapReady`; only after that visible signal should the
-authorized operator perform the normal login or reload that loads Agent. The
-runner waits for the actual fresh `normal/0` Agent frame, so the operator may
-finish loading the addon after readiness is shown. It then publishes
-`holdRequired`; issue `/crowley agent hold` and wait for the fresh `held/0`
-frame before `measureReady` appears. Issue `/crowley agent measure` only after
-`measureReady`; the runner waits for `updates/1`, then requires exactly ordinals
-1 through 99 at one hertz and the final `held/100`. When `resumeRequired`
-appears, issue `/crowley agent resume`; the runner allows held/100 while waiting
-for a fresh same-boot `normal/0`. Native calibration measures the actual frame surface,
-2,048 reused glyph textures, inverse effective-scale anchoring, lossless pixels,
-update p99, and the exact Lua heap diagnostics described below. Input calibration creates a temporary private GTK target,
-proves its PID/XID/focus and XTEST key/click sources, then waits for one real
-operator key and click. A forwarded event that cannot be safely correlated
-revokes the generation. There is no trace-only or caller-supplied source-ID
-shortcut. A completed human sample is retained as sealed process-local
-evidence while the controller remains durably `PAUSED`; only an explicit
-`resume` may reconcile and arm it. The controller arms only after both sealed
-live results pass.
-
-The three Agent commands are game-local diagnostic controls. Use them only at
-the matching status boundary; the session daemon never guesses or dispatches
-them:
-
-```text
-/crowley agent hold
-/crowley agent measure
-/crowley agent resume
+```sh
+crowley-session --config ~/.config/crowley/session.toml start --mode repeat --generation <current-generation>
 ```
 
-During `input-calibrate` the daemon proves the XTEST and guardian boundary. For
-each pointer action later, immediately before dispatch, the executor re-resolves
-the one client and invokes the native control-specific anchor producer for that
-action from a fresh owned scene. Each producer
-must return a fresh screenshot or addon visual proof naming the actual control,
-its integer client coordinate, child ancestry, boot/identity, and capture
-sequence. The original monotonic capture time stays bound to the retained
-artifact through model inference and native sealing; it is never restamped
-after decoding, and later native frames must be newer in both sequence and
-capture time. Missing producer evidence, a generic world observation, configured
-coordinates, incomplete fingerprints, or an identity mismatch fail closed.
+Start checks identity/focus, the measured input environment and native keymap,
+held controls, the registered XI2 observer, and three advancing ordinary HUD
+frames. These checks send no game input. Native memory measurement, addon resets,
+GTK targets and typing the command vocabulary are optional diagnostics.
 
-The daemon's socket controls the same controller instance as its capture loop.
-Every mutating request carries the current generation. `pause` and `stop` revoke
-all held input and queued actions immediately; the journal preserves the current
-pending phase and uncertain intent while an already-dispatched client operation
-settles, but neither command starts a new save, reload, upload, acknowledgement,
-logout, or cleanup action. `pause` remains durable across restart. `resume`
-requires fresh reconciliation and, after a process restart, a fresh live input gate
-because the prior target identity cannot be reconstructed from a boolean journal
-flag. `closeout` is orthogonal to stop and may finish an already-running scan's
-authorized evidence path, ending with exactly one `/logout`, followed by stable
-empty `scans`/`sweeps` and empty Data.lua ack lists.
+If status requests a takeover drill, run it while the operator is present:
 
-The closeout executor takes a new telemetry frame immediately before logout and
-requires the scanner to be in its explicit `ready` or `scheduled` phase, an
-empty pending queue, and the exact acknowledged UID. It then issues the exact
-`/crowley session fence` command and waits for a newer frame from the same boot
-with `scanner.scheduleFence.state = armed` before issuing one `/logout`. A
-refused fence reports `scan_active`; item, owned, and blocked scanner phases
-are never treated as idle. The addon invalidates its cooldown scheduling token
-when the fence is armed, so a queued cadence callback cannot start a new sweep
-while the client is leaving the world.
-
-The journal records state, generation, action intent, expected boot, deadlines,
-pending UID, accepted streak, rejected evidence, and sanitized telemetry. Exact
-chat EditBox text is read back from `ChatFrameUtil.GetActiveWindow()` for one
-command and is never persisted. Status is read-only. A process lifetime `flock`
-protects the desktop lease and socket; a second daemon cannot unlink a live
-socket or acquire the lease.
-
-Login recovery is bounded to the configured `gpt-6-luna` adapter and four named
-actions: `dismiss_disconnect`, `reconnect_game`, `select_arthur`, and
-`enter_world`. The adapter runs Codex CLI `0.162.1` from a neutral directory with
-`--ignore-user-config`, `--ignore-rules`, read-only ephemeral execution,
-structured output, and installed tool-disabling flags. Normal cadence, scan,
-upload, and acknowledgement work never invokes it. Credential prompts, model
-substitution, tool events, schema errors, and unexpected CLI diagnostics block.
-Each named action has a fresh visual precondition and fresh visual postcondition;
-world and auction-house states additionally come from a new decoded addon frame.
-The adapter reports only the bounded action or named visual facts, while the
-daemon verifies character, realm, modal, control, and idle fields against the
-configured profile.
-
-The daemon status exposes the native handshake as `nativeHandshake` with
-`state`, `holdRequired`, `measureReady`, `resumeRequired`, `resumeReady`,
-`failure`, `restored`, `resumeBoundary`, and durable `archiveReceipts` fields.
-The resume boundary is the verified held/100 proof published before the runner
-requests a fresh normal frame. Each reset callback
-archives the complete historical record and returns its verified receipt before
-`clear_refs=5` is written; failed windows report a durable
-`restoration_required` status and cannot arm input.
-
-Each status frame carries the exact native render schema: a `luaHeap` object
-using `collectgarbage_count` with before/after/net KiB values, plus
-`nativePhase` (`normal`, `held`, or `updates`) and `nativeOrdinal` (0 through
-100). An unavailable Lua measurement uses the explicit false/zero sentinel.
-The native gate measures the actual construction and update windows with the
-Linux reset5 process meter; it records the historical HWM before each reset,
-the post-reset baseline, and the final HWM in two sealed memory records. The
-runner crosses the owned hold, measure, and resume boundaries before accepting
-the final capture, retains both complete memory measurements and the fresh
-normal/0 resume frame, and rejects a stale or mismatched client identity.
-
-The required automated checks are:
-
-```text
-uv run pytest -q
-uv run ruff check .
-uv run ruff format --check .
-git diff --check
+```sh
+crowley-session --config ~/.config/crowley/session.toml takeover-drill --generation <current-generation>
 ```
 
-Native acceptance still requires the measured gates, three new qualifying 428-ID
-sweeps at starts `seed`, `seed+900±5`, and `seed+1800±5`, upload within 60
-seconds of each finish, exact acknowledgement, zero pending queues after
-closeout, and a demonstrated pause/restart/resume boundary. Native captures and
-human takeover results are operator evidence; the harness and fake-clock tests
-do not substitute for that live acceptance.
+The drill makes a small curved hover without clicking and then waits for genuine
+input. Poll status from another terminal; `takeoverDrill.state = awaiting_input`
+and `nextAction = provide_human_input` mark the accepting window. The operator
+taps and releases Shift once. A passing drill proves pause/release, saves the environment-bound record
+and leaves automation paused. Start repeat mode using the returned generation:
+
+```sh
+crowley-session --config ~/.config/crowley/session.toml start --mode repeat --generation <after-drill-generation>
+```
+
+The record survives controller restarts and ordinary addon reloads. A changed
+input hierarchy, native tool, keymap, display or takeover contract requires a new
+drill. Process IDs and routine addon boot changes do not invalidate the stored
+human evidence. Each new owner still collects fresh passive readiness.
+
+## Pause, handback and failures
+
+Physical input revokes automation. For an explicit pause:
+
+```sh
+crowley-session --config ~/.config/crowley/session.toml pause --generation <current-generation>
+```
+
+When the game is handed back, use resume to preserve any pending scan or reload:
+
+```sh
+crowley-session --config ~/.config/crowley/session.toml resume --generation <current-generation>
+```
+
+Resume checks current readiness and reconciles durable effects before sending
+another action. Never use start to discard unresolved work. A service restart
+recovers an active repeat session automatically; an existing operator pause or
+stop remains held. If the restart readiness check fails, status records a BLOCKED
+reason. Resolve that condition and use resume with the current generation.
+A drill can be canceled from another terminal with
+`takeover-drill-cancel --generation <current-generation>`.
+
+Status exposes `startup`, `takeoverDrill`, `runtimeReadinessInvalidation`, `nextAction`,
+the current scan intent and the exact blocker. Invalid telemetry, observer loss,
+identity changes and input-environment changes have explicit causes; message
+wording does not determine which proof is retained. Unknown input fails closed.
+Readiness failures do not authorize another native benchmark or a fresh journal.
+
+The AH opener targets Jaxon, checks native range, and verifies the session-only
+CTRL-F12 action. It can set only an empty or already-identical INTERACTTARGET
+binding, verifies the result, and never calls SaveBindings. It requires a newer
+HUD confirming AH-open before scanning. Automated clicks elsewhere retain the
+one-per-second limit and the curved, timed full press/release executor.
+
+A server disconnect can leave a collection gap. Retain the last original scan and
+its exact upload/loaded-ACK evidence, recover the current scene, and reconcile.
+Do not repeat a submitted command merely because a later receipt failed.
+
+## Verification
+
+Run the focused startup, public restart, takeover, native keyboard/pointer,
+protocol and addon tests for this change, then lint/format checks and
+`git diff --check`. Review the frozen bytes before promotion. A schema3-to-schema4
+cutover needs an owned staged reload because both the installed addon and editable
+Python source resolve to this checkout.
+
+Live acceptance consists of passive startup, the genuine one-time drill, a complete
+autonomous save/upload/ACK/reopen cycle and a takeover/resume test. Record observed
+900-second start intervals and actual gaps. Isolated Xvfb fixtures and model
+snapshots do not establish live Mutter/Xwayland acceptance. Native memory
+benchmarks and three validation-mode sweeps are not startup gates. Validation mode
+remains available separately and closes out after three qualifying sweeps.
 
 ## Natural interaction commands
 
-The motion executors use a separate interaction mode after the same native and
-input gates pass. Enter it from the paused controller using its current generation;
+The motion executors use a separate interaction mode after passive startup and a
+matching takeover drill pass. Enter it from the paused controller using its current generation;
 read the returned status for the generation used by later requests:
 
 ```text

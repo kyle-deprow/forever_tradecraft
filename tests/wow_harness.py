@@ -46,7 +46,45 @@ function collectgarbage(option)
   end
   return harness.luaHeapValue or 512
 end
-function UnitName() return "Tester" end
+function UnitExists(unit)
+  if unit == "target" then return harness.targetPresent == true end
+  return unit == "player"
+end
+function UnitName(unit)
+  if unit == "target" then
+    if harness.targetPresent == true then return harness.targetName end
+    return nil
+  end
+  return "Tester"
+end
+function CheckInteractDistance(unit, index)
+  assert(unit == "target", "documented trade-range predicate unit")
+  harness.interactDistanceCalls[#harness.interactDistanceCalls + 1] = index
+  if harness.rangeAvailable == false then return nil end
+  -- Keep other interaction-distance indexes observably distinct so a melee
+  -- query cannot accidentally satisfy the trade-range fixture.
+  if index == 2 then return harness.withinTradeRange == true end
+  return false
+end
+function GetBindingAction(key)
+  assert(key == "CTRL-F12", "documented interaction binding lookup")
+  if harness.bindingAvailable == false then return nil end
+  return harness.ctrlF12Action or ""
+end
+function GetCVar(name)
+  assert(name == "SoftTargetInteract", "documented keyboard interaction-mode lookup")
+  return harness.softTargetInteract
+end
+function StaticPopup_IsAnyDialogShown()
+  if harness.staticPopupAvailable == false then return nil end
+  return harness.staticPopupShown == true
+end
+GameMenuFrame = {
+  IsShown = function()
+    if harness.gameMenuAvailable == false then return nil end
+    return harness.gameMenuShown == true
+  end,
+}
 function UnitFactionGroup() return harness.faction end
 function GetRealmName() return harness.realm end
 function GetZoneText() return harness.zone end
@@ -795,6 +833,17 @@ class WowClient:
             "TURNLEFT": "Q",
         }
     )
+    target_present: bool = False
+    target_name: str = ""
+    range_available: bool = True
+    within_trade_range: bool = False
+    binding_available: bool = True
+    ctrl_f12_action: str = ""
+    soft_target_interact: str | None = "3"
+    static_popup_available: bool = True
+    static_popup_shown: bool = False
+    game_menu_available: bool = True
+    game_menu_shown: bool = False
     initial_savedvars: dict | None = None
 
     def __post_init__(self) -> None:
@@ -844,6 +893,18 @@ class WowClient:
                 "groundArgCounts": self.lua.table(),
                 "combat": self.combat,
                 "deadOrGhost": self.dead_or_ghost,
+                "targetPresent": self.target_present,
+                "targetName": self.target_name,
+                "rangeAvailable": self.range_available,
+                "withinTradeRange": self.within_trade_range,
+                "interactDistanceCalls": self.lua.table(),
+                "bindingAvailable": self.binding_available,
+                "ctrlF12Action": self.ctrl_f12_action,
+                "softTargetInteract": self.soft_target_interact,
+                "staticPopupAvailable": self.static_popup_available,
+                "staticPopupShown": self.static_popup_shown,
+                "gameMenuAvailable": self.game_menu_available,
+                "gameMenuShown": self.game_menu_shown,
                 "bindings": self.lua.table(),
                 "requested": self.lua.table(),
                 "itemInfo": self.lua.table(),
@@ -1057,6 +1118,40 @@ class WowClient:
             self.state.deadOrGhost = dead_or_ghost
         if bindings is not None:
             self.state.bindings = self._to_lua(bindings)
+
+    def set_auctioneer_state(
+        self,
+        *,
+        target_name: str | None = None,
+        range_available: bool = True,
+        within_trade_range: bool = False,
+        binding_available: bool = True,
+        ctrl_f12_action: str = "",
+    ) -> None:
+        self.state.targetPresent = target_name is not None
+        self.state.targetName = target_name or ""
+        self.state.rangeAvailable = range_available
+        self.state.withinTradeRange = within_trade_range
+        self.state.bindingAvailable = binding_available
+        self.state.ctrlF12Action = ctrl_f12_action
+
+    def set_soft_target_interact(self, value: str | None) -> None:
+        """Set the native SoftTargetInteract CVar exposed to Agent.lua."""
+
+        self.state.softTargetInteract = value
+
+    def set_blocking_ui_state(
+        self,
+        *,
+        static_popup_available: bool = True,
+        static_popup_shown: bool = False,
+        game_menu_available: bool = True,
+        game_menu_shown: bool = False,
+    ) -> None:
+        self.state.staticPopupAvailable = static_popup_available
+        self.state.staticPopupShown = static_popup_shown
+        self.state.gameMenuAvailable = game_menu_available
+        self.state.gameMenuShown = game_menu_shown
 
     def probe(self) -> dict:
         self.ns.Probe()

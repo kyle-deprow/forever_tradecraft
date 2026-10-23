@@ -2512,7 +2512,7 @@ def test_agent_samples_actual_motion_and_changed_values_are_fresh():
     first = client.publish_agent()
     client.set_motion(position=(101.25, 202.5, 31.75, 2), facing=2.5, speed=7.5, combat=True)
     second = client.publish_agent()
-    assert first["schema"] == second["schema"] == 3
+    assert first["schema"] == second["schema"] == 4
     assert first["motion"]["native"]["ctm"] == {
         "accessor": "C_CVar.GetCVarBool",
         "cvar": "autointeract",
@@ -2535,6 +2535,83 @@ def test_agent_samples_actual_motion_and_changed_values_are_fresh():
     assert second["sequence"] > first["sequence"]
     decoded = decode_frame(client.agent_frame)
     assert decoded.snapshot["motion"] == second["motion"]
+
+
+def test_agent_publishes_strict_auctioneer_and_ctrl_f12_native_facts():
+    client = WowClient()
+    client.set_canonical_plan()
+    client.login()
+
+    absent = client.publish_agent()["auctioneer"]
+    assert absent == {
+        "targetPresent": False,
+        "targetName": "",
+        "rangeAvailable": False,
+        "withinTradeRange": False,
+        "bindingAvailable": True,
+        "ctrlF12Action": "",
+        "interactionMode": "any",
+    }
+
+    client.set_auctioneer_state(
+        target_name="Auctioneer Jaxon",
+        range_available=True,
+        within_trade_range=True,
+        ctrl_f12_action="INTERACTTARGET",
+    )
+    value = client.publish_agent()
+    assert client.state.interactDistanceCalls[1] == 2
+    assert value["schema"] == 4
+    assert value["auctioneer"] == {
+        "targetPresent": True,
+        "targetName": "Auctioneer Jaxon",
+        "rangeAvailable": True,
+        "withinTradeRange": True,
+        "bindingAvailable": True,
+        "ctrlF12Action": "INTERACTTARGET",
+        "interactionMode": "any",
+    }
+    assert value["blockingUI"] == {
+        "staticPopupAvailable": True,
+        "staticPopupShown": False,
+        "gameMenuAvailable": True,
+        "gameMenuShown": False,
+    }
+    decoded = decode_frame(client.agent_frame).snapshot.value
+    assert decoded["auctioneer"] == value["auctioneer"]
+    assert decoded["blockingUI"] == value["blockingUI"]
+
+    for cvar, mode in (("0", "disabled"), ("1", "gamepad"), ("2", "keyboard"), ("3", "any")):
+        client.set_soft_target_interact(cvar)
+        assert client.publish_agent()["auctioneer"]["interactionMode"] == mode
+    client.set_soft_target_interact("invalid")
+    assert client.publish_agent()["auctioneer"]["interactionMode"] == "unavailable"
+    client.set_soft_target_interact(None)
+    assert client.publish_agent()["auctioneer"]["interactionMode"] == "unavailable"
+    client.set_soft_target_interact("3")
+
+    client.set_blocking_ui_state(static_popup_shown=True)
+    assert client.publish_agent()["blockingUI"]["staticPopupShown"] is True
+    client.set_blocking_ui_state(game_menu_shown=True)
+    assert client.publish_agent()["blockingUI"]["gameMenuShown"] is True
+    client.set_blocking_ui_state(static_popup_available=False)
+    unavailable_blocker = client.publish_agent()["blockingUI"]
+    assert unavailable_blocker["staticPopupAvailable"] is False
+    assert unavailable_blocker["staticPopupShown"] is False
+
+    client.set_auctioneer_state(
+        target_name="Auctioneer Jaxon",
+        range_available=False,
+        binding_available=False,
+    )
+    unavailable = client.publish_agent()["auctioneer"]
+    assert client.state.interactDistanceCalls[2] == 2
+    assert unavailable["targetPresent"] is True
+    assert unavailable["rangeAvailable"] is False
+    assert unavailable["withinTradeRange"] is False
+    assert unavailable["bindingAvailable"] is False
+    assert unavailable["ctrlF12Action"] == ""
+    assert unavailable["interactionMode"] == "any"
 
 
 @pytest.mark.parametrize(
@@ -3295,7 +3372,7 @@ def test_native_capability_ctm_failures_are_explicit_and_still_decode(
         for field in ("flying", "falling", "swimming", "submerged", "mounted", "taxi")
     }
     value = client.publish_agent()
-    assert value["schema"] == 3
+    assert value["schema"] == 4
     assert value["motion"]["native"]["ctm"]["state"] in {"enabled", "unknown"}
     if ctm_mode == "true":
         assert value["motion"]["native"]["ctm"] == {

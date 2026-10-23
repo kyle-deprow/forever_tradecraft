@@ -16,6 +16,7 @@ import signal
 import socket
 import subprocess
 import threading
+from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -59,7 +60,7 @@ def _snapshot(
     started = wall if active else 0
     due = started + 900 if active else wall
     return {
-        "schema": 3,
+        "schema": 4,
         "boot": boot,
         "sequence": sequence,
         "wallTime": wall,
@@ -85,6 +86,21 @@ def _snapshot(
             "initialPriceLevels": 20,
         },
         "ahOpen": ah_open,
+        "blockingUI": {
+            "staticPopupAvailable": True,
+            "staticPopupShown": False,
+            "gameMenuAvailable": True,
+            "gameMenuShown": False,
+        },
+        "auctioneer": {
+            "targetPresent": False,
+            "targetName": "",
+            "rangeAvailable": False,
+            "withinTradeRange": False,
+            "bindingAvailable": True,
+            "ctrlF12Action": "",
+            "interactionMode": "any",
+        },
         "scanner": {
             "phase": phase,
             "activeSweepId": "",
@@ -294,7 +310,7 @@ def _config(
     saved_variables: Path | None = None,
 ) -> SessionConfig:
     return SessionConfig(
-        profile=SimpleNamespace(
+        profile=DriverProfile(
             house="beta-normal-alliance",
             character="Arthur",
             realm="Classic Beta PvE 2",
@@ -981,10 +997,12 @@ def test_ack_reload_waits_for_data_publication_and_retains_loaded_ack_after_refr
     assert controller.status().state == ControllerState.WAIT_DUE
 
 
-def test_session_ipc_resume_rearms_retained_calibration_then_reconciles(tmp_path: Path) -> None:
+def test_session_ipc_resume_uses_matching_passive_drill_then_reconciles(tmp_path: Path) -> None:
     from crowley.session.cli import SessionIPC
+    from crowley.session.startup import TakeoverDrillRecord
+    from tests.test_session_startup import _runtime_evidence
 
-    evidence = _retained_input_evidence(tmp_path)
+    _identity, environment, evidence = _runtime_evidence()
     journal = _state_file(
         tmp_path / "session.json",
         state=ControllerState.PAUSED.value,
@@ -993,27 +1011,49 @@ def test_session_ipc_resume_rearms_retained_calibration_then_reconciles(tmp_path
         inputCalibration=True,
     )
     config = _config(tmp_path)
-    config.profile.display = ":test"
-    config.profile.xauthority = str(tmp_path / "Xauthority")
+    config = replace(config, profile=replace(config.profile, display=environment.display, xauthority=None))
     driver = DesktopDriver(
         profile=config.profile,
         backend=RecordingBackend(),
         lease_path=tmp_path / "desktop.lock",
     )
+    # This regression isolates the public IPC/controller routing.  Other
+    # startup tests exercise the real read-only native measurement; this fake
+    # arm delegates only the resulting sealed capability to the real Guardian.
+    driver.arm = lambda runtime_evidence: driver.guardian.arm(runtime_evidence)  # type: ignore[method-assign]
     controller = Controller(journal, driver=driver, recover_on_restart=False)
     daemon = SessionDaemon(config, controller=controller, driver=driver)
     try:
-        retained = controller.retain_input_calibration_while_paused(evidence)
-        assert retained.state == ControllerState.PAUSED
-        response = SessionIPC(controller, daemon).dispatch({"command": "resume", "generation": 0})
-        assert response["ok"] is True
-        assert response["status"]["state"] == ControllerState.RECONCILE.value
-        assert driver.guardian.armed
+        paused = controller.pause("fixture takeover drill setup")
+        assert paused.state == ControllerState.PAUSED
+        controller.persist_takeover_drill(
+            TakeoverDrillRecord.create(environment.fingerprint, 18, observed_at=1_800_000_000)
+        )
 
-        daemon.capture_status = lambda: _sample(_snapshot(phase="ready"))  # type: ignore[method-assign]
-        daemon.run_once()
+        def passive_startup():
+            daemon._startup_evidence = evidence
+            daemon._startup_operation = {"state": "ready", "advancingFrames": 3}
+            return evidence
+
+        daemon.passive_startup = passive_startup
+        response = SessionIPC(controller, daemon).dispatch(
+            {"command": "resume", "generation": paused.generation}
+        )
+        assert response["ok"] is True, response
+        assert response["status"]["state"] == ControllerState.RECONCILE.value
+        assert response["status"]["controllerState"] == ControllerState.RECONCILE.value
+        assert driver.guardian.armed
+        resume_generation = response["status"]["generation"]
+        reconciled = controller.reconcile(
+            identity_ok=True,
+            expected_generation=resume_generation,
+            expected_state=ControllerState.RECONCILE,
+        )
+        assert reconciled.state == ControllerState.WAIT_DUE
+        assert reconciled.lease_generation == driver.guardian.generation
+        assert not reconciled.action_intent
         assert controller.status().state == ControllerState.WAIT_DUE
-        assert controller.status().generation == 1
+        assert controller.status().generation == resume_generation
     finally:
         driver.close()
 
@@ -1184,13 +1224,26 @@ def test_corrupt_telemetry_blocks_without_entering_model_recovery(tmp_path: Path
     journal = _state_file(tmp_path / "session.json", state=ControllerState.WAIT_DUE.value)
     driver = _FakeDriver(journal)
     controller = Controller(journal, driver=driver, recover_on_restart=False)
-    daemon = SessionDaemon(_config(tmp_path), controller=controller, driver=driver)
+    config = _config(tmp_path)
+    config = replace(
+        config,
+        profile=DriverProfile(
+            house="beta-normal-alliance",
+            character="Arthur",
+            realm="Classic Beta PvE 2",
+            plan_count=428,
+            canvas_crop=(80, 48, 256, 256),
+            model_crop=(80, 48, 1760, 984),
+        ),
+    )
+    daemon = SessionDaemon(config, controller=controller, driver=driver)
     daemon.capture_status = lambda: (_ for _ in ()).throw(ProtocolError("CRC mismatch"))  # type: ignore[method-assign]
     daemon._recover_login = lambda: pytest.fail("corrupt telemetry must never invoke model recovery")  # type: ignore[method-assign]
 
     result = daemon.run_once()
     assert result["state"] == ControllerState.BLOCKED.value
     assert "CRC mismatch" in result["blocker"]
+    assert result["runtimeReadinessInvalidation"] == "telemetry_invalid"
 
 
 def test_recovery_exception_is_durable_blocked_state(tmp_path: Path) -> None:

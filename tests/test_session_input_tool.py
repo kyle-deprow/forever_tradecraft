@@ -148,14 +148,60 @@ int main(int argc, char **argv) {
                 KeyboardProbeStep("release", "Control_R"),
             ),
         )
-        backend.synthetic_keyboard_profile(operations + (right_control,), calibration_ticket=ticket)
+        left_control = KeyboardProbeOperation(
+            "select_chat_all_left",
+            "",
+            (
+                KeyboardProbeStep("press", "Control_L"),
+                KeyboardProbeStep("press", "a"),
+                KeyboardProbeStep("release", "a"),
+                KeyboardProbeStep("release", "Control_L"),
+            ),
+        )
+        shifted_text = KeyboardProbeOperation(
+            "type_allowlisted_command",
+            "Ab",
+            (
+                KeyboardProbeStep("press", "Shift_L"),
+                KeyboardProbeStep("press", "a"),
+                KeyboardProbeStep("release", "a"),
+                KeyboardProbeStep("release", "Shift_L"),
+                KeyboardProbeStep("press", "b"),
+                KeyboardProbeStep("release", "b"),
+            ),
+        )
+        profile_operations = operations + (left_control, right_control, shifted_text)
+        profile_keysyms = sorted({step.keysym for item in profile_operations for step in item.steps})
+        profile_keymap = {keysym: index + 10 for index, keysym in enumerate(profile_keysyms)}
+        backend.synthetic_keyboard_profile(
+            profile_operations,
+            keymap=profile_keymap,
+            calibration_ticket=ticket,
+        )
 
         rows = argv_log.read_text(encoding="utf-8").splitlines()
         assert rows
-        assert any("key|--|Control_L+a" in row for row in rows)
-        assert any("key|--|Control_R+a" in row for row in rows)
-        assert any("key|--|Return" in row for row in rows)
-        assert not any("key|--|ctrl+a" in row for row in rows)
+        control_l = f"{profile_keymap['Control_L']:03d}"
+        control_r = f"{profile_keymap['Control_R']:03d}"
+        shift_l = f"{profile_keymap['Shift_L']:03d}"
+        letter_a = f"{profile_keymap['a']:03d}"
+        letter_b = f"{profile_keymap['b']:03d}"
+        return_key = f"{profile_keymap['Return']:03d}"
+        assert any(
+            row.endswith(f"keydown|{control_l}|keydown|{letter_a}|keyup|{letter_a}|keyup|{control_l}")
+            for row in rows
+        )
+        assert any(
+            row.endswith(f"keydown|{control_r}|keydown|{letter_a}|keyup|{letter_a}|keyup|{control_r}")
+            for row in rows
+        )
+        assert any(
+            row.endswith(f"keydown|{shift_l}|keydown|{letter_a}|keyup|{letter_a}|keyup|{shift_l}")
+            for row in rows
+        )
+        assert any(row.endswith(f"keydown|{letter_b}|keyup|{letter_b}") for row in rows)
+        assert any(row.endswith(f"keydown|{return_key}|keyup|{return_key}") for row in rows)
+        assert not any("ctrl+a" in row for row in rows)
         assert published_holds
         assert not backend.active_process_groups
         assert not backend._process_calibration_tickets
@@ -163,9 +209,31 @@ int main(int argc, char **argv) {
         before_refusal = len(rows)
         with pytest.raises(driver_module.DriverError, match="holds do not match"):
             backend._run(
-                ["xdotool", "key", "--", "Control_L+a"],
+                [
+                    "xdotool",
+                    "keydown",
+                    control_l,
+                    "keydown",
+                    letter_a,
+                    "keyup",
+                    letter_a,
+                    "keyup",
+                    control_l,
+                ],
                 calibration_ticket=ticket,
-                held_keys={"Control_R", "a"},
+                held_keys={control_r, letter_a},
+                input_schema="keyboard-steps",
+                expected_argv=(
+                    "xdotool",
+                    "keydown",
+                    control_l,
+                    "keydown",
+                    letter_a,
+                    "keyup",
+                    letter_a,
+                    "keyup",
+                    control_l,
+                ),
             )
         assert len(argv_log.read_text(encoding="utf-8").splitlines()) == before_refusal
         assert not backend.active_process_groups
@@ -173,9 +241,31 @@ int main(int argc, char **argv) {
         driver.guardian.cancel_calibration_operation(ticket)
         with pytest.raises(driver_module.DriverError, match="cancelled|revoked"):
             backend._run(
-                ["xdotool", "key", "--", "Control_L+a"],
+                [
+                    "xdotool",
+                    "keydown",
+                    control_l,
+                    "keydown",
+                    letter_a,
+                    "keyup",
+                    letter_a,
+                    "keyup",
+                    control_l,
+                ],
                 calibration_ticket=ticket,
-                held_keys={"Control_L", "a"},
+                held_keys={control_l, letter_a},
+                input_schema="keyboard-steps",
+                expected_argv=(
+                    "xdotool",
+                    "keydown",
+                    control_l,
+                    "keydown",
+                    letter_a,
+                    "keyup",
+                    letter_a,
+                    "keyup",
+                    control_l,
+                ),
             )
         assert len(argv_log.read_text(encoding="utf-8").splitlines()) == before_refusal
         assert not backend.active_process_groups

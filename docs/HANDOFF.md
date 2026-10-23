@@ -1,19 +1,115 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-22 20:56 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-23 00:13 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
 
 ## Current collection and calibration state
 
-**CURRENT USER TAKEOVER / AUDIT HOLD:** User explicitly confirmed "Yes—I or
-another agent am using it" after Luna found foreign unsubmitted `/run F=C` text.
-This supersedes earlier AWAY/sole-Luna-control instructions. ALL GAME INPUT AND
-LIVE GUI CAPTURE HELD, including cleanup/Escape/Return/reload/AH reopen, until a
-new explicit user handback. Luna may inspect files/public status only. Do not
-cancel or overwrite that other controller's editor. This is confirmed current
-shared control, not a speculative blocker.
+**R2 INSTALLED; LIVE ACCEPTANCE IN PROGRESS.** Root promoted the reviewed
+Agent.lua at00:10:29 UTC, Luna sent exactly one guarded reload, and root
+independently CRC-decoded the retained schema4 HUD (boot1792714266-396905/seq6).
+Arthur/build70450/Stormwind, pending0, no active sweep, closed empty editor,
+interactionMode=any, binding empty and no selected target. Root then promoted
+all23 reviewed files at00:12:08 and restarted crowley-session. New public state
+is PAUSED94, startup not_checked, takeoverDrill needed, reconciliationfalse.
+Legacy native/input flags are false as expected; do not retry old GTK/native
+calibration. Installed source bytes match the frozen manifest. The existing
+profile/configSHA89580ebd... already uses private Codex0.162.1 and was unchanged.
+
+**Next:** Exclusive GUI owner `/root/luna_assisted_scanner` runs public repeat
+start to collect passive readiness, then tests the actual clickless hover through
+awaiting_input and cancels if no human is present. Request the user only when the
+installed path is actually ready. A genuine human sample is required for a durable
+PASS; do not fabricate one. Keep assisted schema4 collection available while the
+human is away. Actual autonomous scan/ACK/reopen/takeover-resume remains unqualified.
+
+**Code verification complete:** Luna implementation / Sol independent review
+READY, with no Must-Fix or Should-Fix; root independently753PASS in562.59s,
+Ruff22/format/diff checks passed. R2 fixes positive passive-frame hover provenance,
+XTEST/motion-profile shadowing, pre-transition XI2 modifier expectations,
+cleanup ownership/lock recovery and typed BLOCKED after failed restart startup.
+The complete23-file diff SHA is
+4a56f4bde080eb9ccee1990c5972317ec2cc032b70129618354f4b85a24934a3,
+base644dc14. Private manifest, review, parent checks and promotion receipts are
+under `executor-evidence/autonomous-startup-takeover-20261022-r2/`; independent
+HUD proof is `schema4-addon-transition-attempt-20261023T001049Z/parent-strict4-verification.json`
+under assisted-collection-luna-20261021. Source worktree is
+`~/.cache/crowley/worktrees/autonomous-startup-takeover-20261022-r2`.
+
+**Collection gap remains real:** Latest completed scan is288, finished20:43:13
+UTC on October22; no289 start is confirmed. Its original/upload/loaded-ACK proof
+is preserved below. No claim of working15-minute cadence. Keyboard interaction
+was independently verified enabled (SoftTargetInteract=3), and new native HUD
+mode removes chat OCR from the normal target/binding/interaction route. The
+latest user explicitly handed control back to Luna. No other GUI owner.
+
+### Historical work notes (superseded by the installed state above)
+
+**Sol assisted-helper review NEEDS WORK:** Separate read-only review of the past
+2245/2257 helper snapshots found first-frame polling errors, receipt labels that
+hid four taps instead of a held Ctrl-F12 chord, and success exit on an unobserved
+start. Luna repaired those in the private helper, including actual-argv/cleanup
+replays and a private-Xvfb Xlib held-state query. No interaction was dispatched
+by the affected attempts. Review artifact is private under
+`autonomous-startup-takeover-20261022/assisted-helper-review/sol-review.md`.
+This is not the final core review. The source-controlled game-control skill now
+records the concise modifier/raw-first lessons; its validator passes.
+
+**CURRENT: USER HANDED CONTROL BACK; ASSISTED COLLECTION RECOVERING.** User explicitly
+answered "Luna can resume collection" and authorized the simplification with a
+Luna/Sol loop. `/root/luna_assisted_scanner` is running and exclusively owns GUI
+input/capture. Its fresh 21:01 UTC scene verified the same WoW process, Arthur
+stationary in Stormwind AH, advancing ordinary frames, empty closed editor and
+no held controls. The foreign `/run F=C` buffer is absent; no cleanup was sent.
+Scan288's loaded ACK is complete. Repeated WOW51900319 disconnects and verified
+interaction refusals have delayed the next sweep; no scan289 start is confirmed.
+Luna recovered the cached Arthur login and is using one pre-staged curved
+hover/auctioneer-tooltip/right-click chain. The latest hover found an intervening
+player rather than Fitch and correctly refused the click; Jaxon is being verified.
+Continue curated 428-item scans at 900 seconds anchored to actual starts. All earlier takeover
+holds below are superseded by this explicit handback.
+
+**Recovery COMPLETE / scan288 loaded ACK confirmed:** The first ACK-only helper observed a fresh
+WOW51900319 disconnect and sent no input. Luna dismissed it and followed the
+cached Normal ruleset/Arthur path with guarded curved clicks. Arthur is entering
+the world in the earlier record; the later world frame now confirms Arthur
+stationary in Stormwind, ordinary HUD boot1792704247-503409/seq17, exact scan288
+loaded ACK and pending0. Root independently CRC-decoded that retained full image
+and parsed the exact original `CrowleyDB.scans[uid]` key. Proof:
+`handback-world-entry-observation-20261022T2124Z/parent-loaded-ack-verification.json`.
+Luna is reopening the AH; a new scan start remains unconfirmed.
+Root also independently decoded retained 21:01 HUD PNGs and
+verified scan288's preserved original SHA. Comparing parsed current SavedVariables
+to that original showed only `scheduleTrace` changed. Proof is
+`handback-window-20261022T2101Z/parent-retained-handback-verification.json` under
+the assisted-collection evidence directory. Do not call this an autonomous cycle.
+
+**SIMPLIFICATION IMPLEMENTATION RUNNING OFFLINE.** Core Luna owns the complete
+startup/drill/AH-open vertical path in an isolated worktree; Sol independently
+reviews the design then frozen code. Read the concrete
+[implementation plan](../.archive/PLAN-autonomous-startup-takeover-20261022.md).
+Replace routine native/GTK/human-per-restart gates with passive automatic startup
+and one durable environment-bound human takeover drill; retain runtime safety,
+strict ACK/no-replay and the curved executor. Port the proven Stormwind opener.
+The isolated worktree is
+`~/.cache/crowley/worktrees/autonomous-startup-takeover-20261022`, base644dc14.
+Sol's plan review identified two integration seams now explicit in the plan:
+fresh process-local measured input evidence and a complete guarded Stormwind
+command/binding path. Ownership includes minimal Agent.lua auctioneer telemetry
+and its strict schema4 protocol/harness. The new parser rejects schema3, so the
+later live promotion requires an explicit staged addon reload/source transition.
+The current implementation covers passive evidence, durable drill/status, typed
+invalidation, schema4 auctioneer facts, guarded keyboard dispatch, actual-start
+cadence and active-repeat restart recovery. Verification is still running:
+the native shifted-key trace exposed extra RawKeyRelease events and the complete
+restart-to-admitted-action path needs a passing composed test. These are release
+blockers. Final scoped tests, frozen source hashes and Sol code review remain
+pending. Private Xvfb results do not qualify the live Mutter/Xwayland environment.
+No production runtime change or service restart has occurred. Cutover requires
+code review and parent checks, then a safe fully ACKed scan boundary. Do not run
+another old calibration attempt. Actual autonomous cycles remain unqualified.
 
 **Opus audit COMPLETE: MAJOR ISSUES / SIMPLIFY BEFORE CONTINUING.**
 Read [the preserved independent audit](../.archive/REVIEW-calibration-architecture-opus-20261022.md).
@@ -26,8 +122,8 @@ Next design should decouple routine startup/telemetry checks from native memory
 benchmarking and per-restart human sampling, retain Guardian/watchdog/identity/
 focus/curvedclickcap/decoder/journal/ACK, use a persistent takeover drill with real
 input-environment invalidation, and port the proven Stormwind interaction path.
-The audit is a recommendation; simplification implementation/code review and
-human acceptance remain undone. User's current game takeover still takes priority.
+The user approved the simplification; implementation/code review and human
+acceptance remain in progress. Any new user takeover takes priority.
 Private original CLI prompt/raw/process/result: calibration-audit-opus-20261022/.
 
 **Latest scan288:** Started20:35:05 UTC (`1792701305`), finished20:43:13
@@ -35,12 +131,14 @@ Private original CLI prompt/raw/process/result: calibration-audit-opus-20261022/
 zero failures/645rows. Preserved original SHA
 `6a2a8f6a536618df45d160342d700b9d6f7b7a58e3165165e8379da8c2e02a6b`.
 Companion uploaded/Data.lua strictACK observed timestamp1792701846=20:44:06,
-53safterfinish. Exact loadedHUD ACK and AHreopen are PENDING: helper's first
+53safterfinish. Exact loadedHUD ACK was subsequently independently verified at
+21:24 UTC (proof above); AH reopen and the next scan remain unconfirmed. The earlier helper's first
 chat-open Return exposed the foreign controller's `/run F=C` text and refused
 typing/submission. No command was typed after that Return; no cleanup was sent.
 Receipt `scan288-postprocess-stage-20261022T204327Z/scan288-save-upload-ack-20261022T204346728505Z/receipt.json`
 under assisted-collection-luna-20261021. No active sweep at takeover; collection
-is NOT currently running. Nominal next due20:50:05 must not override user control.
+is recovering rather than actively sweeping. Nominal next due20:50:05 does not
+erase the actual collection gap or override user control.
 
 **Isolated candidate FROZEN, NOT DEPLOYED:** Luna completed the minimal12-line
 unused select_chat_all profile deletion in input92-keyboard-rehearsal worktree.
@@ -62,7 +160,7 @@ Companion upload1792700867=20:27:47 UTC,50s after finish. Exact loaded ACK/pendi
 verified; parent independently decoded boot1792700890-960915 seq5 and parsed the
 original SavedVariables queue key (not a UID substring). Parent proof:
 `scan287-postprocess-stage-20261022T202108Z/scan287-save-upload-ack-20261022T202727179496Z/parent-loaded-ack-verification.json`.
-GUI owner is staging288 for exact due20:33:49, without waiting for pending fix review.
+This is historical evidence; see the current scanner state above.
 Do not start early solely because post-reload scanner dueAt=0. Main runtime source
 unchanged; latest pushedc252a3f contains only documentation/plan/skill updates.
 

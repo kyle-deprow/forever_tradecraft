@@ -30,7 +30,10 @@ class SessionConfig:
     upload_deadline_seconds: int = 60
     model: str = "gpt-6-luna"
     cli_version: str = "codex-cli 0.162.1"
-    codex_path: str = "/home/dev/.local/share/pnpm/nodejs/22.23.1/bin/codex"
+    codex_path: str = (
+        "/home/dev/.cache/crowley/codex/0.162.1/node_modules/@openai/codex-linux-x64/"
+        "vendor/x86_64-unknown-linux-musl/bin/codex"
+    )
     capture_dir: Path = Path("/run/user/1000/crowley/captures")
     companion_state: Path | None = None
     saved_variables: Path | None = None

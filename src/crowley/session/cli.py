@@ -28,6 +28,10 @@ from .motion import (
     MOTION_KEY_OPERATION_SECONDS,
     MOTION_TRANSPORT_MARGIN_SECONDS,
 )
+from .startup import (
+    TAKEOVER_DRILL_OPERATION_TIMEOUT_SECONDS,
+    TAKEOVER_DRILL_TRANSPORT_MARGIN_SECONDS,
+)
 
 _IPC_REQUEST_MAX_BYTES = 4096
 _IPC_RESPONSE_MAX_BYTES = 524288
@@ -87,11 +91,48 @@ class SessionIPC:
             "native_bootstrap",
             "native_calibrate",
             "input_calibrate",
+            "takeover_drill",
+            "takeover_drill_cancel",
         }
         if command == "calibration_status":
             if self.owner is None:
                 return {"ok": False, "error": "calibration status requires the daemon"}
             return {"ok": True, "status": self.owner.calibration_status()}
+
+        if (
+            command in {"start", "resume", "takeover_drill", "takeover_drill_cancel"}
+            and self.owner is not None
+        ):
+            allowed = {
+                "start": {"command", "generation", "mode"},
+                "resume": {"command", "generation"},
+                "takeover_drill": {"command", "generation"},
+                "takeover_drill_cancel": {"command", "generation"},
+            }[command]
+            if set(request) != allowed:
+                return {"ok": False, "error": f"{command} request fields are malformed"}
+            if isinstance(generation, bool) or not isinstance(generation, int) or generation < 0:
+                return {"ok": False, "error": "a nonnegative generation is required"}
+            with self.controller.lock:
+                current = self.controller.status()
+                if current.generation != generation:
+                    return {"ok": False, "error": "stale generation"}
+            try:
+                if command == "takeover_drill_cancel":
+                    result = self.owner.cancel_takeover_drill()
+                else:
+                    with self._interaction_slot():
+                        if command in {"start", "resume"}:
+                            result = self.owner.runtime_start(
+                                expected_generation=generation,
+                                mode=str(request.get("mode", "repeat")),
+                                resume=command == "resume",
+                            )
+                        else:
+                            result = self.owner.run_takeover_drill(expected_generation=generation)
+                return {"ok": True, "status": result}
+            except (DriverError, RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+                return {"ok": False, "error": str(exc)}
 
         construction_commands = {
             "native_construction_prepare",
@@ -890,6 +931,8 @@ def main(argv: list[str] | None = None) -> int:
             sub.add_argument("--mode", choices=[mode.value for mode in SessionMode], default="repeat")
         if command in {"start", "resume", "pause", "stop", "closeout"}:
             sub.add_argument("--generation", type=int, required=True)
+    for command in ("takeover-drill", "takeover-drill-cancel"):
+        subparsers.add_parser(command).add_argument("--generation", type=int, required=True)
     subparsers.add_parser("daemon")
     subparsers.add_parser("native-bootstrap").add_argument("--generation", type=int, required=True)
     subparsers.add_parser("native-construction-prepare").add_argument("--generation", type=int, required=True)
@@ -1031,6 +1074,10 @@ def main(argv: list[str] | None = None) -> int:
             # deadline (1..600s); keep the existing transport margin explicit
             # rather than timing out at an unrelated fixed 60 seconds.
             operation_timeout = float(config.reload_deadline_seconds)
+        elif args.command == "takeover-drill":
+            operation_timeout = TAKEOVER_DRILL_OPERATION_TIMEOUT_SECONDS
+        elif args.command in {"start", "resume"}:
+            operation_timeout = 20.0
         elif args.command == "motion-movement-calibrate":
             operation_timeout = MOTION_CALIBRATION_OPERATION_SECONDS
         elif args.command == "motion-waypoint":
@@ -1046,6 +1093,8 @@ def main(argv: list[str] | None = None) -> int:
             if args.command.startswith(("motion-", "native-construction-"))
             else operation_timeout
         )
+        if args.command == "takeover-drill":
+            request_timeout += TAKEOVER_DRILL_TRANSPORT_MARGIN_SECONDS
         response = _socket_request(config.socket, request, timeout=request_timeout)
     except TimeoutError:
         response = {

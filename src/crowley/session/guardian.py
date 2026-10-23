@@ -1063,6 +1063,7 @@ class InputGuardian:
         require_motion_before_release: bool = False,
         modifier_group_size: int = 4,
         echo_proof: tuple[tuple[Any, ...], ...] = (),
+        echo_sources: set[int] | frozenset[int] = frozenset(),
         require_delivered_modifiers: bool = True,
     ) -> ActionCorrelation:
         with self._lock:
@@ -1164,6 +1165,11 @@ class InputGuardian:
                     )
                 ):
                     raise GuardianError("controlled echo proof is malformed")
+            if any(
+                isinstance(source, bool) or not isinstance(source, int) or source <= 0
+                for source in echo_sources
+            ):
+                raise GuardianError("forwarded echo source set is malformed")
             if any(not isinstance(key, str) or not key for key in held_keys):
                 raise GuardianError("planned held key is malformed")
             if any(
@@ -1228,7 +1234,8 @@ class InputGuardian:
                 echo_proof=tuple(echo_proof),
                 require_delivered_modifiers=require_delivered_modifiers,
                 require_motion_before_button=require_motion_before_button,
-                echo_sources=frozenset(
+                echo_sources=frozenset(echo_sources)
+                | frozenset(
                     int(echo[3])
                     for echo in echo_proof
                     if isinstance(echo[3], int) and not isinstance(echo[3], bool) and echo[3] > 0
