@@ -47,6 +47,11 @@
 | **Assumption (A5):** items without an `ItemSparse` row have no price/name until the client caches them | `client_data.py` | Recorded as `no_sparse_row` |
 | **Observed:** a recipe item teaches through `ItemXItemEffect` → `ItemEffect` with `TriggerType = 6`, whose `SpellID` is the recipe (12958 → 17187, 2555 → 2335) | `client_data.py` | Teaching links missing |
 | **Observed:** recipe availability on Forever is **not** determinable from client data (Season of Discovery recipes ship in the shared client); only learn evidence is stored, availability needs in-game evidence | `client_data.py` | Phantom recipes; models must gate on market evidence |
+| **Live observed (2026-10-22, 70450):** keyboard turning (Q/E and arrows) is π rad/s; run speed 7 yd/s; `UnitPosition` z is always 0 (jumps show only as `falling`) | `route_walk.py` | Turns overshoot; route walking must stay closed-loop |
+| **Live observed:** XTEST key input reaches the game up to ~1 s after dispatch on the Wayland/Xwayland desktop, and goes to the compositor-focused window even when the X "active window" is the game | `daemon.py` route walk, operators | Settled fixes must wait ≥1.2 s; every input must be verified in telemetry |
+| **Live observed:** bindings JUMP=SPACE, TURNLEFT=Q, TURNRIGHT=E (arrows are secondary); there is no usable interact key for world objects | `Agent.lua` telemetry | Unbound actions fail telemetry construction |
+| **Live observed:** hovering an NPC sets `UnitName("mouseover")`; hovering a world object shows a `UIParent`-owned `GameTooltip` whose first line is its name ("Mailbox"); a left click on the hovered mailbox or auctioneer opens it | `Agent.lua`, `daemon.py` world click | Hover-confirmed clicks refuse |
+| **Live observed:** `MAIL_SHOW` fires on open but `MAIL_CLOSED` did not fire when the mail frame closed via Escape; `MailFrame:IsShown()` is reliable; `C_PlayerInteractionManager` exists (`MailInfo` = 17) | `Agent.lua` (`mailOpen`) | Mail state would stick open |
 
 `/crowley probe` saves the client's API surface for checking these. The scanner uses the
 client's `hooksecurefunc` callbacks to flag an Auctionator or user search that overlaps an

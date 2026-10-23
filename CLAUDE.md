@@ -7,7 +7,7 @@ Shared agent workflows live in `.agents/skills/`; see `AGENTS.md` for when to us
 
 ## Rules
 - **No fallbacks.** Assume one way things work, encode only that, fail loudly, and fix the
-  assumption if it's wrong. Record client assumptions in the HANDOFF §6 table.
+  assumption if it's wrong. Record client assumptions in the assumptions table in `docs/ARCHITECTURE.md`.
 - Never key items by name; use `itemKey` (`scanformat.py`). Never mix houses.
 - Schema changes go in a new `src/crowley/server/migrations/NNN_*.sql`; never edit applied ones.
 - Automated clicks are hard-capped at human speed: at most one per second, enforced in code as
