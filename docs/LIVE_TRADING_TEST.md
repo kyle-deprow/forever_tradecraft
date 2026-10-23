@@ -57,3 +57,24 @@ against the account capture and the next sweep (bought unit in bags, listing vis
 ## Rollback
 `/crowley disarm` (session); publish no queue (companion writes `CROWLEY_QUEUE = false`); revert the merge on MAIN and
 reload. Execution results already saved remain for audit.
+
+## Route walker (mailbox trips) — branch `route-walker-w3b`
+`route-walker-w3b` = `live-trading` + telemetry schema 4 + the route walker. Schema 4 changes the addon telemetry the
+session daemon decodes strictly, so the addon and the daemon must switch together:
+1. At a driver-chosen boundary (no sweep, AH closed): merge `route-walker-w3b` to MAIN (it contains `live-trading`; do
+   the `live-trading` deploy steps above), restart the session daemon, then one ordinary reload. The daemon rejects
+   schema 3 frames, so a daemon restarted before the reload blocks until the reload publishes schema 4.
+2. Add to `~/.config/crowley/session.toml` under `[session]`:
+   `routes_file = "/home/dev/.local/state/crowley/routes/routes.json"` (built from the 2026-10-22 hand-walked laps;
+   mode 0600 in a 0700 directory — the daemon refuses group/world-writable files or parents).
+3. With native and input calibration complete: `crowley-session interaction-start --generation N`.
+4. Arthur at the AH spot (-8812.7, 662.9): `crowley-session route-walk --generation N --route auctioneer_to_mailbox`.
+   Each segment is ≤4 yd, replanned from a settled fix; any bad fix, combat, instance change or budget overrun stops
+   the walk with an error and releases keys.
+5. `crowley-session world-click --generation N --target Mailbox --hint 1000,430 --radius 300 --expect mailOpen`
+   (pointer probes with human gestures until the addon reports "Mailbox" under the pointer; one rate-gated click).
+6. Collect mail with the executor's `mail_collect` action (dry run first; armed only with explicit user authorization).
+7. `crowley-session route-walk --generation N --route mailbox_to_auctioneer` (walking away closes the mailbox), then
+   `crowley-session world-click --generation N --target "Auctioneer Jaxon" --hint 1000,440 --radius 300 --expect ahOpen`.
+8. `crowley-session interaction-stop --generation N`.
+Not built yet: scheduling these trips between sweeps automatically, and the daemon clicking the addon's executor button.
