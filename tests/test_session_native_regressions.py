@@ -4484,9 +4484,16 @@ def test_reload_stream_correlates_each_character_without_guardian_revoke(tmp_pat
                 ),
                 stderr="",
             )
-        if args[:3] != ["xdotool", "key", "--"]:
-            raise AssertionError(args)
         index = emitted
+        expected_command = [
+            "xdotool",
+            "keydown",
+            f"{details[index]:03d}",
+            "keyup",
+            f"{details[index]:03d}",
+        ]
+        if args != expected_command:
+            raise AssertionError(args)
         emitted += 1
         detail = details[index]
         timestamp = 232009000 + index * 10
@@ -4516,7 +4523,9 @@ def test_reload_stream_correlates_each_character_without_guardian_revoke(tmp_pat
         return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
 
     backend._run = fake_run
-    backend.action = lambda _name, **kwargs: backend._type(kwargs["command"])
+    backend.action = lambda _name, **kwargs: backend._type(
+        kwargs["command"], keymap=kwargs["_keyboard_keymap"]
+    )
     driver = DesktopDriver(profile=profile, backend=backend, lease_path=tmp_path / "reload.lock")
     driver._identity = lambda **_kwargs: backend._identity_for_test  # type: ignore[method-assign]
     evidence = _evidence(
@@ -4536,15 +4545,10 @@ def test_reload_stream_correlates_each_character_without_guardian_revoke(tmp_pat
             command="/reload",
             precondition=lambda _identity: True,
         )
-        assert [command[-1] for command in commands if command[:2] == ["xdotool", "key"]] == [
-            "slash",
-            "r",
-            "e",
-            "l",
-            "o",
-            "a",
-            "d",
+        assert [command for command in commands if command and command[0] == "xdotool"] == [
+            ["xdotool", "keydown", f"{detail:03d}", "keyup", f"{detail:03d}"] for detail in details
         ]
+        assert emitted == len(details)
         assert driver.guardian.revoked_reason == ""
         assert driver.guardian.armed
         assert driver.guardian.action is None

@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-23 01:43 UTC. This is the active handoff. The exact preceding640-line
+Updated 2026-10-23 01:44 UTC. This is the active handoff. The exact preceding640-line
 handoff is preserved in [review-closure history](../.archive/executor-review/handoff-history-before-ack-review-closure-20261019T1439Z.md).
 Earlier chronology is linked there. Historical pending statements are superseded
 by the current state below.
@@ -13,9 +13,8 @@ recovery and calibration appointments. The game operator has been told to stop;
 inactive/disabled). Do not re-enable or resume scans without a new user update.
 Keep existing data/evidence and focus on offline launch readiness. Scan290 is
 the last fully verified complete/uploaded/loaded-ACK sweep. Partial291 is not
-yet durable or uploaded. The separately scoped
-motion-correlation fix continues offline, with native eventual-echo delivery
-explicitly unqualified; no live acceptance is authorized by these code changes.
+yet durable or uploaded. Native eventual-echo delivery remains explicitly
+unqualified; no live acceptance is authorized by these code changes.
 
 **HUD visibility implemented and promoted to source.** `/crowley hud` toggles;
 `/crowley hud hide`, `show`, `status` make/check an explicit choice. Preference
@@ -32,6 +31,32 @@ Sol review6c28576bba3198ff93575270674d8f0a34d28e26cdd89033b91c8c9790d7f6e4.
 Agent.lua source now05ddf75815b322e2e925cacda7d588bead223d3f9bbe162c82061886982ec4ea.
 Earlier live runtime manifests below describe the pre-HUD baseline, not current
 source; do not reuse them as current dispatch pins. Service stays disabled.
+
+**Motion correlation corrected offline and promoted to source.** The production
+parser/Guardian now accepts all four actual retained events, retaining two exact
+pending FIFO echoes and correctly refusing to mark the action complete. Source,
+target/root/event identity, raw/primary pairing, planned endpoints/origins,
+modifiers, per-pair250ms bounds and physical/UNKNOWN revoke remain enforced.
+This fixes the observed ordering refusal; it does not prove eventual native echo
+delivery or successful hover/human drill. Missing echoes still fail closed.
+Sol R2 READY/no Must or Should; parent broad322PASS296.28s on identical production
+bytes, then final exact-fixture/Guardian21PASS5.90s/Ruff/format/diff.
+The owned stale native keyboard test adapter now forwards/asserts measured
+numeric key emissions; production typing is unchanged. Read
+[the motion plan](../.archive/PLAN-takeover-motion-correlation-20261023.md).
+Private R2 `executor-evidence/takeover-motion-correlation-20261023-r2/`, cumulative
+patch623b866844f91dd7b0f73ecf1c396e6ae88306e623117668ab32dfcdd6641f18;
+Sol review3e86ac459218f59c6c4496bfbb2e89a2c0fb1fffeea19583c847626b8f74ab85.
+Guardian source nowdbc29dfd4eefb457a2764cc88e792516636d000be657bcb39611d42c40e9e46d.
+Parent combined MAIN verification after both promotions:353PASS35.76s across
+addon, startup and exact motion-fixture modules; Ruff4/format/diff clean.
+
+**Launch acceptance remaining:** fix the observed protected/secret-number
+telemetry failure; verify eventual native relay delivery and completed hover;
+perform one genuine human takeover drill; then demonstrate full autonomous
+save/upload/exact-loaded-ACK/reopen and900s cadence. All are outstanding; no
+additional live work until the user authorizes it. Keep prior beta data distinct
+from launch data and recheck live client/realm/build assumptions before collection.
 
 **NEW LIVE BLOCKER: ARTHUR DIED BESIDE JAXON.** At01:17:07UTC the retained
 scan291 watcher image shows the Release Spirit dialog and Arthur's corpse.

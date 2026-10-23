@@ -129,9 +129,10 @@ class ActionCorrelation:
     echo_index: int = 0
     require_delivered_modifiers: bool = True
     echo_sources: frozenset[int] = frozenset()
-    # Every synthetic source-4 motion may produce one separately forwarded
-    # source-7 record.  Keep all outstanding pairs instead of treating the
-    # first echo as a one-shot capability for the whole action.
+    # Canonical planned source-4 motions may each produce one separately
+    # forwarded source-7 record. Keep exact outstanding pairs until the relay
+    # is observed; canonical queue length is bounded by the finite motion plan,
+    # and each pair is accepted only inside the correlation window.
     pending_echoes: list[
         tuple[
             int,
@@ -1421,12 +1422,6 @@ class InputGuardian:
                         canonical_raw_queued = True
                 elif event.source_device == action.source_device:
                     canonical_motion_checked = True
-                    if action.echo_sources and action.pending_echoes:
-                        # A canonical primary cannot advance while its latest
-                        # forwarded echo is still outstanding.  Keeping one
-                        # bounded pair prevents a later primary from lending
-                        # its endpoint to an older echo.
-                        target_ok = False
                     try:
                         transition = decode_xtest_motion_transition(
                             event,
@@ -1460,11 +1455,10 @@ class InputGuardian:
                                 motion_match_index = action.motion_index
                             action.emitted_motion_count += 1
                             if action.echo_sources:
-                                # Canonical transitions retain only the latest
-                                # accepted primary. A forwarded source-7 record
-                                # must prove that exact pair before another
-                                # primary can advance the FIFO.
-                                action.pending_echoes = [
+                                # The forwarded record may arrive after a
+                                # later planned primary. Preserve each exact
+                                # pair and consume it in FIFO order below.
+                                action.pending_echoes.append(
                                     (
                                         event.timestamp_ms,
                                         target,
@@ -1472,7 +1466,7 @@ class InputGuardian:
                                         transition.endpoint_event,
                                         event.modifiers,
                                     )
-                                ]
+                                )
             if action.release_started and event_class in {"Motion", "RawMotion"}:
                 target_ok = False
             if (
@@ -1482,17 +1476,11 @@ class InputGuardian:
                 and action.pending_echoes
             ):
                 # The calibration proof establishes only the source
-                # relationship.  Runtime admission must pair this exact
-                # forwarded source with the current source-4 operation; old
+                # relationship. Runtime admission must pair each forwarded
+                # record with an outstanding source-4 operation; old
                 # calibration coordinates/timestamps are never replayed.
-                if action.canonical_motion and len(action.pending_echoes) != 1:
-                    target_ok = False
                 if action.canonical_motion:
-                    pending_items = (
-                        ((len(action.pending_echoes) - 1, action.pending_echoes[-1]),)
-                        if action.pending_echoes
-                        else ()
-                    )
+                    pending_items = ((0, action.pending_echoes[0]),) if action.pending_echoes else ()
                 else:
                     pending_items = tuple(enumerate(action.pending_echoes))
                 for index, pending in pending_items:
@@ -1533,7 +1521,7 @@ class InputGuardian:
                 and not echo_match
             ):
                 # A forwarded source is meaningful only as the exact echo of
-                # the latest accepted primary.  Letting a mismatched source-7
+                # the oldest outstanding primary. Letting a mismatched source-7
                 # Motion continue through the ordinary optional-Motion path
                 # would silently accept wrong root/event identities or an
                 # unpaired human record.
