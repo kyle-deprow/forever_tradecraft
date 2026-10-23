@@ -139,7 +139,7 @@ int main(int argc, char **argv) {
         backend._publish_holds = observe_holds
         operations = driver.calibration_keyboard_operations()
         right_control = KeyboardProbeOperation(
-            "select_chat_all_right",
+            "test_only_select_chat_all_right",
             "",
             (
                 KeyboardProbeStep("press", "Control_R"),
@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
             ),
         )
         left_control = KeyboardProbeOperation(
-            "select_chat_all_left",
+            "test_only_select_chat_all_left",
             "",
             (
                 KeyboardProbeStep("press", "Control_L"),
@@ -158,6 +158,9 @@ int main(int argc, char **argv) {
                 KeyboardProbeStep("release", "Control_L"),
             ),
         )
+        # These explicit test-only operations exercise the generic chord
+        # emitter and held-state admission path. Production calibration no
+        # longer advertises the chat-selection chord as a runtime action.
         shifted_text = KeyboardProbeOperation(
             "type_allowlisted_command",
             "Ab",

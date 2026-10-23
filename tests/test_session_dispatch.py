@@ -44,26 +44,44 @@ def _private_pointer_click_rate_state(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setattr(pointer_execution_module, "_session_state_directory", lambda: state_directory)
 
 
-def test_keyboard_profile_exposes_owned_chord_without_new_public_action(tmp_path: Path) -> None:
+def test_keyboard_profile_exactly_covers_runtime_actions_and_commands(tmp_path: Path) -> None:
     class KeymapBackend(RecordingBackend):
         def observe_keymap(self) -> dict[str, int]:
             return {
                 "Return": 36,
                 "Escape": 9,
                 "Control_L": 37,
-                "a": 38,
+                "F12": 95,
+                "Shift_L": 50,
+                "apostrophe": 48,
+                "comma": 54,
+                "equal": 21,
+                "minus": 20,
+                "semicolon": 47,
+                "0": 19,
+                "1": 10,
+                "2": 11,
+                "9": 18,
                 "slash": 47,
                 "space": 65,
                 **{character: index for index, character in enumerate("abcdefghijklmnopqrstuvwxyz", 10)},
             }
 
-    from crowley.session.driver import DesktopDriver
-
     driver = DesktopDriver(backend=KeymapBackend(), lease_path=tmp_path / "profile.lock")
     try:
         operations = driver.calibration_keyboard_operations()
         by_name = {(operation.operation, operation.payload): operation for operation in operations}
-        assert ("select_chat_all", "") not in by_name
+        runtime_vocabulary = {
+            ("open_chat", ""),
+            ("submit_command", ""),
+            ("escape_command_buffer", ""),
+            ("interact_target", ""),
+            *(("type_allowlisted_command", command) for command in driver.COMMANDS),
+        }
+        assert set(by_name) == runtime_vocabulary
+        assert len(operations) == len(runtime_vocabulary)
+        assert not any("select_chat_all" in operation.operation for operation in operations)
+        assert "select_chat_all" not in driver.ACTIONS
         chord = by_name[("interact_target", "")]
         assert tuple((step.phase, step.keysym) for step in chord.steps) == (
             ("press", "Control_L"),
@@ -71,7 +89,6 @@ def test_keyboard_profile_exposes_owned_chord_without_new_public_action(tmp_path
             ("release", "F12"),
             ("release", "Control_L"),
         )
-        assert "select_chat_all" not in driver.ACTIONS
         conditional = by_name[("type_allowlisted_command", driver.CONDITIONAL_INTERACTION_BINDING_COMMAND)]
         assert any(step.keysym == "comma" for step in conditional.steps)
         target = by_name[("type_allowlisted_command", driver.TARGET_AUCTIONEER_COMMAND)]
@@ -88,6 +105,58 @@ def test_keyboard_profile_exposes_owned_chord_without_new_public_action(tmp_path
         fence = by_name[("type_allowlisted_command", "/crowley session fence")]
         assert all(step.keysym not in {"Shift_L", "Shift_R"} for step in fence.steps)
         assert not any("agent" in operation.payload for operation in operations)
+
+        # Mirror a sealed profile made from this exact production vocabulary,
+        # then ensure every operation has a guarded runtime expectation.
+        keymap = KeymapBackend().observe_keymap()
+        profile = tuple(
+            (
+                operation.operation,
+                operation.payload,
+                tuple(
+                    (
+                        step.phase,
+                        step.keysym,
+                        keymap[step.keysym.rsplit("+", 1)[-1]],
+                        (0, 0, 0),
+                        0,
+                    )
+                    for step in operation.steps
+                ),
+            )
+            for operation in operations
+        )
+        evidence = SimpleNamespace(
+            keyboard_profile=profile,
+            keyboard_keymap=tuple(sorted(keymap.items())),
+        )
+        for operation in operations:
+            kwargs = (
+                {"command": operation.payload} if operation.operation == "type_allowlisted_command" else {}
+            )
+            action = "open_ah" if operation.operation == "interact_target" else operation.operation
+            expected = driver._expected_key_operation(action, kwargs, evidence)
+            expected_classes = tuple(
+                event_class
+                for phase, _keysym, _detail, _modifiers, _effective in next(
+                    row[2] for row in profile if row[:2] == (operation.operation, operation.payload)
+                )
+                for event_class in (
+                    ("RawKeyPress", "KeyPress") if phase == "press" else ("RawKeyRelease", "KeyRelease")
+                )
+            )
+            expected_details = tuple(
+                detail
+                for _phase, _keysym, detail, _modifiers, _effective in next(
+                    row[2] for row in profile if row[:2] == (operation.operation, operation.payload)
+                )
+                for _ in range(2)
+            )
+            assert expected == (
+                expected_classes,
+                expected_details,
+                tuple((0, 0, 0) for _ in operation.steps),
+            )
     finally:
         driver.close()
 
