@@ -1,0 +1,4 @@
+# Crowley companion settings. The API token is a secret: it comes from CROWLEY_API_TOKEN in the untracked
+# deploy/.env (loaded by the systemd unit), never from this file.
+wow_dir = "/home/dev/Games/world-of-warcraft/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_"
+server_url = "http://127.0.0.1:8080"

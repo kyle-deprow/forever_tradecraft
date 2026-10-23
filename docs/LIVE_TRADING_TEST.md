@@ -64,9 +64,10 @@ session daemon decodes strictly, so the addon and the daemon must switch togethe
 1. At a driver-chosen boundary (no sweep, AH closed): merge `route-walker-w3b` to MAIN (it contains `live-trading`; do
    the `live-trading` deploy steps above), restart the session daemon, then one ordinary reload. The daemon rejects
    schema 3 frames, so a daemon restarted before the reload blocks until the reload publishes schema 4.
-2. Add to `~/.config/crowley/session.toml` under `[session]`:
-   `routes_file = "/home/dev/.local/state/crowley/routes/routes.json"` (built from the 2026-10-22 hand-walked laps;
-   mode 0600 in a 0700 directory — the daemon refuses group/world-writable files or parents).
+2. `deploy/config/session.toml` (linked from `~/.config/crowley/session.toml`) sets
+   `routes_file = "/home/dev/repos/pegasus/deploy/config/routes/stormwind.json"` (built from the 2026-10-22
+   hand-walked laps). The daemon refuses world-writable routes files or parents, and group write unless the group is
+   the user's private group.
 3. With native and input calibration complete: `crowley-session interaction-start --generation N`.
 4. Arthur at the AH spot (-8812.7, 662.9): `crowley-session route-walk --generation N --route auctioneer_to_mailbox`.
    Each segment is ≤4 yd, replanned from a settled fix; any bad fix, combat, instance change or budget overrun stops
