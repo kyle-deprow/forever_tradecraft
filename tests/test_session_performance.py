@@ -92,7 +92,7 @@ def test_real_lua_crs1_fixture_decodes_at_public_boundary() -> None:
         image.close()
     assert sample.kind == "FRESH"
     assert sample.frame is not None
-    assert sample.frame.snapshot.value["schema"] == 5
+    assert sample.frame.snapshot.value["schema"] == 6
 
 
 def test_offline_report_measures_public_decode_and_pure_planners(tmp_path: Path) -> None:

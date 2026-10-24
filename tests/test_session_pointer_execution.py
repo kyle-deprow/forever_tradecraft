@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import multiprocessing
+import threading
 import time
 from pathlib import Path
 
@@ -86,6 +87,39 @@ def test_failed_durable_precommit_refuses_before_click_go(tmp_path: Path, monkey
         with pytest.raises(pointer_exec.PointerExecutionError, match="disk full"):
             permit.precommit()
         assert not (state_dir / "pointer-click-rate.json").exists()
+    finally:
+        permit.close()
+
+
+def test_deadline_after_durable_precommit_keeps_reservation_without_press(
+    tmp_path: Path, monkeypatch
+) -> None:
+    state_dir = tmp_path / "runtime"
+    state_dir.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_exec, "_session_state_directory", lambda: state_dir)
+    original_write_state = pointer_exec._write_state
+    boundary_entered = threading.Event()
+    deadline: float
+
+    def slow_write_state(directory, state):  # type: ignore[no-untyped-def]
+        original_write_state(directory, state)
+        boundary_entered.set()
+        while time.monotonic() < deadline:
+            time.sleep(0.005)
+
+    monkeypatch.setattr(pointer_exec, "_write_state", slow_write_state)
+    permit = pointer_exec.acquire_click_rate_permit()
+    deadline = time.monotonic() + 0.25
+    try:
+        with pytest.raises(pointer_exec.PointerExecutionError, match="after durable precommit"):
+            permit.precommit(deadline_monotonic=deadline)
+        assert boundary_entered.is_set()
+        state = pointer_exec._read_state(state_dir)
+        assert state is not None
+        assert state["lastPressMonotonicNs"] is None
+        assert state["nextAllowedMonotonicNs"] > time.monotonic_ns()
+        with pytest.raises(pointer_exec.PointerExecutionError, match="cannot be recorded"):
+            permit.record_press()
     finally:
         permit.close()
 

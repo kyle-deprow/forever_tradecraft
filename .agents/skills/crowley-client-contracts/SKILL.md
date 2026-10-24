@@ -51,17 +51,50 @@ refusals separately. Fixed frame indexes or uncaused scene swaps can hide broken
 Keep static-image seed clients separate from the active ordinary client; the
 helper's emitted defer must perform the real unarmed-to-armed transition.
 Bind recovery checkpoints to the active client's persisted marker token.
+Keep queued verification with its owning worker until the actual exit is saved;
+exec session handles may be local to that worker. Use unique logs with exit/count/
+elapsed evidence, and never infer a pass from pytest cache after losing output.
 Retain accepted/refused command and control actions with actual boot and reload
 changes. Compare their exact order at each phase boundary: post-pause recovery
 cannot appear in a pre-pause expectation, and an empty expectation must prove
 an empty history rather than skip assertions.
 Derive phase deadlines and terminal controller states from the real producer's
 lifecycle, not field names or scripted replies that preserve an earlier state.
+A strict state matrix must round-trip clean starts, mid-flight refusals and
+native terminal events from real producer bytes; a phase-less action can remain
+in flight, and a blocked result can be newer than its original started record.
+Round-trip consecutive actions and partial failure too: reset per-action progress
+at advancement, while preserving the failed current action's observed progress.
+Mail message clicks increment the button ordinal while replacing one overall
+mail_collect result; resultCount does not increase for every message. Validate
+initial-action and owned-continuation counters separately. In fixtures that keep
+real X11Backend.action, model chat/target/binding effects from actual lower emitted
+input; observer events alone do not make the simulated game change state.
+Observation wrappers forward production arguments unchanged. A missing native
+precondition belongs in the real caller; injecting it in a fixture hides the defect.
+Keep the latest admissible start separate from the completion deadline; an
+exact-fit admission must leave time for every nested operation. Derive wire
+ACK/pending/due facts from the decoded frame, retain distinct controller ACK
+proof, and keep independent actual-start inputs independent in test oracles.
+At runtime, reserve all remaining mail work and return/reopen bounds before each
+effect and after confirmation waits. Count the fixed current-operation remainder
+plus future operations; adding its full bound again can break exact-fit admission.
+Distinguish mail_wait from mail_items before subtracting an already issued click.
+Carry the original bound into outer captures and every async poll; missing
+process-local wait evidence blocks rather than renewing or reconstructing it.
+Validate scalar types before disabled/default sentinel comparisons; Python's
+False==0 and falsey None can otherwise bypass malformed-input rejection.
+Per-field byte ceilings and aggregate compressed-frame limits are separate;
+measure varied real compositions and assert oversize publication fails closed.
 Check which fields the producer actually populates before requiring an active ID.
 Prove progress from its phase, actual start/due times and advancing ordinal;
 prove completion from the new saved UID rather than an optional empty ID.
 Trace integration failures to the actual guard before blaming development inputs;
 verify the exact constructor call before claiming an unavailable-resource blocker.
+Fake request/response helpers must consume the actual request newline before
+deliberate exit or malformed output, or a broken pipe can miss the intended
+branch. Cleanup oracles should bind owned descriptor identities and reject new
+leaks while permitting unrelated descriptors from earlier fixtures to close.
 When a fixture tails an action log, consume only complete newline records and
 validate PID/argument count before dispatch or ACK; retain an incomplete fragment
 at its original offset. A missing ACK locates the boundary, not the cause.
@@ -70,6 +103,9 @@ For restart checks, create a fresh driver and owner without process-local eviden
 For owner-death tests, signal the actual helper owner PID, not its emitter child.
 Prove independent release and reservation cancellation while that owner is dead;
 a surviving test parent calling cleanup only proves child-failure handling.
+Release-marker publication precedes process reaping. Wait for the exact watchdog
+PID/start identity to exit, then bounded-poll process-group absence; retain both
+release and cleanup assertions when parallelizing tests.
 SIGKILL bypasses Python finalizers, so it cannot prove bounded normal cleanup.
 Exercise real owner return/exception through main while failed release stays pending.
 Reconstructing only the controller around the same driver cannot establish which
@@ -87,12 +123,29 @@ wait before the first frame. Keep observation timestamps and age limits intact.
 For a staged handshake, compare each actual observation with the requested phase
 and ordinal and verify the final resumed state. A valid schema or callback that
 only checks arguments does not prove the production side effect.
+Recheck deadlines after blocking hold publication immediately before positive
+GO. A pre-GO abort withdraws local phantom holds even if publisher withdrawal or
+process reaping fails; preserve actual post-GO emergency release behavior.
 Bind rolling metrics to the exact measurement window: a later valid frame may
 have dropped measured samples. Verify boundary sequence and update count too.
 Derive a native run's outer bound from actual provider invocations, including
 per-update calls and finalization; four phase labels do not imply four waits.
+For guarded pointer clicks, repeat semantic/queue/arm admission after pointer
+motion and refreshed anchor measurement, immediately before rate precommit and
+press. Carry an immutable per-call receipt through Guardian cleanup; a mutable
+last-receipt lookup can bind the wrong physical action. Separate each witnessed
+physical click from its still-in-flight multi-click action across restart.
+Bind a physical receipt to the anchor actually refreshed before press, retaining
+the initial admitted anchor separately. Reject foreign in-flight actions before
+anchor measurement or intent creation; same-process continuation must bind the
+queue, sequence, generation and lease.
+Controller generations and Guardian input leases are separate counters; physical
+receipt epochs bind to the input lease, with independent semantic generation checks.
 Test archive recovery at every durable write boundary with a fresh owner; the same outcome ID
 must retain the exact complete payload and resulting controller state.
+Persist the complete immutable outcome before publishing its archive bundle;
+fresh-owner recovery must not receive the dead owner's in-memory finalization
+arguments. A failure before staging leaves uncertainty, not a fabricated result.
 Include a later pause/stop checkpoint in replay tests. Repairing an old outcome
 must preserve newer operator state, even when its outcome commit number matches.
 Inject real write failures at the first durable boundary; a duplicate writer that
@@ -102,6 +155,15 @@ callback that rereads a mutable last-receipt field still permits substitution.
 Test that seam before consumption with identical pixels and different nonce/time.
 Exercise terminal callback failures through the real runner and cleanup, not only
 a newly extracted helper; successful notification does not prove failure ordering.
+When pruning parametrized tests, keep decorators attached to their original
+functions and retain a real distinguishing case for each claimed native boundary.
+Shared schema-reset database fixtures require serial execution or separate worker
+databases; refuse a shared database URL under parallel pytest.
+For generated-target tests, run the alternate producer through snapshot/frame
+validation and real SavedVariables/Data.lua readers; assigning a count constant
+or supplying a hand-written ACK does not establish the consumer path. Bind
+synthetic installation roots through explicit expected-target providers while
+retaining strict production startup checks.
 
 For a post-side-effect failure test, assert the side effect and pending ownership
 exist at the injection point. A guessed callback count may fail before the reset
@@ -225,6 +287,11 @@ an in-place change after bytes were read; test a real same-size mutation at EOF.
   fixture's GNOME_CAPTURE_LOCK_PATH to its private directory before real backend
   creation, preserving the actual lock implementation. Never unlink the live lock
   to clear contention; identify its owner and clean up only the owned fixture.
+  Concurrent Xvfb creators share display allocation even with `-displayfd`.
+  Serialize startup across every creator until the owned process is alive and
+  its exact display accepts a real X connection; release before the test body.
+  After revocation, await physical process-group cleanup before rearming, then
+  submit a real late old-generation request to preserve the stale-lease proof.
   Default private session buses can activate desktop portals during GTK startup,
   before producer owner_ready. Give screenshot fixtures an explicit bus config
   with only required service directories; retain real GTK/protocol dispatch and

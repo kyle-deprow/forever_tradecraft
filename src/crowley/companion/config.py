@@ -3,13 +3,17 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import SecretStr, model_validator
 from pydantic_settings import (
     BaseSettings,
     PydanticBaseSettingsSource,
     SettingsConfigDict,
     TomlConfigSettingsSource,
 )
+
+from crowley.core.game_target import packaged_game_target
+
+_TARGET = packaged_game_target()
 
 
 def config_path() -> Path:
@@ -29,7 +33,7 @@ class CompanionSettings(BaseSettings):
 
     # The game-flavor folder containing WTF/ and Interface/, e.g.
     # ~/.wine/drive_c/Program Files (x86)/World of Warcraft/_forever_
-    wow_dir: Path
+    wow_dir: Path = Path(_TARGET.game_root) / _TARGET.product_dir
     # Over Tailscale this is e.g. http://crowley-server:8080 (MagicDNS name or 100.x address).
     server_url: str = "http://127.0.0.1:8080"
     api_token: SecretStr
@@ -40,6 +44,15 @@ class CompanionSettings(BaseSettings):
     # from whichever SavedVariables file happens to be present.
     house_key: str | None = None
     character: str | None = None
+
+    @model_validator(mode="after")
+    def _validate_packaged_target_identity(self) -> CompanionSettings:
+        expected_wow_dir = Path(_TARGET.game_root) / _TARGET.product_dir
+        if self.wow_path != expected_wow_dir:
+            raise ValueError("wow_dir must match the packaged launch target flavor root")
+        if self.house_key is not None and self.house_key != _TARGET.house:
+            raise ValueError("house_key must match the packaged launch target house when configured")
+        return self
 
     @classmethod
     def settings_customise_sources(

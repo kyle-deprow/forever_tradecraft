@@ -8,6 +8,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -23,6 +24,24 @@ from crowley.core.scanformat import decode_json_payload, encode_json_payload, va
 DB_URL = os.environ.get("CROWLEY_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(not DB_URL, reason="CROWLEY_TEST_DATABASE_URL not set")
 TOKEN = "test-token"
+
+
+def _us_horde_addon(**kwargs):
+    """Build the independent US/normal/horde fixture target used by these API tests."""
+
+    from .test_addon import non_beta_target
+    from .wow_harness import WowClient
+
+    source_target = non_beta_target(ruleset="normal", realm="Normal")
+    target = replace(source_target, faction="Horde", house="us-normal-horde")
+    return WowClient(
+        target=target,
+        faction="Horde",
+        realm=target.realm,
+        current_region=target.native_region_id,
+        current_region_name="US",
+        **kwargs,
+    )
 
 
 def _reset_public_schema() -> None:
@@ -493,9 +512,9 @@ def test_item_reference_ingest_is_typed_idempotent_and_exposed_in_latest_view(cl
     from crowley.core.watchlist import load_catalog
 
     from .test_reference import capture
-    from .wow_harness import Auction, WowClient
+    from .wow_harness import Auction
 
-    addon = WowClient()
+    addon = _us_horde_addon()
     addon.set_auctions([Auction(2589, "Linen Cloth", 20, 100, isCommodity=True, sellPrice=3)])
     raw = capture(addon, [2589])
     first = client.post("/v1/item-reference", json=raw)
@@ -532,9 +551,7 @@ def test_item_reference_ingest_is_typed_idempotent_and_exposed_in_latest_view(cl
 def test_account_state_ingest_is_typed_idempotent_and_exposed_in_latest_view(client):
     from crowley.core import savedvars
 
-    from .wow_harness import WowClient
-
-    addon = WowClient(
+    addon = _us_horde_addon(
         money=9876,
         bags={
             0: {
@@ -613,9 +630,9 @@ def test_account_state_ingest_is_typed_idempotent_and_exposed_in_latest_view(cli
 
 def test_item_reference_auth_storage_limits_and_latest_selection(client):
     from .test_reference import capture
-    from .wow_harness import Auction, WowClient
+    from .wow_harness import Auction
 
-    addon = WowClient()
+    addon = _us_horde_addon()
     addon.set_auctions([Auction(2589, "Linen Cloth", 20, 100, isCommodity=True, sellPrice=3)])
     raw = capture(addon, [2589])
 
@@ -687,9 +704,8 @@ def test_volume_route_uses_market_rows_only(client):
 
 def test_real_addon_envelope_reaches_archive_history_and_volume(client):
     from .test_addon import envelope, run_sweep
-    from .wow_harness import WowClient
 
-    addon = WowClient()
+    addon = _us_horde_addon()
     # The harness clock starts in a fixed historical fixture epoch.  Advance it
     # into the API's 168-hour volume window before producing SavedVariables.
     addon.advance(365 * 24 * 60 * 60)

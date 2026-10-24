@@ -20,6 +20,7 @@ from crowley.analysis.books import Book, load_commodity_books, valid_intervals
 from crowley.analysis.time_to_sale import _reference
 
 from .api import ItemFacts, Recipe
+from .requirements import positive_id
 
 
 def _fraction_or_none(value: Any) -> Fraction | None:
@@ -436,8 +437,10 @@ def validate_recipes(recipes: Sequence[Recipe]) -> tuple[Recipe, ...]:
         totals: dict[int, int] = {}
         order: list[int] = []
         for raw_item_id, raw_quantity in entries:
-            item_id = int(raw_item_id)
-            quantity = int(raw_quantity)
+            item_id = positive_id(raw_item_id, f"recipe {spell_id} {label} item id")
+            if isinstance(raw_quantity, bool) or not isinstance(raw_quantity, int):
+                raise ValueError(f"recipe {spell_id} {label} quantity must be an integer")
+            quantity = raw_quantity
             if item_id <= 0 or quantity <= 0:
                 raise ValueError(f"recipe {spell_id} has non-positive {label} quantity")
             if item_id not in totals:
@@ -447,18 +450,35 @@ def validate_recipes(recipes: Sequence[Recipe]) -> tuple[Recipe, ...]:
         return tuple((item_id, totals[item_id]) for item_id in order)
 
     normalized: list[Recipe] = []
+    seen_spells: set[int] = set()
     for recipe in recipes:
+        spell_id = positive_id(recipe.spell_id, "recipe spell id")
+        if spell_id in seen_spells:
+            raise ValueError(f"duplicate recipe spell id {spell_id}")
+        seen_spells.add(spell_id)
         reagents = normalize(recipe.reagents, "reagent", recipe.spell_id)
         outputs = normalize(recipe.outputs, "output", recipe.spell_id)
+        totems = tuple(positive_id(value, f"recipe {spell_id} tool id") for value in recipe.totems)
+        categories = tuple(
+            positive_id(value, f"recipe {spell_id} tool category id") for value in recipe.totem_categories
+        )
+        spell_focus = recipe.spell_focus
+        if spell_focus is not None:
+            spell_focus = positive_id(spell_focus, f"recipe {spell_id} spell focus id")
+        if isinstance(recipe.cooldown_seconds, bool) or int(recipe.cooldown_seconds) < 0:
+            raise ValueError(f"recipe {spell_id} has invalid cooldown seconds")
         normalized.append(
             Recipe(
-                spell_id=recipe.spell_id,
+                spell_id=spell_id,
                 professions=frozenset(recipe.professions),
                 reagents=reagents,
                 outputs=outputs,
                 cooldown_group=recipe.cooldown_group,
                 cooldown_seconds=int(recipe.cooldown_seconds),
                 learn_evidence=recipe.learn_evidence,
+                totems=totems,
+                totem_categories=categories,
+                spell_focus=spell_focus,
             )
         )
     return tuple(normalized)
@@ -505,6 +525,33 @@ def load_recipes(conn: Any, house_key: str, client_build: str | None = None) -> 
         """,
         (export_id,),
     ).fetchall()
+    totem_rows = conn.execute(
+        """
+        SELECT spell_id, ordinal, totem_id
+        FROM client_recipe_totems
+        WHERE export_id = %s
+        ORDER BY spell_id, ordinal
+        """,
+        (export_id,),
+    ).fetchall()
+    category_rows = conn.execute(
+        """
+        SELECT spell_id, ordinal, category_id
+        FROM client_recipe_totem_categories
+        WHERE export_id = %s
+        ORDER BY spell_id, ordinal
+        """,
+        (export_id,),
+    ).fetchall()
+    focus_rows = conn.execute(
+        """
+        SELECT spell_id, spell_focus_id
+        FROM client_recipe_spell_focus
+        WHERE export_id = %s
+        ORDER BY spell_id
+        """,
+        (export_id,),
+    ).fetchall()
     professions: dict[int, set[str]] = {}
     for row in skill_rows:
         professions.setdefault(int(_row(row, "spell_id", 0)), set()).add(str(_row(row, "profession", 1)))
@@ -514,6 +561,19 @@ def load_recipes(conn: Any, house_key: str, client_build: str | None = None) -> 
             (int(_row(row, "item_id", 1)), int(_row(row, "count", 2)))
         )
     outputs: dict[int, list[tuple[int, int]]] = {}
+    totems: dict[int, list[int]] = {}
+    categories: dict[int, list[int]] = {}
+    spell_focus: dict[int, int] = {}
+    for row in totem_rows:
+        totems.setdefault(int(_row(row, "spell_id", 0)), []).append(int(_row(row, "totem_id", 2)))
+    for row in category_rows:
+        categories.setdefault(int(_row(row, "spell_id", 0)), []).append(int(_row(row, "category_id", 2)))
+    for row in focus_rows:
+        spell_id = int(_row(row, "spell_id", 0))
+        focus_id = int(_row(row, "spell_focus_id", 1))
+        if spell_id in spell_focus and spell_focus[spell_id] != focus_id:
+            raise ValueError(f"recipe {spell_id} has multiple spell focus ids")
+        spell_focus[spell_id] = focus_id
     fixed: dict[int, bool] = {}
     for row in output_rows:
         spell_id = int(_row(row, "spell_id", 0))
@@ -555,6 +615,9 @@ def load_recipes(conn: Any, house_key: str, client_build: str | None = None) -> 
                 cooldown_group=cooldown_group,
                 cooldown_seconds=cooldown_seconds,
                 learn_evidence=str(_row(row, "learn_evidence", 4)),
+                totems=tuple(totems.get(spell_id, ())),
+                totem_categories=tuple(categories.get(spell_id, ())),
+                spell_focus=spell_focus.get(spell_id),
             )
         )
     return validate_recipes(result)

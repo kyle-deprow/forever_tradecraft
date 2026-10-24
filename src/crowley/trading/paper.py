@@ -15,18 +15,17 @@ from typing import Any
 import psycopg
 from psycopg.types.json import Jsonb
 
+from .api import CraftingCapabilities
 from .data import load_client_data, load_commodity_books, precompute_statistics
 from .engine import BacktestResult, run_backtest
+from .requirements import EMPTY_CAPABILITIES, capabilities_from_mapping, capabilities_hash
 from .strategies import build
 
 DEFAULT_STRATEGIES = (
-    "vendor_arb",
-    "crafting_engineering",
-    "crafting_blacksmithing",
-    "crafting_tailoring",
-    "crafting_leatherworking",
     "crafting_alchemy",
+    "crafting_engineering",
     "dip_reversion",
+    "vendor_arb",
 )
 
 
@@ -168,6 +167,7 @@ def create_run(
     weights: str | Sequence[Any] | None = None,
     demand_share: Any = Fraction("0.5"),
     client_build: str | None = None,
+    capabilities: CraftingCapabilities | Mapping[str, Any] | None = None,
 ) -> int:
     if not name:
         raise ValueError("name must not be empty")
@@ -179,6 +179,16 @@ def create_run(
     start_t = _parse_start(start)
     capital = _capital_copper(capital_gold)
     digest = engine_digest()
+    if capabilities is None:
+        parsed_capabilities = EMPTY_CAPABILITIES
+    elif isinstance(capabilities, CraftingCapabilities):
+        parsed_capabilities = capabilities
+    elif isinstance(capabilities, Mapping):
+        parsed_capabilities = capabilities_from_mapping(capabilities)
+    else:
+        raise TypeError("capabilities must be CraftingCapabilities or canonical mapping")
+    capabilities_json = parsed_capabilities.canonical
+    capabilities_digest = capabilities_hash(parsed_capabilities)
 
     with psycopg.connect(database_url(db_url)) as conn:
         with conn.transaction():
@@ -200,8 +210,8 @@ def create_run(
                 """
                 INSERT INTO paper_runs
                     (name, house_id, client_build, start_t, capital_copper, strategies,
-                     weights, demand_share, engine_digest)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     weights, demand_share, engine_digest, capabilities, capabilities_hash)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 RETURNING id
                 """,
                 (
@@ -214,24 +224,21 @@ def create_run(
                     Jsonb([str(weight) for weight in parsed_weights]),
                     str(parsed_demand_share),
                     digest,
+                    Jsonb(capabilities_json),
+                    capabilities_digest,
                 ),
             ).fetchone()
             return int(_row(result, "id", 0))
 
 
-def _load_run(conn: Any, name: str) -> dict[str, Any]:
-    row = conn.execute(
-        """
-        SELECT pr.id, pr.name, pr.house_id, h.key, pr.client_build, pr.start_t,
-               pr.capital_copper, pr.strategies, pr.weights, pr.demand_share, pr.engine_digest
-        FROM paper_runs AS pr
-        JOIN houses AS h ON h.id = pr.house_id
-        WHERE pr.name = %s
-        """,
-        (name,),
-    ).fetchone()
-    if row is None:
-        raise PaperError(f"unknown paper run {name!r}")
+def _run_from_row(row: Any) -> dict[str, Any]:
+    raw_capabilities = _row(row, "capabilities", 11)
+    capabilities = capabilities_from_mapping(raw_capabilities)
+    if raw_capabilities != capabilities.canonical:
+        raise PaperError("paper run capabilities are not in canonical form")
+    stored_capabilities_hash = str(_row(row, "capabilities_hash", 12))
+    if stored_capabilities_hash != capabilities_hash(capabilities):
+        raise PaperError("paper run capabilities changed or have an invalid hash")
     return {
         "id": int(_row(row, "id", 0)),
         "name": str(_row(row, "name", 1)),
@@ -244,6 +251,41 @@ def _load_run(conn: Any, name: str) -> dict[str, Any]:
         "weights": list(_row(row, "weights", 8)),
         "demand_share": str(_row(row, "demand_share", 9)),
         "engine_digest": str(_row(row, "engine_digest", 10)),
+        "capabilities": capabilities,
+        "capabilities_hash": stored_capabilities_hash,
+    }
+
+
+def _load_run(conn: Any, name: str) -> dict[str, Any]:
+    row = conn.execute(
+        """
+        SELECT pr.id, pr.name, pr.house_id, h.key, pr.client_build, pr.start_t,
+               pr.capital_copper, pr.strategies, pr.weights, pr.demand_share, pr.engine_digest,
+               pr.capabilities, pr.capabilities_hash
+        FROM paper_runs AS pr
+        JOIN houses AS h ON h.id = pr.house_id
+        WHERE pr.name = %s
+        """,
+        (name,),
+    ).fetchone()
+    if row is None:
+        raise PaperError(f"unknown paper run {name!r}")
+    return _run_from_row(row)
+
+
+def _immutable_config(run: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "house_id": run["house_id"],
+        "house": run["house"],
+        "client_build": run["client_build"],
+        "start_t": run["start_t"],
+        "capital_copper": run["capital_copper"],
+        "strategies": list(run["strategies"]),
+        "weights": list(run["weights"]),
+        "demand_share": run["demand_share"],
+        "engine_digest": run["engine_digest"],
+        "capabilities": run["capabilities"].canonical,
+        "capabilities_hash": run["capabilities_hash"],
     }
 
 
@@ -309,8 +351,21 @@ def _replay(db_url: str, name: str) -> tuple[dict[str, Any], BacktestResult, flo
                 start_t=run["start_t"],
                 wind_down_hours=0,
                 demand_share=_fraction(run["demand_share"]),
+                capabilities=run["capabilities"],
             )
-            result.metadata.update({"client_build": run["client_build"], "paper_run": run["name"]})
+            result.metadata.update(
+                {
+                    "client_build": run["client_build"],
+                    "paper_run": run["name"],
+                    "house": run["house"],
+                    "start_t": run["start_t"],
+                    "capital_copper": run["capital_copper"],
+                    "capabilities": run["capabilities"].canonical,
+                    "capabilities_hash": run["capabilities_hash"],
+                    "strategy_professions": result.metadata.get("strategy_professions", {}),
+                    "strategy_weights": result.metadata.get("strategy_weights", {}),
+                }
+            )
     return run, result, time.monotonic() - started
 
 
@@ -464,13 +519,27 @@ def step_run(db_url: str, name: str) -> str:
     with psycopg.connect(database_url(db_url)) as conn:
         with conn.transaction():
             live = conn.execute(
-                "SELECT id, engine_digest FROM paper_runs WHERE name = %s FOR UPDATE", (name,)
+                """
+                SELECT pr.id, pr.name, pr.house_id, h.key, pr.client_build, pr.start_t,
+                       pr.capital_copper, pr.strategies, pr.weights, pr.demand_share,
+                       pr.engine_digest, pr.capabilities, pr.capabilities_hash
+                FROM paper_runs AS pr
+                JOIN houses AS h ON h.id = pr.house_id
+                WHERE pr.name = %s
+                FOR UPDATE OF pr
+                """,
+                (name,),
             ).fetchone()
             if live is None:
                 raise PaperError(f"unknown paper run {name!r}")
-            if str(_row(live, "engine_digest", 1)) != engine_digest():
+            live_run = _run_from_row(live)
+            if live_run["id"] != run["id"] or live_run["name"] != run["name"]:
+                raise PaperError("paper run identity changed; refusing to write")
+            if _immutable_config(live_run) != _immutable_config(run):
+                raise PaperError("paper run immutable configuration changed; refusing to write")
+            if live_run["engine_digest"] != engine_digest():
                 raise PaperError("code changed since run creation; create a new run")
-            run_id = int(_row(live, "id", 0))
+            run_id = live_run["id"]
             stored = _validate_existing(conn, run_id, final_records)
             added = _write_records(conn, run_id, final_records, stored)
             conn.execute("DELETE FROM paper_pending WHERE run_id = %s", (run_id,))
@@ -525,7 +594,11 @@ def status_run(db_url: str, name: str, last_intents: int = 20) -> str:
                 """,
                 (run["id"],),
             ).fetchone()
-            lines = [f"paper_run={run['name']}", f"client_build={run['client_build']}"]
+            lines = [
+                f"paper_run={run['name']}",
+                f"client_build={run['client_build']}",
+                f"capabilities_hash={run['capabilities_hash']}",
+            ]
             if step is None:
                 lines.append("latest_t=none")
                 lines.append(f"total_equity={_gold(run['capital_copper'])}")

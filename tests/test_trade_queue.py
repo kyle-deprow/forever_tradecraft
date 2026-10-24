@@ -5,7 +5,12 @@ import httpx
 import pytest
 
 from crowley.core import savedvars
+from crowley.core.luawriter import render_assignment
 from crowley.core.queue import (
+    MAX_CHARACTER_BYTES,
+    MAX_HOUSE_BYTES,
+    MAX_MESSAGES,
+    MAX_QUEUE_ID_BYTES,
     QueueFormatError,
     build_queue,
     render_queue_lua,
@@ -20,6 +25,7 @@ from crowley.trading.queue_cli import (
     publish_spec,
     reconcile_queue,
 )
+from tests.wow_harness import WowClient
 
 
 def queue_spec(**overrides):
@@ -49,6 +55,74 @@ def test_build_and_render_round_trip_and_empty_queue():
     loaded = savedvars.loads(render_queue_lua(queue).encode())
     assert loaded["CROWLEY_QUEUE"] == queue
     assert savedvars.loads(render_queue_lua(None).encode()) == {"CROWLEY_QUEUE": False}
+
+
+def _lua_queue_validation(queue: dict) -> tuple[bool, str | None]:
+    """Execute the exact rendered assignment through the addon Lua validator."""
+
+    source = render_assignment("CROWLEY_QUEUE", queue, header="Round-3 boundary fixture")
+    client = WowClient()
+    client.lua.execute(source)
+    result = client.ns.Executor.ValidateQueue(client.lua.globals().CROWLEY_QUEUE)
+    return result if isinstance(result, tuple) else (result, None)
+
+
+def _lua_boundary_queue() -> dict:
+    return {
+        "format": 1,
+        "queueId": "é" * (MAX_QUEUE_ID_BYTES // 2),
+        "generatedAt": 1_700_000_000,
+        "expiresAt": 1_700_000_600,
+        "house": "h" * MAX_HOUSE_BYTES,
+        "character": "c" * MAX_CHARACTER_BYTES,
+        "armed": False,
+        "actions": [{"seq": 1, "kind": "mail_collect", "maxMessages": MAX_MESSAGES}],
+    }
+
+
+@pytest.mark.parametrize("field", ["queueId", "house", "character"], ids=["queue-id", "house", "character"])
+def test_rendered_lua_accepts_byte_bound_and_rejects_bound_plus_one(field):
+    queue = _lua_boundary_queue()
+    assert _lua_queue_validation(queue)[0] is True
+    queue[field] = queue[field] + "x"
+    assert _lua_queue_validation(queue)[0] is False
+
+
+def test_rendered_lua_accepts_uint32_max_messages_and_rejects_plus_one():
+    queue = _lua_boundary_queue()
+    assert _lua_queue_validation(queue)[0] is True
+    queue["actions"][0]["maxMessages"] = MAX_MESSAGES + 1
+    assert _lua_queue_validation(queue)[0] is False
+
+
+def test_python_queue_bounds_match_lua_wire_limits():
+    queue = build_queue(queue_spec(actions=[{"seq": 1, "kind": "mail_collect", "maxMessages": MAX_MESSAGES}]))
+    assert validate_queue(queue)["actions"][0]["maxMessages"] == MAX_MESSAGES
+    rendered = savedvars.loads(render_queue_lua(queue).encode())["CROWLEY_QUEUE"]
+    client = WowClient(queue=rendered)
+    client.login()
+    assert client.snapshot_agent()["executor"]["availability"] == "valid"
+    with pytest.raises(QueueFormatError, match="queue.house"):
+        build_queue(queue_spec(house="h" * (MAX_HOUSE_BYTES + 1)))
+    with pytest.raises(QueueFormatError, match="queue.character"):
+        build_queue(queue_spec(character="c" * (MAX_CHARACTER_BYTES + 1)))
+    cases = [
+        ("queueId", "q" * MAX_QUEUE_ID_BYTES + "é", "queue.queueId"),
+        ("house", "h" * (MAX_HOUSE_BYTES + 1), "queue.house"),
+        ("character", "c" * (MAX_CHARACTER_BYTES + 1), "queue.character"),
+    ]
+    for field, value, path in cases:
+        malformed = dict(queue)
+        malformed[field] = value
+        with pytest.raises(QueueFormatError, match=path):
+            validate_queue(malformed)
+
+    malformed = dict(queue)
+    malformed["actions"] = [{"seq": 1, "kind": "mail_collect", "maxMessages": MAX_MESSAGES + 1}]
+    with pytest.raises(QueueFormatError, match="maxMessages"):
+        validate_queue(malformed)
+    with pytest.raises(QueueFormatError, match="maxMessages"):
+        render_queue_lua(malformed)
 
 
 @pytest.mark.parametrize(
@@ -104,6 +178,17 @@ def test_execution_record_matches_action_and_requires_block_reason():
         validate_execution_record(execution, queue)
     execution["results"][0]["detail"] = {"reason": "scanner_active"}
     assert validate_execution_record(execution, queue)["results"] == execution["results"]
+
+
+def test_historical_execution_parser_keeps_unbounded_record_identity_fields():
+    character = "c" * (MAX_CHARACTER_BYTES + 1)
+    execution = {
+        "queueId": f"us-normal-alliance-{character}-1700000000-0000",
+        "house": "us-normal-alliance",
+        "character": character,
+        "results": [],
+    }
+    assert validate_execution_record(execution)["character"] == character
 
 
 def test_paper_intents_map_cancel_to_preview_skip():

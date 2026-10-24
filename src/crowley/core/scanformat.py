@@ -10,6 +10,8 @@ import re
 import zlib
 from typing import Any
 
+from .game_target import FIXED_COLLECTION_CADENCE_SECONDS
+
 PRODUCER_FORMAT = 3
 ACCEPTED_FORMATS = (2, 3)
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
@@ -210,15 +212,24 @@ def _validate_plan(plan_json: Any, plan_hash: Any) -> dict[str, Any]:
         raise ScanFormatError("planJSON is not canonical")
     if hashlib.sha256(plan_json.encode("utf-8")).hexdigest() != plan_hash:
         raise ScanFormatError("planHash does not match planJSON")
-    if plan["schemaVersion"] != 2 or plan["id"] != "first-run":
+    if (
+        isinstance(plan["schemaVersion"], bool)
+        or not isinstance(plan["schemaVersion"], int)
+        or plan["schemaVersion"] != 2
+        or plan["id"] != "first-run"
+    ):
         raise ScanFormatError("unsupported scan plan")
     _int(plan["revision"], "plan.revision", minimum=1)
     _string(plan["catalogHash"], "plan.catalogHash")
     if not re.fullmatch(r"[0-9a-f]{64}", plan["catalogHash"]):
         raise ScanFormatError("plan.catalogHash must be lowercase SHA-256 hex")
     _string(plan["targetClientBuild"], "plan.targetClientBuild")
-    if plan["cadenceSeconds"] != 900:
-        raise ScanFormatError("plan cadenceSeconds must be 900")
+    if (
+        isinstance(plan["cadenceSeconds"], bool)
+        or not isinstance(plan["cadenceSeconds"], int)
+        or plan["cadenceSeconds"] != FIXED_COLLECTION_CADENCE_SECONDS
+    ):
+        raise ScanFormatError("plan cadenceSeconds must be " + str(FIXED_COLLECTION_CADENCE_SECONDS))
     initial_levels = _int(plan["initialPriceLevels"], "plan.initialPriceLevels", minimum=1)
     ids = plan["itemIDs"]
     if (

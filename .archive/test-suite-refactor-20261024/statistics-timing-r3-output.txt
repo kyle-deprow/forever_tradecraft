@@ -1,0 +1,24 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/dev/repos/pegasus
+configfile: pyproject.toml
+plugins: anyio-4.15.1, xdist-3.8.0
+created: 16/16 workers
+16 workers [1 item]
+
+.                                                                        [100%]
+=============================== warnings summary ===============================
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=825011) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================== 1 passed, 8 warnings in 6.20s =========================
+WALL=6.43 EXIT=0

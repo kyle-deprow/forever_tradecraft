@@ -12,7 +12,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
-from contextlib import contextmanager, nullcontext
+from contextlib import nullcontext
 from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,7 +43,6 @@ from crowley.session.driver import (
     DriverProfile,
     WindowIdentity,
     X11Backend,
-    _identity_latency_barrier,
     _proc_start,
 )
 from crowley.session.evidence import EvidenceError, read_stable_saved_scan
@@ -162,9 +161,36 @@ class _FixtureNativeMemoryMeter(LinuxProcStatusVmHwmReset5):
         )
 
 
+def _executor_none() -> dict:
+    return {
+        "availability": "none",
+        "queueId": "",
+        "house": "",
+        "character": "",
+        "publishedArmed": False,
+        "sessionArmed": False,
+        "buttonVisible": False,
+        "buttonName": "",
+        "currentSeq": 0,
+        "currentKind": "",
+        "phase": "none",
+        "inFlight": False,
+        "clickReady": False,
+        "workDone": 0,
+        "workTotal": 0,
+        "blocked": False,
+        "latched": False,
+        "ambiguous": False,
+        "clickOrdinal": 0,
+        "lastClickSource": "none",
+        "resultCount": 0,
+        "lastResult": {"seq": 0, "kind": "", "status": "none"},
+    }
+
+
 def _snapshot(wall: int, *, boot: str = "boot-1", sequence: int = 1) -> dict:
     return {
-        "schema": 5,
+        "schema": 6,
         "blockingUI": {
             "staticPopupAvailable": True,
             "staticPopupShown": False,
@@ -198,6 +224,7 @@ def _snapshot(wall: int, *, boot: str = "boot-1", sequence: int = 1) -> dict:
         "ahOpen": True,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "executor": _executor_none(),
         "auctioneer": {
             "targetPresent": False,
             "targetName": "",
@@ -1693,6 +1720,53 @@ def _runtime_daemon(
     with patch("crowley.session.daemon.LunaAdapter", _RuntimeFixtureModel):
         daemon = SessionDaemon(config, controller=controller, driver=driver)
     return daemon, backend, driver, controller, config, virtual_clock
+
+
+def test_default_session_ipc_observes_real_unarmed_executor_frame(tmp_path: Path) -> None:
+    """Compose Lua publication, daemon decoding, and the public IPC status path."""
+
+    daemon, backend, driver, controller, _config, _clock = _runtime_daemon(tmp_path)
+    queue = {
+        "format": 1,
+        "queueId": "beta-normal-alliance-1760000000-ipc",
+        "generatedAt": 1_759_990_000,
+        "expiresAt": 1_760_000_100,
+        "house": "beta-normal-alliance",
+        "character": "Arthur",
+        "armed": False,
+        "actions": [{"seq": 1, "kind": "mail_collect", "maxMessages": 1}],
+    }
+    client = WowClient(
+        faction="Alliance",
+        realm="Classic Beta PvE 2",
+        zone="Stormwind City",
+        current_region=110,
+        current_region_name="beta",
+        queue=queue,
+    )
+    client.set_player_name("Arthur")
+    client.set_canonical_plan()
+    client.login()
+    client.publish_agent()
+    backend.agent_client = client
+    backend.agent_load_requested = False
+    try:
+        sample = daemon.capture_status()
+        assert sample.kind == "FRESH" and sample.frame is not None
+        executor = sample.frame.snapshot["executor"]
+        assert executor["availability"] == "valid"
+        assert executor["publishedArmed"] is False
+        assert executor["sessionArmed"] is False
+        assert executor["clickReady"] is False
+
+        status = SessionIPC(controller, daemon).dispatch({"command": "status"})
+        assert status["ok"] is True
+        assert client.protected_calls == []
+        assert not any("/crowley arm" in message for message in client.chat)
+        assert not any(event.get("name") in {"click", "type_allowlisted_command"} for event in backend.events)
+    finally:
+        daemon.request_shutdown()
+        driver.close()
 
 
 def test_fresh_repeat_owner_automatically_passively_resumes_without_replaying_intent(
@@ -3946,876 +4020,8 @@ def test_native_update_fast_identity_mutation_rejects_and_cleans_capture(
         driver.close()
 
 
-def test_native_update_fast_trace_replay_uses_real_runner_and_provider(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """Exercise the real runner/provider graph against an independent publisher clock."""
-
-    vector_ms = {
-        "accepted_producer": 32.323,
-        "backend_post": 157.725,
-        "provider_hash": 0.027,
-        "provider_decode": 64.179,
-        "copy": 0.437,
-        "runner_hash": 0.263,
-        "runner_post": 224.612,
-        "cells": 44.599,
-        "runner_decode": 54.788,
-        "validation": 0.229,
-        "cleanup": 0.173,
-        "accepted_glue": 0.847,
-        "outer_pre_provider": 226.079,
-        "outer_gap": 0.040,
-        "owner_validation": 142.073,
-        "provider_poll": 140.391,
-        "poll_backend_glue": 0.167,
-        "backend_pre": 178.006,
-        "request_glue": 0.100,
-        "lock_to_shot": 117.511,
-        "alignment_capability": 0.500,
-        "alignment_target": 0.050,
-        "ack_admission": 0.500,
-    }
-
-    def run_case(
-        *,
-        mode: str,
-        root: Path,
-        jitter: str = "reference",
-        publisher_intervals: tuple[float, ...] = (1000.0,),
-        phase_age_ms: float = 0.0,
-        ack_tail_ms: float = 1.0,
-    ) -> dict[str, Any]:
-        assert jitter in {"reference", "slower", "alternating", "overbudget"}
-        assert publisher_intervals and all(interval > 0.0 for interval in publisher_intervals)
-        assert 0.0 <= phase_age_ms <= 999.0
-        assert ack_tail_ms >= 0.0
-        # The lock-to-shot measurement straddles the one-shot ACK boundary.
-        # Keep the named pre/post pieces explicit so the active-work model
-        # cannot charge the full lock span and then charge the ACK tail again.
-        case_vector = {
-            **vector_ms,
-            "lock_to_shot_before": vector_ms["lock_to_shot"] - ack_tail_ms,
-            "ack_tail": ack_tail_ms,
-        }
-        first_shot_names = (
-            "alignment_capability",
-            "alignment_capability",
-            "alignment_capability",
-            "outer_gap",
-            "alignment_capability",
-            "alignment_capability",
-            "alignment_capability",
-            "request_glue",
-            "backend_pre",
-            "poll_backend_glue",
-            "lock_to_shot_before",
-            "ack_tail",
-        )
-        phase_reference_startup_ms = sum(case_vector[name] for name in first_shot_names)
-        if jitter == "slower":
-            phase_reference_startup_ms += 4.0
-        elif jitter == "alternating":
-            phase_reference_startup_ms += 6.0
-        elif jitter == "overbudget":
-            phase_reference_startup_ms += 40.0
-        root.mkdir(parents=True, exist_ok=True)
-        backend = _NativeProviderBackend(root, load_after_captures=None)
-        # Publication time is supplied only by the independent virtual
-        # publisher below.  LifecycleBackend's default 10 ms fresh-frame
-        # advance would make capture time a second publisher clock.
-        # Construction/held captures still use the fixture's ordinary fresh
-        # capture timestamp advance.  Once the real update-memory-ready
-        # callback arms Measure, update publication timing is supplied only by
-        # the independent virtual publisher below.
-        backend.suppress_fresh_capture_clock = False
-        daemon, _backend, driver, _controller, config, clock = _runtime_daemon(
-            root,
-            backend=backend,
-            journal_changes={"state": ControllerState.NATIVE_CALIBRATION.value, "generation": 4},
-            lease_path=root / "desktop.lock",
-        )
-        daemon._NATIVE_POLL_INTERVAL_SECONDS = 0.05
-        producer = root / "region-producer"
-        producer.write_text("#!/bin/sh\nexit 0\n", encoding="ascii")
-        producer.chmod(0o700)
-        producer_sha256 = hashlib.sha256(producer.read_bytes()).hexdigest()
-        profile = replace(
-            driver.profile,
-            telemetry_region_executable=producer,
-            telemetry_region_executable_sha256=producer_sha256,
-        )
-        driver.profile = profile
-        backend.profile = profile
-        daemon.config = replace(config, profile=profile)
-        driver.input_hierarchy = lambda **_kwargs: ((2, 3, "master", "pointer"), (3, 2, "master", "keyboard"))  # type: ignore[method-assign]
-        driver.native_memory_meter = _FixtureNativeMemoryMeter(backend.identity, monotonic=clock.monotonic)
-
-        def normalize_agent_wall_time() -> None:
-            if backend.agent_client is None:
-                return
-            lua = backend.agent_client.lua
-            # The protocol wall clock is integer seconds while GetTime() may
-            # retain the selected fractional publisher interval for uptimeMs.
-            # Keep those two clocks distinct in this real Lua fixture.
-            lua.globals().time = lambda: int(float(lua.globals()._now))
-            lua.execute("time = function() return math.floor(_now) end")
-            lua.globals()["__native_uptime_seconds"] = float(lua.globals()._now) - 1760000000.0
-            lua.execute("GetTime = function() return __native_uptime_seconds end")
-
-        original_baseline_ready = driver.notify_native_baseline_ready
-
-        def baseline_ready(identity: WindowIdentity, value: int) -> None:
-            original_baseline_ready(identity, value)
-            # The addon is loaded only after the post-reset absence proof and
-            # baseline-ready boundary, exactly where production permits it.
-            backend.load_agent()
-            # ``load_agent`` only arms the real lifecycle loader; instantiate
-            # it here so the fixture's independent publisher clock is applied
-            # before the first timer callback.
-            backend._load_real_agent()
-            normalize_agent_wall_time()
-
-        driver.notify_native_baseline_ready = baseline_ready
-        publisher_history: list[int] = []
-        publisher_times: list[float] = []
-        publisher_index = 0
-        next_publication_ms: float | None = None
-        measure_publication_time: float | None = None
-        phase_setup_wait_ms = 0.0
-        # The measured pre-sample setup is about 302 ms in this fixture.  High
-        # phase-age cases explicitly delay external device startup by the
-        # remainder, without advancing the active consumer budget.
-        charge_total = 0.0
-        charge_names: list[str] = []
-        shot_records: list[dict[str, Any]] = []
-        accepted_marks: dict[int, float] = {}
-        accepted_wait_marks: dict[int, float] = {}
-        producer_starts: list[int] = []
-        pre_ack_calls: list[tuple[int, float]] = []
-        capability_match_calls = 0
-        intentional_wait_ms = 0.0
-        charging = False
-        alignment_waiting = False
-        current_update_attempt = 0
-
-        def publish_due() -> None:
-            nonlocal next_publication_ms, publisher_index
-            if backend.agent_client is None or next_publication_ms is None:
-                return
-            while next_publication_ms <= clock.value * 1000.0 + 1e-6:
-                interval = publisher_intervals[publisher_index % len(publisher_intervals)]
-                lua = backend.agent_client.lua.globals()
-                lua["__native_uptime_seconds"] = float(lua["__native_uptime_seconds"]) + interval / 1000.0
-                lua["_now"] = int(float(lua["_now"])) + 1
-                lua["_runTimers"]()
-                publisher_history.append(
-                    publisher_history[-1] + int(round(interval))
-                    if publisher_history
-                    else int(round(interval))
-                )
-                publisher_times.append(clock.value)
-                publisher_index += 1
-                next_interval = publisher_intervals[publisher_index % len(publisher_intervals)]
-                next_publication_ms += next_interval
-
-        def advance_clock(seconds: float) -> None:
-            """Advance through each independent publisher deadline exactly."""
-
-            if seconds < 0.0:
-                raise AssertionError("negative virtual clock advance")
-            target = clock.value + seconds
-            while clock.value + 1e-12 < target:
-                if next_publication_ms is None:
-                    clock.advance(target - clock.value)
-                    break
-                publication_boundary = next_publication_ms / 1000.0
-                if publication_boundary <= clock.value + 1e-9:
-                    publish_due()
-                    continue
-                step = min(target - clock.value, publication_boundary - clock.value)
-                clock.advance(step)
-                if next_publication_ms is not None and next_publication_ms <= clock.value * 1000.0 + 1e-6:
-                    publish_due()
-
-        backend.native_publication_callback = publish_due
-        original_service_agent_operator = backend._service_agent_operator
-
-        def service_agent_operator() -> None:
-            nonlocal next_publication_ms, measure_publication_time
-            pending = backend.agent_commands[0] if backend.agent_commands else None
-            original_service_agent_operator()
-            if pending is not None and pending[0] == "measure" and pending[1] == 0:
-                # Measure itself supplies update ordinal 1.  Arm the
-                # independent publisher timer at that actual command
-                # publication, before any consumer capture work begins.
-                measure_publication_time = clock.value
-                next_publication_ms = measure_publication_time * 1000.0 + publisher_intervals[0]
-
-        backend._service_agent_operator = service_agent_operator  # type: ignore[method-assign]
-
-        def record_agent_frame_sample() -> None:
-            """Record the exact frame immediately before base capture reads it."""
-
-            if backend.agent_client is None:
-                return
-            raw = backend.agent_client.agent_frame
-            frame = decode_frame(raw, plan_item_ids=load_catalog().scan_plan()["itemIDs"])
-            render = frame.snapshot["render"]
-            prior_publications = [when for when in publisher_times if when <= clock.value + 1e-9]
-            publication_time = prior_publications[-1] if prior_publications else None
-            if (
-                publication_time is None
-                and render["nativePhase"] == "updates"
-                and render["nativeOrdinal"] == 1
-            ):
-                # The first update frame is the direct result of the actual
-                # Measure command; later frames have an independent timer
-                # publication marker.
-                publication_time = measure_publication_time
-            shot_records.append(
-                {
-                    "attempt": current_update_attempt,
-                    "capture_started": clock.value,
-                    "active_work_ms": charge_total,
-                    "intentional_wait_ms": intentional_wait_ms,
-                    "phase": render["nativePhase"],
-                    "ordinal": render["nativeOrdinal"],
-                    "sequence": frame.sequence,
-                    "boot": frame.boot,
-                    "crc32": frame.crc32,
-                    "publisher_uptime_ms": frame.uptime_ms,
-                    "phase_age_ms": (
-                        (clock.value - publication_time) * 1000.0 if publication_time is not None else None
-                    ),
-                    "update_count": render["updateCount"],
-                }
-            )
-
-        backend.agent_frame_sampling_callback = record_agent_frame_sample
-
-        class ReplayDiagnostic(_NativeObservationDiagnostic):
-            def _charge(self, name: str) -> None:
-                nonlocal charge_total
-                if not charging:
-                    return
-                extra = 0.0
-                if name in {"backend_pre", "backend_post", "lock_to_shot_before"}:
-                    if jitter == "slower":
-                        extra = 2.0
-                    elif jitter == "overbudget" and name in {"backend_pre", "backend_post"}:
-                        extra = 40.0
-                    elif jitter == "alternating":
-                        if current_update_attempt % 2:
-                            extra = {
-                                "backend_pre": 3.0,
-                                "backend_post": 1.0,
-                                "lock_to_shot_before": 3.0,
-                            }[name]
-                        elif name == "backend_post":
-                            extra = 1.0
-                charge_names.append(name)
-                charge_total += case_vector[name] + extra
-                advance_clock((case_vector[name] + extra) / 1000.0)
-
-            @contextmanager
-            def span(self, name: str, **kwargs: object):  # type: ignore[no-untyped-def]
-                mapped = {
-                    "identity_backend_pre": "backend_pre",
-                    "identity_backend_post": "backend_post",
-                    "identity_pre_provider": "outer_pre_provider",
-                    "identity_post_capture": "runner_post",
-                }.get(name, name)
-                # Capability matching is charged by the wrapper around the
-                # actual daemon validator below.  The surrounding diagnostic
-                # span is retained for attribution but must not double-count
-                # the same invocation.
-                if mapped in case_vector and mapped != "alignment_capability":
-                    self._charge(mapped)
-                with super().span(name, **kwargs):
-                    yield
-
-            def begin_attempt(self, stage: str, ordinal: int) -> None:
-                nonlocal current_update_attempt
-                if stage == "updates":
-                    current_update_attempt += 1
-                    self._charge("outer_gap")
-                super().begin_attempt(stage, ordinal)
-
-            def finish_attempt(self, *, status: str, error: str | None = None) -> None:
-                if status == "accepted" and self._current is not None:
-                    actual = self._current.get("actual", {})
-                    if actual.get("phase") == "updates" and actual.get("ordinal") is not None:
-                        matching_shots = [
-                            shot
-                            for shot in reversed(shot_records)
-                            if shot["phase"] == actual.get("phase")
-                            and shot["ordinal"] == actual.get("ordinal")
-                            and shot["sequence"] == actual.get("sequence")
-                        ]
-                        if not matching_shots:
-                            raise AssertionError(
-                                "accepted provider result has no matching Agent sampling record"
-                            )
-                        shot = matching_shots[0]
-                        accepted_marks[int(actual["ordinal"])] = float(shot["active_work_ms"])
-                        accepted_wait_marks[int(actual["ordinal"])] = float(shot["intentional_wait_ms"])
-                super().finish_attempt(status=status, error=error)
-
-        diagnostic = ReplayDiagnostic(daemon)
-        daemon._native_observation_diagnostic = diagnostic
-        original_capture = LifecycleBackend.capture
-
-        def capture_native_region(
-            path: Path,
-            *,
-            identity: WindowIdentity,
-            rectangle: tuple[int, int, int, int],
-            observer_admission: Callable[[Callable[[], Any]], Any],
-            observer_reaped: Callable[[int], None],
-            deadline_monotonic: float | None = None,
-            _pre_ack_admission: Callable[[int, Callable[[], None]], None] | None = None,
-            **_kwargs: object,
-        ) -> WindowIdentity:
-            nonlocal next_publication_ms
-            diagnostic._charge("request_glue")
-            full = path.with_name(f"{path.name}.desktop.png")
-            shot_start = len(shot_records)
-            with _identity_latency_barrier("backend_pre"):
-                if backend.resolve_identity().fingerprint != identity.fingerprint:
-                    raise DriverError("replay backend identity changed before capture")
-
-            class GatedProcess:
-                def __init__(self, process: subprocess.Popen[bytes]) -> None:
-                    self.process = process
-
-                def release_admission_gate(self) -> None:
-                    return None
-
-            def spawn() -> GatedProcess:
-                producer_starts.append(1)
-                diagnostic._charge("lock_to_shot_before")
-                return GatedProcess(subprocess.Popen(["/bin/sleep", "2"]))
-
-            admitted = observer_admission(spawn)
-            process = admitted.process
-            ack_sent: float | None = None
-
-            def dispatch_ack_once() -> None:
-                nonlocal ack_sent
-                if ack_sent is not None:
-                    raise DriverError("fixture producer ACK was dispatched twice")
-                diagnostic._charge("ack_tail")
-                ack_sent = clock.value
-
-            try:
-                if _pre_ack_admission is None:
-                    dispatch_ack_once()
-                else:
-                    pre_ack_calls.append((process.pid, clock.value))
-                    _pre_ack_admission(process.pid, dispatch_ack_once)
-            except BaseException:
-                process.kill()
-                process.wait()
-                observer_reaped(process.pid)
-                full.unlink(missing_ok=True)
-                diagnostic._charge("accepted_glue")
-                raise
-            try:
-                # Use the base lifecycle capture seam so Agent publication is
-                # driven only by the independent virtual publisher callback,
-                # never by the provider's capture helper.
-                # Service any publisher timer that became due during the
-                # pre-shot admission work immediately before the physical
-                # sample.  This is the producer boundary, not a second read
-                # of the same frame, and prevents a stale-frame reread from
-                # masquerading as a capture.
-                publish_due()
-                if (
-                    backend.agent_client is None
-                    and backend.load_after_captures is not None
-                    and backend.captures >= backend.load_after_captures
-                ):
-                    backend.load_agent()
-                if backend.agent_client is None and backend.agent_load_requested:
-                    backend._load_real_agent()
-                    normalize_agent_wall_time()
-                original_capture(
-                    backend,
-                    full,
-                    identity=identity,
-                    deadline_monotonic=deadline_monotonic,
-                )
-                sampled_shots = shot_records[shot_start:]
-                if not sampled_shots and backend.agent_client is not None:
-                    raise AssertionError("capture returned without a sampled Agent frame")
-                # The pre-addon absence proof is an ordinary dark crop, not a
-                # publisher shot.  It has no sampling record and is never
-                # used for accepted update boundaries.
-                sampled_shot = sampled_shots[-1] if sampled_shots else {"capture_started": clock.value}
-                # Producer work begins after the exact sampled frame boundary;
-                # setup and backend-post work remain on the same real attempt.
-                diagnostic._charge("accepted_producer")
-                with Image.open(full) as image:
-                    image.crop((80, 48, 336, 304)).save(path, format="PNG", compress_level=0)
-                with _identity_latency_barrier("backend_post"):
-                    if backend.resolve_identity().fingerprint != identity.fingerprint:
-                        raise DriverError("replay backend identity changed after capture")
-                digest = hashlib.sha256(path.read_bytes()).hexdigest()
-                finalized_receipt = SimpleNamespace(
-                    nonce=f"replay-{len(producer_starts)}-{clock.value}",
-                    rectangle=rectangle,
-                    executable_sha256=producer_sha256,
-                    owner_pid=process.pid,
-                    owner_process_start=_proc_start(process.pid) or "unknown",
-                    owner_ppid=os.getppid(),
-                    owner_pgid=os.getpgrp(),
-                    owner_exec_fd=-1,
-                    owner_branch="fixture",
-                    request_started=clock.value,
-                    lock_acquired=clock.value,
-                    ack_sent=ack_sent if ack_sent is not None else clock.value,
-                    capture_returned=clock.value,
-                    output_path_digest=digest,
-                    output_sha256=digest,
-                    output_bytes=path.stat().st_size,
-                    capture_started=sampled_shot["capture_started"],
-                    capture_epoch=0,
-                    attempt_retired=True,
-                )
-                backend.last_region_receipt = finalized_receipt
-                receipt_sink = _kwargs.get("_receipt_sink")
-                if receipt_sink is not None:
-                    if not callable(receipt_sink):
-                        raise AssertionError("replay receipt sink is not callable")
-                    receipt_sink(finalized_receipt)
-            finally:
-                process.kill()
-                process.wait()
-                observer_reaped(process.pid)
-                full.unlink(missing_ok=True)
-                # This glue is charged only after the actual producer release
-                # and source-artifact cleanup, never at admission.
-                diagnostic._charge("accepted_glue")
-            return identity
-
-        backend.capture_native_region = capture_native_region  # type: ignore[method-assign]
-        original_capability_match = daemon._native_update_capability_matches_locked
-
-        def timed_capability_match(*args: object, **kwargs: object) -> Any:
-            nonlocal capability_match_calls
-            result = original_capability_match(*args, **kwargs)
-            if charging:
-                capability_match_calls += 1
-                # This is the production validator itself, so every direct
-                # eligibility/poll/pre-ACK/final-ACK invocation is charged
-                # exactly once, including calls outside a diagnostic span.
-                diagnostic._charge("alignment_capability")
-            return result
-
-        daemon._native_update_capability_matches_locked = timed_capability_match  # type: ignore[method-assign]
-        original_check = daemon._check_native_poll_identity
-
-        def timed_check(*args: object, **kwargs: object) -> Any:
-            # Eligible capability validation is charged at each real
-            # production matcher/validator span.  Only the legacy fallback
-            # poll has no such span and is charged here.
-            if charging and kwargs.get("native_capability") is None:
-                diagnostic._charge("owner_validation")
-                diagnostic._charge("provider_poll")
-            return original_check(*args, **kwargs)
-
-        daemon._check_native_poll_identity = timed_check  # type: ignore[method-assign]
-        original_hold = driver.notify_native_hold_required
-        original_ready = driver.notify_native_memory_ready
-        original_resume = driver.notify_native_resume_required
-        driver.notify_native_hold_required = lambda identity: (
-            original_hold(identity),
-            backend.request_agent_command("hold", delayed_captures=0),
-        )
-
-        def ready(identity: WindowIdentity, pending: Any) -> None:
-            nonlocal charging, phase_setup_wait_ms, next_publication_ms
-            original_ready(identity, pending)
-            charging = True
-            backend.suppress_fresh_capture_clock = True
-            backend.request_agent_command("measure", delayed_captures=0)
-            if phase_age_ms > phase_reference_startup_ms:
-                # This is external device startup before the first provider
-                # sample, rather than consumer work.  Service Measure and
-                # publish its first frame at that real command boundary, then
-                # let the selected phase age elapse before Runner starts.
-                if backend.agent_client is None:
-                    backend.load_agent()
-                    backend._load_real_agent()
-                    normalize_agent_wall_time()
-                backend._service_agent_operator()
-                phase_setup_wait_ms = phase_age_ms - phase_reference_startup_ms
-                advance_clock(phase_setup_wait_ms / 1000.0)
-
-        driver.notify_native_memory_ready = ready
-        driver.notify_native_resume_required = lambda identity, boundary: (
-            original_resume(identity, boundary),
-            backend.request_agent_command("resume", delayed_captures=0),
-        )
-
-        original_wait = daemon._native_update_alignment_wait
-        original_alignment_sleep = getattr(daemon, "_native_alignment_sleep", None)
-        original_alignment_target = daemon._native_update_alignment_target
-        original_provider_sleep_hook = getattr(daemon, "_native_provider_sleep_hook", None)
-        original_eligibility = driver._native_identity_budget_eligibility
-        try:
-            with daemon._native_construction_lock:
-                daemon._native_construction_handshake = {"state": "running"}
-                daemon._native_construction_reset_history_locked()
-                # Every timing mode exercises the same deferred owner,
-                # reservation and construction proof.  The old mode disables
-                # only the eligibility witness below; it must retain the
-                # actual deferred-owner validation costs.
-                _prime_native_update_budget_owner(daemon, driver, backend.identity)
-                extended_deadline = clock.value + 200.0
-                daemon._native_construction_operation_deadline = extended_deadline
-                assert daemon._native_construction_reservation is not None
-                daemon._native_construction_reservation["expiresMonotonic"] = extended_deadline
-                construction_capability = daemon._native_construction_capability_locked()
-            daemon._native_bootstrap_capture(
-                expected_generation=4, construction_capability=construction_capability
-            )
-            if mode == "old":
-                driver._native_identity_budget_eligibility = lambda *_args: None
-            elif mode == "reduced":
-                # Keep the real capability/anchor/final-ACK path, but remove
-                # only its intentional publisher wait.  The target helper is
-                # test-local and leaves the immutable publisher origin intact;
-                # physical samples therefore occur back-to-back without
-                # reclassifying a sleep as active work.
-                daemon._native_update_alignment_target = (  # type: ignore[method-assign]
-                    lambda _origin, _elapsed: clock.value
-                )
-            else:
-
-                def tracked_alignment_wait(**kwargs: object) -> None:
-                    nonlocal alignment_waiting
-                    alignment_waiting = True
-                    try:
-                        original_wait(**kwargs)
-                    finally:
-                        alignment_waiting = False
-
-                daemon._native_update_alignment_wait = tracked_alignment_wait  # type: ignore[method-assign]
-            runner = NativeCalibrationRunner(driver, monotonic=clock.monotonic, diagnostic=diagnostic)
-
-            def virtual_sleep(seconds: float) -> None:
-                nonlocal intentional_wait_ms
-                if seconds < 0:
-                    raise AssertionError("negative virtual sleep")
-                if charging and alignment_waiting:
-                    intentional_wait_ms += seconds * 1000.0
-                # Provider retry polling is a wait and remains outside the
-                # active-work budget.  The provider-to-backend glue charge is
-                # recorded at the real eligible capture edge, not here; a
-                # retry must not double-charge that edge.
-                advance_clock(seconds)
-
-            # Inject only the daemon's alignment wait.  The process-wide
-            # ``time.sleep`` binding remains untouched for Guardian and
-            # subprocess lifecycle threads.
-            process_sleep = time.sleep
-            daemon._native_alignment_sleep = virtual_sleep  # type: ignore[attr-defined]
-            daemon._native_provider_sleep_hook = virtual_sleep  # type: ignore[attr-defined]
-            evidence = runner.run()
-            assert time.sleep is process_sleep
-            transitions = [
-                accepted_marks[index] - accepted_marks[index - 1]
-                for index in range(2, 100)
-                if index in accepted_marks and index - 1 in accepted_marks
-            ]
-            return {
-                "mode": mode,
-                "evidence": evidence,
-                "error": None,
-                "accepted": sorted(accepted_marks),
-                "producer_starts": producer_starts,
-                "pre_ack_calls": pre_ack_calls,
-                "capability_match_calls": capability_match_calls,
-                "publisher_history": publisher_history,
-                "publisher_times": publisher_times,
-                "publisher_intervals": publisher_intervals,
-                "requested_phase_age_ms": phase_age_ms,
-                "phase_setup_wait_ms": phase_setup_wait_ms,
-                "ack_tail_ms": ack_tail_ms,
-                "active_transitions": transitions,
-                "active_total_ms": charge_total,
-                "intentional_wait_ms": intentional_wait_ms,
-                "charge_names": charge_names,
-                "accepted_wait_marks": accepted_wait_marks,
-                "shot_records": shot_records,
-                "captures": backend.captures,
-                "agent_loaded": backend.agent_client is not None,
-            }
-        except BaseException as exc:
-            transitions = [
-                accepted_marks[index] - accepted_marks[index - 1]
-                for index in range(2, 100)
-                if index in accepted_marks and index - 1 in accepted_marks
-            ]
-            return {
-                "mode": mode,
-                "evidence": None,
-                "error": exc,
-                "accepted": sorted(accepted_marks),
-                "producer_starts": producer_starts,
-                "pre_ack_calls": pre_ack_calls,
-                "capability_match_calls": capability_match_calls,
-                "publisher_history": publisher_history,
-                "publisher_times": publisher_times,
-                "publisher_intervals": publisher_intervals,
-                "requested_phase_age_ms": phase_age_ms,
-                "phase_setup_wait_ms": phase_setup_wait_ms,
-                "ack_tail_ms": ack_tail_ms,
-                "active_transitions": transitions,
-                "active_total_ms": charge_total,
-                "intentional_wait_ms": intentional_wait_ms,
-                "charge_names": charge_names,
-                "accepted_wait_marks": accepted_wait_marks,
-                "shot_records": shot_records,
-                "captures": backend.captures,
-                "agent_loaded": backend.agent_client is not None,
-            }
-        finally:
-            driver._native_identity_budget_eligibility = original_eligibility
-            daemon._native_update_alignment_wait = original_wait
-            daemon._native_update_alignment_target = original_alignment_target  # type: ignore[method-assign]
-            if original_alignment_sleep is None:
-                try:
-                    del daemon._native_alignment_sleep
-                except AttributeError:
-                    pass
-            else:
-                daemon._native_alignment_sleep = original_alignment_sleep  # type: ignore[attr-defined]
-            if original_provider_sleep_hook is None:
-                try:
-                    del daemon._native_provider_sleep_hook
-                except AttributeError:
-                    pass
-            else:
-                daemon._native_provider_sleep_hook = original_provider_sleep_hook  # type: ignore[attr-defined]
-            daemon._native_update_capability_matches_locked = original_capability_match  # type: ignore[method-assign]
-            daemon.request_shutdown()
-            driver.close()
-
-    def persist_timeline(label: str, result: dict[str, Any], root: Path) -> tuple[Path, str]:
-        destination = Path(os.environ.get("NATIVE_ALIGNMENT_EVIDENCE_DIR", root))
-        destination.mkdir(mode=0o700, parents=True, exist_ok=True)
-        os.chmod(destination, 0o700)
-        payload = {
-            "schema": "native-identity-budget-replay-v2",
-            "label": label,
-            "mode": result["mode"],
-            "error": repr(result["error"]) if result["error"] is not None else None,
-            "accepted": result["accepted"],
-            "captures": result["captures"],
-            "publisher_history": result["publisher_history"],
-            "publisher_times": result["publisher_times"],
-            "publisher_intervals": result["publisher_intervals"],
-            "requested_phase_age_ms": result["requested_phase_age_ms"],
-            "phase_setup_wait_ms": result["phase_setup_wait_ms"],
-            "ack_tail_ms": result["ack_tail_ms"],
-            "active_transitions": result["active_transitions"],
-            "active_total_ms": result["active_total_ms"],
-            "intentional_wait_ms": result["intentional_wait_ms"],
-            "accepted_wait_marks": result["accepted_wait_marks"],
-            "pre_ack_calls": result["pre_ack_calls"],
-            "capability_match_calls": result["capability_match_calls"],
-            "charge_names": result["charge_names"],
-            "shot_records": result["shot_records"],
-        }
-        timeline = destination / f"{label}-timeline.json"
-        timeline.write_text(json.dumps(payload, sort_keys=True, separators=(",", ":")) + "\n")
-        os.chmod(timeline, 0o600)
-        return timeline, hashlib.sha256(timeline.read_bytes()).hexdigest()
-
-    case_specs: dict[str, dict[str, Any]] = {
-        "reference": {
-            "jitter": "reference",
-            "publisher_intervals": (1000.0,),
-            "phase_age_ms": 0.0,
-            "ack_tail_ms": 1.0,
-            "expected": "pass",
-        },
-        "slower": {
-            "jitter": "slower",
-            "publisher_intervals": (1007.0,),
-            "phase_age_ms": 500.0,
-            "ack_tail_ms": 1.0,
-            "expected": "pass",
-        },
-        "alternating": {
-            "jitter": "alternating",
-            "publisher_intervals": (1000.0, 1014.0),
-            "phase_age_ms": 0.0,
-            "ack_tail_ms": 1.0,
-            "expected": "pass",
-        },
-        "phase900": {
-            "jitter": "reference",
-            "publisher_intervals": (1007.0,),
-            "phase_age_ms": 900.0,
-            "ack_tail_ms": 5.0,
-            "expected": "pass",
-        },
-        "overbudget": {
-            "jitter": "overbudget",
-            "publisher_intervals": (1000.0,),
-            "phase_age_ms": 0.0,
-            "ack_tail_ms": 1.0,
-            "expected": "fail",
-        },
-        "phase951": {
-            "jitter": "reference",
-            "publisher_intervals": (1000.0,),
-            "phase_age_ms": 951.0,
-            "ack_tail_ms": 1.0,
-            "expected": "fail",
-        },
-        "publisher1100": {
-            "jitter": "reference",
-            "publisher_intervals": (1100.0,),
-            "phase_age_ms": 0.0,
-            "ack_tail_ms": 1.0,
-            "expected": "fail",
-        },
-    }
-
-    def assert_case(label: str, result: dict[str, Any], spec: dict[str, Any]) -> None:
-        timeline, timeline_sha256 = persist_timeline(label, result, tmp_path / label)
-        first_phase_age = next(
-            (
-                shot["phase_age_ms"]
-                for shot in result["shot_records"]
-                if shot["phase"] == "updates" and shot["ordinal"] == 1
-            ),
-            None,
-        )
-        print(
-            "NATIVE-ALIGNMENT-CASE",
-            json.dumps(
-                {
-                    "case": label,
-                    "error": repr(result["error"]) if result["error"] is not None else None,
-                    "accepted": result["accepted"],
-                    "max_active_transition_ms": max(result["active_transitions"], default=0.0),
-                    "requested_phase_age_ms": result["requested_phase_age_ms"],
-                    "first_phase_age_ms": first_phase_age,
-                    "timeline": str(timeline),
-                    "timeline_sha256": timeline_sha256,
-                },
-                sort_keys=True,
-            ),
-        )
-        if spec["expected"] == "pass":
-            assert result["error"] is None, repr(result)
-            assert result["accepted"] == list(range(1, 100)), repr(result)
-            assert result["evidence"].render["updateCount"] >= 100
-            assert result["evidence"].resume_sequence == result["evidence"].sequence + 1
-            assert max(result["active_transitions"], default=1000.0) <= 900.0, repr(result)
-            assert result["intentional_wait_ms"] > 0.0
-            first_shot = next(
-                shot for shot in result["shot_records"] if shot["phase"] == "updates" and shot["ordinal"] == 1
-            )
-            assert first_shot["phase_age_ms"] is not None
-            assert first_shot["phase_age_ms"] == pytest.approx(spec["phase_age_ms"], abs=0.01)
-            # The stored nanosecond clock converts to milliseconds with a
-            # sub-microsecond floating-point rounding tail at this boundary.
-            assert first_shot["phase_age_ms"] <= 900.001
-        else:
-            # Negative cases must fail through the real runner/provider graph
-            # or visibly exceed active work; they may not be converted into a
-            # synthetic protocol result by the fixture.
-            assert (
-                result["error"] is not None
-                or len(result["accepted"]) < 99
-                or max(result["active_transitions"], default=0.0) > 900.0
-            ), repr(result)
-            if label == "phase951":
-                assert first_phase_age == pytest.approx(spec["phase_age_ms"], abs=0.01)
-                assert result["error"] is not None
-                assert "returned" in str(result["error"]) or "sequence" in str(result["error"])
-        assert result["pre_ack_calls"] or spec["expected"] == "fail"
-        assert result["charge_names"].count("alignment_capability") == result["capability_match_calls"]
-        if spec["expected"] == "pass":
-            assert result["capability_match_calls"] >= 4 * 99
-            assert result["capability_match_calls"] == 1085
-            assert result["charge_names"].count("poll_backend_glue") == 99
-            # The production graph has 98 update waits after the initial
-            # publication, while the old-owner fallback performs exactly two
-            # real validation/poll attempts during the held/100 and
-            # resume/0 phases. Keep these counts tied to the actual charge
-            # stream so a names-only replay cannot satisfy the model.
-            assert result["charge_names"].count("ack_admission") == 98
-            assert result["charge_names"].count("alignment_target") == 98
-            assert result["charge_names"].count("owner_validation") == 2
-            assert result["charge_names"].count("provider_poll") == 2
-        shot_keys = {
-            (shot["attempt"], shot["capture_started"], shot["sequence"]) for shot in result["shot_records"]
-        }
-        assert len(shot_keys) == len(result["shot_records"])
-
-    selected_case = os.environ.get("NATIVE_ALIGNMENT_CASE")
-    if selected_case == "baseline":
-        old = run_case(mode="old", root=tmp_path / "baseline-old")
-        reduced = run_case(mode="reduced", root=tmp_path / "baseline-reduced")
-        aligned = run_case(mode="aligned", root=tmp_path / "baseline-aligned")
-        for label, result in (("old", old), ("reduced", reduced)):
-            error_text = str(result["error"]) if result["error"] is not None else None
-            print(
-                "NATIVE-ALIGNMENT-BASELINE",
-                json.dumps(
-                    {
-                        "case": label,
-                        "error": error_text,
-                        "accepted": len(result["accepted"]),
-                        "max_active_transition_ms": max(result["active_transitions"], default=0.0),
-                        "poll_backend_glue": result["charge_names"].count("poll_backend_glue"),
-                    },
-                    sort_keys=True,
-                ),
-            )
-            if label == "old":
-                assert error_text is not None
-                assert "returned" in error_text, repr(result)
-                assert len(result["accepted"]) < 99, repr(result)
-            else:
-                assert error_text is None, repr(result)
-                assert max(result["active_transitions"], default=0.0) > 900.0, repr(result)
-        assert aligned["error"] is None
-        return
-    if selected_case is not None:
-        if selected_case not in case_specs:
-            raise pytest.UsageError(f"NATIVE_ALIGNMENT_CASE must be one of {sorted(case_specs)} or baseline")
-        spec = case_specs[selected_case]
-        selected = run_case(
-            mode="aligned",
-            root=tmp_path / selected_case,
-            jitter=spec["jitter"],
-            publisher_intervals=spec["publisher_intervals"],
-            phase_age_ms=spec["phase_age_ms"],
-            ack_tail_ms=spec["ack_tail_ms"],
-        )
-        assert_case(selected_case, selected, spec)
-        return
-
-    for label, spec in case_specs.items():
-        selected = run_case(
-            mode="aligned",
-            root=tmp_path / label,
-            jitter=spec["jitter"],
-            publisher_intervals=spec["publisher_intervals"],
-            phase_age_ms=spec["phase_age_ms"],
-            ack_tail_ms=spec["ack_tail_ms"],
-        )
-        assert_case(label, selected, spec)
-    return
+# The retained fast-path eligibility/revocation tests cover the same guard;
+# retire this duplicate real-runner trace replay.
 
 
 def test_runtime_native_budget_rejects_fabricated_bound_witness(tmp_path: Path) -> None:

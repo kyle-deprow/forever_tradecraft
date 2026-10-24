@@ -40,7 +40,7 @@ from .wow_harness import WowClient
 
 def snapshot(sequence: int = 1) -> dict:
     return {
-        "schema": 5,
+        "schema": 6,
         "boot": "boot-1",
         "sequence": sequence,
         "wallTime": 1_000,
@@ -68,6 +68,30 @@ def snapshot(sequence: int = 1) -> dict:
         "ahOpen": True,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "executor": {
+            "availability": "none",
+            "queueId": "",
+            "house": "",
+            "character": "",
+            "publishedArmed": False,
+            "sessionArmed": False,
+            "buttonVisible": False,
+            "buttonName": "",
+            "currentSeq": 0,
+            "currentKind": "",
+            "phase": "none",
+            "inFlight": False,
+            "clickReady": False,
+            "workDone": 0,
+            "workTotal": 0,
+            "blocked": False,
+            "latched": False,
+            "ambiguous": False,
+            "clickOrdinal": 0,
+            "lastClickSource": "none",
+            "resultCount": 0,
+            "lastResult": {"seq": 0, "kind": "", "status": "none"},
+        },
         "blockingUI": {
             "staticPopupAvailable": True,
             "staticPopupShown": False,
@@ -164,6 +188,15 @@ def snapshot(sequence: int = 1) -> dict:
             "nativeOrdinal": 0,
         },
     }
+
+
+def _varied_ascii(label: str, length: int) -> str:
+    value = ""
+    index = 0
+    while len(value) < length:
+        value += hashlib.sha256(f"{label}:{index}".encode()).hexdigest()
+        index += 1
+    return value[:length]
 
 
 def evidence(uid: str, started_at: int) -> SweepEvidence:
@@ -547,7 +580,7 @@ def test_lua_frame_roundtrips_through_pixel_packer_and_python_decoder() -> None:
     assert "mutated" not in client.publish_agent()["pending"]["ids"]
 
 
-def test_protocol_requires_schema5_motion_and_auctioneer_facts_and_rejects_legacy_or_malformed_motion() -> (
+def test_protocol_requires_schema6_executor_motion_and_auctioneer_facts_and_rejects_legacy_or_malformed_motion() -> (
     None
 ):
     legacy = snapshot()
@@ -561,6 +594,12 @@ def test_protocol_requires_schema5_motion_and_auctioneer_facts_and_rejects_legac
     with pytest.raises(ProtocolError, match="schema"):
         encode_frame(legacy)
     legacy["schema"] = 4
+    with pytest.raises(ProtocolError, match="schema"):
+        encode_frame(legacy)
+    legacy["schema"] = 5
+    with pytest.raises(ProtocolError, match="schema"):
+        encode_frame(legacy)
+    legacy["schema"] = 7
     with pytest.raises(ProtocolError, match="schema"):
         encode_frame(legacy)
 
@@ -640,12 +679,155 @@ def test_protocol_hover_name_limit_counts_utf8_bytes() -> None:
         encode_frame(value)
 
 
+@pytest.mark.parametrize(
+    "mutate",
+    [
+        lambda value: value["executor"].update(extra=True),
+        lambda value: value["executor"].update(availability="bogus"),
+        lambda value: value["executor"].update(queueId="q" * 193),
+        lambda value: value["executor"].update(lastClickSource="button", clickOrdinal=0),
+        lambda value: value["executor"].update(lastResult={"seq": 0, "kind": "", "status": "started"}),
+        lambda value: value["executor"].update(
+            availability="valid",
+            queueId="queue-1",
+            house="beta-normal-alliance",
+            character="Arthur",
+            buttonVisible=True,
+            buttonName="CrowleyTradeExecutorButton",
+            currentSeq=1,
+            currentKind="vendor_sell",
+            phase="sell_stacks",
+            clickReady=True,
+            blocked=True,
+        ),
+        lambda value: value["executor"].update(
+            availability="valid",
+            queueId="queue-1",
+            house="beta-normal-alliance",
+            character="Arthur",
+            buttonVisible=True,
+            buttonName="CrowleyTradeExecutorButton",
+            currentSeq=1,
+            currentKind="vendor_sell",
+            phase="sell_stacks",
+            clickReady=True,
+            blocked=True,
+            ambiguous=True,
+        ),
+        lambda value: value["executor"].update(
+            availability="valid",
+            queueId="queue-1",
+            house="beta-normal-alliance",
+            character="Arthur",
+            buttonName="CrowleyTradeExecutorButton",
+            currentSeq=1,
+            currentKind="buy_commodity",
+            phase="ready",
+            inFlight=True,
+        ),
+        lambda value: value["executor"].update(
+            availability="valid",
+            queueId="queue-1",
+            house="beta-normal-alliance",
+            character="Arthur",
+            buttonName="CrowleyTradeExecutorButton",
+            currentSeq=1,
+            currentKind="post_commodity",
+            phase="ready",
+            inFlight=True,
+            resultCount=1,
+            lastResult={"seq": 1, "kind": "post_commodity", "status": "failed"},
+        ),
+    ],
+    ids=(
+        "unknown-key",
+        "availability",
+        "queue-id-limit",
+        "button-ordinal",
+        "none-result",
+        "blocked-click-ready",
+        "ambiguous-click-ready",
+        "buy-ready-in-flight",
+        "post-ready-wrong-result",
+    ),
+)
+def test_protocol_rejects_executor_contract_mutations(mutate) -> None:
+    value = snapshot()
+    mutate(value)
+    with pytest.raises(ProtocolError, match="executor"):
+        encode_frame(value)
+
+
+@pytest.mark.parametrize(
+    ("kind", "phase"),
+    [
+        ("mail_collect", "ready_to_confirm"),
+        ("vendor_sell", "await_purchase"),
+        ("vendor_buy", "await_craft"),
+        ("craft", "await_vendor_buy"),
+    ],
+)
+def test_protocol_rejects_executor_phase_kind_mismatch(kind: str, phase: str) -> None:
+    value = snapshot()
+    value["executor"].update(
+        availability="valid",
+        queueId="queue-1",
+        house="beta-normal-alliance",
+        character="Arthur",
+        buttonName="CrowleyTradeExecutorButton",
+        currentSeq=1,
+        currentKind=kind,
+        phase=phase,
+        workTotal=1 if kind == "mail_collect" else 0,
+    )
+    with pytest.raises(ProtocolError, match="incompatible"):
+        encode_frame(value)
+
+
+def test_protocol_accepts_latched_commodity_cancel_click_readiness() -> None:
+    value = snapshot()
+    value["executor"].update(
+        availability="valid",
+        queueId="queue-1",
+        house="beta-normal-alliance",
+        character="Arthur",
+        buttonVisible=True,
+        buttonName="CrowleyTradeExecutorButton",
+        currentSeq=1,
+        currentKind="buy_commodity",
+        phase="must_cancel",
+        inFlight=True,
+        clickReady=True,
+        latched=True,
+    )
+    decode_frame(encode_frame(value))
+
+
+@pytest.mark.parametrize("kind", ["post_commodity", "cancel_auction"], ids=["post", "cancel"])
+def test_protocol_accepts_latched_phase_less_post_cancel_blocked_result(kind: str) -> None:
+    value = snapshot()
+    value["executor"].update(
+        availability="valid",
+        queueId="queue-1",
+        house="beta-normal-alliance",
+        character="Arthur",
+        currentSeq=1,
+        currentKind=kind,
+        phase="ready",
+        inFlight=True,
+        latched=True,
+        resultCount=2,
+        lastResult={"seq": 1, "kind": kind, "status": "blocked"},
+    )
+    decode_frame(encode_frame(value))
+
+
 def test_pixel_decoder_rejects_forged_legacy_wire_frame() -> None:
     valid = encode_frame(snapshot())
     payload_length = int.from_bytes(valid[8:10], "little")
     raw = zlib.decompress(valid[26 : 26 + payload_length], wbits=-15)
-    assert b'"schema":5' in raw
-    forged_raw = raw.replace(b'"schema":5', b'"schema":4', 1)
+    assert b'"schema":6' in raw
+    forged_raw = raw.replace(b'"schema":6', b'"schema":5', 1)
     compressor = zlib.compressobj(wbits=-15)
     forged_payload = compressor.compress(forged_raw) + compressor.flush()
     assert 1 <= len(forged_payload) <= 2000
@@ -690,7 +872,7 @@ def test_pixel_decoder_rejects_forged_legacy_wire_frame() -> None:
         "missing-turn-right",
     ],
 )
-def test_protocol_rejects_schema5_hover_mail_and_binding_contract_mutations(mutate) -> None:
+def test_protocol_rejects_schema6_hover_mail_and_binding_contract_mutations(mutate) -> None:
     value = snapshot()
     mutate(value)
     with pytest.raises(ProtocolError):
@@ -837,67 +1019,183 @@ def test_protocol_accepts_the_inclusive_native_speed_ceiling() -> None:
     assert decode_frame(encode_frame(value)).snapshot.value["motion"]["speed"] == 1_000.0
 
 
-def test_realistic_worst_queue_and_motion_payload_stays_within_wire_caps() -> None:
-    value = snapshot()
-    value["scanner"]["phase"] = "blocked"
-    queue_ids = []
-    for index in range(6):
-        digest = (
-            hashlib.sha256(f"uid-{index}".encode()).hexdigest()
-            + hashlib.sha512(f"queue-{index}".encode()).hexdigest()
-        )
-        queue_ids.append(f"uid-{index:03d}-" + digest[:180])
-    value["pending"] = {
-        "ids": queue_ids,
-        "count": 6,
-        "cap": 6,
-        "blocked": True,
-        "reason": "queue_full",
+def _max_executor_client(*, varied_identities: bool, pending_length: int) -> WowClient:
+    identity = _varied_ascii if varied_identities else lambda _label, length: "x" * length
+    queue_id = "q" * 192
+    house = "h" * 256
+    character = "c" * 256
+    if varied_identities:
+        queue_id = identity("queue-id", 192)
+        house = identity("house", 256)
+        character = identity("character", 256)
+    pending_ids = sorted(_varied_ascii(f"pending-{index}", pending_length) for index in range(6))
+    queue = {
+        "format": 1,
+        "queueId": queue_id,
+        "generatedAt": 1_759_990_000,
+        "expiresAt": 1_760_000_100,
+        "house": house,
+        "character": character,
+        "armed": False,
+        "actions": [{"seq": 1, "kind": "mail_collect", "maxMessages": 4_294_967_295}],
     }
-    value["motion"]["bindings"] = {
-        name: "SHIFT-ALT-CTRL-" + "X" * 17
-        for name in (
-            "moveForward",
-            "moveBackward",
-            "strafeLeft",
-            "strafeRight",
-            "turnLeft",
-            "jump",
-            "turnRight",
-        )
+    saved = {
+        "scans": {
+            pending_id: {"id": pending_id, "finishedAt": 1_759_990_000 + index}
+            for index, pending_id in enumerate(pending_ids)
+        },
+        "sweeps": {},
     }
-    current_speed = 999.8754321098765
-    value["motion"]["speed"] = current_speed
-    value["motion"]["native"] = {
-        "ctm": {
-            "accessor": "C_CVar.GetCVarBool",
-            "cvar": "autointeract",
-            "state": "unknown",
-            "reason": "wrong_type",
-        },
-        "ground": {
-            "state": "unknown",
-            "falling": "unknown",
-            "flying": "unknown",
-            "swimming": "unknown",
-            "submerged": "unknown",
-            "mounted": "unknown",
-            "taxi": "unknown",
-            "reason": "wrong_type",
-        },
-        "speedTuple": {
-            "current": current_speed,
-            "run": 997.6543210987654,
-            "flight": 876.5432109876543,
-            "swim": 4.7222218513489,
-            "unitStatus": "unverified",
-        },
-    }
-    frame = encode_frame(value)
+    client = WowClient(queue=queue, initial_savedvars=saved)
+    client.set_canonical_plan()
+    client.login()
+    client.set_mail_count(1)
+    client.set_frame_open("mailbox")
+    return client
+
+
+def test_real_lua_max_field_bounds_payload_stays_within_wire_caps() -> None:
+    # Keep six deterministic, varied pending IDs in the real SavedVariables
+    # path while exercising the maximum executor identity/progress fields.
+    client = _max_executor_client(varied_identities=True, pending_length=32)
+    client.update_agent()
+    queue_id = _varied_ascii("queue-id", 192)
+    house = _varied_ascii("house", 256)
+    character = _varied_ascii("character", 256)
+    pending_ids = sorted(_varied_ascii(f"pending-{index}", 32) for index in range(6))
+
+    frame = client.agent_frame
     assert len(frame) == 2048
-    decoded = decode_frame(frame)
-    assert decoded.payload_length < 2000
-    assert decoded.snapshot.value["motion"]["native"] == value["motion"]["native"]
+    payload_length = int.from_bytes(frame[8:10], "little")
+    assert 1 <= payload_length < 2000
+    direct = decode_frame(frame)
+    executor = direct.snapshot.value["executor"]
+    assert direct.snapshot.value["schema"] == 6
+    assert executor["availability"] == "valid"
+    assert executor["queueId"] == queue_id
+    assert executor["house"] == house
+    assert executor["character"] == character
+    assert executor["currentSeq"] == 1
+    assert executor["currentKind"] == "mail_collect"
+    assert executor["phase"] == "ready"
+    assert executor["workDone"] == 0
+    assert executor["workTotal"] == 4_294_967_295
+    assert executor["resultCount"] == 0
+    assert direct.snapshot.value["pending"]["ids"] == pending_ids
+
+    decoder = PixelDecoder()
+    captured = decoder.decode(
+        client.render_agent_capture(), monotonic=1.0, window_identity="max-executor-wire"
+    )
+    assert captured.kind == "FRESH" and captured.frame is not None
+    assert captured.frame.payload_length == payload_length
+    assert captured.frame.snapshot["executor"] == executor
+
+    # Produce a second real Lua frame with a terminal result while retaining
+    # the maximum accepted queue identity.  This gives the same bounded
+    # producer path both its pre-work progress witness and result witness.
+    assert client.ns.Executor.Skip() is True
+    client.update_agent()
+    terminal = decode_frame(client.agent_frame)
+    terminal_executor = terminal.snapshot.value["executor"]
+    assert terminal_executor["currentSeq"] == 0
+    assert terminal_executor["phase"] == "complete"
+    assert terminal_executor["resultCount"] == 1
+    assert terminal_executor["lastResult"] == {"seq": 1, "kind": "mail_collect", "status": "skipped"}
+    terminal_capture = decoder.decode(
+        client.render_agent_capture(), monotonic=2.0, window_identity="max-executor-wire"
+    )
+    assert terminal_capture.kind == "FRESH" and terminal_capture.frame is not None
+    assert terminal_capture.frame.snapshot["executor"]["lastResult"] == terminal_executor["lastResult"]
+
+
+def test_real_lua_canonical_executor_frame_carries_native_scanner_uids() -> None:
+    house = "beta-normal-alliance"
+    character = "Tester"
+    started_at = 1_760_000_000
+    pending_ids = [f"{house}-{started_at}-{character}-{index:04d}" for index in range(6)]
+    queue = {
+        "format": 1,
+        "queueId": f"{house}-{character}-{started_at}-abcd",
+        "generatedAt": started_at,
+        "expiresAt": started_at + 600,
+        "house": house,
+        "character": character,
+        "armed": False,
+        "actions": [{"seq": 1, "kind": "mail_collect", "maxMessages": 2}],
+    }
+    saved = {
+        "scans": {
+            pending_id: {"id": pending_id, "finishedAt": started_at + index}
+            for index, pending_id in enumerate(pending_ids)
+        },
+        "sweeps": {},
+    }
+    client = WowClient(
+        faction="Alliance",
+        realm="Classic Beta PvE 2",
+        current_region=110,
+        queue=queue,
+        initial_savedvars=saved,
+    )
+    client.set_canonical_plan()
+    client.login()
+    client.set_mail_count(2)
+    client.set_frame_open("mailbox")
+    client.update_agent()
+
+    frame = client.agent_frame
+    payload_length = int.from_bytes(frame[8:10], "little")
+    direct = decode_frame(frame)
+    executor = direct.snapshot.value["executor"]
+    assert 1 <= payload_length < 2_000
+    assert direct.snapshot.value["schema"] == 6
+    assert direct.snapshot.value["house"] == {"key": house, "source": "auto"}
+    assert direct.snapshot.value["pending"]["ids"] == pending_ids
+    assert executor["availability"] == "valid"
+    assert executor["queueId"] == queue["queueId"]
+    assert executor["currentKind"] == "mail_collect"
+    assert executor["phase"] == "ready"
+    assert executor["clickReady"] is True
+    assert executor["workDone"] == 0 and executor["workTotal"] == 2
+    assert executor["publishedArmed"] is False and executor["sessionArmed"] is False
+
+    captured = PixelDecoder().decode(
+        client.render_agent_capture(), monotonic=1.0, window_identity="canonical-executor-wire"
+    )
+    assert captured.kind == "FRESH" and captured.frame is not None
+    assert captured.frame.payload_length == payload_length
+    assert captured.frame.snapshot["executor"] == executor
+
+
+def test_real_lua_high_entropy_max_bound_payload_is_rejected_without_fallback() -> None:
+    # This is deliberately an aggregate oversize case, not a silently reduced
+    # positive fixture: all bounded identities and all six pending IDs are
+    # deterministic high-entropy values at their accepted byte ceilings.
+    client = _max_executor_client(varied_identities=True, pending_length=32)
+    client.publish_agent()
+    before = client.agent_frame
+    oversized_ids = sorted(_varied_ascii(f"pending-{index}", 192) for index in range(6))
+    client.lua.globals().CrowleyDB.scans = client._to_lua(
+        {
+            pending_id: {"id": pending_id, "finishedAt": 1_759_990_000 + index}
+            for index, pending_id in enumerate(oversized_ids)
+        }
+    )
+    value = client.snapshot_agent()
+    # Prove the aggregate rejection is independent of schema validity: every
+    # field remains acceptable to the strict consumer before compression.
+    protocol_module.validate_snapshot(value)
+    raw = json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+    compressor = zlib.compressobj(wbits=-15)
+    compressed = compressor.compress(raw) + compressor.flush()
+    assert value["schema"] == 6
+    assert value["executor"]["availability"] == "valid"
+    assert value["executor"]["workTotal"] == 4_294_967_295
+    assert len(compressed) > 2_000
+    with pytest.raises(Exception, match="payload exceeds 2000 bytes"):
+        client.publish_agent()
+    assert client.agent_frame == before
 
 
 @pytest.mark.parametrize("compressed_size", (2_000, 2_001), ids=("accepted-2000", "refused-2001"))

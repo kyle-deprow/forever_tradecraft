@@ -93,9 +93,19 @@ def _fresh_build_binary(project: Path, target_dir: Path) -> Path:
     cargo = cargo or shutil.which("cargo")
     if cargo is None:
         pytest.fail("build the matcher or set CARGO")
-    target_dir.mkdir(mode=0o700)
+    target_dir.mkdir(mode=0o700, exist_ok=True)
+    target_dir.chmod(0o700)
+    cargo_path = Path(cargo)
+    toolchain_dir = cargo_path.parent if cargo_path.is_absolute() else None
     environment = {
-        "PATH": os.environ.get("PATH", "/usr/bin:/bin"),
+        "PATH": ":".join(
+            part
+            for part in (
+                str(toolchain_dir) if toolchain_dir is not None else "",
+                os.environ.get("PATH", "/usr/bin:/bin"),
+            )
+            if part
+        ),
         "CARGO_TARGET_DIR": str(target_dir),
         "CARGO_HOME": str(target_dir / "cargo-home"),
         "CARGO_NET_OFFLINE": "true",
@@ -103,8 +113,13 @@ def _fresh_build_binary(project: Path, target_dir: Path) -> Path:
         "CARGO_TERM_COLOR": "never",
     }
     (target_dir / "cargo-home").mkdir(mode=0o700)
-    if os.environ.get("RUSTC"):
-        environment["RUSTC"] = os.environ["RUSTC"]
+    rustc = os.environ.get("RUSTC")
+    if not rustc and toolchain_dir is not None:
+        sibling = toolchain_dir / "rustc"
+        if sibling.is_file():
+            rustc = str(sibling)
+    if rustc:
+        environment["RUSTC"] = rustc
     result = subprocess.run(
         [
             cargo,
@@ -650,6 +665,7 @@ def test_builder_ignores_contaminated_cargo_configuration_and_wrappers(tmp_path:
     ]
     clean_environment = {
         **os.environ,
+        "HOME": str(tmp_path / "clean-builder-home"),
         "CARGO_HOME": str(tmp_path / "clean-cargo-home"),
         "TMPDIR": str(tmp_path / "clean-tmp"),
         "RUSTFLAGS": "",
@@ -670,6 +686,7 @@ def test_builder_ignores_contaminated_cargo_configuration_and_wrappers(tmp_path:
     clean_manifest = (output / MANIFEST_NAME).read_bytes()
     environment = {
         **os.environ,
+        "HOME": str(tmp_path / "contaminated-builder-home"),
         "CARGO_HOME": str(contaminated_home),
         "TMPDIR": str(contaminated_tmp),
         "RUSTC_WRAPPER": str(wrapper),
@@ -790,9 +807,37 @@ def test_public_benchmark_normalizes_relative_binary_and_rejects_symlink(tmp_pat
     benchmark = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(benchmark)
     configured = os.environ.get("CROWLEY_TEMPLATE_MATCHER_BIN")
-    if not configured:
-        pytest.fail("CROWLEY_TEMPLATE_MATCHER_BIN must point to the retained private release")
-    source_binary = Path(configured)
+    if configured:
+        source_binary = Path(configured)
+    else:
+        cargo = os.environ.get("CARGO")
+        toolchain_dir = Path(cargo).parent if cargo and Path(cargo).is_absolute() else None
+        if toolchain_dir is None or not (toolchain_dir / "rustc").is_file():
+            pytest.skip("benchmark fixture requires the pinned template-matcher toolchain")
+        source_binary = tmp_path / "source-release" / ARTIFACT_NAME
+        source_binary.parent.mkdir(mode=0o700)
+        build_environment = {
+            **os.environ,
+            "HOME": str(tmp_path / "benchmark-builder-home"),
+        }
+        result = subprocess.run(
+            [
+                sys.executable,
+                str(BUILDER),
+                "--output-dir",
+                str(source_binary.parent),
+                "--toolchain-dir",
+                str(toolchain_dir),
+            ],
+            check=False,
+            capture_output=True,
+            text=True,
+            cwd=Path("/"),
+            env=build_environment,
+        )
+        assert result.returncode == 0, (
+            f"template matcher publication failed:\n{result.stdout}\n{result.stderr}"
+        )
     source_manifest = source_binary.parent / MANIFEST_NAME
     publication = tmp_path / "release"
     publication.mkdir(mode=0o700)

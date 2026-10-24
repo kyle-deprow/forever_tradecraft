@@ -1,0 +1,83 @@
+============================= test session starts ==============================
+platform linux -- Python 3.12.12, pytest-9.1.1, pluggy-1.6.0
+rootdir: /home/dev/repos/pegasus
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.15.1, xdist-3.8.0
+created: 16/16 workers
+16 workers [2480 items]
+
+........................................................................ [  2%]
+................................................s....................... [  5%]
+............s........................................................... [  8%]
+........................................................................ [ 11%]
+........................................................................ [ 14%]
+........................................................................ [ 17%]
+........................................................................ [ 20%]
+.......................................................ss.sssssssss.ssss [ 23%]
+ssssss.ss............................................................... [ 26%]
+........................................................................ [ 29%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 40%]
+........................................................................ [ 43%]
+........................................................................ [ 46%]
+........................................................................ [ 49%]
+........................................................................ [ 52%]
+........................................................................ [ 55%]
+........................................................................ [ 58%]
+........................................................................ [ 60%]
+........................................................................ [ 63%]
+........................................................................ [ 66%]
+........................................................................ [ 69%]
+........................................................................ [ 72%]
+........................................................................ [ 75%]
+........................................................................ [ 78%]
+........................................................................ [ 81%]
+........................................................................ [ 84%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 92%]
+........................................................................ [ 95%]
+........................................................................ [ 98%]
+................................                                         [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: 16 warnings
+  /home/dev/repos/pegasus/.venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_session_capture.py::test_lock_contention_consumes_deadline_without_invoking_screenshot
+  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=828765) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+tests/test_crowley_ops.py::test_backup_uses_real_nonblocking_process_lock
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+tests/test_trading_engine.py::test_report_contains_required_fields_and_covers_full_size_statistics
+  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=828739) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+tests/test_session_pointer_execution.py::test_process_death_after_go_boundary_preserves_spacing_for_next_owner
+  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=828795) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+tests/test_native_calibration_operator.py::test_owned_emitter_invalid_process_group_reaps_child_and_closes_fds
+tests/test_native_calibration_operator.py::test_cancellation_child_closes_inherited_nonprotocol_fd_and_keeps_protocol
+tests/test_native_calibration_operator.py::test_owned_emitter_gate_and_release_subprocess
+tests/test_native_calibration_operator.py::test_owned_emitter_gate_eof_is_bounded
+  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=828757) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+tests/test_session_capture.py::test_capture_lock_serializes_independent_processes
+tests/test_session_capture.py::test_capture_revocation_epoch_blocks_lock_wait_after_rearm
+  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=828760) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+========== 2455 passed, 25 skipped, 33 warnings in 153.49s (0:02:33) ===========

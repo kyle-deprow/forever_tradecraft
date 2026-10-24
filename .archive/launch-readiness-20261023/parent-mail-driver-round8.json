@@ -1,0 +1,14 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "pytest",
+    "-q",
+    "tests/test_session_driver_actions.py",
+    "tests/test_session_pointer_execution.py"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 3.409,
+  "source_manifest": "mail-driver-round8-sha256.json",
+  "hashes_unchanged": true
+}

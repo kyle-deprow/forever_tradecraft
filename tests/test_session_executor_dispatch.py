@@ -9,6 +9,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from crowley.session import pointer_execution
 from crowley.session.driver import (
     DriverError,
     DriverProfile,
@@ -212,7 +213,7 @@ def test_pointer_chain_rejects_malformed_or_off_client_trajectory() -> None:
         "control",
     )
     object.__setattr__(invalid_timing.samples[1], "at", 0.0)
-    with pytest.raises(DriverError, match="strictly increasing"):
+    with pytest.raises(DriverError, match="strictly bounded"):
         build_pointer_motion_chain(invalid_timing, (0, 0, 20, 20))
 
 
@@ -315,12 +316,14 @@ def _test_anchor(
     *,
     sequence: int,
     bounds: tuple[int, int, int, int],
+    action: str = "logout",
+    control: str = "world",
 ) -> MeasuredAnchor:
     capture_path = tmp_path / f"anchor-{sequence}.png"
     capture_path.write_bytes(f"capture-{sequence}".encode())
     digest = hashlib.sha256(capture_path.read_bytes()).hexdigest()
     return MeasuredAnchor.from_capture(
-        action="open_ah",
+        action=action,
         x=bounds[0] + bounds[2] // 2,
         y=bounds[1] + bounds[3] // 2,
         identity_fingerprint=identity.fingerprint,
@@ -337,16 +340,30 @@ def _test_anchor(
         generation=1,
         capture_path=str(capture_path),
         facts=(
-            ("control", "auctioneer_buckler"),
+            ("control", control),
             ("capture", digest),
             ("target", str(identity.child_xid)),
         ),
     )
 
 
-def test_native_action_uses_one_positive_dwell_click_when_already_at_target(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
+def _gesture(pointer: PointerTrajectory, click) -> pointer_execution.HumanPointerPlan:
+    return pointer_execution.HumanPointerPlan(
+        seed=1,
+        trajectory=pointer,
+        waypoints=(),
+        click=click,
+    )
+
+
+def _patch_pointer_rate_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    state = tmp_path / "pointer-rate-state"
+    state.mkdir(mode=0o700)
+    monkeypatch.setattr(pointer_execution, "_session_state_directory", lambda: state)
+
+
+def test_native_action_uses_open_ah_keyboard_chord(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _patch_pointer_rate_state(monkeypatch, tmp_path)
     profile = DriverProfile(display=":dispatch", xauthority=str(tmp_path / "Xauthority"))
     backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
     identity = WindowIdentity(
@@ -366,50 +383,32 @@ def test_native_action_uses_one_positive_dwell_click_when_already_at_target(
         0x700100,
         frozenset({0x700100, 0x700101}),
     )
-    backend.resolve_identity = lambda require_foreground=True: identity  # type: ignore[method-assign]
+    backend.resolve_identity = lambda *, require_foreground=True, deadline_monotonic=None: identity  # type: ignore[method-assign]
     monkeypatch.setattr(backend, "_focus", lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(backend, "pointer_position", lambda **_kwargs: (110, 120, identity.child_xid))
-    monkeypatch.setattr(backend, "is_descendant", lambda _xid, _ancestor: True)
     commands: list[list[str]] = []
     monkeypatch.setattr(
         backend,
         "_run",
         lambda args, **_kwargs: commands.append(args) or CompletedProcess(args, 0, "", ""),
     )
-    anchor = SimpleNamespace(
-        x=110,
-        y=120,
-        identity_fingerprint=identity.fingerprint,
-        target_xid=identity.child_xid,
-        target_ancestry=(identity.child_xid,),
-        capture_id="capture",
-        capture_sequence=2,
-        evidence_hash="anchor",
-        generation=1,
-        facts={"control": "auctioneer_buckler", "capture": "capture", "target": str(identity.child_xid)},
-    )
-    backend._measured_anchors["open_ah"] = anchor
-    backend._consumed_anchor_seals.add("anchor")
-    binding = BindingMetadata(
-        identity.fingerprint, "capture", 2, 1, identity.child_xid, (identity.child_xid,)
-    )
-    target = PointerTarget("auctioneer_buckler", Rect(100, 110, 21, 21), binding, padding=1)
-    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.RIGHT)
-    backend.action("open_ah", generation=1, _admitted_anchor=anchor, _click_plan=click)
+    backend.action("open_ah", generation=1, _keyboard_keymap={"Control_L": 37, "F12": 88})
     assert len(commands) == 1
     assert commands[0][1:] == [
-        "mousedown",
-        "3",
-        "sleep",
-        f"{click.dwell:.6f}",
-        "mouseup",
-        "3",
+        "keydown",
+        "037",
+        "keydown",
+        "088",
+        "keyup",
+        "088",
+        "keyup",
+        "037",
     ]
 
 
 def test_pointer_motion_requires_fresh_unchanged_anchor_before_click(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _patch_pointer_rate_state(monkeypatch, tmp_path)
     profile = DriverProfile(display=":dispatch", xauthority=str(tmp_path / "Xauthority"))
     backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
     identity = WindowIdentity(
@@ -429,7 +428,7 @@ def test_pointer_motion_requires_fresh_unchanged_anchor_before_click(
         0x700100,
         frozenset({0x700100, 0x700101}),
     )
-    backend.resolve_identity = lambda require_foreground=True: identity  # type: ignore[method-assign]
+    backend.resolve_identity = lambda *, require_foreground=True, deadline_monotonic=None: identity  # type: ignore[method-assign]
     monkeypatch.setattr(backend, "_focus", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(backend, "pointer_position", lambda **_kwargs: (10, 10, identity.child_xid))
     monkeypatch.setattr(backend, "is_descendant", lambda _xid, _ancestor: True)
@@ -441,7 +440,7 @@ def test_pointer_motion_requires_fresh_unchanged_anchor_before_click(
     )
     old = _test_anchor(tmp_path, identity, sequence=1, bounds=(100, 100, 30, 30))
     fresh = _test_anchor(tmp_path, identity, sequence=2, bounds=(140, 100, 30, 30))
-    backend._measured_anchors["open_ah"] = old
+    backend._measured_anchors["logout"] = old
     backend._consumed_anchor_seals.add(old.evidence_hash)
     binding = BindingMetadata(
         identity.fingerprint,
@@ -451,18 +450,22 @@ def test_pointer_motion_requires_fresh_unchanged_anchor_before_click(
         identity.child_xid,
         old.target_ancestry,
     )
-    target = PointerTarget("auctioneer_buckler", Rect(*old.bounds), binding, padding=1)
-    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.RIGHT)
+    target = PointerTarget("world", Rect(*old.bounds), binding, padding=1)
+    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.LEFT)
     pointer = plan_pointer_curve(Point(10, 10), target, Rect(0, 0, 1920, 1080))
+    gesture = _gesture(pointer, click)
     with pytest.raises(DriverError, match="changed control, bounds, or identity"):
-        backend.action(
-            "open_ah",
-            generation=1,
-            _admitted_anchor=old,
-            _pointer_plan=pointer,
-            _click_plan=click,
-            _refresh_anchor=lambda _identity, _previous: fresh,
-        )
+        with pointer_execution.acquire_click_rate_permit() as permit:
+            backend.action(
+                "logout",
+                generation=1,
+                _admitted_anchor=old,
+                _pointer_plan=pointer,
+                _click_plan=click,
+                _gesture_plan=gesture,
+                _click_rate_permit=permit,
+                _refresh_anchor=lambda _identity, _previous: fresh,
+            )
     assert any("mousemove" in command for command in commands)
     assert not any(command[1:2] == ["mousedown"] for command in commands)
 
@@ -470,6 +473,7 @@ def test_pointer_motion_requires_fresh_unchanged_anchor_before_click(
 def test_pointer_click_success_records_protected_boundary_order(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _patch_pointer_rate_state(monkeypatch, tmp_path)
     profile = DriverProfile(display=":dispatch-order", xauthority=str(tmp_path / "Xauthority"))
     backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
     identity = WindowIdentity(
@@ -490,7 +494,7 @@ def test_pointer_click_success_records_protected_boundary_order(
         frozenset({0x700100, 0x700101}),
     )
     order: list[str] = []
-    backend.resolve_identity = lambda require_foreground=True: (  # type: ignore[method-assign]
+    backend.resolve_identity = lambda *, require_foreground=True, deadline_monotonic=None: (  # type: ignore[method-assign]
         order.append("identity-foreground" if require_foreground else "identity-initial") or identity
     )
     monkeypatch.setattr(backend, "_focus", lambda *_args, **_kwargs: order.append("focus"))
@@ -511,7 +515,7 @@ def test_pointer_click_success_records_protected_boundary_order(
     monkeypatch.setattr(backend, "is_descendant", lambda _xid, _ancestor: True)
     old = _test_anchor(tmp_path, identity, sequence=1, bounds=(100, 100, 30, 30))
     fresh = _test_anchor(tmp_path, identity, sequence=2, bounds=(100, 100, 30, 30))
-    backend._measured_anchors["open_ah"] = old
+    backend._measured_anchors["logout"] = old
 
     class RecordingConsumed(set[str]):
         checks = 0
@@ -531,8 +535,8 @@ def test_pointer_click_success_records_protected_boundary_order(
         identity.child_xid,
         old.target_ancestry,
     )
-    target = PointerTarget("auctioneer_buckler", Rect(*old.bounds), binding, padding=1)
-    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.RIGHT)
+    target = PointerTarget("world", Rect(*old.bounds), binding, padding=1)
+    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.LEFT)
     endpoint = (int(click.point.x), int(click.point.y))
     pointer = plan_pointer_curve(Point(10, 10), target, Rect(0, 0, 1920, 1080))
 
@@ -552,14 +556,17 @@ def test_pointer_click_success_records_protected_boundary_order(
         order.append("anchor-refresh")
         return fresh
 
-    backend.action(
-        "open_ah",
-        generation=1,
-        _admitted_anchor=old,
-        _pointer_plan=pointer,
-        _click_plan=click,
-        _refresh_anchor=refresh,
-    )
+    with pointer_execution.acquire_click_rate_permit() as permit:
+        backend.action(
+            "logout",
+            generation=1,
+            _admitted_anchor=old,
+            _pointer_plan=pointer,
+            _click_plan=click,
+            _gesture_plan=_gesture(pointer, click),
+            _click_rate_permit=permit,
+            _refresh_anchor=refresh,
+        )
     assert order.index("motion") < order.index("identity-foreground") < order.index("anchor-refresh")
     assert order.index("anchor-refresh") < order.index("consumed-check") < order.index("pointer-pre")
     assert order.index("pointer-pre") < order.index("click")
@@ -569,6 +576,7 @@ def test_pointer_click_success_records_protected_boundary_order(
 def test_pointer_plan_binding_and_endpoint_must_match_click_before_input(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
+    _patch_pointer_rate_state(monkeypatch, tmp_path)
     profile = DriverProfile(display=":dispatch", xauthority=str(tmp_path / "Xauthority"))
     backend = X11Backend(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
     identity = WindowIdentity(
@@ -588,12 +596,12 @@ def test_pointer_plan_binding_and_endpoint_must_match_click_before_input(
         0x700100,
         frozenset({0x700100, 0x700101}),
     )
-    backend.resolve_identity = lambda require_foreground=True: identity  # type: ignore[method-assign]
+    backend.resolve_identity = lambda *, require_foreground=True, deadline_monotonic=None: identity  # type: ignore[method-assign]
     monkeypatch.setattr(backend, "_focus", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(backend, "pointer_position", lambda **_kwargs: (10, 10, identity.child_xid))
     monkeypatch.setattr(backend, "is_descendant", lambda _xid, _ancestor: True)
     anchor = _test_anchor(tmp_path, identity, sequence=1, bounds=(100, 100, 30, 30))
-    backend._measured_anchors["open_ah"] = anchor
+    backend._measured_anchors["logout"] = anchor
     backend._consumed_anchor_seals.add(anchor.evidence_hash)
     binding = BindingMetadata(
         identity.fingerprint,
@@ -603,20 +611,23 @@ def test_pointer_plan_binding_and_endpoint_must_match_click_before_input(
         identity.child_xid,
         anchor.target_ancestry,
     )
-    target = PointerTarget("auctioneer_buckler", Rect(*anchor.bounds), binding, padding=1)
-    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.RIGHT)
+    target = PointerTarget("world", Rect(*anchor.bounds), binding, padding=1)
+    click = plan_single_click(target, Rect(0, 0, 1920, 1080), button=PointerButton.LEFT)
     pointer = plan_pointer_curve(Point(10, 10), target, Rect(0, 0, 1920, 1080))
     mismatched = pointer
     object.__setattr__(mismatched, "endpoint", Point(pointer.endpoint.x - 1, pointer.endpoint.y))
     with pytest.raises(DriverError, match="cross-match"):
-        backend.action(
-            "open_ah",
-            generation=1,
-            _admitted_anchor=anchor,
-            _pointer_plan=mismatched,
-            _click_plan=click,
-            _refresh_anchor=lambda _identity, _previous: anchor,
-        )
+        with pointer_execution.acquire_click_rate_permit() as permit:
+            backend.action(
+                "logout",
+                generation=1,
+                _admitted_anchor=anchor,
+                _pointer_plan=mismatched,
+                _click_plan=click,
+                _gesture_plan=_gesture(mismatched, click),
+                _click_rate_permit=permit,
+                _refresh_anchor=lambda _identity, _previous: anchor,
+            )
 
 
 def _event(

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from fractions import Fraction
@@ -10,6 +11,7 @@ from crowley.trading.api import (
     AH_CUT,
     AccountView,
     Buy,
+    Cancel,
     Craft,
     Intent,
     MarketView,
@@ -20,6 +22,7 @@ from crowley.trading.api import (
     VendorSell,
 )
 
+from ..requirements import recipe_available
 from .common import (
     as_fraction,
     clears_vendor_floor,
@@ -43,6 +46,11 @@ DEFAULT_PARAMS = {
     "capacity_share": 0.25,
     "min_fair_n": 16,
     "max_band_width": 0.35,
+    "listing_duration_hours": 24,
+    "post_horizon_hours": None,
+    "reprice_after_hours": None,
+    "reprice_gap": 0.05,
+    "max_cancels_per_step": 1,
 }
 
 
@@ -83,17 +91,146 @@ def _projected_capacity(
     return max(0, cap - held.get(snapshot.item_id, 0))
 
 
+def _strict_fraction(value: object, name: str) -> Fraction:
+    """Validate a finite numeric policy value without coercing strings or bools."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float, Fraction)):
+        raise TypeError(f"{name} must be an int, float, or Fraction")
+    if isinstance(value, float) and not math.isfinite(value):
+        raise ValueError(f"{name} must be finite")
+    return as_fraction(value)
+
+
+def _post_horizon_limit(
+    snapshot,
+    account: AccountView,
+    capacity_share: Fraction | int | float,
+    horizon_hours: Fraction | None,
+) -> int | None:
+    """Return the remaining optional listing exposure for one output item."""
+
+    if horizon_hours is None:
+        return None
+    assert snapshot.demand_units_per_day is not None
+    cap = floor_fraction(
+        as_fraction(snapshot.demand_units_per_day) * as_fraction(capacity_share) * horizon_hours / 24
+    )
+    listed = sum(
+        max(0, listing.quantity_remaining)
+        for listing in account.listings()
+        if listing.item_id == snapshot.item_id
+    )
+    return max(0, cap - listed)
+
+
 class CraftingStrategy:
     def __init__(self, params: Mapping[str, object] | None = None) -> None:
         self.params = dict(DEFAULT_PARAMS)
         if params:
             self.params.update(params)
+        duration = self.params["listing_duration_hours"]
+        if isinstance(duration, bool) or not isinstance(duration, int):
+            raise TypeError("listing_duration_hours must be an integer")
+        if duration not in (12, 24, 48):
+            raise ValueError("listing_duration_hours must be 12, 24, or 48")
+        horizon = self.params["post_horizon_hours"]
+        if horizon is not None:
+            horizon = _strict_fraction(horizon, "post_horizon_hours")
+            if horizon <= 0 or horizon > 48:
+                raise ValueError("post_horizon_hours must be in (0, 48]")
+        reprice_after = self.params["reprice_after_hours"]
+        if reprice_after is not None:
+            reprice_after = _strict_fraction(reprice_after, "reprice_after_hours")
+            if reprice_after <= 0:
+                raise ValueError("reprice_after_hours must be positive")
+        reprice_gap = _strict_fraction(self.params["reprice_gap"], "reprice_gap")
+        if not 0 < reprice_gap < 1:
+            raise ValueError("reprice_gap must be in (0, 1)")
+        max_cancels = self.params["max_cancels_per_step"]
+        if isinstance(max_cancels, bool) or not isinstance(max_cancels, int):
+            raise TypeError("max_cancels_per_step must be an integer")
+        if not 1 <= max_cancels <= 50:
+            raise ValueError("max_cancels_per_step must be in [1, 50]")
+        self._listing_duration_hours = duration
+        self._post_horizon_hours = horizon
+        self._reprice_after_hours = reprice_after
+        self._reprice_gap = reprice_gap
+        self._max_cancels_per_step = max_cancels
         professions = self.params.get("professions", ())
         if isinstance(professions, str):
             professions = (professions,)
         self.professions = frozenset(str(profession) for profession in professions)
         self.name = str(self.params.get("name", "crafting"))
         self._planned: tuple[int, int] | None = None
+
+    def _reprice_intents(
+        self,
+        market: MarketView,
+        account: AccountView,
+        output_ids: Sequence[int],
+        projected_cash: int,
+    ) -> tuple[list[Intent], int]:
+        """Cancel only trustworthy, materially undercut own listings.
+
+        A replacement post is deliberately deferred to a later sweep.  The account view is
+        immutable here, and execution remains responsible for losing the old deposit and
+        charging the replacement deposit if a later decision posts the returned inventory.
+        """
+
+        if self._reprice_after_hours is None:
+            return [], projected_cash
+        output_set = set(output_ids)
+        intents: list[Intent] = []
+        for listing in sorted(account.listings(), key=lambda entry: (entry.posted_t, entry.listing_id)):
+            if len(intents) >= self._max_cancels_per_step:
+                break
+            if listing.item_id not in output_set or listing.quantity_remaining <= 0:
+                continue
+            snapshot = market.items().get(listing.item_id)
+            facts = market.facts(listing.item_id)
+            if (
+                snapshot is None
+                or facts is None
+                or not trustworthy_fair(
+                    snapshot,
+                    min_fair_n=int(self.params["min_fair_n"]),
+                    max_band_width=self.params["max_band_width"],
+                )
+            ):
+                continue
+            age = market.t - listing.posted_t
+            if age < self._reprice_after_hours * 3_600 or age < 0:
+                continue
+            if listing.expires_t - market.t < 3_600:
+                continue
+            target = target_sell_price(
+                snapshot,
+                floor_fraction(as_fraction(self.params["buy_ratio"]) * snapshot.fair),
+                floor_ratio=self.params["floor_ratio"],
+                cap_ratio=self.params["cap_ratio"],
+            )
+            if not (
+                target < listing.unit_price
+                and Fraction(target) <= Fraction(listing.unit_price) * (1 - self._reprice_gap)
+                and clears_vendor_floor(target, facts)
+            ):
+                continue
+            replacement_deposit = market.deposit(
+                listing.item_id,
+                listing.quantity_remaining,
+                self._listing_duration_hours,
+            )
+            net_after_deposit = (
+                Fraction(target * listing.quantity_remaining) * (1 - AH_CUT) - replacement_deposit
+            )
+            if (
+                replacement_deposit > projected_cash
+                or net_after_deposit <= facts.sell_price * listing.quantity_remaining
+            ):
+                continue
+            intents.append(Cancel(listing.listing_id))
+            projected_cash -= replacement_deposit
+        return intents, projected_cash
 
     def _trusted_outputs(self, recipe: Recipe, market: MarketView):
         outputs: dict[int, tuple[object, object, int]] = {}
@@ -153,7 +290,9 @@ class CraftingStrategy:
         projected_cash: int,
         crafted_groups: set[str],
     ) -> _Candidate | None:
-        if not recipe.professions.intersection(self.professions):
+        if not self.professions.issubset(account.professions):
+            return None
+        if not recipe_available(recipe, self.professions, account.crafting_capabilities):
             return None
         outputs = self._trusted_outputs(recipe, market)
         if outputs is None:
@@ -201,7 +340,7 @@ class CraftingStrategy:
                     cap_ratio=self.params["cap_ratio"],
                 )
                 value += quantity * times * target * (1 - AH_CUT) - market.deposit(
-                    item_id, quantity * times, 24
+                    item_id, quantity * times, self._listing_duration_hours
                 )
             cost = sum((source.full_cost for source in sources), Fraction(0))
             profit = value - cost
@@ -224,7 +363,10 @@ class CraftingStrategy:
             return [], set()
         spell_id, planned_times = self._planned
         recipe = recipes.get(spell_id)
-        if recipe is None or not recipe.professions.intersection(self.professions):
+        if recipe is None or not self.professions.issubset(account.professions):
+            self._planned = None
+            return [], set()
+        if not recipe_available(recipe, self.professions, account.crafting_capabilities):
             self._planned = None
             return [], set()
         before = dict(inventory)
@@ -342,7 +484,17 @@ class CraftingStrategy:
             if not clears_vendor_floor(target, facts):
                 vendor_exits.append((item_id, quantity))
                 continue
-            deposit = market.deposit(item_id, quantity, 24)
+            post_limit = _post_horizon_limit(
+                snapshot,
+                account,
+                self.params["capacity_share"],
+                self._post_horizon_hours,
+            )
+            if post_limit is not None:
+                quantity = min(quantity, post_limit)
+            if quantity <= 0:
+                continue
+            deposit = market.deposit(item_id, quantity, self._listing_duration_hours)
             proceeds = Fraction(quantity) * target * (1 - AH_CUT) - deposit
             post_exits.append((proceeds, item_id, quantity, deposit))
 
@@ -354,6 +506,14 @@ class CraftingStrategy:
             post_inventory[item_id] = 0
             held[item_id] = max(0, held.get(item_id, 0) - quantity)
             projected_cash += facts.sell_price * quantity
+
+        reprice_intents, projected_cash = self._reprice_intents(
+            market,
+            account,
+            output_ids,
+            projected_cash,
+        )
+        intents.extend(reprice_intents)
 
         for _value, item_id, quantity, deposit in sorted(post_exits, key=lambda entry: (-entry[0], entry[1])):
             if deposit > projected_cash:
@@ -367,10 +527,10 @@ class CraftingStrategy:
                 floor_ratio=self.params["floor_ratio"],
                 cap_ratio=self.params["cap_ratio"],
             )
-            intents.append(Post(item_id, target, quantity, 24))
+            intents.append(Post(item_id, target, quantity, self._listing_duration_hours))
             projected_cash -= deposit
             inventory[item_id] = max(0, item_inventory(inventory, item_id) - quantity)
-            post_inventory[item_id] = 0
+            post_inventory[item_id] = max(0, item_inventory(post_inventory, item_id) - quantity)
 
         candidates: list[_Candidate] = []
         for recipe in recipes.values():

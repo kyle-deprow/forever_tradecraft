@@ -1,6 +1,6 @@
 # Forever Tradecraft handoff
 
-Updated 2026-10-23. This is the active handoff: current state, rules, and what remains before launch.
+Updated 2026-10-24. This is the active handoff: current state, rules, and what remains before launch.
 The beta-era handoff (1,837 lines of chronology and proofs) is preserved verbatim in git
 (`git show 7fd2e1d:docs/HANDOFF.md`) and in `.archive/handoff-history-before-launch-prep-20261023.md`.
 Technical reference: [ARCHITECTURE.md](ARCHITECTURE.md) (including the client assumptions table).
@@ -18,8 +18,11 @@ Technical reference: [ARCHITECTURE.md](ARCHITECTURE.md) (including the client as
   (builds 1.60.1.70374 and 1.60.1.70450, 2026-10-15 → 2026-10-23). Backups: 7 daily snapshots plus 14
   restore-drill receipts in `~/.local/state/crowley/market-backups` (final snapshot
   `beta-20261023T215111Z-8dd827fad91d`).
-- **Code:** MAIN is pushed to origin. Every worktree and side branch was audited and removed on 2026-10-23;
-  their uncommitted state is archived in `~/.local/state/crowley/worktree-archive-20261023/`.
+- **Code:** launch preparation is verified on local MAIN; the user authorized committing and pushing it
+  to `origin/main` on 2026-10-24. At task start MAIN was two commits ahead of local origin/main.
+  The existing suite-green worktree/branch remains untouched as read-only reference. No worktree removal,
+  production migrations, deployment or game input were performed.
+  Current execution checkpoint: `.archive/launch-readiness-20261023/STATUS.md`.
 
 ## Objective
 
@@ -41,8 +44,8 @@ Make gold on the WoW Forever auction house with several concurrent, independentl
 - **One GUI owner at a time.** Before any automated input, confirm the game window has focus and nobody is using
   the desktop; verify each action through addon telemetry (XTEST keys go to the Wayland-focused window, not
   necessarily the X "active" window).
-- **Ownership:** the data agent (Claude) owns code and worktree status (user grant 2026-10-23). Implementation
-  goes through the Luna (implement) / Sol (review) loop; the parent verifies and commits. Origin:
+- **Workflow:** implementation goes through the Luna (implement) / Sol (review) loop; the parent independently
+  verifies and maintains worktree status. Commits/pushes require separate approval. Origin:
   https://github.com/p-kjdeprow/forever_tradecraft.
 - **Privacy:** raw frames, receipts, SavedVariables, recordings and backups stay private under
   `~/.local/state/crowley` (dirs 0700, files 0600). Never edit game SavedVariables. Secrets live only in the
@@ -52,7 +55,7 @@ Make gold on the WoW Forever auction house with several concurrent, independentl
 
 | Component | Code | Docs |
 |---|---|---|
-| Addon (scanner, telemetry HUD schema 5, account capture, executor, reference) | `addon/Crowley`, `addon/Crowley_Data` | [ARCHITECTURE](ARCHITECTURE.md), [EXECUTOR_CONTRACT](EXECUTOR_CONTRACT.md) |
+| Addon (scanner, telemetry HUD schema 6, account capture, executor, reference) | `addon/Crowley`, `addon/Crowley_Data` | [ARCHITECTURE](ARCHITECTURE.md), [EXECUTOR_CONTRACT](EXECUTOR_CONTRACT.md) |
 | Companion (SavedVariables ↔ server, Queue.lua) | `src/crowley/companion` | — |
 | Server + TimescaleDB | `src/crowley/server`, `deploy/docker-compose.yml` | [MARKET_RECOVERY](MARKET_RECOVERY.md) |
 | Session daemon (collection driver, guarded input, route walking) | `src/crowley/session` | [REPEATING_SCANS](REPEATING_SCANS.md), [RUNTIME_PERFORMANCE](RUNTIME_PERFORMANCE.md) |
@@ -70,8 +73,9 @@ Make gold on the WoW Forever auction house with several concurrent, independentl
   blacksmithing (≈148 g of ≈218 g closed-trade profit over the beta), then engineering and leatherworking;
   Coarse Grinding Stone alone was ~¼ of profit (concentration risk). Scalping lost money in-model. 58 % of listed
   units expired (deposit losses). A character has only **two** primary professions, so the launch portfolio must
-  be cut to two. Some recipes need stations (Bronze Tube: anvil + Blacksmith Hammer); the engine does not yet
-  model stations.
+  be cut to two. Station/tool/category/focus requirements are now enforced in both strategy and execution.
+  Bronze Tube (spell 3938/output 4371) requires focus 1 and category 162, with no exact tool item row;
+  empty explicit capabilities reject it. The older ungated tables in TRADING are historical evidence.
 - **Live trial facts** (build 70450, 2026-10-22): keyboard turning is π rad/s, run 7 yd/s; XTEST input lands up to
   ~1 s late, so open-loop walking drifted 13 yd while closed-loop stepping worked. JUMP=SPACE, TURNLEFT=Q,
   TURNRIGHT=E. The mailbox and auctioneers open with a left click; object hover shows in a UIParent-owned
@@ -85,39 +89,79 @@ Make gold on the WoW Forever auction house with several concurrent, independentl
 - **Route walker:** `crowley-session route-walk` (closed-loop, Guardian-checked key timelines, holds ≤0.45 s below
   autorepeat) and `world-click` (hover-confirmed, rate-gated mailbox click). Routes in
   `deploy/config/routes/stormwind.json` (Stormwind AH ↔ mailbox, from hand-walked laps).
-- **Telemetry schema 5** (union of the driver's auctioneer/blockingUI fields and the walker's hover/mailOpen fields).
-  The addon and session daemon must always deploy together.
+- **Telemetry schema 6 source** adds exact executor identity/arms/readiness/progress and a button-only callback
+  ordinal to the auctioneer/blockingUI/hover/mailOpen surface. Schema 5 is refused. The addon and session daemon
+  must deploy together; this source has not been qualified live. See [EXECUTOR_TELEMETRY](EXECUTOR_TELEMETRY.md).
 
-## Before launch (open work)
+## Launch preparation
 
-1. **Green test suite** on MAIN with the pinned Rust toolchain (in progress, 2026-10-23).
-2. **Launch parametrization:** client version/build, interface, executable, game folder, realm/house and the scan
-   plan are hard-coded for the beta in ~15 files (protocol checks included). Move them into one launch target
-   configuration so launch day is a config change plus regenerated data.
-3. **Strategy selection** for one character's two professions; station-aware recipes; time-on-AH and expiry
-   handling (smaller posts, cancel/repost).
-4. **Mail loop scheduling** between sweeps and the daemon clicking the addon executor button (not built).
+1. **Suite refactor and final feature integration complete.** Parent bare `uv run pytest`:
+   **2455 passed, 25 skipped, 33 warnings in 153.78s** externally measured wall time, excluding
+   lock wait (2026-10-24). Default `-n16 --dist worksteal`, all retained native cases included,
+   all 83 frozen source hashes unchanged; shared-DB parallel invocation correctly refused.
+   Five duplicate tests and one forwarding helper were removed with retained-oracle mappings;
+   a fragile local statistics timing assertion was deleted while keeping full-size correctness
+   coverage. Final parent disposable DB run: **178 passed, zero skips, 34.08s**, including all
+   25 default DB-gated cases. See [TESTING](TESTING.md) and the final-r4 checkpoint artifacts.
+2. **Launch parametrization complete, Sol READY:** strict packaged target plus deterministic generation,
+   drift checks, coordinated Lua/TOC output and staged configuration; session/companion startup reject stale
+   identity/path/plan values. Beta hashes remain intact. See [LAUNCH_TARGET](LAUNCH_TARGET.md). Launch values
+   and route remeasurement remain pending; current target stays beta. Generator `--check` and the
+   installed mail-loop CLI passed; target/DB/trading checks are included in the verification above.
+3. **Offline strategy work complete:** station-aware gates and immutable paper capability metadata are reviewed
+   READY (new migration 009, applied only to disposable test DB). Comparable empty-capability replays over
+   290 retained build70450 sweeps provisionally favor alchemy+engineering: +60.79g realized, 3512 modeled
+   clicks, 6.55g lost deposits, 52.9% drawdown; 637.56g of final equity is marked unrealized inventory.
+   This is beta evidence, not a fresh-launch forecast. Optional smaller-post/expiry policies passed
+   Luna/Sol review and same-data comparison; all tested variants returned less realized profit with
+   more clicks. Keep the existing 24h listing/exposure defaults and repricing off. See [TRADING](TRADING.md).
+4. **Offline mail/executor work complete, Sol READY:** schema 6 producer/consumer, guarded daemon
+   click, ACK-bound scheduling, immutable terminal/recovery evidence, control races and absolute
+   deadline propagation are implemented and independently reviewed. Both retained whole-cycle tests
+   exercise actual Lua publications/pixel decoding, public IPC, Guardian/input boundaries, return/AH
+   reopening and ordinary reconciliation to `WAIT_DUE`: automatic unarmed dry run and two separately
+   confirmed armed messages, including asynchronous completion without an extra click. Scheduling is
+   process-local, opt-in and off after restart; uncertain work stays blocked. Parent driver/pointer
+   verification: 71 passed in 3.41s; the final integrated default gate is recorded above.
+   Native delivery, measured button bounds, protected APIs and live cycles remain launch-unqualified.
+   No game input or gold arming is authorized by this offline work.
 5. **Collection qualification at launch:** native and human input calibration, takeover qualification, then three
    autonomous 900 s cycles before claiming autonomy.
 
-## Launch-day checklist (draft; finalize with item 2)
+## Launch-day checklist
 
-1. Install/patch the launch client; record its version/build, interface, executable and game folder.
-2. Update the launch target configuration; regenerate client data (`tools/client_data_export.py`) and the item
-   reference; rebuild the scan plan for the new build.
-3. Create the launch house in the DB on first upload (new house key); start a new paper run at the first sweep.
-4. Re-enable `crowley-market-backup.timer` and `crowley-health.timer`; start the session daemon only after the
-   addon reload so both run telemetry schema 5.
-5. Collection qualification (item 5 above); then the executor dry run and, with explicit authorization, the armed
-   micro-test ([LIVE_TRADING_TEST](LIVE_TRADING_TEST.md)).
-6. Re-verify the Stormwind route with one supervised walk before trusting `route-walk`.
+These steps apply at launch, after the relevant deployment/input authorization.
+
+1. Install the actual launch client and record full/native build, interface, native region/realm, house,
+   executable and installation roots. The current exporter supports enUS. Preserve all beta evidence.
+2. Update the packaged [launch target](LAUNCH_TARGET.md), export the new client's own data, regenerate the
+   item reference/scan plan and coordinated addon/TOC artifacts, and run generator `--check`. Render
+   configuration into a staging directory and review it before installing; never relabel beta data/routes.
+3. At a quiet authorized boundary, back up the market, deploy reviewed server changes and apply outstanding
+   migrations (production is currently 001–008; 009 adds paper capability metadata). Verify health and beta
+   retention. Deploy/reload addon and daemon together on [schema 6](EXECUTOR_TELEMETRY.md), with no active queue.
+4. Re-enable backup/health timers. Verify native client identity, house/plan, input/focus/camera facts and
+   takeover qualification. Complete three autonomous 900-second collection cycles before claiming autonomy.
+5. Start a new paper run for the new house/build after its first accepted sweep. Verify actual learned recipes
+   and held tools/categories/focus; empty capabilities remain unavailable. Use the provisional two-profession
+   portfolio and retained 24h listing defaults only as modeling starting points, not launch-profit forecasts.
+6. Remeasure kinematics and the AH/mailbox routes on the actual client. Review the route admission gate with
+   that new evidence; it currently accepts only the verified beta build/provenance. Validate one supervised
+   round trip, native mailbox close truth and guarded AH reopening before scheduling trips.
+7. Qualify measured executor-button bounds/scale and XTEST callback delivery with an unarmed queue. Confirm
+   actual dry-run results, no protected calls, causal private receipts and normal companion execution upload.
+   Keep mailbox scheduling disabled until its deadline, ownership and recovery checks are qualified live.
+8. Only with explicit authorization for the exact queue, run one armed micro-test and reconcile actual
+   balances/items/results per [LIVE_TRADING_TEST](LIVE_TRADING_TEST.md). Uncertain effects remain blocked;
+   preserve their journals/receipts and never reset evidence to manufacture retry permission.
 
 ## Entrypoints
 
 - Python: `/home/dev/repos/pegasus/.venv/bin/python`; session CLI `~/.local/bin/crowley-session` (editable install
   of this checkout); config `deploy/config/session.toml` (linked from `~/.config/crowley/session.toml`).
-- Tests: `CARGO=~/.cache/crowley/rust-toolchain-1.85.1/toolchain/bin/cargo uv run pytest` (add
-  `CROWLEY_TEST_DATABASE_URL` for DB tests).
+- Tests: `CARGO=~/.cache/crowley/rust-toolchain-1.85.1/toolchain/bin/cargo uv run pytest` (the default
+  uses sixteen bounded xdist workers with work-stealing; add `CROWLEY_TEST_DATABASE_URL` only for the documented serial DB run in
+  [TESTING](TESTING.md)).
 - Backups: `systemctl --user start crowley-market-backup.service`; restore drills via `tools.market_backup`.
 - Pinned binaries: `~/.cache/crowley/{xdotool,x11-identity-observer,template-matcher,gnome-telemetry-region-r6,
   codex,rust-toolchain-1.85.1}`. Parts of `gnome-telemetry-region-r3/r5` are root-owned stale builds

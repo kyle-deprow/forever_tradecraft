@@ -13,11 +13,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from crowley.core.game_target import GameTarget, packaged_game_target, target_scan_plan
 from crowley.core.watchlist import load_catalog
 
 from .driver import DriverProfile
 
-_CANONICAL_CLIENT_VERSION, _CANONICAL_CLIENT_BUILD = load_catalog().client_build.rsplit(".", 1)
+_TARGET = packaged_game_target()
+_CANONICAL_CLIENT_VERSION = _TARGET.client_version
+_CANONICAL_CLIENT_BUILD = _TARGET.native_build
+_CANONICAL_INTERFACE = _TARGET.interface
+_CANONICAL_FACTION = _TARGET.faction
+_CANONICAL_LOCALE = _TARGET.locale
 
 
 def _private_group_error(gid: int) -> str | None:
@@ -97,8 +103,8 @@ class SessionConfig:
     profile: DriverProfile
     journal: Path
     socket: Path
-    cadence_seconds: int = 900
-    sweep_cap_seconds: int = 600
+    cadence_seconds: int = _TARGET.cadence_seconds
+    sweep_cap_seconds: int = _TARGET.sweep_cap_seconds
     quiet_margin_seconds: int = 15
     reload_deadline_seconds: int = 45
     ack_deadline_seconds: int = 60
@@ -116,9 +122,9 @@ class SessionConfig:
     plan_hash: str = ""
     plan_json: str = ""
     client_build: str = _CANONICAL_CLIENT_BUILD
-    interface: int = 16001
-    player_faction: str = "Alliance"
-    locale: str = "enUS"
+    interface: int = _CANONICAL_INTERFACE
+    player_faction: str = _CANONICAL_FACTION
+    locale: str = _CANONICAL_LOCALE
     client_version: str = _CANONICAL_CLIENT_VERSION
     addon_version: str = "0.2.0"
     pointer_profile: Path | None = None
@@ -131,12 +137,32 @@ class SessionConfig:
     routes_file: Path | None = None
 
 
-def load_config(path: str | Path) -> SessionConfig:
+def load_config(path: str | Path, *, expected_target: GameTarget | None = None) -> SessionConfig:
     target = Path(path)
     with target.open("rb") as handle:
         raw: dict[str, Any] = tomllib.load(handle)
+    launch_target = expected_target or _TARGET
+    canonical_plan = target_scan_plan(load_catalog(), launch_target)
+    canonical_client_version = launch_target.client_version
+    canonical_client_build = launch_target.native_build
+    canonical_interface = launch_target.interface
+    canonical_faction = launch_target.faction
+    canonical_locale = launch_target.locale
+    canonical_wow_root = Path(launch_target.game_root) / launch_target.product_dir
     profile = raw.get("profile", {})
     session = raw.get("session", {})
+
+    def required_profile_string(name: str, expected: str) -> str:
+        value = profile.get(name)
+        if not isinstance(value, str) or value != expected:
+            raise ValueError(f"profile.{name} must match the packaged launch target")
+        return value
+
+    configured_wine_prefix = required_profile_string("wine_prefix", launch_target.wine_prefix)
+    configured_window_class = required_profile_string("window_class", launch_target.window_class)
+    configured_executable = required_profile_string("executable", launch_target.executable)
+    configured_realm = required_profile_string("realm", launch_target.realm)
+    configured_house = required_profile_string("house", launch_target.house)
 
     def tuple4(name: str, default: tuple[int, int, int, int]) -> tuple[int, int, int, int]:
         value = profile.get(name, default)
@@ -198,7 +224,7 @@ def load_config(path: str | Path) -> SessionConfig:
     driver_profile = DriverProfile(
         display=str(profile.get("display", ":0")),
         xauthority=str(profile.get("xauthority", "")),
-        wine_prefix=str(profile.get("wine_prefix", "")),
+        wine_prefix=configured_wine_prefix,
         client_width=int(profile.get("client_width", 1920)),
         client_height=int(profile.get("client_height", 1080)),
         outer_width=int(profile.get("outer_width", 1928)),
@@ -209,12 +235,12 @@ def load_config(path: str | Path) -> SessionConfig:
         canvas_crop=tuple4("canvas_crop", (80, 48, 256, 256)),
         model_crop=tuple4("model_crop", (80, 48, 1760, 984)),
         window_title=str(profile.get("window_title", "World of Warcraft")),
-        window_class=str(profile.get("window_class", "wowb.exe")),
-        executable=str(profile.get("executable", "WowB.exe")),
+        window_class=configured_window_class,
+        executable=configured_executable,
         character=str(profile.get("character", "Arthur")),
-        realm=str(profile.get("realm", "Classic Beta PvE 2")),
-        house=str(profile.get("house", "beta-normal-alliance")),
-        plan_count=int(profile.get("plan_count", 428)),
+        realm=configured_realm,
+        house=configured_house,
+        plan_count=int(profile.get("plan_count", len(canonical_plan["itemIDs"]))),
         anchor_fingerprints=anchor_fingerprints,
         telemetry_region_executable=telemetry_path,
         telemetry_region_executable_sha256=telemetry_digest,
@@ -225,26 +251,30 @@ def load_config(path: str | Path) -> SessionConfig:
         raise ValueError("window title and class are required for one-client identity")
     if (
         driver_profile.plan_count,
-        session.get("cadence_seconds", 900),
-        session.get("sweep_cap_seconds", 600),
-    ) != (428, 900, 600):
-        raise ValueError("configured plan must be 428 items with 900/600 cadence and cap")
-    if (
-        str(profile.get("client_build", _CANONICAL_CLIENT_BUILD)) != _CANONICAL_CLIENT_BUILD
-        or int(profile.get("interface", 16001)) != 16001
-    ):
+        session.get("cadence_seconds", launch_target.cadence_seconds),
+        session.get("sweep_cap_seconds", launch_target.sweep_cap_seconds),
+    ) != (len(canonical_plan["itemIDs"]), launch_target.cadence_seconds, launch_target.sweep_cap_seconds):
         raise ValueError(
-            f"configured client must be Forever beta build {_CANONICAL_CLIENT_BUILD}/interface 16001"
+            f"configured plan must be {len(canonical_plan['itemIDs'])} items with "
+            f"{launch_target.cadence_seconds}/{launch_target.sweep_cap_seconds} cadence and cap"
         )
     if (
-        str(profile.get("player_faction", "Alliance")) != "Alliance"
-        or str(profile.get("locale", "enUS")) != "enUS"
-        or str(profile.get("client_version", _CANONICAL_CLIENT_VERSION)) != _CANONICAL_CLIENT_VERSION
+        str(profile.get("client_build", canonical_client_build)) != canonical_client_build
+        or int(profile.get("interface", canonical_interface)) != canonical_interface
+    ):
+        raise ValueError(
+            f"configured client must match target build {launch_target.full_build}/"
+            f"interface {canonical_interface}"
+        )
+    if (
+        str(profile.get("player_faction", canonical_faction)) != canonical_faction
+        or str(profile.get("locale", canonical_locale)) != canonical_locale
+        or str(profile.get("client_version", canonical_client_version)) != canonical_client_version
         or str(profile.get("addon_version", "0.2.0")) != "0.2.0"
     ):
         raise ValueError("configured client context does not match the pinned Forever profile")
-    configured_plan_hash = profile.get("plan_hash", "")
-    configured_plan_json = profile.get("plan_json", "")
+    configured_plan_hash = profile.get("plan_hash")
+    configured_plan_json = profile.get("plan_json")
     if not isinstance(configured_plan_hash, str) or not isinstance(configured_plan_json, str):
         raise ValueError("plan_hash and plan_json must be strings")
     if configured_plan_hash and not re.fullmatch(r"[0-9a-f]{64}", configured_plan_hash):
@@ -257,6 +287,11 @@ def load_config(path: str | Path) -> SessionConfig:
         hashlib.sha256(configured_plan_json.encode()).hexdigest() != configured_plan_hash
     ):
         raise ValueError("plan_hash does not match canonical plan_json")
+    if (
+        configured_plan_hash != canonical_plan["planHash"]
+        or configured_plan_json != canonical_plan["planJSON"]
+    ):
+        raise ValueError("configured plan must exactly match the packaged target canonical plan")
     left, top, width, height = driver_profile.model_crop
     if (
         driver_profile.model_crop == driver_profile.canvas_crop
@@ -285,6 +320,11 @@ def load_config(path: str | Path) -> SessionConfig:
     saved_path = Path(session["saved_variables"]).expanduser() if session.get("saved_variables") else None
     companion_path = Path(session["companion_state"]).expanduser() if session.get("companion_state") else None
     data_path = Path(session["data_lua"]).expanduser() if session.get("data_lua") else None
+    for label, configured_path in (("SavedVariables", saved_path), ("Data.lua", data_path)):
+        if configured_path is None or not configured_path.is_absolute():
+            continue
+        if not configured_path.is_relative_to(canonical_wow_root):
+            raise ValueError(f"{label} path must be below the packaged target flavor root")
     routes_path: Path | None = None
     if "routes_file" in session:
         configured_routes = session["routes_file"]
@@ -333,8 +373,8 @@ def load_config(path: str | Path) -> SessionConfig:
         # only the socket/capture paths belong under the runtime directory.
         journal=journal_path,
         socket=socket_path,
-        cadence_seconds=900,
-        sweep_cap_seconds=600,
+        cadence_seconds=launch_target.cadence_seconds,
+        sweep_cap_seconds=launch_target.sweep_cap_seconds,
         quiet_margin_seconds=quiet_margin,
         reload_deadline_seconds=reload_deadline,
         ack_deadline_seconds=ack_deadline,
@@ -348,11 +388,11 @@ def load_config(path: str | Path) -> SessionConfig:
         data_lua=data_path,
         plan_hash=str(profile.get("plan_hash", "")),
         plan_json=str(profile.get("plan_json", "")),
-        client_build=str(profile.get("client_build", _CANONICAL_CLIENT_BUILD)),
-        interface=int(profile.get("interface", 16001)),
-        player_faction=str(profile.get("player_faction", "Alliance")),
-        locale=str(profile.get("locale", "enUS")),
-        client_version=str(profile.get("client_version", _CANONICAL_CLIENT_VERSION)),
+        client_build=str(profile.get("client_build", canonical_client_build)),
+        interface=int(profile.get("interface", canonical_interface)),
+        player_faction=str(profile.get("player_faction", canonical_faction)),
+        locale=str(profile.get("locale", canonical_locale)),
+        client_version=str(profile.get("client_version", canonical_client_version)),
         addon_version=str(profile.get("addon_version", "0.2.0")),
         pointer_profile=motion_profiles["pointer"],
         camera_profile=motion_profiles["camera"],

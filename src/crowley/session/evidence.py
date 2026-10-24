@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from crowley.core import savedvars
+from crowley.core.game_target import packaged_game_target, target_scan_plan
 from crowley.core.scanformat import ScanFormatError, decode_json_payload, validate_v2_envelope
 from crowley.core.watchlist import load_catalog
 
@@ -19,6 +20,10 @@ from .journal import JournalError, stable_file
 BASELINE_UID = "beta-normal-alliance-1792040351-Arthur-6643"
 BASELINE_MEDIAN_SECONDS = 1
 BASELINE_RANGE_SECONDS = (0, 2)
+_TARGET = packaged_game_target()
+_CANONICAL_CATALOG = load_catalog()
+_CANONICAL_PLAN = target_scan_plan(_CANONICAL_CATALOG, _TARGET)
+_PLAN_COUNT = len(_CANONICAL_PLAN["itemIDs"])
 
 
 @dataclass(frozen=True)
@@ -107,14 +112,14 @@ def qualify_saved_scan(
     plan_hash: str,
     expected_context: dict[str, Any] | None = None,
     expected_plan_json: str | None = None,
-    planned: int = 428,
+    planned: int = _PLAN_COUNT,
 ) -> SweepEvidence:
     """Parse one exact SavedVariables file and account for every item and row."""
 
     if expected_context is None or expected_plan_json is None:
         raise EvidenceError("format-2 qualification requires the pinned context and canonical plan")
-    if isinstance(planned, bool) or not isinstance(planned, int) or planned != 428:
-        raise EvidenceError("format-2 qualification plan count must be exactly 428")
+    if isinstance(planned, bool) or not isinstance(planned, int) or planned != _PLAN_COUNT:
+        raise EvidenceError(f"format-2 qualification plan count must be exactly {_PLAN_COUNT}")
     try:
         root = savedvars.loads(data)
     except (ValueError, UnicodeError) as exc:
@@ -138,7 +143,7 @@ def qualify_saved_scan(
                 raise EvidenceError(f"saved scan context field {key} does not match configured identity")
     observations = decoded["observations"]
     if len(observations) != planned or envelope["numObservations"] != planned:
-        raise EvidenceError("planned observation count does not match 428")
+        raise EvidenceError(f"planned observation count does not match {_PLAN_COUNT}")
     counts = {key: 0 for key in ("full", "bounded", "incomplete", "unqueried")}
     attempted = priced = rows = 0
     durations: list[int] = []
@@ -356,7 +361,7 @@ def read_data_acknowledged_ids(
     ids.extend(entries)
     if len(ids) != len(set(ids)):
         raise EvidenceError("CROWLEY_DATA acknowledgement IDs must be unique")
-    catalog = load_catalog()
+    catalog = _CANONICAL_CATALOG
     reference_item_ids = value["referenceItemIDs"]
     expected_reference_item_ids = sorted(item.item_id for item in catalog.items)
     if (
@@ -372,7 +377,7 @@ def read_data_acknowledged_ids(
     scan_plan = value["scanPlan"]
     if not isinstance(scan_plan, dict):
         raise EvidenceError("CROWLEY_DATA.scanPlan is invalid")
-    pinned = catalog.scan_plan()
+    pinned = _CANONICAL_PLAN
     if expected_plan_json is None:
         expected_plan_json = pinned["planJSON"]
     if expected_plan_hash is None:
@@ -404,11 +409,11 @@ def read_data_acknowledged_ids(
     if any(isinstance(scan_plan[key], bool) or not isinstance(scan_plan[key], int) for key in integer_fields):
         raise EvidenceError("CROWLEY_DATA.scanPlan integer fields are invalid")
     if (
-        scan_plan["schemaVersion"] != 2
-        or scan_plan["id"] != "first-run"
+        scan_plan["schemaVersion"] != pinned["schemaVersion"]
+        or scan_plan["id"] != pinned["id"]
         or scan_plan["revision"] < 1
-        or scan_plan["cadenceSeconds"] != 900
-        or scan_plan["initialPriceLevels"] != 20
+        or scan_plan["cadenceSeconds"] != _TARGET.cadence_seconds
+        or scan_plan["initialPriceLevels"] != _TARGET.initial_price_levels
         or not isinstance(scan_plan["catalogHash"], str)
         or not re.fullmatch(r"[0-9a-f]{64}", scan_plan["catalogHash"])
         or scan_plan["targetClientBuild"] != expected_client_build
@@ -423,7 +428,7 @@ def read_data_acknowledged_ids(
     pools = scan_plan["pools"]
     if (
         not isinstance(item_ids, list)
-        or len(item_ids) != 428
+        or len(item_ids) != _PLAN_COUNT
         or any(
             isinstance(item_id, bool) or not isinstance(item_id, int) or item_id <= 0 for item_id in item_ids
         )

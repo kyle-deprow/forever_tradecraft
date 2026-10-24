@@ -26,6 +26,7 @@ from crowley.session import calibration as calibration_module
 from crowley.session import driver as driver_module
 from crowley.session.calibration import InputCalibrationWorkflow, OwnedGtkCalibrationWindow
 from crowley.session.driver import DesktopDriver, DriverProfile, WindowIdentity, X11Backend
+from tests.x11_startup import start_private_xvfb
 
 
 class _ReachedHumanWait(Exception):
@@ -206,41 +207,28 @@ def _private_xvfb(tmp_path: Path, cleanup: ExitStack) -> tuple[subprocess.Popen[
     xauthority = tmp_path / "private.Xauthority"
     xauthority.touch(mode=0o600)
     xauthority.chmod(0o600)
-    read_fd, write_fd = os.pipe()
-    try:
-        xvfb = subprocess.Popen(
-            [
-                "Xvfb",
-                "-displayfd",
-                str(write_fd),
-                "-screen",
-                "0",
-                "1920x1080x24",
-                "-ac",
-                "-extension",
-                "GLX",
-            ],
-            pass_fds=(write_fd,),
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.PIPE,
-            start_new_session=True,
-        )
-    except BaseException:
-        os.close(read_fd)
-        raise
-    finally:
-        os.close(write_fd)
+    xvfb, display, x11, xdisplay = start_private_xvfb(
+        lambda display_fd: (
+            "Xvfb",
+            "-displayfd",
+            str(display_fd),
+            "-screen",
+            "0",
+            "1920x1080x24",
+            "-ac",
+            "-extension",
+            "GLX",
+        ),
+        popen_kwargs={
+            "stdin": subprocess.DEVNULL,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
+            "start_new_session": True,
+        },
+    )
     _register_process_cleanup(cleanup, xvfb)
-    try:
-        ready, _, _ = select.select([read_fd], [], [], 5.0)
-        if not ready:
-            raise AssertionError("private Xvfb did not publish its display number")
-        display_number = os.read(read_fd, 32).decode("ascii").strip()
-    finally:
-        os.close(read_fd)
-    assert display_number.isdigit()
-    return xvfb, f":{display_number}", str(xauthority), xvfb.pid
+    x11.XCloseDisplay(xdisplay)
+    return xvfb, display, str(xauthority), xvfb.pid
 
 
 def _proc_start(pid: int) -> str:

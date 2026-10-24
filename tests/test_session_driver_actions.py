@@ -40,6 +40,7 @@ from crowley.session.executor import (
 )
 from crowley.session.input_events import EventClass, XI2Event
 from crowley.session.input_tool import PinnedInputTool
+from crowley.session.process_admission import AdmissionGate
 from tests.test_session_input_tool import fixture_input_tool
 
 
@@ -209,6 +210,239 @@ def _driver(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, executable_sourc
     return driver
 
 
+def _build_logout_anchor(
+    driver: DesktopDriver,
+    identity: WindowIdentity,
+    generation: int,
+    capture_path: Path,
+    sequence: int,
+) -> MeasuredAnchor:
+    capture_path.write_bytes(f"capture-{sequence}".encode("ascii"))
+    capture_id = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+    now = driver._clock()
+    return driver.build_measured_anchor(
+        action="logout",
+        x=260,
+        y=210,
+        capture_path=capture_path,
+        capture_id=capture_id,
+        capture_sequence=sequence,
+        capture_monotonic=now,
+        scene="world",
+        bounds=(240, 190, 60, 40),
+        target_xid=identity.child_xid,
+        target_ancestry=(identity.child_xid,),
+        generation=generation,
+        facts=(("control", "world"),),
+    )
+
+
+def _install_deadline_keyboard_runtime(
+    driver: DesktopDriver,
+    monkeypatch: pytest.MonkeyPatch,
+    commands: list[tuple[list[str], float | None]],
+    *,
+    focus=None,
+) -> None:
+    """Keep the real driver/Guardian/X11 action path while replacing X11 I/O."""
+
+    identity = _identity()
+    backend = driver.backend
+    assert isinstance(backend, X11Backend)
+    backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+    backend.observe_keymap = lambda **_kwargs: {  # type: ignore[method-assign]
+        "Return": 36,
+        "Escape": 9,
+        "slash": 61,
+        "space": 65,
+        **{char: 30 + index for index, char in enumerate("abcdefghijklmnopqrstuvwxyz")},
+    }
+    backend._focus = (  # type: ignore[method-assign]
+        focus if focus is not None else lambda *_args, **_kwargs: None
+    )
+
+    def run_native(args, *, deadline_monotonic=None, **_kwargs):
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise DriverError("native command deadline expired")
+        commands.append((list(args), deadline_monotonic))
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    backend._run = run_native  # type: ignore[method-assign]
+    steps = (
+        ("press", "Return", 36, (0, 0, 0), 0),
+        ("release", "Return", 36, (0, 0, 0), 0),
+    )
+    monkeypatch.setattr(
+        driver,
+        "_keyboard_operation_facts",
+        lambda *_args, **_kwargs: steps,
+    )
+    monkeypatch.setattr(
+        driver,
+        "_sealed_keyboard_keymap",
+        lambda *_args, **_kwargs: {
+            "Return": 36,
+            "Escape": 9,
+            "slash": 61,
+            "space": 65,
+            **{char: 30 + index for index, char in enumerate("abcdefghijklmnopqrstuvwxyz")},
+        },
+    )
+    monkeypatch.setattr(driver, "_expected_modifiers", lambda *_args, **_kwargs: (0, 0, 0))
+    monkeypatch.setattr(
+        driver,
+        "_expected_key_operation",
+        lambda *_args, **_kwargs: (
+            ("RawKeyPress", "KeyPress", "RawKeyRelease", "KeyRelease"),
+            (36, 36, 36, 36),
+            ((0, 0, 0),) * 4,
+        ),
+    )
+
+
+def test_anchor_observation_deadline_reaches_initial_and_refresh_providers_and_builder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    identity = _identity()
+    generation = driver.guardian.arm(driver._input_evidence)
+    driver.backend.activate_generation(generation)
+    provider_deadlines: list[float | None] = []
+    resolve_deadlines: list[float | None] = []
+    original_resolve = driver.resolve_identity
+    original_deadline = driver._clock() + 5.0
+    refreshed_deadline = original_deadline - 1.0
+    sequence = 0
+
+    def observed_resolve(*args, **kwargs):  # type: ignore[no-untyped-def]
+        resolve_deadlines.append(kwargs.get("deadline_monotonic"))
+        return original_resolve(*args, **kwargs)
+
+    def provider(provider_identity: WindowIdentity, action: str) -> MeasuredAnchor:
+        nonlocal sequence
+        assert action == "logout"
+        assert provider_identity.fingerprint == identity.fingerprint
+        provider_deadlines.append(driver.anchor_observation_deadline)
+        sequence += 1
+        return _build_logout_anchor(
+            driver, provider_identity, generation, tmp_path / f"capture-{sequence}.bin", sequence
+        )
+
+    driver.resolve_identity = observed_resolve  # type: ignore[method-assign]
+    driver.measured_anchor_provider = provider
+    try:
+        first = driver.measure_pointer_anchor(
+            "logout", generation=generation, deadline_monotonic=original_deadline
+        )
+        assert driver.anchor_observation_deadline is None
+        refreshed = driver._refresh_pointer_anchor(
+            "logout",
+            generation,
+            identity,
+            first,
+            deadline_monotonic=refreshed_deadline,
+        )
+        assert refreshed.capture_sequence == 2
+        assert provider_deadlines == [original_deadline, refreshed_deadline]
+        assert resolve_deadlines == [
+            original_deadline,
+            original_deadline,
+            refreshed_deadline,
+            refreshed_deadline,
+        ]
+        assert driver.anchor_observation_deadline is None
+    finally:
+        driver.close()
+
+
+def test_anchor_observation_deadline_nested_scope_restores_after_provider_exception(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    outer = driver._clock() + 5.0
+    inner = outer - 1.0
+    observed: list[float | None] = []
+
+    def provider(_identity: WindowIdentity, _action: str) -> MeasuredAnchor:
+        observed.append(driver.anchor_observation_deadline)
+        with driver._anchor_observation_scope(outer + 10.0):
+            observed.append(driver.anchor_observation_deadline)
+        with driver._anchor_observation_scope(inner):
+            observed.append(driver.anchor_observation_deadline)
+        raise RuntimeError("provider exploded")
+
+    driver.measured_anchor_provider = provider
+    try:
+        with pytest.raises(DriverError, match="native anchor measurement failed.*provider exploded"):
+            driver.measure_pointer_anchor("logout", generation=1, deadline_monotonic=outer)
+        assert observed == [outer, outer, inner]
+        assert driver.anchor_observation_deadline is None
+    finally:
+        driver.close()
+
+
+def test_expired_anchor_observation_deadline_rejects_before_provider_capture(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    provider_calls: list[tuple[WindowIdentity, str]] = []
+    driver.measured_anchor_provider = lambda identity, action: provider_calls.append((identity, action))  # type: ignore[assignment]
+    try:
+        with pytest.raises(DriverError, match="expired before identity"):
+            driver.measure_pointer_anchor("logout", generation=1, deadline_monotonic=driver._clock() - 1.0)
+        assert provider_calls == []
+    finally:
+        driver.close()
+
+
+def test_legacy_unbounded_anchor_provider_retains_none_scope_and_call_shape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    generation = driver.guardian.arm(driver._input_evidence)
+    driver.backend.activate_generation(generation)
+    resolve_kwargs: list[dict[str, object]] = []
+    original_resolve = driver.resolve_identity
+
+    def observed_resolve(*args, **kwargs):  # type: ignore[no-untyped-def]
+        resolve_kwargs.append(dict(kwargs))
+        return original_resolve(*args, **kwargs)
+
+    def provider(provider_identity: WindowIdentity, _action: str) -> MeasuredAnchor:
+        assert driver.anchor_observation_deadline is None
+        return _build_logout_anchor(driver, provider_identity, generation, tmp_path / "legacy-capture.bin", 1)
+
+    driver.resolve_identity = observed_resolve  # type: ignore[method-assign]
+    driver.measured_anchor_provider = provider
+    try:
+        anchor = driver.measure_pointer_anchor("logout", generation=generation)
+        assert anchor.capture_id == hashlib.sha256((tmp_path / "legacy-capture.bin").read_bytes()).hexdigest()
+        assert resolve_kwargs == [{"deadline_monotonic": None}, {"require_foreground": False}]
+        assert driver.anchor_observation_deadline is None
+    finally:
+        driver.close()
+
+
+def _fd_identities() -> set[tuple[int, int, str]]:
+    """Return stable process-FD identities, tolerating concurrent closes."""
+
+    identities: set[tuple[int, int, str]] = set()
+    for raw_fd in os.listdir("/proc/self/fd"):
+        try:
+            fd = int(raw_fd)
+            descriptor = os.fstat(fd)
+            link = os.readlink(f"/proc/self/fd/{fd}")
+        except (OSError, ValueError):
+            continue
+        identities.add((descriptor.st_dev, descriptor.st_ino, link))
+    return identities
+
+
+def _fd_identity(fd: int) -> tuple[int, int, str]:
+    descriptor = os.fstat(fd)
+    return descriptor.st_dev, descriptor.st_ino, os.readlink(f"/proc/self/fd/{fd}")
+
+
 def test_run_motion_key_hold_uses_real_driver_entrypoint_and_sealed_level_zero_key(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -269,7 +503,7 @@ def test_native_pointer_producers_reject_profile_drift_before_input(
         if operation == "click":
             with pytest.raises(DriverError, match="profile changed"):
                 driver.run(
-                    "open_ah",
+                    "logout",
                     generation,
                     precondition=lambda _identity: True,
                     postcondition=lambda _identity: True,
@@ -302,7 +536,7 @@ def test_x11_pointer_backend_refuses_unplanned_direct_click_before_input(
     )
     try:
         with pytest.raises(DriverError, match="validated planned gesture"):
-            driver.backend.action("open_ah", generation=1)
+            driver.backend.action("logout", generation=1)
         assert commands == []
     finally:
         driver.close()
@@ -335,7 +569,7 @@ def test_runtime_pointer_gesture_seed_and_emission_timing_reach_driver_receipt(
     monkeypatch.setattr(pointer_execution.secrets, "randbits", lambda _bits: seed)
     monkeypatch.setattr(driver, "_verify_current_xtest_profile", lambda *_args, **_kwargs: None)
     anchor = MeasuredAnchor(
-        action="open_ah",
+        action="logout",
         x=260,
         y=210,
         identity_fingerprint=identity.fingerprint,
@@ -347,7 +581,7 @@ def test_runtime_pointer_gesture_seed_and_emission_timing_reach_driver_receipt(
         capture_monotonic=now,
         facts=(
             ("capture", "capture-one"),
-            ("control", "auctioneer_buckler"),
+            ("control", "world"),
             ("target", str(identity.child_xid)),
         ),
         generation=1,
@@ -366,30 +600,30 @@ def test_runtime_pointer_gesture_seed_and_emission_timing_reach_driver_receipt(
     expected = [
         pointer_execution.plan_human_pointer(
             Point(pointer[0], pointer[1]),
-            PointerTarget("auctioneer_buckler", Rect(*anchor.bounds), binding, padding=1),
+            PointerTarget("world", Rect(*anchor.bounds), binding, padding=1),
             Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3]),
             seed=seed,
-            button=PointerButton.RIGHT,
+            button=PointerButton.LEFT,
             profile=driver.pointer_motion_profile,
         )
     ]
 
     def measure_pointer_anchor(name, *, generation):
-        assert name == "open_ah" and generation == 1
+        assert name == "logout" and generation == 1
         driver._measured_anchors[name] = anchor
         driver._measured_anchor_generations[name] = generation
         backend._measured_anchors[name] = anchor
         return anchor
 
     def consume_pointer_anchor(name, measured):
-        assert name == "open_ah" and measured is anchor
+        assert name == "logout" and measured is anchor
         backend._consumed_anchor_seals.add(anchor.evidence_hash)
 
     def refresh_pointer_anchor(_name, _generation, _identity, previous):
         plan = expected[0]
         assert plan is not None and previous is anchor
         return MeasuredAnchor(
-            action="open_ah",
+            action="logout",
             x=plan.endpoint.x,
             y=plan.endpoint.y,
             identity_fingerprint=identity.fingerprint,
@@ -399,7 +633,7 @@ def test_runtime_pointer_gesture_seed_and_emission_timing_reach_driver_receipt(
             source="native-visual",
             observed_monotonic=time.monotonic(),
             capture_monotonic=time.monotonic(),
-            facts=(("control", "auctioneer_buckler"),),
+            facts=(("control", "world"),),
             generation=1,
             bounds=anchor.bounds,
             target_ancestry=anchor.target_ancestry,
@@ -411,14 +645,18 @@ def test_runtime_pointer_gesture_seed_and_emission_timing_reach_driver_receipt(
     generation = driver.guardian.arm(driver._input_evidence)
     backend.activate_generation(generation)
     driver.guardian.finish_action = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    final_admission: list[int] = []
 
     try:
-        driver.run(
-            "open_ah",
+        result = driver.run(
+            "logout",
             generation,
             precondition=lambda _identity: True,
             postcondition=lambda _identity: True,
+            _final_admission=lambda: final_admission.append(len(commands)),
         )
+        assert result is None
+        assert final_admission == [1]
         receipt = driver.pointer_gesture_receipts[-1]
         execution = receipt["execution"]
         assert receipt["seed"] == seed
@@ -434,8 +672,140 @@ def test_runtime_pointer_gesture_seed_and_emission_timing_reach_driver_receipt(
             <= execution["clickAckMonotonicNs"]
             <= execution["rateRecordMonotonicNs"]
         )
+        execution["phase"] = "tampered"
+        assert driver.pointer_gesture_receipts[-1]["execution"]["phase"] == (
+            "click_released_and_rate_recorded"
+        )
         assert len(commands) == 2
         assert pointer[:2] == [int(expected[0].endpoint.x), int(expected[0].endpoint.y)]
+    finally:
+        driver.close()
+
+
+@pytest.mark.parametrize("cleanup_failure", [False, True])
+def test_executor_receipt_is_call_local_across_backend_substitution(
+    cleanup_failure: bool, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    identity = _identity()
+    pointer = [20, 20, identity.child_xid]
+    commands: list[list[str]] = []
+    backend = driver.backend
+    backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+    backend._focus = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    backend.pointer_position = lambda **_kwargs: tuple(pointer)  # type: ignore[method-assign]
+
+    def run_action(args, *, input_schema=None, **_kwargs):
+        commands.append(list(args))
+        if input_schema == "pointer-motion":
+            for index, value in enumerate(args[:-2]):
+                if value == "mousemove":
+                    pointer[0] = int(args[index + 1])
+                    pointer[1] = int(args[index + 2])
+                    pointer[2] = identity.child_xid
+        elif input_schema == "single-click":
+            # A later action could replace mutable backend history while this
+            # call is still finalizing.  The returned receipt must not change.
+            backend.last_pointer_execution = {"action": "substituted"}
+
+    backend._run = run_action  # type: ignore[method-assign]
+    monkeypatch.setattr(driver, "_verify_current_xtest_profile", lambda *_args, **_kwargs: None)
+    now = time.monotonic()
+    anchor = MeasuredAnchor(
+        action="executor_click",
+        x=260,
+        y=210,
+        identity_fingerprint=identity.fingerprint,
+        target_xid=identity.child_xid,
+        capture_id="executor-capture-one",
+        capture_sequence=1,
+        source="native-visual",
+        observed_monotonic=now,
+        capture_monotonic=now,
+        facts=(
+            ("capture", "executor-capture-one"),
+            ("control", "crowley_executor_button"),
+            ("target", str(identity.child_xid)),
+        ),
+        generation=1,
+        bounds=(240, 190, 60, 40),
+        target_ancestry=(identity.child_xid,),
+    ).with_hash()
+
+    def measure_pointer_anchor(name, *, generation):
+        assert name == "executor_click" and generation == 1
+        driver._measured_anchors[name] = anchor
+        driver._measured_anchor_generations[name] = generation
+        backend._measured_anchors[name] = anchor
+        return anchor
+
+    def refresh_pointer_anchor(_name, _generation, _identity, previous):
+        assert previous is anchor
+        return replace(
+            anchor,
+            capture_id="executor-capture-two",
+            capture_sequence=2,
+            facts=(
+                ("capture", "executor-capture-two"),
+                ("control", "crowley_executor_button"),
+                ("target", str(identity.child_xid)),
+            ),
+            capture_monotonic=time.monotonic(),
+            observed_monotonic=time.monotonic(),
+        ).with_hash()
+
+    driver.measure_pointer_anchor = measure_pointer_anchor  # type: ignore[method-assign]
+    driver._refresh_pointer_anchor = refresh_pointer_anchor  # type: ignore[method-assign]
+    backend.consume_measured_anchor = lambda _name, _anchor: backend._consumed_anchor_seals.add(
+        anchor.evidence_hash
+    )  # type: ignore[method-assign]
+    monkeypatch.setattr(pointer_execution.secrets, "randbits", lambda _bits: 0x123456789)
+    generation = driver.guardian.arm(driver._input_evidence)
+    backend.activate_generation(generation)
+    if cleanup_failure:
+
+        def fail_finish(*_args, **_kwargs):
+            raise RuntimeError("guardian cleanup failed")
+
+        driver.guardian.finish_action = fail_finish  # type: ignore[method-assign]
+    else:
+        driver.guardian.finish_action = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    final_admission: list[int] = []
+    try:
+        if cleanup_failure:
+            result = driver.run(
+                "executor_click",
+                generation,
+                precondition=lambda _identity: True,
+                postcondition=lambda _identity: True,
+                _final_admission=lambda: final_admission.append(len(commands)),
+            )
+            assert result is not None
+            assert result["guardianCompleted"] is False
+        else:
+            result = driver.run(
+                "executor_click",
+                generation,
+                precondition=lambda _identity: True,
+                postcondition=lambda _identity: True,
+                _final_admission=lambda: final_admission.append(len(commands)),
+            )
+            assert result is not None
+            assert result["action"] == "executor_click"
+            assert result["guardianCompleted"] is True
+            assert result["admittedAnchorEvidenceHash"] == anchor.evidence_hash
+            assert result["admittedAnchorCaptureId"] == "executor-capture-one"
+            assert result["admittedAnchorCaptureSequence"] == 1
+            assert result["anchorEvidenceHash"] != anchor.evidence_hash
+            assert result["anchorCaptureId"] == "executor-capture-two"
+            assert result["anchorCaptureSequence"] == 2
+            result["action"] = "tampered"
+        assert final_admission == [1]
+        execution = driver.pointer_gesture_receipts[-1]["execution"]
+        assert execution["action"] == "executor_click"
+        assert execution["guardianCompleted"] is not cleanup_failure
+        assert driver.pointer_gesture_receipts[-1]["accepted"] is not cleanup_failure
+        assert backend.last_pointer_execution == {"action": "substituted"}
     finally:
         driver.close()
 
@@ -631,6 +1001,102 @@ def test_guardian_allows_zero_motion_canonical_click_with_button_trace(
         assert action.complete
         driver.guardian.finish_action(generation, action)
     finally:
+        driver.close()
+
+
+@pytest.mark.parametrize("pointer_matches", [True, False], ids=["measured-origin", "stale-origin"])
+def test_run_hover_click_canonical_origin_uses_fresh_pointer_measurement(
+    pointer_matches: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    backend = driver.backend
+    assert isinstance(backend, X11Backend)
+    identity = _identity()
+    backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+    generation = driver.guardian.arm(driver._input_evidence)
+    backend.activate_generation(generation)
+    binding = BindingMetadata(
+        identity.fingerprint,
+        "mail-gesture",
+        1,
+        generation,
+        identity.child_xid,
+        (identity.child_xid,),
+        source="native-visual",
+    )
+    gesture = pointer_execution.plan_human_pointer(
+        Point(20, 20),
+        PointerTarget("mailbox", Rect(80, 60, 100, 30), binding, padding=0),
+        Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3]),
+        seed=0xCAFE,
+        button=PointerButton.LEFT,
+        profile=driver.pointer_motion_profile,
+    )
+    endpoint = gesture.endpoint.to_pixel()
+    actual = (int(endpoint.x), int(endpoint.y))
+    observed = actual if pointer_matches else (actual[0] + 1, actual[1])
+    backend.pointer_position = lambda **_kwargs: (*observed, identity.child_xid)  # type: ignore[method-assign]
+    commands: list[list[str]] = []
+    backend._run = lambda args, **_kwargs: (  # type: ignore[method-assign]
+        commands.append(list(args)) or subprocess.CompletedProcess(args, 0, "", "")
+    )
+    permit = pointer_execution.acquire_click_rate_permit()
+    hover = SimpleNamespace(
+        identity_fingerprint=identity.fingerprint,
+        capture_monotonic=time.monotonic(),
+        hover_kind="unit",
+        hover_name="Mailbox",
+        chat_focused=False,
+    )
+    captured: dict[str, object] = {}
+    original_begin_action = driver.guardian.begin_action
+
+    def capture_begin_action(action_generation: int, **kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+        return original_begin_action(action_generation, **kwargs)
+
+    monkeypatch.setattr(driver.guardian, "begin_action", capture_begin_action)
+    monitor = _EventMonitor(
+        [
+            _event(EventClass.RAW_BUTTON_PRESS, 1, detail=1),
+            _event(EventClass.BUTTON_PRESS, 2, detail=1, root=actual, event_xy=actual),
+            _event(EventClass.RAW_BUTTON_RELEASE, 3, detail=1),
+            _event(EventClass.BUTTON_RELEASE, 4, detail=1, root=actual, event_xy=actual),
+        ]
+    )
+    monitor.set_callback(driver.guardian.observe)
+    driver._monitor = monitor  # type: ignore[assignment]
+    try:
+        if pointer_matches:
+            driver.run_hover_click(
+                endpoint,
+                hover,
+                gesture=gesture,
+                gesture_ended_monotonic=permit.acquired_monotonic - 0.1,
+                generation=generation,
+                click_rate_permit=permit,
+                target_name="Mailbox",
+            )
+            assert captured["canonical_motion"] is True
+            assert captured["initial_origin"] == (*actual, *actual)
+            assert commands and commands[-1][1:3] == ["mousedown", "1"]
+        else:
+            with pytest.raises(DriverError, match="native pointer moved"):
+                driver.run_hover_click(
+                    endpoint,
+                    hover,
+                    gesture=gesture,
+                    gesture_ended_monotonic=permit.acquired_monotonic - 0.1,
+                    generation=generation,
+                    click_rate_permit=permit,
+                    target_name="Mailbox",
+                )
+            assert captured == {}
+            assert commands == []
+    finally:
+        permit.close()
         driver.close()
 
 
@@ -831,6 +1297,191 @@ def test_run_camera_drag_cancels_after_admitted_held_process(
         driver.close()
 
 
+@pytest.mark.parametrize(
+    ("health_mode", "withdraw_failure"),
+    [
+        ("deadline", False),
+        ("health-failure", False),
+        ("deadline", True),
+        ("health-failure", True),
+    ],
+)
+def test_native_runner_pre_go_hold_publication_never_releases_late_input(
+    health_mode: str,
+    withdraw_failure: bool,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A pre-GO health/withdrawal failure cannot release native input."""
+
+    driver = _driver(tmp_path, monkeypatch)
+    backend = driver.backend
+    assert isinstance(backend, X11Backend)
+    generation = driver.guardian.arm(driver._input_evidence)
+    backend.activate_generation(generation)
+    action = driver.guardian.begin_action(
+        generation,
+        target_xid=0x101,
+        source_device=4,
+        master_device=2,
+        event_classes={EventClass.RAW_KEY_PRESS.value, EventClass.KEY_PRESS.value},
+        required_sequence=(EventClass.RAW_KEY_PRESS.value, EventClass.KEY_PRESS.value),
+        held_keys={"025"},
+    )
+    del action
+    reached_health = threading.Event()
+    release_calls: list[str] = []
+    hold_publications: list[tuple[set[str], set[int]]] = []
+    gate_releases: list[str] = []
+    original_release = AdmissionGate.release
+    monkeypatch.setattr(
+        AdmissionGate,
+        "release",
+        lambda gate: (gate_releases.append("release"), original_release(gate))[1],
+    )
+
+    def health_barrier() -> None:
+        assert backend._held_keys == {"025"}
+        reached_health.set()
+        if health_mode == "health-failure":
+            raise RuntimeError("input watchdog is unhealthy")
+        while time.monotonic() < deadline:
+            time.sleep(0.005)
+
+    backend.set_admission_health(health_barrier)
+    backend._release_command = lambda args: release_calls.append(" ".join(args)) or True  # type: ignore[method-assign]
+
+    def publish_holds(_authority, keys, buttons) -> None:  # type: ignore[no-untyped-def]
+        if withdraw_failure and not keys and not buttons:
+            raise RuntimeError("watchdog withdrawal failed")
+        hold_publications.append((set(keys), set(buttons)))
+
+    backend.set_hold_publisher(publish_holds)
+    deadline = time.monotonic() + 0.25
+    argv = ["xdotool", "keydown", "025", "keyup", "025"]
+    try:
+        expected_message = (
+            "holds could not be withdrawn"
+            if withdraw_failure
+            else "watchdog is unhealthy"
+            if health_mode == "health-failure"
+            else "deadline"
+        )
+        with pytest.raises(RuntimeError, match=expected_message):
+            backend._run(
+                argv,
+                generation=generation,
+                held_keys={"025"},
+                input_schema="keyboard-steps",
+                expected_argv=tuple(argv),
+                deadline_monotonic=deadline,
+            )
+        assert reached_health.is_set()
+        assert gate_releases == []
+        assert hold_publications[0] == ({"025"}, set())
+        if withdraw_failure:
+            assert hold_publications == [({"025"}, set())]
+        else:
+            assert hold_publications[-1] == (set(), set())
+        assert not backend._active_processes
+        assert not backend._active_process_groups
+        assert not backend._held_keys
+        assert not driver.guardian.held
+        assert release_calls == []
+    finally:
+        driver.revoke("test cleanup")
+        driver.close()
+
+
+def test_native_runner_withdraws_before_unconfirmed_reap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A no-GO health failure clears holds before failed withdrawal/reaping."""
+
+    driver = _driver(tmp_path, monkeypatch)
+    backend = driver.backend
+    assert isinstance(backend, X11Backend)
+    generation = driver.guardian.arm(driver._input_evidence)
+    backend.activate_generation(generation)
+    action = driver.guardian.begin_action(
+        generation,
+        target_xid=0x101,
+        source_device=4,
+        master_device=2,
+        event_classes={EventClass.RAW_KEY_PRESS.value, EventClass.KEY_PRESS.value},
+        required_sequence=(EventClass.RAW_KEY_PRESS.value, EventClass.KEY_PRESS.value),
+        held_keys={"025"},
+    )
+    del action
+    reaper_release = threading.Event()
+    reaper_started = threading.Event()
+    hold_publications: list[tuple[set[str], set[int]]] = []
+    withdrawal_attempts: list[tuple[set[str], set[int]]] = []
+    release_calls: list[str] = []
+    termination_observed_holds: list[set[str]] = []
+    original_terminate = X11Backend._terminate_process
+
+    def unconfirmed_terminate(process: subprocess.Popen[str]) -> bool:
+        reaper_started.set()
+        termination_observed_holds.append(set(backend._held_keys))
+
+        def terminate_after_observation() -> None:
+            reaper_release.wait(timeout=2.0)
+            original_terminate(process)
+
+        threading.Thread(target=terminate_after_observation, daemon=True).start()
+        return False
+
+    monkeypatch.setattr(backend, "_terminate_process", unconfirmed_terminate)
+    backend._release_command = lambda args: release_calls.append(" ".join(args)) or True  # type: ignore[method-assign]
+
+    def health_failure() -> None:
+        assert backend._held_keys == {"025"}
+        raise RuntimeError("input watchdog is unhealthy")
+
+    backend.set_admission_health(health_failure)
+
+    def publish_holds(_authority, keys, buttons) -> None:  # type: ignore[no-untyped-def]
+        if not keys and not buttons:
+            withdrawal_attempts.append((set(keys), set(buttons)))
+            raise RuntimeError("watchdog withdrawal failed")
+        hold_publications.append((set(keys), set(buttons)))
+
+    backend.set_hold_publisher(publish_holds)
+    argv = ["xdotool", "keydown", "025", "keyup", "025"]
+    observed_groups: set[int] = set()
+    try:
+        with pytest.raises(RuntimeError, match="holds could not be withdrawn"):
+            backend._run(
+                argv,
+                generation=generation,
+                held_keys={"025"},
+                input_schema="keyboard-steps",
+                expected_argv=tuple(argv),
+                deadline_monotonic=time.monotonic() + 0.5,
+            )
+        assert reaper_started.is_set()
+        assert termination_observed_holds == [set()]
+        observed_groups.update(backend.active_process_groups)
+        assert observed_groups
+        assert hold_publications == [({"025"}, set())]
+        assert withdrawal_attempts == [(set(), set()), (set(), set())]
+        assert not backend._held_keys
+        assert not backend._held_buttons
+        assert not driver.guardian.held
+        assert release_calls == []
+        assert backend.active_process_groups
+    finally:
+        reaper_release.set()
+        deadline = time.monotonic() + 2.0
+        while backend.active_process_groups and time.monotonic() < deadline:
+            time.sleep(0.01)
+        assert not backend.active_process_groups
+        assert all(not Path(f"/proc/{pid}").exists() for pid in observed_groups)
+        driver.revoke("test cleanup")
+        driver.close()
+
+
 def test_native_resolver_accepts_captured_direct_root_wine_client_certificate(
     tmp_path: Path,
 ) -> None:
@@ -913,7 +1564,7 @@ def test_production_x11_factory_requires_pinned_observer_and_never_falls_back(
         X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "missing-pin-tool"))
 
     observer = tmp_path / "observer"
-    observer.write_text("#!/bin/sh\nexit 17\n", encoding="utf-8")
+    observer.write_text("#!/bin/sh\nIFS= read -r _request\nexit 17\n", encoding="utf-8")
     observer.chmod(0o700)
     pinned = replace(
         profile,
@@ -1065,10 +1716,14 @@ def test_pinned_observer_close_cancels_invoke_and_releases_sealed_fd(tmp_path: P
         identity_observer_executable=observer,
         identity_observer_executable_sha256=hashlib.sha256(observer.read_bytes()).hexdigest(),
     )
-    baseline_fds = set(os.listdir("/proc/self/fd"))
+    baseline_fd_identities = _fd_identities()
     backend = X11Backend.production(profile, input_tool=fixture_input_tool(tmp_path / "tool"))
     sealed_observer = backend._identity_observer
     assert sealed_observer is not None
+    owned_fd_identities = {
+        _fd_identity(sealed_observer._fd),
+        _fd_identity(backend.input_tool.image.fd),
+    }
     errors: list[BaseException] = []
 
     def resolve() -> None:
@@ -1096,7 +1751,11 @@ def test_pinned_observer_close_cancels_invoke_and_releases_sealed_fd(tmp_path: P
     finally:
         backend.close()
         backend.input_tool.close()
-    assert set(os.listdir("/proc/self/fd")) == baseline_fds
+    assert sealed_observer._fd == -1
+    assert backend.input_tool.image.fd == -1
+    remaining_fd_identities = _fd_identities()
+    assert not owned_fd_identities & remaining_fd_identities
+    assert remaining_fd_identities <= baseline_fd_identities
 
 
 def test_pinned_resolver_captures_observer_before_close_race(
@@ -1463,7 +2122,7 @@ def test_pinned_observer_bounds_concurrent_output_and_descendant_pipes(tmp_path:
 
     duplicate = tmp_path / "duplicate-response-observer"
     duplicate.write_text(
-        "#!/bin/sh\nprintf '%s\\n' '{\"matchingProcessCount\":1,\"matchingProcessCount\":1}'\n",
+        "#!/bin/sh\nIFS= read -r _request\nprintf '%s\\n' '{\"matchingProcessCount\":1,\"matchingProcessCount\":1}'\n",
         encoding="utf-8",
     )
     duplicate.chmod(0o700)
@@ -1483,7 +2142,7 @@ def test_pinned_observer_bounds_concurrent_output_and_descendant_pipes(tmp_path:
 
     held = tmp_path / "held-pipe-observer"
     held.write_text(
-        "#!/bin/sh\n( /bin/sleep 30 ) &\nprintf '%s\\n' '{\"error\":\"held\"}'\nexit 0\n",
+        "#!/bin/sh\nIFS= read -r _request\n( /bin/sleep 30 ) &\nprintf '%s\\n' '{\"error\":\"held\"}'\nexit 0\n",
         encoding="utf-8",
     )
     held.chmod(0o700)
@@ -1726,4 +2385,302 @@ def test_desktop_identity_deadline_reaches_native_resolver(tmp_path: Path) -> No
         assert driver.resolve_identity(deadline_monotonic=deadline) is identity
         assert received == [deadline]
     finally:
+        driver.close()
+
+
+def test_desktop_run_passes_one_absolute_deadline_through_x11_keyboard_action(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    native_calls: list[tuple[list[str], float | None]] = []
+    _install_deadline_keyboard_runtime(driver, monkeypatch, native_calls)
+    generation = driver.guardian.arm(driver._input_evidence)
+    driver.backend.activate_generation(generation)
+    driver.guardian.finish_action = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    deadline = time.monotonic() + 2.0
+    try:
+        driver.run(
+            "open_chat",
+            generation,
+            precondition=lambda _identity: True,
+            postcondition=lambda _identity: True,
+            deadline_monotonic=deadline,
+        )
+        assert native_calls == [(["xdotool", "keydown", "036", "keyup", "036"], deadline)]
+    finally:
+        driver.close()
+
+
+def test_deadline_expiring_inside_focus_blocks_later_keyboard_input(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    boundary_entered = threading.Event()
+    deadline: float
+
+    def block_until_expired(*_args, **_kwargs) -> None:
+        boundary_entered.set()
+        while time.monotonic() < deadline:
+            time.sleep(0.005)
+
+    driver = _driver(tmp_path, monkeypatch)
+    native_calls: list[tuple[list[str], float | None]] = []
+    _install_deadline_keyboard_runtime(
+        driver,
+        monkeypatch,
+        native_calls,
+        focus=block_until_expired,
+    )
+    generation = driver.guardian.arm(driver._input_evidence)
+    driver.backend.activate_generation(generation)
+    driver.guardian.finish_action = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    deadline = time.monotonic() + 0.25
+    try:
+        with pytest.raises(DriverError, match="deadline"):
+            driver.run(
+                "open_chat",
+                generation,
+                precondition=lambda _identity: True,
+                postcondition=lambda _identity: True,
+                deadline_monotonic=deadline,
+            )
+        assert boundary_entered.is_set()
+        assert native_calls == []
+        assert not driver.backend._active_processes
+        assert not driver.backend._held_keys
+    finally:
+        driver.close()
+
+
+def test_prepare_command_deadline_stops_before_submit_after_slow_readback(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    native_calls: list[tuple[list[str], float | None]] = []
+    _install_deadline_keyboard_runtime(driver, monkeypatch, native_calls)
+    generation = driver.guardian.arm(driver._input_evidence)
+    driver.backend.activate_generation(generation)
+    driver.guardian.finish_action = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    boundary_entered = threading.Event()
+    deadline: float
+
+    def slow_readback() -> str:
+        boundary_entered.set()
+        while time.monotonic() < deadline:
+            time.sleep(0.005)
+        return "/crowley status"
+
+    try:
+        deadline = time.monotonic() + 0.25
+        with pytest.raises(DriverError, match="deadline"):
+            driver.prepare_command(
+                generation,
+                "/crowley status",
+                {"chatEdit": {"active": True, "focused": True, "text": ""}},
+                readback=slow_readback,
+                precondition=lambda _identity: True,
+                deadline_monotonic=deadline,
+            )
+        assert boundary_entered.is_set()
+        assert native_calls
+        assert not any("036" in args for args, _deadline in native_calls)
+        assert all(call_deadline == deadline for _args, call_deadline in native_calls)
+    finally:
+        driver.close()
+
+
+def test_prepare_command_forwards_submit_precondition_and_rejects_changed_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    native_calls: list[tuple[list[str], float | None]] = []
+    _install_deadline_keyboard_runtime(driver, monkeypatch, native_calls)
+    generation = driver.guardian.arm(driver._input_evidence)
+    driver.backend.activate_generation(generation)
+    driver.guardian.finish_action = lambda *_args, **_kwargs: None  # type: ignore[method-assign]
+    precondition_calls: list[object] = []
+
+    def guard_changes_after_typing(identity: object) -> bool:
+        precondition_calls.append(identity)
+        return len(precondition_calls) == 1
+
+    deadline = time.monotonic() + 2.0
+    try:
+        with pytest.raises(DriverError, match="submit_command precondition failed"):
+            driver.prepare_command(
+                generation,
+                "/crowley status",
+                {"chatEdit": {"active": True, "focused": True, "text": ""}},
+                readback=lambda: "/crowley status",
+                precondition=guard_changes_after_typing,
+                deadline_monotonic=deadline,
+            )
+        assert len(precondition_calls) == 2
+        assert native_calls
+        assert not any("Return" in args for args, _deadline in native_calls)
+    finally:
+        driver.close()
+
+
+def test_world_click_deadline_after_durable_precommit_refuses_press(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    backend = driver.backend
+    assert isinstance(backend, X11Backend)
+    identity = _identity()
+    backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+    commands: list[list[str]] = []
+    backend._run = lambda args, **_kwargs: (  # type: ignore[method-assign]
+        commands.append(list(args)) or subprocess.CompletedProcess(args, 0, "", "")
+    )
+    release_calls: list[list[str]] = []
+    backend._release_command = lambda args: release_calls.append(list(args)) or True  # type: ignore[method-assign]
+    # Exercise the same world-click admission without requiring a canonical
+    # XTEST motion trace; the precommit boundary is reached before emission.
+    driver._input_evidence.xtest_profile = None
+    generation = driver.guardian.arm(driver._input_evidence)
+    backend.activate_generation(generation)
+    binding = BindingMetadata(
+        identity.fingerprint,
+        "mail-gesture",
+        1,
+        generation,
+        identity.child_xid,
+        (identity.child_xid,),
+        source="native-visual",
+    )
+    gesture = pointer_execution.plan_human_pointer(
+        Point(20, 20),
+        PointerTarget("mailbox", Rect(80, 60, 100, 30), binding, padding=0),
+        Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3]),
+        seed=0x4321,
+        button=PointerButton.LEFT,
+        profile=driver.pointer_motion_profile,
+    )
+    endpoint = gesture.endpoint.to_pixel()
+    backend.pointer_position = lambda **_kwargs: (endpoint.x, endpoint.y, identity.child_xid)  # type: ignore[method-assign]
+    permit = pointer_execution.acquire_click_rate_permit()
+    capture_monotonic = time.monotonic()
+    boundary_entered = threading.Event()
+    deadline: float
+    hover = SimpleNamespace(
+        identity_fingerprint=identity.fingerprint,
+        capture_monotonic=capture_monotonic,
+        hover_kind="unit",
+        hover_name="Mailbox",
+        chat_focused=False,
+    )
+    original_write_state = pointer_execution._write_state
+
+    def slow_write_state(directory, state):  # type: ignore[no-untyped-def]
+        original_write_state(directory, state)
+        boundary_entered.set()
+        while time.monotonic() < deadline:
+            time.sleep(0.005)
+
+    monkeypatch.setattr(pointer_execution, "_write_state", slow_write_state)
+    deadline = time.monotonic() + 0.25
+    try:
+        with pytest.raises(DriverError, match="deadline"):
+            driver.run_hover_click(
+                endpoint,
+                hover,
+                gesture=gesture,
+                gesture_ended_monotonic=permit.acquired_monotonic - 0.1,
+                generation=generation,
+                deadline_monotonic=deadline,
+                click_rate_permit=permit,
+                target_name="Mailbox",
+            )
+        assert boundary_entered.is_set()
+        state = pointer_execution._read_state(tmp_path / "pointer-rate-state")
+        assert state is not None
+        assert state["lastPressMonotonicNs"] is None
+        assert state["nextAllowedMonotonicNs"] > time.monotonic_ns()
+        assert commands == []
+        assert release_calls == []
+        assert not backend._held_buttons
+        assert not driver.guardian.held
+    finally:
+        permit.close()
+        driver.close()
+
+
+def test_world_click_guardian_wait_expiry_retains_actual_press_rate_record(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    driver = _driver(tmp_path, monkeypatch)
+    backend = driver.backend
+    assert isinstance(backend, X11Backend)
+    identity = _identity()
+    backend.resolve_identity = lambda **_kwargs: identity  # type: ignore[method-assign]
+    commands: list[list[str]] = []
+    backend._run = lambda args, **_kwargs: (  # type: ignore[method-assign]
+        commands.append(list(args)) or subprocess.CompletedProcess(args, 0, "", "")
+    )
+    driver._input_evidence.xtest_profile = None
+    generation = driver.guardian.arm(driver._input_evidence)
+    backend.activate_generation(generation)
+    binding = BindingMetadata(
+        identity.fingerprint,
+        "mail-gesture",
+        1,
+        generation,
+        identity.child_xid,
+        (identity.child_xid,),
+        source="native-visual",
+    )
+    gesture = pointer_execution.plan_human_pointer(
+        Point(20, 20),
+        PointerTarget("mailbox", Rect(80, 60, 100, 30), binding, padding=0),
+        Rect(0, 0, identity.child_geometry[2], identity.child_geometry[3]),
+        seed=0x9876,
+        button=PointerButton.LEFT,
+        profile=driver.pointer_motion_profile,
+    )
+    endpoint = gesture.endpoint.to_pixel()
+    backend.pointer_position = lambda **_kwargs: (endpoint.x, endpoint.y, identity.child_xid)  # type: ignore[method-assign]
+    permit = pointer_execution.acquire_click_rate_permit()
+    hover = SimpleNamespace(
+        identity_fingerprint=identity.fingerprint,
+        capture_monotonic=time.monotonic(),
+        hover_kind="unit",
+        hover_name="Mailbox",
+        chat_focused=False,
+    )
+    boundary_entered = threading.Event()
+    deadline: float
+
+    class ExpiringMonitor:
+        def wait_for_event(self, _predicate, *, timeout: float) -> None:
+            assert 0 < timeout <= 0.25
+            boundary_entered.set()
+            while time.monotonic() < deadline:
+                time.sleep(0.005)
+
+        def stop(self) -> None:
+            return None
+
+    driver._monitor = ExpiringMonitor()  # type: ignore[assignment]
+    deadline = time.monotonic() + 0.25
+    try:
+        with pytest.raises(DriverError, match="deadline|event trace"):
+            driver.run_hover_click(
+                endpoint,
+                hover,
+                gesture=gesture,
+                gesture_ended_monotonic=permit.acquired_monotonic - 0.1,
+                generation=generation,
+                deadline_monotonic=deadline,
+                click_rate_permit=permit,
+                target_name="Mailbox",
+            )
+        assert boundary_entered.is_set()
+        state = pointer_execution._read_state(tmp_path / "pointer-rate-state")
+        assert state is not None
+        assert isinstance(state["lastPressMonotonicNs"], int)
+        assert commands and commands[-1][1:3] == ["mousedown", "1"]
+        assert not driver.guardian.held
+    finally:
+        permit.close()
         driver.close()

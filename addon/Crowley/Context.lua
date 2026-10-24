@@ -3,6 +3,9 @@ local _, ns = ...
 local Context = {}
 ns.Context = Context
 
+local TARGET = ns.GeneratedTarget
+if type(TARGET) ~= "table" then error("generated launch target is not loaded") end
+
 -- Goblin-run houses shared by both factions (15% cut), matched against zone and subzone text.
 local NEUTRAL_ZONES = {
   ["Booty Bay"] = true,
@@ -16,24 +19,6 @@ Context.VALID = {
   faction = { alliance = true, horde = true, neutral = true },
 }
 
-local REGION_BY_ID = {
-  [1] = "us",
-  [2] = "kr",
-  [3] = "eu",
-  [4] = "tw",
-  [5] = "cn",
-  [110] = "beta",
-}
-
-local RULESET_BY_REALM = {
-  Normal = "normal",
-  PvP = "pvp",
-  RP = "rp",
-  Hardcore = "hardcore",
-}
-
-local BETA_REALM = "Classic Beta PvE 2"
-
 local function validate(field, value, source)
   if value == nil or not Context.VALID[field][value] then
     error(("invalid %s %s %q"):format(source, field, tostring(value)))
@@ -44,23 +29,19 @@ end
 local DETECT = {
   region = function()
     local id = GetCurrentRegion()
-    local region = REGION_BY_ID[id]
-    if not region then error(("unknown native region id %s"):format(tostring(id))) end
-    return region
-  end,
-  -- Forever is realmless; launch realm names identify the ruleset exactly. The
-  -- verified beta realm is kept separate until other beta realms are identified.
-  ruleset = function(region)
-    local realm = GetRealmName()
-    if region == "beta" then
-      if realm ~= BETA_REALM then
-        error(("unknown beta realm %q"):format(tostring(realm)))
-      end
-      return "normal"
+    if id ~= TARGET.nativeRegionId then
+      error(("native region id %s does not match target %s"):format(tostring(id), tostring(TARGET.nativeRegionId)))
     end
-    local ruleset = RULESET_BY_REALM[realm]
-    if not ruleset then error(("unknown native realm %q"):format(tostring(realm))) end
-    return ruleset
+    return TARGET.region
+  end,
+  ruleset = function(checkNative)
+    if checkNative then
+      local realm = GetRealmName()
+      if realm ~= TARGET.realm then
+        error(("native realm %q does not match target %q"):format(tostring(realm), tostring(TARGET.realm)))
+      end
+    end
+    return TARGET.ruleset
   end,
   faction = function()
     if NEUTRAL_ZONES[GetZoneText()] or NEUTRAL_ZONES[GetSubZoneText()] then return "neutral" end
@@ -90,7 +71,11 @@ function Context.House()
       house[field] = setting
       overridden[#overridden + 1] = field
     else
-      house[field] = field == "ruleset" and DETECT[field](house.region) or DETECT[field]()
+      if field == "ruleset" then
+        house[field] = DETECT[field](settings.region == nil)
+      else
+        house[field] = DETECT[field]()
+      end
     end
     validate(field, house[field], "detected house")
   end

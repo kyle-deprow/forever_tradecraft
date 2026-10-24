@@ -34,6 +34,33 @@ class _Identity:
     fingerprint = "client-1"
 
 
+def _executor_none() -> dict:
+    return {
+        "availability": "none",
+        "queueId": "",
+        "house": "",
+        "character": "",
+        "publishedArmed": False,
+        "sessionArmed": False,
+        "buttonVisible": False,
+        "buttonName": "",
+        "currentSeq": 0,
+        "currentKind": "",
+        "phase": "none",
+        "inFlight": False,
+        "clickReady": False,
+        "workDone": 0,
+        "workTotal": 0,
+        "blocked": False,
+        "latched": False,
+        "ambiguous": False,
+        "clickOrdinal": 0,
+        "lastClickSource": "none",
+        "resultCount": 0,
+        "lastResult": {"seq": 0, "kind": "", "status": "none"},
+    }
+
+
 def _sample(
     *,
     sequence: int = 1,
@@ -47,9 +74,10 @@ def _sample(
     speed: float = 1.0,
 ) -> Sample:
     snapshot = {
-        "schema": 5,
+        "schema": 6,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "executor": _executor_none(),
         "blockingUI": {
             "staticPopupAvailable": True,
             "staticPopupShown": False,
@@ -167,7 +195,7 @@ def _actual_waypoint_daemon(
         _Identity(),
     )
     daemon._native_clock = lambda: 10.5
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
 
     def observe_motion(
         _generation: int,
@@ -276,14 +304,75 @@ def test_native_gate_blocks_unknown_or_drift_and_clears_both_retained_proofs() -
 
 def test_native_provider_never_turns_no_change_into_motion() -> None:
     samples = iter((_sample(sequence=1), _sample(sequence=3, capture=10.2, x=0.2)))
-    clock_values = iter((10.0, 10.05, 10.1, 10.15, 10.2, 10.3))
+    clock_values = iter(
+        (
+            10.0,
+            10.01,
+            10.02,
+            10.03,
+            10.04,
+            10.05,
+            10.06,
+            10.07,
+            10.08,
+            10.09,
+            10.10,
+            10.11,
+            10.12,
+            10.13,
+        )
+    )
     provider = NativeMotionProvider(
-        lambda: next(samples), lambda: _Identity(), clock=lambda: next(clock_values)
+        lambda: next(samples), lambda **_kwargs: _Identity(), clock=lambda: next(clock_values)
     )
     first = provider.observe(1, deadline=11.0)
     second = provider.observe(1, previous=first, deadline=11.0)
     assert (first.sequence, second.sequence) == (1, 3)
     assert second.binding("moveForward") == "W"
+
+
+def test_native_provider_passes_fixed_deadline_to_identity_before_capture() -> None:
+    identity_deadlines: list[float | None] = []
+    capture_calls: list[float | None] = []
+    clock_values = iter((10.0, 11.0))
+
+    def identity(*, deadline: float | None = None) -> _Identity:
+        identity_deadlines.append(deadline)
+        return _Identity()
+
+    def capture(*, deadline: float | None = None) -> Sample:
+        capture_calls.append(deadline)
+        return _sample()
+
+    provider = NativeMotionProvider(
+        lambda: _sample(), identity, capture_with_deadline=capture, clock=lambda: next(clock_values)
+    )
+    with pytest.raises(MotionError, match="deadline"):
+        provider.observe(1, deadline=11.0)
+    assert identity_deadlines == [11.0]
+    assert capture_calls == []
+
+
+def test_native_provider_rejects_capture_that_reaches_fixed_deadline() -> None:
+    identity_deadlines: list[float | None] = []
+    capture_deadlines: list[float | None] = []
+    clock_values = iter((10.0, 10.1, 10.2, 11.0))
+
+    def identity(*, deadline: float | None = None) -> _Identity:
+        identity_deadlines.append(deadline)
+        return _Identity()
+
+    def capture(*, deadline: float | None = None) -> Sample:
+        capture_deadlines.append(deadline)
+        return _sample()
+
+    provider = NativeMotionProvider(
+        lambda: _sample(), identity, capture_with_deadline=capture, clock=lambda: next(clock_values)
+    )
+    with pytest.raises(MotionError, match="deadline"):
+        provider.observe(1, deadline=11.0)
+    assert identity_deadlines == [11.0]
+    assert capture_deadlines == [11.0]
 
 
 def test_visual_named_observation_freshness_uses_capture_start() -> None:
@@ -328,7 +417,7 @@ def test_motion_decode_binds_freshness_to_capture_start() -> None:
 
 def test_native_provider_rejects_a_sample_from_another_resolved_window() -> None:
     sample = Sample("FRESH", _sample().frame, 10.0, (0, 0, 256, 256), 1, "other-client")
-    provider = NativeMotionProvider(lambda: sample, lambda: _Identity(), clock=lambda: 10.1)
+    provider = NativeMotionProvider(lambda: sample, lambda **_kwargs: _Identity(), clock=lambda: 10.1)
 
     with pytest.raises(MotionError, match="identity"):
         provider.observe(1, deadline=11.0)
@@ -351,10 +440,28 @@ def test_native_provider_requires_publication_after_release_barrier() -> None:
         deadlines.append(deadline)
         return next(samples)
 
-    clock_values = iter((10.0, 10.0, 10.05, 10.1, 10.1, 10.15, 10.2, 10.2, 10.25))
+    clock_values = iter(
+        (
+            10.0,
+            10.0,
+            10.05,
+            10.1,
+            10.1,
+            10.15,
+            10.15,
+            10.2,
+            10.2,
+            10.25,
+            10.3,
+            10.3,
+            10.35,
+            10.4,
+            10.4,
+        )
+    )
     provider = NativeMotionProvider(
         lambda: next(samples),
-        lambda: _Identity(),
+        lambda **_kwargs: _Identity(),
         capture_with_deadline=capture,
         clock=lambda: next(clock_values),
     )
@@ -374,7 +481,7 @@ def test_native_provider_rejects_disallowed_release_barrier_before_allowed_final
     clock_values = iter((10.05, 10.1, 10.15, 10.2, 10.25, 10.3))
     provider = NativeMotionProvider(
         lambda: next(samples),
-        lambda: _Identity(),
+        lambda **_kwargs: _Identity(),
         capture_with_deadline=lambda **_kwargs: next(samples),
         clock=lambda: next(clock_values),
     )
@@ -388,12 +495,14 @@ def test_daemon_observe_motion_gates_before_successor_pose_checks_and_clears_pro
     daemon.camera_mapping = object()
     daemon.movement_basis = object()
     daemon._motion_deadline = lambda: 11.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     blocked = _sample(sequence=2, capture=10.1, x=9.0)
     blocked_value = blocked.frame.snapshot.value
     blocked_value["motion"]["native"]["ctm"]["state"] = "unknown"
     blocked_value["motion"]["native"]["ctm"]["reason"] = "missing"
-    daemon.motion_provider = NativeMotionProvider(lambda: blocked, lambda: _Identity(), clock=lambda: 10.2)
+    daemon.motion_provider = NativeMotionProvider(
+        lambda: blocked, lambda **_kwargs: _Identity(), clock=lambda: 10.2
+    )
     with pytest.raises(DriverError, match="capability"):
         daemon._observe_motion(1, previous=MotionFrame.from_sample(_sample(), _Identity()))
     assert daemon.camera_mapping is None
@@ -406,12 +515,12 @@ def test_daemon_observe_motion_clears_proofs_when_interaction_or_deadline_setup_
         daemon.camera_mapping = object()
         daemon.movement_basis = object()
         if failure == "interaction":
-            daemon._require_interaction = lambda _generation: (_ for _ in ()).throw(
+            daemon._require_interaction = lambda _generation, **_kwargs: (_ for _ in ()).throw(
                 DriverError("generation revoked")
             )
             daemon._motion_deadline = lambda: 11.0
         else:
-            daemon._require_interaction = lambda _generation: 1
+            daemon._require_interaction = lambda _generation, **_kwargs: 1
             daemon._motion_deadline = lambda: (_ for _ in ()).throw(DriverError("deadline unavailable"))
         daemon.motion_provider = SimpleNamespace()
         with pytest.raises(DriverError):
@@ -511,7 +620,7 @@ def test_waypoint_camera_turn_budget_is_separate_from_translation_progress() -> 
     )
     frame = MotionFrame.from_sample(_sample(facing=math.pi / 2), _Identity())
     daemon._native_clock = lambda: 10.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: frame
     camera_turns: list[int] = []
 
@@ -579,7 +688,7 @@ def test_waypoint_refuses_target_beyond_supported_distance_before_input() -> Non
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity())
     after = MotionFrame.from_sample(_sample(sequence=2, capture=10.1, x=1.8, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: before
     daemon.driver = SimpleNamespace(run_motion_key_hold=lambda *args, **kwargs: None)
     pulses: list[float] = []
@@ -652,7 +761,7 @@ def test_waypoint_refuses_second_target_beyond_supported_distance_before_input()
     first_after = MotionFrame.from_sample(_sample(sequence=2, capture=10.1, x=1.6, speed=0.0), _Identity())
     second_after = MotionFrame.from_sample(_sample(sequence=3, capture=10.2, x=2.16, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: initial
     pulses: list[float] = []
 
@@ -730,7 +839,7 @@ def test_waypoint_plans_minimum_pulse_aware_legs_across_target_band(
         handedness=1,
     )
     daemon._native_clock = lambda: 10.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     origin = MotionFrame.from_sample(_sample(sequence=1, capture=10.0), _Identity())
     daemon._observe_motion = lambda *_args, **_kwargs: origin
     pulses: list[float] = []
@@ -866,7 +975,7 @@ def test_waypoint_refuses_nonzero_bearing_at_response_extreme_before_input() -> 
     )
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: before
     physical_calls: list[float] = []
 
@@ -912,7 +1021,7 @@ def test_waypoint_refuses_camera_turn_when_worst_residual_cannot_fit() -> None:
     )
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: before
     camera_calls: list[int] = []
     daemon.execute_camera_delta = lambda pixels, **kwargs: camera_calls.append(int(pixels)) or before
@@ -952,7 +1061,7 @@ def test_waypoint_refuses_short_minimum_pulse_gap_before_input() -> None:
     )
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: before
     physical_calls: list[float] = []
     daemon._execute_motion_key_with_frame = lambda *args, **kwargs: physical_calls.append(float(args[1]))
@@ -991,7 +1100,7 @@ def test_waypoint_refuses_profile_ceiling_before_input() -> None:
     )
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: before
     physical_calls: list[float] = []
     daemon._execute_motion_key_with_frame = lambda *args, **kwargs: physical_calls.append(float(args[1]))
@@ -1036,7 +1145,7 @@ def test_waypoint_admits_minimum_pulse_with_bounded_confirmation_drift() -> None
         _sample(sequence=3, capture=10.2, x=0.47, facing=0.02, speed=0.0), _Identity()
     )
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
 
     def observe_motion(
         _generation: int, previous: MotionFrame | None = None, *, after_release: bool = False, **_kwargs
@@ -1129,7 +1238,7 @@ def test_waypoint_refuses_near_cap_without_a_guaranteed_response_plan() -> None:
     movement_basis = daemon.movement_basis
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0), _Identity())
     daemon._native_clock = lambda: 10.0
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: before
     physical_calls: list[float] = []
     daemon._execute_motion_key_with_frame = lambda *args, **kwargs: physical_calls.append(float(args[1]))
@@ -1224,7 +1333,7 @@ def test_waypoint_counts_first_three_ineffective_pulses_and_stops(monkeypatch) -
         for index, (x, y) in enumerate(endpoints)
     ]
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **_kwargs: initial
     pulses: list[float] = []
 
@@ -1293,7 +1402,7 @@ def test_motion_key_rejects_missing_or_wrong_direction_feedback(after_x: float, 
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity())
     after = MotionFrame.from_sample(_sample(sequence=2, capture=10.1, x=after_x, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **kwargs: after if kwargs.get("after_release") else before
     daemon.driver = SimpleNamespace(
         resolve_identity=lambda **kwargs: _Identity(),
@@ -1377,7 +1486,7 @@ def _manual_motion_daemon(after_x: float) -> tuple[SessionDaemon, list[float], l
     before = MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity())
     after = MotionFrame.from_sample(_sample(sequence=2, capture=10.1, x=after_x, speed=0.0), _Identity())
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon._observe_motion = lambda *_args, **kwargs: after if kwargs.get("after_release") else before
     route_distances: list[float] = []
     physical_calls: list[tuple[object, ...]] = []
@@ -1461,7 +1570,7 @@ def test_movement_calibration_measures_reflected_nonzero_heading_mapping() -> No
         yaw_per_pixel=0.1,
     )
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda generation: 1
+    daemon._require_interaction = lambda generation, **_kwargs: 1
     beta = 0.8
     first_facing = 0.4
     second_facing = 1.2
@@ -1815,7 +1924,7 @@ def test_movement_calibration_rejects_sideways_backward_role() -> None:
         boot="boot-1",
     )
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
 
     def add_position(position: tuple[float, float], *, sequence: int, capture: float, facing: float) -> None:
         frames.append(
@@ -1932,7 +2041,7 @@ def test_movement_calibration_admits_no_probe_after_cumulative_budget() -> None:
         yaw_per_pixel=0.1,
     )
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     second_dx, second_dy = 0.9 * math.cos(0.5), 0.9 * math.sin(0.5)
     frames = [
         MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity()),
@@ -2065,7 +2174,7 @@ def test_movement_calibration_rejects_inconsistent_repeated_forward_speed() -> N
         boot="boot-1",
     )
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     second_dx, second_dy = math.cos(0.5), math.sin(0.5)
     frames = [
         MotionFrame.from_sample(_sample(sequence=1, capture=10.0, speed=0.0), _Identity()),
@@ -2154,7 +2263,7 @@ def test_default_movement_calibration_completes_five_role_probes_at_measured_spe
         boot="boot-1",
     )
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     pulse = DEFAULT_MOVEMENT_CALIBRATION_PULSE_SECONDS
     assert pulse == MIN_MOVEMENT_CALIBRATION_PULSE_SECONDS == pytest.approx(0.03)
     second_dx, second_dy = 0.21 * math.cos(0.5), 0.21 * math.sin(0.5)
@@ -2363,7 +2472,7 @@ def test_movement_calibration_rejects_degenerate_heading_probe() -> None:
         yaw_per_pixel=0.1,
     )
     daemon._native_clock = lambda: 10.2
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     facing_a, facing_b, world = 0.4, 1.2, 0.6
     dx, dy = 0.2 * math.cos(world), 0.2 * math.sin(world)
     frames = [

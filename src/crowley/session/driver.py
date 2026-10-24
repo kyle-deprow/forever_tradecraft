@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextvars
+import copy
 import ctypes
 import errno
 import fcntl
@@ -31,6 +32,9 @@ from dataclasses import dataclass, field, replace
 from functools import wraps
 from pathlib import Path
 from typing import Any, Protocol
+
+from crowley.core.game_target import packaged_game_target, target_scan_plan
+from crowley.core.watchlist import load_catalog
 
 from .executor import (
     BindingMetadata,
@@ -78,6 +82,9 @@ from .startup import (
     mint_runtime_evidence,
     resolve_forwarded_echo_sources,
 )
+
+_TARGET = packaged_game_target()
+_PLAN_COUNT = len(target_scan_plan(load_catalog(), _TARGET)["itemIDs"])
 
 _F_ADD_SEALS = getattr(fcntl, "F_ADD_SEALS", 1033)
 _F_SEAL_SEAL = getattr(fcntl, "F_SEAL_SEAL", 0x0001)
@@ -975,15 +982,15 @@ class DriverProfile:
     canvas_origin: tuple[int, int] = (80, 48)
     canvas_crop: tuple[int, int, int, int] = (80, 48, 256, 256)
     model_crop: tuple[int, int, int, int] = (80, 48, 1760, 984)
-    window_class: str = "wowb.exe"
-    executable: str = "WowB.exe"
+    window_class: str = _TARGET.window_class
+    executable: str = _TARGET.executable
     action_anchors: dict[str, tuple[int, int]] = field(default_factory=dict)
     anchor_fingerprints: dict[str, str] = field(default_factory=dict)
     window_title: str = "World of Warcraft"
     character: str = "Arthur"
-    realm: str = "Classic Beta PvE 2"
-    house: str = "beta-normal-alliance"
-    plan_count: int = 428
+    realm: str = _TARGET.realm
+    house: str = _TARGET.house
+    plan_count: int = _PLAN_COUNT
     telemetry_region_executable: Path | None = None
     telemetry_region_executable_sha256: str | None = None
     identity_observer_executable: Path | None = None
@@ -1063,7 +1070,7 @@ class DriverProfile:
 
 
 class Backend(Protocol):
-    def action(self, name: str, **kwargs: Any) -> None: ...
+    def action(self, name: str, **kwargs: Any) -> dict[str, Any] | None: ...
 
     def capture(
         self,
@@ -1085,12 +1092,13 @@ class RecordingBackend:
     action_preconditions: dict[str, bool] = field(default_factory=dict)
     action_postconditions: dict[str, bool] = field(default_factory=dict)
 
-    def action(self, name: str, **kwargs: Any) -> None:
+    def action(self, name: str, **kwargs: Any) -> dict[str, Any] | None:
         self.events.append({"name": name, **kwargs})
         if name == "type_allowlisted_command":
             self.command_buffer = str(kwargs.get("command", ""))
         elif name in {"submit_command", "escape_command_buffer"}:
             self.command_buffer = ""
+        return None
 
     def capture(
         self,
@@ -1910,6 +1918,8 @@ class X11Backend:
         deadline_monotonic: float | None = None,
         emergency_release: bool = False,
     ) -> subprocess.CompletedProcess[str]:
+        if deadline_monotonic is None:
+            deadline_monotonic = getattr(self, "_active_action_deadline", None)
         environment = os.environ.copy()
         environment["DISPLAY"] = self.profile.display
         if not self.xauthority:
@@ -2369,6 +2379,37 @@ class X11Backend:
         completed_successfully = False
         gate_read, gate_write = os.pipe()
         admission_gate = AdmissionGate(gate_write)
+        admission_gate_released = False
+        published_holds = False
+        withdrawn_holds = False
+        withdrawal_error: Exception | None = None
+        authority = calibration_ticket or generation
+
+        def clear_invocation_holds() -> None:
+            """Forget this invocation's local holds without waiting on I/O."""
+
+            with self._process_lock:
+                self._held_keys.difference_update(held_keys)
+                self._held_buttons.difference_update(held_buttons)
+
+        def withdraw_published_holds() -> None:
+            """Withdraw holds published while the positive gate is still closed."""
+
+            nonlocal withdrawal_error, withdrawn_holds
+            if not published_holds or withdrawn_holds:
+                return
+            # Clear before calling the publisher: a concurrent revoke must not
+            # observe a phantom local hold while a watchdog callback blocks or
+            # raises during the empty publication.
+            clear_invocation_holds()
+            try:
+                if self._publish_holds is not None:
+                    self._publish_holds(authority, set(), set())
+            except Exception as exc:
+                withdrawal_error = exc
+                raise
+            withdrawn_holds = True
+            withdrawal_error = None
 
         def spawn() -> subprocess.Popen[str]:
             nonlocal process, gate_read
@@ -2445,7 +2486,7 @@ class X11Backend:
         def spawn_and_release_gate() -> subprocess.Popen[str]:
             """Spawn/register the wrapper and open it only inside admission."""
 
-            nonlocal gate_write
+            nonlocal admission_gate_released, gate_write, published_holds
             if deadline_monotonic is not None and time.monotonic() >= float(deadline_monotonic):
                 raise DriverError("desktop action deadline expired before emission")
             admitted = spawn()
@@ -2470,9 +2511,20 @@ class X11Backend:
                 with self._process_lock:
                     self._held_keys = set(held_keys)
                     self._held_buttons = set(held_buttons)
+                published_holds = True
             admission_health = getattr(self, "_admission_health", None)
             if admission_health is not None:
                 admission_health()
+            if deadline_monotonic is not None and time.monotonic() >= float(deadline_monotonic):
+                clear_invocation_holds()
+                terminated = self._terminate_process(admitted)
+                try:
+                    withdraw_published_holds()
+                except Exception as exc:
+                    raise DriverError("desktop action holds could not be withdrawn after deadline") from exc
+                if not terminated:
+                    raise DriverError("desktop action wrapper could not be reaped after deadline")
+                raise DriverError("desktop action deadline expired before emission")
             try:
                 admission_gate.release()
             except OSError as exc:
@@ -2482,6 +2534,7 @@ class X11Backend:
                     pass
                 raise DriverError("desktop action gate could not be released") from exc
             gate_write = -1
+            admission_gate_released = True
             return admitted
 
         try:
@@ -2535,6 +2588,12 @@ class X11Backend:
         except (OSError, subprocess.SubprocessError) as exc:
             raise DriverError(f"desktop command failed: {' '.join(args)}: {exc}") from exc
         finally:
+            if published_holds and not admission_gate_released:
+                # Admission has not crossed GO.  Clear local state before
+                # closing pipes, terminating, polling, reaping, or invoking
+                # the external withdrawal publisher, so a concurrent revoke
+                # cannot observe a phantom hold during bounded cleanup.
+                clear_invocation_holds()
             if gate_write >= 0:
                 try:
                     admission_gate.close()
@@ -2548,6 +2607,17 @@ class X11Backend:
             if process is not None:
                 if process.poll() is None:
                     self._terminate_process(process)
+                # The wrapper's admission gate is still closed until the
+                # positive release succeeds.  Withdraw this invocation's
+                # published holds before branching on whether termination
+                # has been confirmed; a child that is slow to reap must not
+                # leave local state that a later cleanup interprets as a
+                # physical hold.
+                if published_holds and not admission_gate_released:
+                    try:
+                        withdraw_published_holds()
+                    except Exception:
+                        pass
                 if process.poll() is not None:
                     # A timeout or cancellation may terminate the wrapper
                     # before the normal communicate() path.  Drain and close
@@ -2558,7 +2628,7 @@ class X11Backend:
                         process.communicate()
                     except (OSError, ValueError, subprocess.SubprocessError):
                         pass
-                    if self._publish_holds is not None:
+                    if self._publish_holds is not None and not withdrawn_holds:
                         try:
                             # A cleanly completed XTEST command owns no
                             # remaining physical item.  A failed/cancelled
@@ -2566,23 +2636,43 @@ class X11Backend:
                             # press and release, so retain the exact current
                             # set for the explicit release authority.
                             self._publish_holds(
-                                calibration_ticket or generation,
+                                authority,
                                 set() if completed_successfully else set(self._held_keys),
                                 set() if completed_successfully else set(self._held_buttons),
                             )
-                        except Exception:
-                            pass
+                            if not admission_gate_released and published_holds:
+                                withdrawn_holds = True
+                                withdrawal_error = None
+                        except Exception as exc:
+                            # After GO, this is the independent actual-input
+                            # release path; its existing best-effort behavior
+                            # must not be reclassified as a pre-GO withdrawal
+                            # failure.  Only a still-gated published hold is
+                            # strict and surfaced below.
+                            if not admission_gate_released and published_holds:
+                                withdrawal_error = exc
                     self._forget_process(process)
                 else:
+                    if self._publish_holds is not None and not withdrawn_holds and published_holds:
+                        # The child is still pending reaping.  Retry the
+                        # still-gated empty publication before handing it to
+                        # the reaper so a transient publisher failure is
+                        # surfaced without leaving the lease advertised.
+                        try:
+                            self._publish_holds(authority, set(), set())
+                            withdrawn_holds = True
+                            withdrawal_error = None
+                        except Exception as exc:
+                            withdrawal_error = exc
                     self._reap_process_later(
                         process,
-                        calibration_ticket or generation,
+                        authority,
                         clear_holds=completed_successfully,
                     )
             if completed_successfully and (generation is not None or calibration_ticket is not None):
-                with self._process_lock:
-                    self._held_keys.difference_update(held_keys)
-                    self._held_buttons.difference_update(held_buttons)
+                clear_invocation_holds()
+            if withdrawal_error is not None:
+                raise DriverError("desktop action holds could not be withdrawn") from withdrawal_error
 
     @property
     def active_process_groups(self) -> frozenset[int]:
@@ -3368,9 +3458,19 @@ class X11Backend:
             raise DriverError("window identity changed")
         return identity
 
-    def _focus(self, identity: WindowIdentity, *, generation: int | None = None) -> None:
-        self._run(["xdotool", "windowactivate", "--sync", hex(identity.xid)], generation=generation)
-        fresh = self.resolve_identity()
+    def _focus(
+        self,
+        identity: WindowIdentity,
+        *,
+        generation: int | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> None:
+        self._run(
+            ["xdotool", "windowactivate", "--sync", hex(identity.xid)],
+            generation=generation,
+            deadline_monotonic=deadline_monotonic,
+        )
+        fresh = self.resolve_identity(deadline_monotonic=deadline_monotonic)
         if fresh.fingerprint != identity.fingerprint or fresh.foreground_xid not in {
             fresh.xid,
             fresh.child_xid,
@@ -3437,7 +3537,14 @@ class X11Backend:
             raise DriverError("keyboard transition chain leaves a key held")
         return argv, frozenset(f"{keymap[keysym]:03d}" for _phase, keysym in steps)
 
-    def _key(self, key: str, *, generation: int | None = None, keymap: Mapping[str, int]) -> None:
+    def _key(
+        self,
+        key: str,
+        *,
+        generation: int | None = None,
+        keymap: Mapping[str, int],
+        deadline_monotonic: float | None = None,
+    ) -> None:
         argv, held = self._keyboard_transition_argv((("press", key), ("release", key)), keymap)
         self._run(
             argv,
@@ -3445,10 +3552,18 @@ class X11Backend:
             held_keys=set(held),
             input_schema="keyboard-steps",
             expected_argv=tuple(argv),
+            deadline_monotonic=deadline_monotonic,
         )
         self._held_keys.difference_update(held)
 
-    def _type(self, text: str, *, generation: int | None = None, keymap: Mapping[str, int]) -> None:
+    def _type(
+        self,
+        text: str,
+        *,
+        generation: int | None = None,
+        keymap: Mapping[str, int],
+        deadline_monotonic: float | None = None,
+    ) -> None:
         # ``xdotool type`` emits one opaque command with no way to correlate
         # each character's raw/delivered press and release.  Emit the bounded
         # allowlisted text as one XTEST key action per character so the
@@ -3470,6 +3585,7 @@ class X11Backend:
                 held_keys=set(held),
                 input_schema="keyboard-steps",
                 expected_argv=tuple(argv),
+                deadline_monotonic=deadline_monotonic,
             )
 
     def pointer_position(
@@ -3537,10 +3653,11 @@ class X11Backend:
         # foreign sibling after a reparenting transition.
         return bool(identity.target_event_xids) and xid in identity.target_event_xids
 
-    def action(self, name: str, *, generation: int | None = None, **kwargs: Any) -> None:
+    def action(self, name: str, *, generation: int | None = None, **kwargs: Any) -> dict[str, Any] | None:
         if generation is None:
             raise DriverError("input action requires a current game generation")
-        if name in DesktopDriver.POINTER_ACTIONS:
+        execution: dict[str, Any] | None = None
+        if DesktopDriver._is_pointer_action(name):
             self.last_pointer_execution = None
         anchor_record = self._measured_anchors.get(name)
         admitted_anchor = kwargs.pop("_admitted_anchor", None)
@@ -3549,8 +3666,22 @@ class X11Backend:
         gesture_plan = kwargs.pop("_gesture_plan", None)
         click_rate_permit = kwargs.pop("_click_rate_permit", None)
         refresh_anchor = kwargs.pop("_refresh_anchor", None)
+        final_admission = kwargs.pop("_final_admission", None)
+        deadline_monotonic = kwargs.get("deadline_monotonic", getattr(self, "_active_action_deadline", None))
+        if deadline_monotonic is not None:
+            if (
+                isinstance(deadline_monotonic, bool)
+                or not isinstance(deadline_monotonic, (int, float))
+                or not math.isfinite(float(deadline_monotonic))
+            ):
+                raise DriverError("native action deadline is malformed")
+            deadline_monotonic = float(deadline_monotonic)
+            if time.monotonic() >= deadline_monotonic:
+                raise DriverError("native action deadline expired before admission")
+        if name == "executor_click" and not callable(final_admission):
+            raise DriverError("executor click requires a final admission callback")
         keyboard_keymap = kwargs.pop("_keyboard_keymap", None)
-        if name in DesktopDriver.POINTER_ACTIONS:
+        if DesktopDriver._is_pointer_action(name):
             if (
                 not isinstance(gesture_plan, HumanPointerPlan)
                 or pointer_plan is None
@@ -3574,8 +3705,8 @@ class X11Backend:
                 and anchor_record.generation != generation
             ):
                 raise DriverError(f"action anchor for {name} belongs to a stale generation")
-        identity = self.resolve_identity(require_foreground=False)
-        if name in DesktopDriver.POINTER_ACTIONS:
+        identity = self.resolve_identity(require_foreground=False, deadline_monotonic=deadline_monotonic)
+        if DesktopDriver._is_pointer_action(name):
             if anchor_record is None or anchor_record.identity_fingerprint != identity.fingerprint:
                 raise DriverError(f"action anchor for {name} has not passed live calibration")
             facts = dict(anchor_record.facts)
@@ -3588,8 +3719,8 @@ class X11Backend:
             anchor = (anchor_record.x, anchor_record.y)
         else:
             anchor = None
-        self._focus(identity, generation=generation)
-        if name in DesktopDriver.POINTER_ACTIONS:
+        self._focus(identity, generation=generation, deadline_monotonic=deadline_monotonic)
+        if DesktopDriver._is_pointer_action(name):
             assert anchor is not None
             if pointer_plan is not None or click_plan is not None:
                 if pointer_plan is not None and not isinstance(pointer_plan, PointerTrajectory):
@@ -3633,11 +3764,19 @@ class X11Backend:
                         )
                     ).encode("ascii")
                 ).hexdigest()
-                self.last_pointer_execution = {
+                execution = {
                     "action": name,
                     "generation": generation,
+                    "identity": identity.fingerprint,
+                    "admittedAnchorEvidenceHash": anchor_record.evidence_hash,
+                    "admittedAnchorCaptureId": anchor_record.capture_id,
+                    "admittedAnchorCaptureSequence": anchor_record.capture_sequence,
+                    "anchorEvidenceHash": anchor_record.evidence_hash,
+                    "anchorCaptureId": anchor_record.capture_id,
+                    "anchorCaptureSequence": anchor_record.capture_sequence,
                     "seed": gesture_plan.seed,
                     "frozenEndpoint": (int(gesture_plan.endpoint.x), int(gesture_plan.endpoint.y)),
+                    "endpoint": (int(gesture_plan.endpoint.x), int(gesture_plan.endpoint.y)),
                     "movementDuration": gesture_plan.movement_duration,
                     "dwell": gesture_plan.dwell,
                     "submovementCount": len(gesture_plan.waypoints),
@@ -3645,29 +3784,37 @@ class X11Backend:
                     "rateGate": "canonical-user-session",
                     "phase": "planned",
                 }
+                # Preserve the legacy diagnostic snapshot, while returning
+                # the executor receipt from this invocation's local object.
+                self.last_pointer_execution = execution
                 left, top, width, height = identity.child_geometry
                 expected_start = click_plan.point if pointer_plan is None else pointer_plan.samples[0].point
-                actual_x, actual_y, actual_window = self.pointer_position(generation=generation)
+                actual_x, actual_y, actual_window = self.pointer_position(
+                    generation=generation, deadline_monotonic=deadline_monotonic
+                )
                 if not self._is_owned_client_target(actual_window, identity):
                     raise DriverError("native pointer is outside the verified client")
                 if (actual_x, actual_y) != (left + int(expected_start.x), top + int(expected_start.y)):
                     raise DriverError("native pointer start changed before the admitted gesture")
                 if pointer_plan is not None:
                     chain = build_pointer_motion_chain(pointer_plan, identity.child_geometry)
-                    self.last_pointer_execution["movementDispatchStartedMonotonicNs"] = time.monotonic_ns()
-                    self.last_pointer_execution["phase"] = "movement_dispatched"
+                    execution["movementDispatchStartedMonotonicNs"] = time.monotonic_ns()
+                    execution["phase"] = "movement_dispatched"
                     self._run(
                         chain,
                         generation=generation,
                         input_schema="pointer-motion",
                         expected_argv=tuple(chain),
+                        deadline_monotonic=deadline_monotonic,
                     )
-                    self.last_pointer_execution["movementAckMonotonicNs"] = time.monotonic_ns()
-                    self.last_pointer_execution["phase"] = "movement_acknowledged"
+                    execution["movementAckMonotonicNs"] = time.monotonic_ns()
+                    execution["phase"] = "movement_acknowledged"
                 # Recheck foreground identity and consume a fresh anchor after
                 # motion, immediately before the pointer/window commit query.
                 # Profile reads remain outside this protected click boundary.
-                current = self.resolve_identity(require_foreground=True)
+                current = self.resolve_identity(
+                    require_foreground=True, deadline_monotonic=deadline_monotonic
+                )
                 if (
                     current.fingerprint != binding.identity_fingerprint
                     or current.child_xid != identity.child_xid
@@ -3697,13 +3844,22 @@ class X11Backend:
                         )
                     ):
                         raise DriverError("fresh pointer anchor changed control, bounds, or identity")
+                    # The visual proof consumed for dispatch is the refreshed
+                    # observation, not the pre-motion anchor.  Retain both:
+                    # the admitted anchor binds the plan, while the receipt
+                    # binds the actual physical press to the fresh witness.
+                    execution["anchorEvidenceHash"] = refreshed_anchor.evidence_hash
+                    execution["anchorCaptureId"] = refreshed_anchor.capture_id
+                    execution["anchorCaptureSequence"] = refreshed_anchor.capture_sequence
                 current_anchor = self._measured_anchors.get(name)
                 if (
                     current_anchor is not anchor_record
                     or current_anchor.evidence_hash not in self._consumed_anchor_seals
                 ):
                     raise DriverError("pointer anchor changed before click commitment")
-                pre_click_x, pre_click_y, pre_click_window = self.pointer_position(generation=generation)
+                pre_click_x, pre_click_y, pre_click_window = self.pointer_position(
+                    generation=generation, deadline_monotonic=deadline_monotonic
+                )
                 if not self._is_owned_client_target(pre_click_window, current):
                     raise DriverError("native pointer left the verified client before click")
                 expected_point = (
@@ -3723,27 +3879,47 @@ class X11Backend:
                     "mouseup",
                     str(native_button),
                 ]
+                if final_admission is not None:
+                    if not callable(final_admission):
+                        raise DriverError("native pointer final admission is not callable")
+                    # The daemon's one-use semantic admission is the final
+                    # boundary before rate precommit and the physical press.
+                    if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                        raise DriverError("native pointer deadline expired before final admission")
+                    final_admission()
+                if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                    raise DriverError("native pointer deadline expired before click rate precommit")
                 try:
-                    self.last_pointer_execution["clickPrecommitMonotonicNs"] = click_rate_permit.precommit()
+                    execution["clickPrecommitMonotonicNs"] = (
+                        click_rate_permit.precommit()
+                        if deadline_monotonic is None
+                        else click_rate_permit.precommit(deadline_monotonic=deadline_monotonic)
+                    )
                 except PointerExecutionError as exc:
                     raise DriverError(str(exc)) from exc
-                self.last_pointer_execution["clickDispatchStartedMonotonicNs"] = time.monotonic_ns()
-                self.last_pointer_execution["phase"] = "click_dispatched"
+                if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                    raise DriverError("native pointer deadline expired before click dispatch")
+                execution["clickDispatchStartedMonotonicNs"] = time.monotonic_ns()
+                execution["phase"] = "click_dispatched"
                 self._run(
                     click_argv,
                     generation=generation,
                     held_buttons={native_button},
                     input_schema="single-click",
                     expected_argv=tuple(click_argv),
+                    deadline_monotonic=deadline_monotonic,
                 )
-                self.last_pointer_execution["clickAckMonotonicNs"] = time.monotonic_ns()
+                execution["pressReleaseMonotonicNs"] = time.monotonic_ns()
+                execution["clickAckMonotonicNs"] = time.monotonic_ns()
                 try:
-                    self.last_pointer_execution["rateRecordMonotonicNs"] = click_rate_permit.record_press()
+                    execution["rateRecordMonotonicNs"] = click_rate_permit.record_press()
                 except PointerExecutionError as exc:
                     raise DriverError(str(exc)) from exc
-                self.last_pointer_execution["phase"] = "click_released_and_rate_recorded"
+                execution["phase"] = "click_released_and_rate_recorded"
                 if click_plan is not None:
-                    final_x, final_y, final_window = self.pointer_position(generation=generation)
+                    final_x, final_y, final_window = self.pointer_position(
+                        generation=generation, deadline_monotonic=deadline_monotonic
+                    )
                     if not self._is_owned_client_target(final_window, current):
                         raise DriverError("native pointer postcondition left the verified client")
                     left, top, _width, _height = current.child_geometry
@@ -3758,11 +3934,26 @@ class X11Backend:
         elif name == "focus_game":
             return
         elif name == "open_chat":
-            self._key("Return", generation=generation, keymap=keyboard_keymap)
+            self._key(
+                "Return",
+                generation=generation,
+                keymap=keyboard_keymap,
+                deadline_monotonic=deadline_monotonic,
+            )
         elif name == "submit_command":
-            self._key("Return", generation=generation, keymap=keyboard_keymap)
+            self._key(
+                "Return",
+                generation=generation,
+                keymap=keyboard_keymap,
+                deadline_monotonic=deadline_monotonic,
+            )
         elif name == "escape_command_buffer":
-            self._key("Escape", generation=generation, keymap=keyboard_keymap)
+            self._key(
+                "Escape",
+                generation=generation,
+                keymap=keyboard_keymap,
+                deadline_monotonic=deadline_monotonic,
+            )
         elif name == "open_ah":
             argv, held = self._keyboard_transition_argv(
                 (
@@ -3779,14 +3970,23 @@ class X11Backend:
                 held_keys=set(held),
                 input_schema="keyboard-steps",
                 expected_argv=tuple(argv),
+                deadline_monotonic=deadline_monotonic,
             )
         elif name == "type_allowlisted_command":
             command = kwargs.get("command")
             if command not in DesktopDriver.COMMANDS:
                 raise DriverError("attempted to type a non-allowlisted command")
-            self._type(command, generation=generation, keymap=keyboard_keymap)
+            self._type(
+                command,
+                generation=generation,
+                keymap=keyboard_keymap,
+                deadline_monotonic=deadline_monotonic,
+            )
         else:
             raise DriverError(f"unsupported X11 action {name}")
+        if name == "executor_click":
+            return copy.deepcopy(execution)
+        return None
 
     def _capture_epoch_snapshot(self) -> int:
         with self._process_lock:
@@ -5019,7 +5219,9 @@ class DesktopDriver:
         "enter_world",
         "open_ah",
         "logout",
+        "executor_click",
     }
+    EXECUTOR_POINTER_ACTIONS = {"executor_click"}
     POINTER_ACTIONS = {
         "dismiss_disconnect",
         "reconnect_game",
@@ -5033,6 +5235,7 @@ class DesktopDriver:
         "select_arthur": 1,
         "enter_world": 1,
         "logout": 1,
+        "executor_click": 1,
     }
     # Native visual anchors are bound to the named control proved by the
     # provider's fresh capture.  A generic world/config coordinate cannot
@@ -5043,6 +5246,7 @@ class DesktopDriver:
         "select_arthur": "arthur_row",
         "enter_world": "enter_world",
         "logout": "world",
+        "executor_click": "crowley_executor_button",
     }
     ANCHOR_SCENES = {
         "dismiss_disconnect": "disconnect_dialog",
@@ -5051,7 +5255,13 @@ class DesktopDriver:
         "enter_world": "character_select",
         "open_ah": "world",
         "logout": "world",
+        "executor_click": "executor_mailbox",
     }
+
+    @classmethod
+    def _is_pointer_action(cls, name: str) -> bool:
+        return name in cls.POINTER_ACTIONS or name in cls.EXECUTOR_POINTER_ACTIONS
+
     TARGET_AUCTIONEER_COMMAND = "/targetexact Auctioneer Jaxon"
     CONDITIONAL_INTERACTION_BINDING_COMMAND = (
         "/run local a=GetBindingAction('CTRL-F12'); "
@@ -5085,6 +5295,9 @@ class DesktopDriver:
     ):
         self.profile = profile or DriverProfile()
         self._clock = monotonic
+        self._anchor_observation_deadline_var: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+            f"desktop_driver_anchor_observation_deadline_{id(self)}", default=None
+        )
         self.pointer_motion_profile = pointer_motion_profile or MotionProfile()
         self.camera_motion_profile = camera_motion_profile or MotionProfile(role=DemonstrationRole.CAMERA)
         self.move_motion_profile = move_motion_profile or MotionProfile(role=DemonstrationRole.MOVE)
@@ -5235,8 +5448,10 @@ class DesktopDriver:
         generation: int,
         gesture: HumanPointerPlan,
         accepted: bool,
+        execution: dict[str, Any] | None = None,
     ) -> None:
-        execution = self.backend.last_pointer_execution if isinstance(self.backend, X11Backend) else None
+        if execution is None:
+            execution = self.backend.last_pointer_execution if isinstance(self.backend, X11Backend) else None
         self._pointer_gesture_receipts.append(
             {
                 "action": action,
@@ -5255,7 +5470,7 @@ class DesktopDriver:
                     ).encode("ascii")
                 ).hexdigest(),
                 "accepted": accepted,
-                "execution": json.loads(json.dumps(execution)) if execution is not None else None,
+                "execution": copy.deepcopy(execution) if execution is not None else None,
             }
         )
         if len(self._pointer_gesture_receipts) > 32:
@@ -6524,19 +6739,39 @@ class DesktopDriver:
             for anchor in anchors:
                 self.backend.install_measured_anchor(anchor)
 
-    def measure_pointer_anchor(self, action: str, *, generation: int | None = None) -> MeasuredAnchor:
+    def measure_pointer_anchor(
+        self,
+        action: str,
+        *,
+        generation: int | None = None,
+        deadline_monotonic: float | None = None,
+    ) -> MeasuredAnchor:
         """Measure one control from a fresh owned-client scene capture."""
 
-        if action not in self.POINTER_ACTIONS:
+        if not self._is_pointer_action(action):
             raise DriverError(f"{action} is not a measured pointer action")
         provider = self.measured_anchor_provider
         if provider is None:
             raise DriverError("native control-specific anchor provider is not configured")
         if generation is None:
             raise DriverError("native control anchor admission requires a current generation")
-        identity = self.resolve_identity()
+        deadline = self._effective_anchor_observation_deadline(deadline_monotonic)
+        self._check_anchor_observation_deadline(
+            deadline, "native control anchor deadline expired before identity"
+        )
+        identity = self.resolve_identity(deadline_monotonic=deadline)
+        self._check_anchor_observation_deadline(
+            deadline, "native control anchor deadline expired before observation"
+        )
         try:
-            anchor = provider(identity, action)
+            with self._anchor_observation_scope(deadline):
+                self._check_anchor_observation_deadline(
+                    deadline, "native control anchor deadline expired before observation"
+                )
+                anchor = provider(identity, action)
+                self._check_anchor_observation_deadline(
+                    deadline, "native control anchor deadline expired after observation"
+                )
         except Exception as exc:
             raise DriverError(f"native anchor measurement failed for {action}: {exc}") from exc
         if not isinstance(anchor, MeasuredAnchor):
@@ -6564,6 +6799,8 @@ class DesktopDriver:
         generation: int,
         identity: WindowIdentity,
         previous: MeasuredAnchor,
+        *,
+        deadline_monotonic: float | None = None,
     ) -> MeasuredAnchor:
         """Re-observe the same control while its Guardian action is active."""
 
@@ -6571,14 +6808,30 @@ class DesktopDriver:
             self.guardian.check(generation)
         except GuardianError as exc:
             raise DriverError(str(exc)) from exc
-        current = self.resolve_identity(require_foreground=True)
+        if deadline_monotonic is None:
+            deadline_monotonic = getattr(self.backend, "_active_action_deadline", None)
+        deadline = self._effective_anchor_observation_deadline(deadline_monotonic)
+        self._check_anchor_observation_deadline(
+            deadline, "fresh pointer anchor deadline expired before identity"
+        )
+        current = self.resolve_identity(require_foreground=True, deadline_monotonic=deadline)
+        self._check_anchor_observation_deadline(
+            deadline, "fresh pointer anchor deadline expired before observation"
+        )
         if current.fingerprint != identity.fingerprint:
             raise DriverError("pointer identity changed before fresh control observation")
         provider = self.measured_anchor_provider
         if not callable(provider):
             raise DriverError("fresh pointer control-anchor provider is not configured")
         try:
-            anchor = provider(current, action)
+            with self._anchor_observation_scope(deadline):
+                self._check_anchor_observation_deadline(
+                    deadline, "fresh pointer control-anchor observation deadline expired"
+                )
+                anchor = provider(current, action)
+                self._check_anchor_observation_deadline(
+                    deadline, "fresh pointer control-anchor observation deadline expired"
+                )
         except Exception as exc:
             raise DriverError(f"fresh pointer control-anchor observation failed: {exc}") from exc
         if not isinstance(anchor, MeasuredAnchor):
@@ -6646,6 +6899,7 @@ class DesktopDriver:
         generation: int,
         source: str = "native-visual",
         facts: tuple[tuple[str, str], ...] = (),
+        deadline_monotonic: float | None = None,
     ) -> MeasuredAnchor:
         """Create an anchor sealed to one retained native capture.
 
@@ -6654,7 +6908,13 @@ class DesktopDriver:
         so a coordinate cannot be detached from the capture that produced it.
         """
 
-        identity = self.resolve_identity(require_foreground=False)
+        deadline = self._effective_anchor_observation_deadline(deadline_monotonic)
+        self._check_anchor_observation_deadline(deadline, "native anchor deadline expired before identity")
+        if deadline is None:
+            identity = self.resolve_identity(require_foreground=False)
+        else:
+            identity = self.resolve_identity(require_foreground=False, deadline_monotonic=deadline)
+        self._check_anchor_observation_deadline(deadline, "native anchor deadline expired after identity")
         try:
             self.guardian.check(generation)
         except GuardianError as exc:
@@ -6666,10 +6926,24 @@ class DesktopDriver:
             or capture_monotonic < 0
         ):
             raise DriverError("native anchor original capture time is malformed")
+        self._check_anchor_observation_deadline(
+            deadline, "native anchor deadline expired before capture path"
+        )
         capture_path = capture_path.expanduser().resolve()
+        self._check_anchor_observation_deadline(deadline, "native anchor deadline expired after capture path")
+        self._check_anchor_observation_deadline(
+            deadline, "native anchor deadline expired before capture existence"
+        )
         if not capture_path.is_file():
             raise DriverError("native anchor capture does not exist")
+        self._check_anchor_observation_deadline(
+            deadline, "native anchor deadline expired after capture existence"
+        )
+        self._check_anchor_observation_deadline(
+            deadline, "native anchor deadline expired before capture hash"
+        )
         digest = hashlib.sha256(capture_path.read_bytes()).hexdigest()
+        self._check_anchor_observation_deadline(deadline, "native anchor deadline expired after capture hash")
         normalized_facts = dict(facts)
         normalized_facts.update(
             {
@@ -6705,12 +6979,18 @@ class DesktopDriver:
             generation=generation,
             facts=tuple(sorted(normalized_facts.items())),
         )
+        self._check_anchor_observation_deadline(
+            deadline, "native anchor deadline expired before anchor validation"
+        )
         self._validate_measured_anchor(anchor, identity)
+        self._check_anchor_observation_deadline(
+            deadline, "native anchor deadline expired after anchor validation"
+        )
         return anchor
 
     def _validate_measured_anchor(self, anchor: MeasuredAnchor, identity: WindowIdentity) -> None:
         anchor.verify_seal()
-        if anchor.action not in self.POINTER_ACTIONS:
+        if not self._is_pointer_action(anchor.action):
             raise DriverError("anchor action is not allowlisted")
         if anchor.source not in {"native-visual", "native-addon"}:
             raise DriverError("anchor is not native visual evidence")
@@ -6962,6 +7242,39 @@ class DesktopDriver:
             raise DriverError("operation deadline is malformed")
         return None if deadline_monotonic is None else float(deadline_monotonic)
 
+    @property
+    def anchor_observation_deadline(self) -> float | None:
+        """Return the inherited bound for the active measured-anchor provider."""
+
+        return self._anchor_observation_deadline_var.get()
+
+    def _effective_anchor_observation_deadline(self, deadline_monotonic: float | None) -> float | None:
+        requested = self._validate_deadline(deadline_monotonic)
+        active = self.anchor_observation_deadline
+        if active is None:
+            return requested
+        if requested is None:
+            return active
+        return min(active, requested)
+
+    @contextmanager
+    def _anchor_observation_scope(self, deadline_monotonic: float | None):
+        deadline = self._effective_anchor_observation_deadline(deadline_monotonic)
+        token = self._anchor_observation_deadline_var.set(deadline)
+        try:
+            yield deadline
+        finally:
+            self._anchor_observation_deadline_var.reset(token)
+
+    def _check_anchor_observation_deadline(self, deadline_monotonic: float | None, message: str) -> None:
+        if deadline_monotonic is not None and self._clock() >= deadline_monotonic:
+            raise DriverError(message)
+
+    @staticmethod
+    def _check_deadline(deadline_monotonic: float | None, message: str) -> None:
+        if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+            raise DriverError(message)
+
     def _identity(
         self,
         *,
@@ -7119,9 +7432,11 @@ class DesktopDriver:
         operation: str,
         payload: str,
         evidence: Any,
+        *,
+        deadline_monotonic: float | None = None,
     ) -> tuple[tuple[Any, ...], ...]:
         profile = self._keyboard_profile(evidence)
-        self._sealed_keyboard_keymap(evidence)
+        self._sealed_keyboard_keymap(evidence, deadline_monotonic=deadline_monotonic)
         try:
             return profile[(operation, payload)]
         except KeyError as exc:
@@ -7292,7 +7607,12 @@ class DesktopDriver:
         return details
 
     def _expected_key_operation(
-        self, name: str, kwargs: dict[str, Any], evidence: Any
+        self,
+        name: str,
+        kwargs: dict[str, Any],
+        evidence: Any,
+        *,
+        deadline_monotonic: float | None = None,
     ) -> tuple[tuple[str, ...], tuple[int, ...], tuple[tuple[int, int, int], ...]]:
         if name == "type_allowlisted_command":
             operation, payload = name, kwargs.get("command")
@@ -7308,7 +7628,14 @@ class DesktopDriver:
             return (), (), ()
         if not isinstance(payload, str):
             raise DriverError("keyboard action payload is malformed")
-        return self._keyboard_sequence(self._keyboard_operation_facts(operation, payload, evidence))
+        return self._keyboard_sequence(
+            self._keyboard_operation_facts(
+                operation,
+                payload,
+                evidence,
+                deadline_monotonic=deadline_monotonic,
+            )
+        )
 
     def _motion_input_context(
         self,
@@ -7954,6 +8281,7 @@ class DesktopDriver:
                     if canonical_motion
                     else (float(endpoint.x), float(endpoint.y))
                 ),
+                initial_origin=(actual_x, actual_y, actual_x, actual_y) if canonical_motion else None,
                 expected_root_xid=getattr(evidence.xtest_profile, "root_xid", None)
                 if canonical_motion
                 else None,
@@ -7978,7 +8306,15 @@ class DesktopDriver:
                     "phase": "click_planned",
                     "rateGate": "canonical-user-session",
                 }
-                self.last_pointer_execution["clickPrecommitMonotonicNs"] = click_rate_permit.precommit()
+                if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                    raise DriverError("world click deadline expired before click rate precommit")
+                self.last_pointer_execution["clickPrecommitMonotonicNs"] = (
+                    click_rate_permit.precommit()
+                    if deadline_monotonic is None
+                    else click_rate_permit.precommit(deadline_monotonic=deadline_monotonic)
+                )
+                if deadline_monotonic is not None and time.monotonic() >= deadline_monotonic:
+                    raise DriverError("world click deadline expired before click dispatch")
             except PointerExecutionError as exc:
                 raise DriverError(str(exc)) from exc
             self.backend._run(
@@ -7989,6 +8325,15 @@ class DesktopDriver:
                 expected_argv=tuple(click_argv),
                 deadline_monotonic=deadline_monotonic,
             )
+            # Once the native press/release wrapper has returned, the durable
+            # rate record is unconditional even if Guardian observation later
+            # reaches the operation deadline.  The precommit reservation has
+            # already fenced the next click; recording the actual press keeps
+            # its one-second spacing proof intact.
+            try:
+                self.last_pointer_execution["rateRecordMonotonicNs"] = click_rate_permit.record_press()
+            except PointerExecutionError as exc:
+                raise DriverError(str(exc)) from exc
             self.guardian.check(generation)
             if self._monitor is None:
                 raise DriverError("world click completion requires the live XI2 observer")
@@ -7999,10 +8344,6 @@ class DesktopDriver:
             if not action.complete:
                 raise DriverError("world click event trace did not complete")
             self.guardian.finish_action(generation, action)
-            try:
-                self.last_pointer_execution["rateRecordMonotonicNs"] = click_rate_permit.record_press()
-            except PointerExecutionError as exc:
-                raise DriverError(str(exc)) from exc
             final_x, final_y, final_window = self.backend.pointer_position(
                 generation=generation,
                 deadline_monotonic=deadline_monotonic,
@@ -8242,47 +8583,60 @@ class DesktopDriver:
         *,
         precondition: Callable[[WindowIdentity], bool] | None = None,
         postcondition: Callable[[WindowIdentity], bool] | None = None,
+        deadline_monotonic: float | None = None,
         **kwargs: Any,
-    ) -> None:
+    ) -> dict[str, Any] | None:
+        deadline_monotonic = self._validate_deadline(deadline_monotonic)
+        if deadline_monotonic is not None and self._clock() >= deadline_monotonic:
+            raise DriverError("desktop action deadline expired before admission")
         if name not in self.ACTIONS:
             raise DriverError(f"action {name!r} is not allowlisted")
+        premeasured_anchor = kwargs.pop("_premeasured_anchor", None)
+        if name == "executor_click" and not callable(kwargs.get("_final_admission")):
+            raise DriverError("executor click requires a final admission callback")
         try:
             self.guardian.check(generation)
         except GuardianError as exc:
             raise DriverError(str(exc)) from exc
-        if name in self.POINTER_ACTIONS and isinstance(self.backend, X11Backend):
+        if self._is_pointer_action(name) and isinstance(self.backend, X11Backend):
             supplied_permit = kwargs.get("_click_rate_permit")
             if not isinstance(supplied_permit, ClickRatePermit) or not supplied_permit.is_open:
                 try:
                     permit = acquire_click_rate_permit(
-                        cancellation_check=lambda: self.guardian.check(generation)
+                        deadline_monotonic=deadline_monotonic,
+                        cancellation_check=lambda: self.guardian.check(generation),
                     )
                 except (PointerExecutionError, GuardianError) as exc:
                     raise DriverError(f"pointer click admission failed: {exc}") from exc
                 try:
                     forwarded = {key: value for key, value in kwargs.items() if key != "_click_rate_permit"}
-                    self.run(
+                    if premeasured_anchor is not None:
+                        forwarded["_premeasured_anchor"] = premeasured_anchor
+                    result = self.run(
                         name,
                         generation,
                         precondition=precondition,
                         postcondition=postcondition,
                         _click_rate_permit=permit,
+                        deadline_monotonic=deadline_monotonic,
                         **forwarded,
                     )
                 finally:
                     permit.close()
-                return
+                return result
         if name == "type_allowlisted_command" and kwargs.get("command") not in self.COMMANDS:
             raise DriverError("command is not allowlisted")
         identity = (
-            self._identity(require_foreground=False)
+            self._identity(require_foreground=False, deadline_monotonic=deadline_monotonic)
             if isinstance(self.backend, X11Backend)
             else self._identity()
         )
         if precondition is None and isinstance(self.backend, X11Backend):
             raise DriverError(f"{name} requires actual telemetry/visual precondition evidence")
+        self._check_deadline(deadline_monotonic, f"{name} deadline expired before precondition")
         if precondition is not None and not precondition(identity):
             raise DriverError(f"{name} precondition failed")
+        self._check_deadline(deadline_monotonic, f"{name} deadline expired after precondition")
         if name == "focus_game":
             # Focus recovery emits no key/button proof, but its activation
             # command can block.  Register an empty owned action so revoke()
@@ -8340,14 +8694,27 @@ class DesktopDriver:
                 )
                 if isinstance(self.backend, X11Backend):
                     self.guardian.dispatch_admission(generation, lambda: None)
-                    self.backend.action(name, generation=generation, **kwargs)
+                    self.backend.action(
+                        name,
+                        generation=generation,
+                        deadline_monotonic=deadline_monotonic,
+                        **kwargs,
+                    )
                 else:
                     self.guardian.dispatch_admission(generation, lambda: self.backend.action(name, **kwargs))
-                fresh = self._identity()
+                fresh = self._identity(deadline_monotonic=deadline_monotonic)
                 if fresh.fingerprint != identity.fingerprint:
                     raise DriverError("game client identity changed during focus recovery")
+                self._check_deadline(
+                    deadline_monotonic,
+                    "focus recovery deadline expired before postcondition",
+                )
                 if postcondition is not None and not postcondition(fresh):
                     raise DriverError("focus recovery postcondition failed")
+                self._check_deadline(
+                    deadline_monotonic,
+                    "focus recovery deadline expired after postcondition",
+                )
             except GuardianError as exc:
                 raise DriverError(str(exc)) from exc
             except Exception as exc:
@@ -8358,7 +8725,7 @@ class DesktopDriver:
                 if action is not None and self.guardian.armed and self.guardian.generation == generation:
                     self.guardian.finish_action(generation, action)
             return
-        pointer_action = name in self.POINTER_ACTIONS
+        pointer_action = self._is_pointer_action(name)
         backend_action = getattr(self.backend.action, "__func__", None)
         native_pointer_dispatch = isinstance(self.backend, X11Backend) and backend_action is X11Backend.action
         evidence = self._input_evidence
@@ -8368,8 +8735,28 @@ class DesktopDriver:
             # Controls are mutually exclusive across scenes.  Measure exactly
             # the named control immediately before dispatch, then bind that
             # capture to this generation; there is no all-scenes anchor batch.
-            self._verify_current_xtest_profile(evidence, generation=generation)
-            self.measure_pointer_anchor(name, generation=generation)
+            self._verify_current_xtest_profile(
+                evidence,
+                generation=generation,
+                deadline_monotonic=deadline_monotonic,
+            )
+            if premeasured_anchor is None:
+                if deadline_monotonic is None:
+                    self.measure_pointer_anchor(name, generation=generation)
+                else:
+                    self.measure_pointer_anchor(
+                        name,
+                        generation=generation,
+                        deadline_monotonic=deadline_monotonic,
+                    )
+            else:
+                if not isinstance(premeasured_anchor, MeasuredAnchor):
+                    raise DriverError("premeasured pointer anchor is not sealed evidence")
+                if premeasured_anchor.action != name or premeasured_anchor.generation != generation:
+                    raise DriverError("premeasured pointer anchor is stale")
+                self._validate_measured_anchor(premeasured_anchor, identity)
+                self._measured_anchors[name] = premeasured_anchor
+                self._measured_anchor_generations[name] = generation
         source = (
             getattr(evidence, "synthetic_pointer_source", 0)
             if pointer_action
@@ -8419,7 +8806,10 @@ class DesktopDriver:
             expected_details = (self.POINTER_BUTTONS[name],) * 4
         else:
             key_sequence, expected_details, expected_modifier_sequence = self._expected_key_operation(
-                name, kwargs, evidence
+                name,
+                kwargs,
+                evidence,
+                deadline_monotonic=deadline_monotonic,
             )
             if not key_sequence:
                 raise DriverError(f"action {name!r} has no sealed keyboard operation")
@@ -8460,7 +8850,12 @@ class DesktopDriver:
             else:
                 operation, payload = "", ""
             if operation:
-                for step in self._keyboard_operation_facts(operation, payload, evidence):
+                for step in self._keyboard_operation_facts(
+                    operation,
+                    payload,
+                    evidence,
+                    deadline_monotonic=deadline_monotonic,
+                ):
                     keysym = step[1]
                     if not isinstance(keysym, str) or not keysym:
                         raise DriverError("sealed keyboard operation has malformed keysym")
@@ -8498,7 +8893,10 @@ class DesktopDriver:
             if anchor is None:
                 raise DriverError(f"action anchor for {name} is missing at plan construction")
             try:
-                current = self.resolve_identity(require_foreground=True)
+                current = self.resolve_identity(
+                    require_foreground=True,
+                    deadline_monotonic=deadline_monotonic,
+                )
                 if current.fingerprint != identity.fingerprint:
                     raise DriverError("native pointer plan identity changed before admission")
                 client_bounds = Rect(0, 0, current.child_geometry[2], current.child_geometry[3])
@@ -8516,7 +8914,10 @@ class DesktopDriver:
                 button = {1: PointerButton.LEFT, 3: PointerButton.RIGHT}.get(native_button or 0)
                 if button is None:
                     raise DriverError(f"pointer button for {name} has not passed live calibration")
-                root_x, root_y, pointer_window = self.backend.pointer_position(generation=generation)
+                root_x, root_y, pointer_window = self.backend.pointer_position(
+                    generation=generation,
+                    deadline_monotonic=deadline_monotonic,
+                )
                 if not self._is_owned_client_target(pointer_window, current):
                     raise DriverError("native pointer start is outside the verified client")
                 start = Point(
@@ -8579,6 +8980,8 @@ class DesktopDriver:
         admitted_anchor: MeasuredAnchor | None = None
         pointer_attempted = False
         pointer_succeeded = False
+        pointer_receipt: dict[str, Any] | None = None
+        cleanup_return_receipt: dict[str, Any] | None = None
         try:
             device_by_class: dict[str, int] = {}
             for event_class in event_classes:
@@ -8646,7 +9049,10 @@ class DesktopDriver:
                 if anchor is None:
                     return
                 try:
-                    current_identity = self.resolve_identity(require_foreground=False)
+                    current_identity = self.resolve_identity(
+                        require_foreground=False,
+                        deadline_monotonic=deadline_monotonic,
+                    )
                     if current_identity.fingerprint != anchor.identity_fingerprint:
                         raise DriverError("native anchor identity changed before one-use admission")
                     age = self._clock() - anchor.capture_monotonic
@@ -8684,22 +9090,102 @@ class DesktopDriver:
                         "_gesture_plan": gesture_plan,
                     }
                     if pointer_plan is not None:
-                        kwargs["_refresh_anchor"] = lambda current, previous: self._refresh_pointer_anchor(
-                            name, generation, current, previous
-                        )
+                        if deadline_monotonic is None:
+                            kwargs["_refresh_anchor"] = lambda current, previous: (
+                                self._refresh_pointer_anchor(name, generation, current, previous)
+                            )
+                        else:
+                            kwargs["_refresh_anchor"] = lambda current, previous: (
+                                self._refresh_pointer_anchor(
+                                    name,
+                                    generation,
+                                    current,
+                                    previous,
+                                    deadline_monotonic=deadline_monotonic,
+                                )
+                            )
                 else:
                     # The emitter receives only the keymap sealed by current
                     # runtime evidence. It converts the planned keysyms to
                     # exact physical keycodes before its process is admitted.
-                    kwargs = {**kwargs, "_keyboard_keymap": self._sealed_keyboard_keymap(evidence)}
+                    kwargs = {
+                        **kwargs,
+                        "_keyboard_keymap": self._sealed_keyboard_keymap(
+                            evidence,
+                            deadline_monotonic=deadline_monotonic,
+                        ),
+                    }
                 pointer_attempted = pointer_action and gesture_plan is not None
-                self.backend.action(name, generation=generation, **kwargs)
+                if deadline_monotonic is not None:
+                    kwargs = {**kwargs, "deadline_monotonic": deadline_monotonic}
+                backend_deadline_previous = getattr(self.backend, "_active_action_deadline", None)
+                if deadline_monotonic is not None:
+                    self.backend._active_action_deadline = deadline_monotonic  # type: ignore[attr-defined]
+                try:
+                    backend_result = self.backend.action(name, generation=generation, **kwargs)
+                finally:
+                    if deadline_monotonic is not None:
+                        if backend_deadline_previous is None:
+                            try:
+                                delattr(self.backend, "_active_action_deadline")
+                            except AttributeError:
+                                pass
+                        else:
+                            self.backend._active_action_deadline = backend_deadline_previous  # type: ignore[attr-defined]
+                if name == "executor_click" and isinstance(backend_result, dict):
+                    pointer_receipt = copy.deepcopy(backend_result)
             else:
 
                 def dispatch_fake() -> None:
+                    nonlocal pointer_receipt
                     admit_anchor()
                     self._held_input = True
-                    self.backend.action(name, **kwargs)
+                    final_admission = kwargs.get("_final_admission")
+                    if final_admission is not None:
+                        if not callable(final_admission):
+                            raise DriverError("pointer final admission is not callable")
+                        final_admission()
+                    backend_kwargs = {
+                        key: value for key, value in kwargs.items() if key != "_final_admission"
+                    }
+                    if deadline_monotonic is not None:
+                        backend_kwargs["deadline_monotonic"] = deadline_monotonic
+                    backend_deadline_previous = getattr(self.backend, "_active_action_deadline", None)
+                    if deadline_monotonic is not None:
+                        self.backend._active_action_deadline = deadline_monotonic  # type: ignore[attr-defined]
+                    try:
+                        self.backend.action(name, **backend_kwargs)
+                    finally:
+                        if deadline_monotonic is not None:
+                            if backend_deadline_previous is None:
+                                try:
+                                    delattr(self.backend, "_active_action_deadline")
+                                except AttributeError:
+                                    pass
+                            else:
+                                self.backend._active_action_deadline = backend_deadline_previous  # type: ignore[attr-defined]
+                    if name == "executor_click":
+                        pointer_receipt = {
+                            "action": name,
+                            "generation": generation,
+                            "anchorEvidenceHash": anchor.evidence_hash if anchor is not None else "",
+                            "anchorCaptureId": anchor.capture_id if anchor is not None else "",
+                            "endpoint": (
+                                int(gesture_plan.endpoint.x),
+                                int(gesture_plan.endpoint.y),
+                            )
+                            if gesture_plan is not None
+                            else (
+                                int(anchor.x),
+                                int(anchor.y),
+                            )
+                            if anchor is not None
+                            else None,
+                            "rateGate": "canonical-user-session",
+                            "pressRelease": "recording-backend",
+                            "guardianCompleted": True,
+                            "accepted": True,
+                        }
 
                 try:
                     self.guardian.dispatch_admission(generation, dispatch_fake)
@@ -8708,11 +9194,17 @@ class DesktopDriver:
                         self._consumed_anchor_seals.add(anchor.evidence_hash)
                     raise
             if isinstance(self.backend, X11Backend) and self._monitor is not None:
+                monitor_timeout = 2.0
+                if deadline_monotonic is not None:
+                    monitor_timeout = min(
+                        monitor_timeout,
+                        max(0.0, deadline_monotonic - time.monotonic()),
+                    )
                 self._monitor.wait_for_event(
                     lambda _events: bool(self.guardian.action is not None and self.guardian.action.complete),
-                    timeout=2.0,
+                    timeout=monitor_timeout,
                 )
-            fresh = self._identity()
+            fresh = self._identity(deadline_monotonic=deadline_monotonic)
             if fresh.fingerprint != identity.fingerprint:
                 raise DriverError("game client identity changed during action")
             if (
@@ -8721,8 +9213,10 @@ class DesktopDriver:
                 and name != "type_allowlisted_command"
             ):
                 raise DriverError(f"{name} requires actual postcondition evidence")
+            self._check_deadline(deadline_monotonic, f"{name} deadline expired before postcondition")
             if postcondition is not None and not postcondition(fresh):
                 raise DriverError(f"{name} postcondition failed")
+            self._check_deadline(deadline_monotonic, f"{name} deadline expired after postcondition")
             pointer_succeeded = pointer_action
         except GuardianError as exc:
             raise DriverError(str(exc)) from exc
@@ -8731,18 +9225,53 @@ class DesktopDriver:
                 self.revoke(f"{name} failed: {exc}")
             raise
         finally:
+            finish_succeeded = False
+            finish_error: Exception | None = None
             try:
                 if action is not None and self.guardian.armed and self.guardian.generation == generation:
-                    self.guardian.finish_action(generation, action)
-                    self._held_input = False
+                    try:
+                        self.guardian.finish_action(generation, action)
+                        finish_succeeded = True
+                        self._held_input = False
+                    except Exception as exc:
+                        finish_error = exc
             finally:
                 if pointer_attempted and gesture_plan is not None:
+                    # Executor receipts come only from this backend call's
+                    # sealed return value.  Mutable backend history may have
+                    # been replaced by a later action and is never consulted
+                    # for the per-call result.
+                    execution = copy.deepcopy(pointer_receipt)
+                    if execution is None and name != "executor_click":
+                        execution = (
+                            copy.deepcopy(self.backend.last_pointer_execution)
+                            if isinstance(self.backend, X11Backend)
+                            else None
+                        )
+                    if execution is not None:
+                        execution["guardianCompleted"] = finish_succeeded
+                        execution["receiptFinalizedMonotonicNs"] = time.monotonic_ns()
+                        if name == "executor_click":
+                            pointer_receipt = copy.deepcopy(execution)
+                    pointer_succeeded = pointer_succeeded and finish_succeeded
                     self._record_pointer_gesture_receipt(
                         action=name,
                         generation=generation,
                         gesture=gesture_plan,
                         accepted=pointer_succeeded,
+                        execution=execution,
                     )
+            if finish_error is not None and name != "executor_click":
+                raise finish_error
+            if finish_error is not None and name == "executor_click" and sys.exc_info()[0] is None:
+                # Keep the sealed call-local receipt available to the daemon;
+                # guardianCompleted=False makes it ineligible for success and
+                # forces the daemon to archive a blocked known receipt.
+                cleanup_return_receipt = copy.deepcopy(pointer_receipt)
+        if cleanup_return_receipt is not None:
+            return cleanup_return_receipt
+        if name == "executor_click":
+            return copy.deepcopy(pointer_receipt) if pointer_receipt is not None else None
 
     def flush_queued(self) -> None:
         queued, self._queued = self._queued, []
@@ -9021,7 +9550,9 @@ class DesktopDriver:
         readback: Callable[[], str] | None = None,
         precondition: Callable[[WindowIdentity], bool] | None = None,
         postcondition: Callable[[WindowIdentity], bool] | None = None,
+        deadline_monotonic: float | None = None,
     ) -> None:
+        deadline_monotonic = self._validate_deadline(deadline_monotonic)
         if command not in self.COMMANDS:
             raise DriverError("command is not allowlisted")
         edit = telemetry.get("chatEdit")
@@ -9029,8 +9560,16 @@ class DesktopDriver:
             raise DriverError("chat edit box is not a fresh focused empty buffer")
         if readback is None:
             raise DriverError("typed command has no fresh native EditBox readback")
-        self.run("type_allowlisted_command", generation, command=command, precondition=precondition)
+        self.run(
+            "type_allowlisted_command",
+            generation,
+            command=command,
+            precondition=precondition,
+            deadline_monotonic=deadline_monotonic,
+        )
+        self._check_deadline(deadline_monotonic, "command deadline expired before EditBox readback")
         observed = readback()
+        self._check_deadline(deadline_monotonic, "command deadline expired after EditBox readback")
         if observed != command:
             # Even cleanup of an unexpected EditBox value follows the same
             # measured XTEST path and receives a fresh readback pre/postcondition.
@@ -9040,11 +9579,19 @@ class DesktopDriver:
                     generation,
                     precondition=lambda identity: readback() == observed,
                     postcondition=lambda identity: readback() == "",
+                    deadline_monotonic=deadline_monotonic,
                 )
             finally:
                 self.revoke("active EditBox readback mismatch")
             raise DriverError("active EditBox text did not match requested command")
-        self.run("submit_command", generation, command=command, postcondition=postcondition)
+        self.run(
+            "submit_command",
+            generation,
+            command=command,
+            precondition=precondition,
+            postcondition=postcondition,
+            deadline_monotonic=deadline_monotonic,
+        )
 
     def capture_client_crop(
         self,

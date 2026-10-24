@@ -5,18 +5,35 @@ import hashlib
 import json
 import math
 import zlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 from crowley.core import savedvars
+from crowley.core.game_target import packaged_game_target
 from crowley.core.scanformat import ScanFormatError, validate_v2_envelope
 from crowley.core.watchlist import load_catalog
+from crowley.session.decoder import PixelDecoder
 from crowley.session.protocol import decode_frame
 
 from .wow_harness import Auction, WowClient
 
 FIXTURES = Path(__file__).parent / "fixtures"
+
+
+def non_beta_target(*, ruleset: str = "normal", realm: str = "Normal"):
+    target = packaged_game_target()
+    faction = "Alliance"
+    return replace(
+        target,
+        region="us",
+        native_region_id=1,
+        ruleset=ruleset,
+        realm=realm,
+        faction=faction,
+        house=f"us-{ruleset}-{faction.lower()}",
+    )
 
 
 def run_sweep(
@@ -25,7 +42,7 @@ def run_sweep(
     client.login()
     for field, value in (settings or {}).items():
         client.lua.globals().CrowleyDB.settings[field] = value
-    # Every successful production sweep uses the shipped canonical 428-item
+    # Every successful production sweep uses the packaged canonical
     # plan.  ``item_ids`` is retained only for callers from the older focused
     # tests; those tests inspect a canonical observation while the harness
     # advances the real rolling throttle window.
@@ -2471,6 +2488,7 @@ def test_probe_records_actual_movement_api_presence_and_binding_actions():
 
 def test_probe_records_native_region_realm_and_optional_namespace_surfaces():
     client = WowClient(
+        target=non_beta_target(),
         realm="Normal",
         current_region=1,
         current_region_name="",
@@ -2490,7 +2508,7 @@ def test_probe_records_native_region_realm_and_optional_namespace_surfaces():
 
 
 def test_probe_keeps_native_diagnostics_when_house_detection_raises():
-    client = WowClient(realm="Normal", current_region=1, faction=None)
+    client = WowClient(target=non_beta_target(), realm="Normal", current_region=1, faction=None)
     client.login()
     client.slash("probe")
     probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
@@ -2512,7 +2530,7 @@ def test_agent_samples_actual_motion_and_changed_values_are_fresh():
     first = client.publish_agent()
     client.set_motion(position=(101.25, 202.5, 31.75, 2), facing=2.5, speed=7.5, combat=True)
     second = client.publish_agent()
-    assert first["schema"] == second["schema"] == 5
+    assert first["schema"] == second["schema"] == 6
     assert first["motion"]["native"]["ctm"] == {
         "accessor": "C_CVar.GetCVarBool",
         "cvar": "autointeract",
@@ -2598,6 +2616,40 @@ def test_agent_reports_mail_frame_visibility(open_state: bool):
     client.login()
     client.set_mail(open=open_state)
     assert client.publish_agent()["mailOpen"] is open_state
+
+
+def test_schema6_executor_telemetry_survives_lua_capture_and_pixel_decoder():
+    queue = {
+        "format": 1,
+        "queueId": "beta-normal-alliance-1760000000-telemetry",
+        "generatedAt": 1759990000,
+        "expiresAt": 1760000100,
+        "house": "beta-normal-alliance",
+        "character": "Tester",
+        "armed": False,
+        "actions": [{"seq": 1, "kind": "mail_collect", "maxMessages": 1}],
+    }
+    client = WowClient(faction="Alliance", realm="Classic Beta PvE 2", current_region=110, queue=queue)
+    client.set_canonical_plan()
+    client.login()
+    client.set_mail_count(1)
+    client.set_frame_open("mailbox")
+    client.update_agent()
+    decoder = PixelDecoder()
+    first = decoder.decode(client.render_agent_capture(), monotonic=1.0, window_identity="executor-wire")
+    assert first.kind == "FRESH" and first.frame is not None
+    assert first.frame.snapshot["schema"] == 6
+    assert first.frame.snapshot["executor"]["availability"] == "valid"
+    assert first.frame.snapshot["executor"]["clickReady"] is True
+
+    client.click_executor()
+    client.update_agent()
+    second = decoder.decode(client.render_agent_capture(), monotonic=2.0, window_identity="executor-wire")
+    assert second.kind == "FRESH" and second.frame is not None
+    executor = second.frame.snapshot["executor"]
+    assert executor["clickOrdinal"] == 1
+    assert executor["lastClickSource"] == "button"
+    assert executor["lastResult"] == {"seq": 1, "kind": "mail_collect", "status": "dry_run"}
 
 
 @pytest.mark.parametrize(
@@ -2925,7 +2977,7 @@ def test_agent_publishes_strict_auctioneer_and_ctrl_f12_native_facts():
     )
     value = client.publish_agent()
     assert client.state.interactDistanceCalls[1] == 2
-    assert value["schema"] == 5
+    assert value["schema"] == 6
     assert value["auctioneer"] == {
         "targetPresent": True,
         "targetName": "Auctioneer Jaxon",
@@ -3077,6 +3129,9 @@ def test_probe_records_trade_api_surface_without_calling_trade_apis():
     trade_frames = {name: name in {"AuctionHouseFrame", "MailFrame"} for name in frame_names}
 
     client = WowClient(
+        target=non_beta_target(),
+        realm="Normal",
+        current_region=1,
         trade_namespaces=namespace_functions,
         trade_globals=trade_globals,
         trade_frames=trade_frames,
@@ -3109,7 +3164,7 @@ def test_probe_records_trade_api_surface_without_calling_trade_apis():
 
 
 def test_faction_override_bypasses_unsupported_native_faction_and_full_sweep_is_strict():
-    client = WowClient(current_region=1, realm="Normal", faction="Unrecognized")
+    client = WowClient(target=non_beta_target(), current_region=1, realm="Normal", faction="Unrecognized")
     raw = run_sweep(client, settings={"faction": "alliance"})
     parsed = validate_v2_envelope(envelope(raw))
 
@@ -3120,7 +3175,7 @@ def test_faction_override_bypasses_unsupported_native_faction_and_full_sweep_is_
 
 
 def test_probe_captures_snapshot_error_with_nil_native_faction_and_override():
-    client = WowClient(current_region=1, realm="Normal", faction=None)
+    client = WowClient(target=non_beta_target(), current_region=1, realm="Normal", faction=None)
     client.login()
     client.lua.globals().CrowleyDB.settings.faction = "alliance"
     client.slash("probe")
@@ -3134,7 +3189,7 @@ def test_probe_captures_snapshot_error_with_nil_native_faction_and_override():
 
 
 def test_nil_native_faction_override_refuses_scan_before_queries_or_saved_scan():
-    client = WowClient(current_region=1, realm="Normal", faction=None)
+    client = WowClient(target=non_beta_target(), current_region=1, realm="Normal", faction=None)
     client.login()
     client.lua.globals().CrowleyDB.settings.faction = "alliance"
     client.set_canonical_plan()
@@ -3181,18 +3236,35 @@ def test_beta_auto_attribution_roundtrips_through_a_strict_sweep():
     assert validate_v2_envelope(envelope(raw))["house"]["key"] == "beta-normal-horde"
 
 
-@pytest.mark.parametrize(
-    ("region", "region_name"),
-    [(1, "EU"), (2, "US"), (3, "KR"), (4, "CN"), (5, "TW")],
-)
-def test_native_region_id_is_authoritative_over_misleading_region_name(region, region_name):
-    client = WowClient(current_region=region, current_region_name=region_name, realm="Normal")
+def test_selected_non_beta_target_binds_native_region_and_realm():
+    target = non_beta_target()
+    client = WowClient(
+        target=target,
+        current_region=target.native_region_id,
+        current_region_name="misleading",
+        realm=target.realm,
+    )
     client.login()
     client.slash("probe")
     probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
-    expected = {1: "us", 2: "kr", 3: "eu", 4: "tw", 5: "cn"}[region]
 
-    assert probe["house"]["key"] == f"{expected}-normal-horde"
+    assert probe["house"]["key"] == "us-normal-horde"
+    assert probe["house"]["source"] == "auto"
+
+
+@pytest.mark.parametrize(
+    ("current_region", "realm", "message"),
+    [(2, "PvP", "native region id"), (1, "Normal", "native realm")],
+)
+def test_selected_non_beta_target_rejects_native_identity_drift(current_region, realm, message):
+    target = non_beta_target(ruleset="pvp", realm="PvP")
+    client = WowClient(target=target, current_region=current_region, realm=realm)
+    client.login()
+    client.slash("probe")
+    probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
+
+    assert probe["house"] is False
+    assert message in probe["attributionError"]
 
 
 @pytest.mark.parametrize(
@@ -3200,7 +3272,7 @@ def test_native_region_id_is_authoritative_over_misleading_region_name(region, r
     [("Normal", "normal"), ("PvP", "pvp"), ("RP", "rp"), ("Hardcore", "hardcore")],
 )
 def test_standard_realm_labels_map_exactly_to_rulesets(realm, ruleset):
-    client = WowClient(current_region=1, realm=realm)
+    client = WowClient(target=non_beta_target(ruleset=ruleset, realm=realm), current_region=1, realm=realm)
     client.login()
     client.slash("probe")
     probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
@@ -3215,7 +3287,7 @@ def test_unknown_native_region_id_is_rejected_without_a_guess():
     probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
 
     assert probe["house"] is False
-    assert "unknown native region id 999" in probe["attributionError"]
+    assert "native region id 999 does not match target" in probe["attributionError"]
 
 
 def test_unverified_beta_realm_is_rejected():
@@ -3225,7 +3297,7 @@ def test_unverified_beta_realm_is_rejected():
     probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
 
     assert probe["house"] is False
-    assert "unknown beta realm" in probe["attributionError"]
+    assert "native realm" in probe["attributionError"]
 
 
 def test_region_override_bypasses_unknown_native_region_id():
@@ -3249,14 +3321,14 @@ def test_region_override_unknown_id_roundtrips_through_a_strict_sweep():
 
 
 def test_ruleset_override_does_not_read_an_unrecognized_native_realm():
-    client = WowClient(current_region=1, current_region_name="US", realm="Unverified realm")
+    client = WowClient(current_region=110, current_region_name="", realm="Unverified realm")
     client.login()
     client.slash("set ruleset normal")
     client.slash("probe")
     probe = savedvars.loads(client.saved_variables())["CrowleyDB"]["probe"]
 
     assert probe["context"]["realm"] == "Unverified realm"
-    assert probe["house"]["key"] == "us-normal-horde"
+    assert probe["house"]["key"] == "beta-normal-horde"
     assert probe["house"]["source"] == "override: ruleset"
 
 
@@ -3736,7 +3808,7 @@ def test_native_capability_ctm_failures_are_explicit_and_still_decode(
         for field in ("flying", "falling", "swimming", "submerged", "mounted", "taxi")
     }
     value = client.publish_agent()
-    assert value["schema"] == 5
+    assert value["schema"] == 6
     assert value["motion"]["native"]["ctm"]["state"] in {"enabled", "unknown"}
     if ctm_mode == "true":
         assert value["motion"]["native"]["ctm"] == {

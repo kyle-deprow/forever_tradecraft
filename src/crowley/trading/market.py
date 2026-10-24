@@ -111,7 +111,12 @@ class Market:
             statistics = precompute_statistics(self.books)
         self.statistics: Mapping[Any, Any] = statistics
         self._facts = {int(item_id): fact for item_id, fact in facts.items()}
-        self._recipes = tuple(recipes)
+        # Keep direct ExecutionContext users on the same validated recipe
+        # contract as run_backtest; malformed requirement ids must never reach
+        # a Craft mutation path.
+        from .data import validate_recipes
+
+        self._recipes = validate_recipes(tuple(recipes))
         for item_books in self.books.values():
             for book in item_books:
                 for group in book.groups:

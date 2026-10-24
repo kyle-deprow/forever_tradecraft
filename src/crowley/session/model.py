@@ -31,6 +31,8 @@ OBSERVED_STATES = {
     "arthur_selected",
     "world",
     "auction_house_open",
+    "mailbox_world",
+    "executor_mailbox",
 }
 OBSERVED_CONTROLS = {
     "dismiss_disconnect",
@@ -40,6 +42,8 @@ OBSERVED_CONTROLS = {
     "auctioneer_buckler",
     "auction_house",
     "world",
+    "mailbox_object",
+    "crowley_executor_button",
 }
 CLI_VERSION = "codex-cli 0.162.1"
 MAX_USAGE_TOKENS = 2**63 - 1
@@ -511,7 +515,8 @@ class LunaAdapter:
             '{"type":"object","additionalProperties":false,"required":["state","facts",'
             '"anchor"],'
             '"properties":{"state":{"enum":["disconnect_dialog","game_client",'
-            '"character_select","arthur_selected","world","auction_house_open"]},'
+            '"character_select","arthur_selected","world","auction_house_open",'
+            '"mailbox_world","executor_mailbox"]},'
             '"facts":{"type":"object","additionalProperties":false,"required":'
             '["scene","character","realm","modal","code","control","idle"],"properties":'
             '{"scene":{"type":"string"},"character":{"type":"string"},'

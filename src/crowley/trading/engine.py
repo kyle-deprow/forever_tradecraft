@@ -10,10 +10,11 @@ from typing import Any
 from crowley.analysis.books import Book
 
 from .accounts import Account
-from .api import AH_CUT, ItemFacts, Recipe, Strategy
+from .api import AH_CUT, CraftingCapabilities, ItemFacts, Recipe, Strategy
 from .data import validate_recipes
 from .execution import ExecutionContext, release_mail, settle_expiry, settle_fills
 from .market import Market
+from .requirements import EMPTY_CAPABILITIES, capabilities_hash, recipe_gate_counts
 
 
 def _as_fraction(value: Any) -> Fraction:
@@ -222,6 +223,7 @@ def run_backtest(
     end_t: float | None = None,
     wind_down_hours: Any = 24,
     demand_share: Any = 1,
+    capabilities: CraftingCapabilities | None = None,
 ) -> BacktestResult:
     """Run all strategies through one shared sequence of recorded sweeps."""
 
@@ -243,6 +245,10 @@ def run_backtest(
     if not 0 < demand_share <= 1:
         raise ValueError("demand_share must be in (0, 1]")
     recipes = validate_recipes(recipes)
+    if capabilities is None:
+        capabilities = EMPTY_CAPABILITIES
+    elif not isinstance(capabilities, CraftingCapabilities):
+        raise TypeError("capabilities must be CraftingCapabilities")
     from .data import precompute_statistics
 
     indexed_statistics = precompute_statistics(books) if not statistics else statistics
@@ -264,15 +270,38 @@ def run_backtest(
         weight_values = list(weights)
         if len(weight_values) != len(strategy_list):
             raise ValueError("weights must have one value per strategy")
+    weight_values = [_as_fraction(weight) for weight in weight_values]
+    if any(weight <= 0 for weight in weight_values):
+        raise ValueError("weights must be positive")
     capital_shares = _allocate_capital(capital_copper, weight_values)
     shared_cooldowns: dict[str, float] = {}
     accounts = {
-        name: Account(name, frozenset(strategy.professions), share, share, cooldowns=shared_cooldowns)
+        name: Account(
+            name,
+            frozenset(strategy.professions),
+            share,
+            share,
+            cooldowns=shared_cooldowns,
+            crafting_capabilities=capabilities,
+        )
         for name, strategy, share in zip(names, strategy_list, capital_shares, strict=True)
     }
     metadata = {
+        "capital_copper": capital_copper,
+        "window": {"start": start_t, "end": end_t},
         "wind_down_hours": wind_down_hours,
         "demand_share": demand_share,
+        "capabilities": capabilities.canonical,
+        "capabilities_hash": capabilities_hash(capabilities),
+        "strategy_professions": {
+            name: sorted(str(profession) for profession in accounts[name].professions)
+            for name in sorted(names)
+        },
+        "strategy_weights": {name: weight for name, weight in sorted(zip(names, weight_values, strict=True))},
+        "recipe_availability": {
+            name: recipe_gate_counts(recipes, accounts[name].professions, capabilities)
+            for name in sorted(names)
+        },
     }
     if not steps:
         return BacktestResult(
@@ -300,6 +329,14 @@ def run_backtest(
     stale_mark_counts: dict[str, int] = {name: 0 for name in names}
     wind_down_start_t = Fraction(steps[-1][1]) - wind_down_hours * 3600
     metadata["wind_down_start_t"] = wind_down_start_t
+    metadata["selected_sweep_first"] = {
+        "t": int(steps[0][1]),
+        "key": str(market.sweep_ids[steps[0][0]]),
+    }
+    metadata["selected_sweep_last"] = {
+        "t": int(steps[-1][1]),
+        "key": str(market.sweep_ids[steps[-1][0]]),
+    }
     wind_down_active = wind_down_hours > 0
     next_listing_id = 1
 

@@ -118,7 +118,13 @@ Repository guidance is in [AGENTS.md](AGENTS.md); reusable game/client workflows
 ## Tests
 
 ```sh
-uv run pytest                    # core + addon Lua (runs the real addon under Lua 5.1)
-docker compose --env-file deploy/.env -f deploy/docker-compose.yml exec db createdb -U crowley crowley_test
-CROWLEY_TEST_DATABASE_URL=postgresql://crowley:<pw>@127.0.0.1:5432/crowley_test uv run pytest
+export CARGO=/home/dev/.cache/crowley/rust-toolchain-1.85.1/toolchain/bin/cargo
+flock /home/dev/.cache/r-pg.lock uv run pytest  # bounded xdist default: 16 workers
 ```
+
+Run DB coverage serially against a fresh disposable test database using the
+[documented command](docs/TESTING.md). Its fixtures reset one schema; the default suite refuses a shared database URL with xdist workers.
+Final launch-preparation verification (2026-10-24): **2,455 passed, 25 DB-gated skips
+in 153.78s** externally measured; the separate serial DB matrix passed 178 tests
+with zero skips.
+See [TESTING](docs/TESTING.md) for the full launch-readiness test contract.

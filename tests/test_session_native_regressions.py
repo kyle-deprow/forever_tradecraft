@@ -9,13 +9,11 @@ from __future__ import annotations
 
 import copy
 import ctypes
-import ctypes.util
 import hashlib
 import io
 import json
 import os
 import re
-import select
 import shutil
 import socket
 import stat
@@ -75,6 +73,7 @@ from crowley.session.input_events import EventClass, XI2Event, parse_xi2_records
 from crowley.session.journal import DEFAULT_STATE, Journal, JournalError
 from crowley.session.protocol import HEADER_SIZE, ProtocolError, encode_frame, pack_cells
 from tests.test_session_input_tool import fixture_input_tool
+from tests.x11_startup import start_private_xvfb
 
 TARGET = 0x600119
 FOREIGN = 0x1A00011
@@ -1578,26 +1577,25 @@ def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
 
     import crowley.session.calibration as calibration_module
 
-    read_fd, write_fd = os.pipe()
-    xvfb = subprocess.Popen(
-        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1920x1080x24", "-ac"],
-        pass_fds=(write_fd,),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    xvfb, display, x11, xdisplay = start_private_xvfb(
+        lambda display_fd: (
+            "Xvfb",
+            "-displayfd",
+            str(display_fd),
+            "-screen",
+            "0",
+            "1920x1080x24",
+            "-ac",
+        ),
+        popen_kwargs={
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
+            "start_new_session": True,
+        },
     )
-    os.close(write_fd)
     target: OwnedGtkCalibrationWindow | None = None
     driver: DesktopDriver | None = None
-    xdisplay = None
-    display = ""
     try:
-        ready, _, _ = select.select([read_fd], [], [], 5.0)
-        assert ready, "private Xvfb did not publish a display number"
-        display_number = os.read(read_fd, 32).decode("ascii").strip()
-        assert display_number.isdigit()
-        display = f":{display_number}"
-        os.close(read_fd)
-        read_fd = -1
         env = os.environ.copy()
         env["DISPLAY"] = display
         env["GDK_BACKEND"] = "x11"
@@ -1612,10 +1610,6 @@ def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
         # Xvfb's xdotool mousemove path is inert without an XTEST pointer
         # device. Set only the initial private test coordinate with XWarpPointer,
         # then observe it unchanged across real GTK mapping and guarded focus.
-        x11 = ctypes.CDLL(ctypes.util.find_library("X11"))
-        x11.XOpenDisplay.restype = ctypes.c_void_p
-        xdisplay = x11.XOpenDisplay(display.encode("ascii"))
-        assert xdisplay
         x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
         x11.XDefaultRootWindow.restype = ctypes.c_ulong
         xroot = x11.XDefaultRootWindow(xdisplay)
@@ -1775,8 +1769,6 @@ def test_gtk_create_preserves_top_edge_pointer_through_guarded_focus(
         if xdisplay:
             x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
             x11.XCloseDisplay(xdisplay)
-        if read_fd >= 0:
-            os.close(read_fd)
         xvfb.terminate()
         xvfb.wait(timeout=3)
 
@@ -5587,7 +5579,10 @@ def test_native_finalize_owner_error_handler_preserves_recovery_after_one_shot_w
         assert worker is not None
         assert _wait_for(
             lambda: daemon._native_construction_handshake.get("state") == "resume_ready",
-            timeout=30.0,
+            # The production gate retains its 30-second per-frame bound. This
+            # outer test wait includes 103 real image encode/decode calls and
+            # needs CPU headroom when twelve native workers are active.
+            timeout=60.0,
         ), (
             daemon._native_construction_handshake.get("state"),
             daemon._calibration_operation.get("error"),

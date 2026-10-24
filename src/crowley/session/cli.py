@@ -265,6 +265,100 @@ class SessionIPC:
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "status": result}
 
+        if command == "executor_click":
+            if self.owner is None:
+                return {"ok": False, "error": "executor click requires the daemon"}
+            native_flush = getattr(self.owner, "_native_construction_flush_expiry", None)
+            if callable(native_flush):
+                native_flush()
+            native_blocks = getattr(self.owner, "_native_construction_blocks_competing_entry", None)
+            if callable(native_blocks) and native_blocks():
+                return {"ok": False, "error": "native construction admission is active"}
+            required = {"command", "generation", "queueId", "seq", "confirmQueueId", "cycleId"}
+            if set(request) != required:
+                return {"ok": False, "error": "executor click request fields are malformed"}
+            if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+                return {"ok": False, "error": "a positive generation is required"}
+            queue_id = request.get("queueId")
+            confirm_queue_id = request.get("confirmQueueId")
+            cycle_id = request.get("cycleId")
+            seq = request.get("seq")
+            if (
+                not isinstance(queue_id, str)
+                or not queue_id
+                or len(queue_id.encode("utf-8")) > 192
+                or not isinstance(confirm_queue_id, str)
+                or len(confirm_queue_id.encode("utf-8")) > 192
+                or not isinstance(cycle_id, str)
+                or len(cycle_id.encode("utf-8")) > 128
+                or isinstance(seq, bool)
+                or not isinstance(seq, int)
+                or seq <= 0
+            ):
+                return {"ok": False, "error": "executor click request values are malformed"}
+            with self.controller.lock:
+                if self.controller.status().generation != generation:
+                    return {"ok": False, "error": "stale generation"}
+            try:
+                with self._interaction_slot():
+                    result = self.owner.execute_executor_click(
+                        queue_id=queue_id,
+                        seq=seq,
+                        confirm_queue_id=confirm_queue_id,
+                        cycle_id=cycle_id,
+                        generation=generation,
+                    )
+            except (DriverError, RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, **result}
+
+        if command in {"mail_loop_start", "mail_loop_status", "mail_loop_stop"}:
+            if self.owner is None:
+                return {"ok": False, "error": "mail loop requires the daemon"}
+            allowed = {
+                "mail_loop_start": {"command", "generation", "queueId", "seq", "confirmQueueId"},
+                "mail_loop_status": {"command"},
+                "mail_loop_stop": {"command", "generation"},
+            }[command]
+            if set(request) != allowed:
+                return {"ok": False, "error": "mail-loop request fields are malformed"}
+            if command == "mail_loop_status":
+                return {"ok": True, "status": self.owner.mail_loop_status()}
+            generation = request.get("generation")
+            if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+                return {"ok": False, "error": "a positive generation is required"}
+            if command == "mail_loop_start":
+                queue_id = request.get("queueId")
+                seq = request.get("seq")
+                confirmation = request.get("confirmQueueId")
+                if (
+                    not isinstance(queue_id, str)
+                    or not queue_id
+                    or isinstance(seq, bool)
+                    or not isinstance(seq, int)
+                    or seq <= 0
+                    or confirmation != ""
+                ):
+                    return {"ok": False, "error": "mail-loop start values are malformed"}
+                try:
+                    if len(queue_id.encode("utf-8")) > 192:
+                        return {"ok": False, "error": "mail-loop start values are malformed"}
+                except UnicodeError:
+                    return {"ok": False, "error": "mail-loop start values are malformed"}
+            try:
+                if command == "mail_loop_start":
+                    status = self.owner.mail_loop_start(
+                        generation=generation,
+                        queue_id=queue_id,
+                        seq=seq,
+                        confirm_queue_id=confirmation,
+                    )
+                else:
+                    status = self.owner.mail_loop_stop(generation=generation)
+            except (DriverError, RuntimeError, ValueError, KeyError, TypeError, OSError) as exc:
+                return {"ok": False, "error": str(exc)}
+            return {"ok": True, "status": status}
+
         # Re-arming validates the retained native evidence and starts the live
         # observer.  Those operations can block on X11 and must run outside
         # the controller mutex; Controller.resume repeats the generation check
@@ -1061,6 +1155,20 @@ def main(argv: list[str] | None = None) -> int:
     world_click.add_argument("--hint", type=_parse_hint, required=True)
     world_click.add_argument("--radius", type=float, required=True)
     world_click.add_argument("--expect", choices=("mailOpen",), required=True)
+    executor_click = subparsers.add_parser("executor-click")
+    executor_click.add_argument("--generation", type=int, required=True)
+    executor_click.add_argument("--queue-id", required=True)
+    executor_click.add_argument("--seq", type=int, required=True)
+    executor_click.add_argument("--confirm-queue-id", required=True)
+    executor_click.add_argument("--cycle-id", required=True)
+    mail_loop_start = subparsers.add_parser("mail-loop-start")
+    mail_loop_start.add_argument("--generation", type=int, required=True)
+    mail_loop_start.add_argument("--queue-id", required=True)
+    mail_loop_start.add_argument("--seq", type=int, required=True)
+    mail_loop_status = subparsers.add_parser("mail-loop-status")
+    del mail_loop_status
+    mail_loop_stop = subparsers.add_parser("mail-loop-stop")
+    mail_loop_stop.add_argument("--generation", type=int, required=True)
     subparsers.add_parser("calibration-status")
     motion_profile = subparsers.add_parser("motion-profile")
     motion_profile_subparsers = motion_profile.add_subparsers(dest="motion_profile_command", required=True)
@@ -1142,6 +1250,21 @@ def main(argv: list[str] | None = None) -> int:
             radius=args.radius,
             expect=args.expect,
         )
+    elif args.command == "executor-click":
+        request.update(
+            queueId=args.queue_id,
+            seq=args.seq,
+            confirmQueueId=args.confirm_queue_id,
+            cycleId=args.cycle_id,
+        )
+    elif args.command == "mail-loop-start":
+        request.update(
+            queueId=args.queue_id,
+            seq=args.seq,
+            confirmQueueId="",
+        )
+    elif args.command == "mail-loop-stop":
+        pass
     if args.command == "native-construction-bootstrap":
         request.update(
             reservationId=args.reservation_id,
@@ -1179,14 +1302,14 @@ def main(argv: list[str] | None = None) -> int:
             operation_timeout = MOTION_CAMERA_OPERATION_SECONDS
         elif args.command == "motion-key":
             operation_timeout = MOTION_KEY_OPERATION_SECONDS
-        elif args.command in {"route-walk", "world-click"}:
+        elif args.command in {"route-walk", "world-click", "executor-click"}:
             operation_timeout = 60.0
         else:
             operation_timeout = 5.0
         request_timeout = (
             operation_timeout + MOTION_TRANSPORT_MARGIN_SECONDS
             if args.command.startswith(("motion-", "native-construction-"))
-            or args.command in {"route-walk", "world-click"}
+            or args.command in {"route-walk", "world-click", "executor-click"}
             else operation_timeout
         )
         if args.command == "takeover-drill":

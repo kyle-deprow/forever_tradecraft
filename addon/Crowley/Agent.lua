@@ -333,6 +333,13 @@ local function mailTelemetry()
   return MailFrame:IsShown() == true
 end
 
+local function executorTelemetry()
+  if not ns.Executor or type(ns.Executor.Telemetry) ~= "function" then
+    error("Crowley executor telemetry requires Executor")
+  end
+  return ns.Executor.Telemetry()
+end
+
 local function movementTelemetry()
   if type(UnitPosition) ~= "function" then error("Crowley movement telemetry requires UnitPosition") end
   if type(GetPlayerFacing) ~= "function" then error("Crowley movement telemetry requires GetPlayerFacing") end
@@ -469,7 +476,7 @@ function Agent.Snapshot()
   -- fence attempt.
   scannerValue.scheduleFence = copy(scanner.scheduleFence)
   local value = {
-    schema = 5, boot = boot, sequence = sequence + 1, wallTime = now, uptimeMs = uptime,
+    schema = 6, boot = boot, sequence = sequence + 1, wallTime = now, uptimeMs = uptime,
     context = {
       addonVersion = context.addonVersion or ns.VERSION, interface = context.interface or 0,
       clientBuild = context.clientBuild or "", character = context.character or "", realm = context.realm or "",
@@ -478,6 +485,7 @@ function Agent.Snapshot()
     },
     house = { key = house.key, source = house.source }, plan = planInfo(scanner.plan), ahOpen = ns.ahOpen == true,
     hover = hoverTelemetry(), mailOpen = mailTelemetry(),
+    executor = executorTelemetry(),
     auctioneer = auctioneerTelemetry(), blockingUI = blockingUITelemetry(),
     scanner = scannerValue,
     lastSaved = {

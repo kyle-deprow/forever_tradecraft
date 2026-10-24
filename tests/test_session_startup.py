@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import ctypes
-import ctypes.util
 import json
 import os
-import select
 import shutil
 import stat
 import subprocess
@@ -40,6 +38,7 @@ from crowley.session.driver import (
 )
 from crowley.session.guardian import InputGuardian
 from crowley.session.input_events import EventClass, XI2Event, parse_xi2_records
+from crowley.session.mail_loop import MailLoopBinding
 from crowley.session.model import CLI_VERSION, LunaAdapter
 from crowley.session.protocol import Frame, Snapshot
 from crowley.session.startup import (
@@ -50,39 +49,28 @@ from crowley.session.startup import (
     mint_runtime_evidence,
     resolve_forwarded_echo_sources,
 )
+from tests.x11_startup import start_private_xvfb
 
 
 @pytest.mark.skipif(shutil.which("Xvfb") is None, reason="private Xvfb is unavailable")
 def test_native_input_state_uses_xkb_system_abi_on_private_xvfb() -> None:
     """Read a private server's state and compare it with the declared XKB ABI."""
 
-    read_fd, write_fd = os.pipe()
-    server = subprocess.Popen(
-        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "640x480x24", "-ac"],
-        pass_fds=(write_fd,),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    server, display, library, xdisplay = start_private_xvfb(
+        lambda display_fd: (
+            "Xvfb",
+            "-displayfd",
+            str(display_fd),
+            "-screen",
+            "0",
+            "640x480x24",
+            "-ac",
+        ),
+        popen_kwargs={"stdout": subprocess.DEVNULL, "stderr": subprocess.PIPE},
     )
-    os.close(write_fd)
-    display = ""
     try:
-        ready, _, _ = select.select([read_fd], [], [], 5.0)
-        assert ready, "private Xvfb did not publish a display number"
-        number = os.read(read_fd, 32).decode("ascii").strip()
-        assert number.isdigit()
-        display = f":{number}"
-        os.close(read_fd)
-        read_fd = -1
-
-        library = ctypes.CDLL("libX11.so.6")
-        library.XOpenDisplay.argtypes = [ctypes.c_char_p]
-        library.XOpenDisplay.restype = ctypes.c_void_p
         library.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
         library.XDefaultRootWindow.restype = ctypes.c_ulong
-        library.XCloseDisplay.argtypes = [ctypes.c_void_p]
-        library.XCloseDisplay.restype = ctypes.c_int
-        xdisplay = library.XOpenDisplay(display.encode())
-        assert xdisplay
         root = int(library.XDefaultRootWindow(xdisplay))
         library.XCloseDisplay(xdisplay)
 
@@ -124,8 +112,6 @@ def test_native_input_state_uses_xkb_system_abi_on_private_xvfb() -> None:
         finally:
             library.XCloseDisplay(direct)
     finally:
-        if read_fd >= 0:
-            os.close(read_fd)
         server.terminate()
         server.wait(timeout=5)
 
@@ -151,31 +137,25 @@ def test_stormwind_target_binding_and_interaction_chord_use_guarded_native_keybo
         == expected_driver
     )
 
-    read_fd, write_fd = os.pipe()
-    server = subprocess.Popen(
-        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1920x1080x24", "-ac"],
-        pass_fds=(write_fd,),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+    server, display, x11, xdisplay = start_private_xvfb(
+        lambda display_fd: (
+            "Xvfb",
+            "-displayfd",
+            str(display_fd),
+            "-screen",
+            "0",
+            "1920x1080x24",
+            "-ac",
+        ),
+        popen_kwargs={"stdout": subprocess.DEVNULL, "stderr": subprocess.PIPE},
     )
-    os.close(write_fd)
     driver = None
     window_factory = None
     try:
-        ready, _, _ = select.select([read_fd], [], [], 5.0)
-        assert ready, "private Xvfb did not publish a display number"
-        number = os.read(read_fd, 32).decode("ascii").strip()
-        assert number.isdigit()
-        display = f":{number}"
-        os.close(read_fd)
-        read_fd = -1
         xauthority = tmp_path / "private-Xauthority"
         xauthority.touch(mode=0o600)
         xauthority.chmod(0o600)
 
-        x11 = ctypes.CDLL(ctypes.util.find_library("X11"))
-        x11.XOpenDisplay.argtypes = [ctypes.c_char_p]
-        x11.XOpenDisplay.restype = ctypes.c_void_p
         x11.XDefaultRootWindow.argtypes = [ctypes.c_void_p]
         x11.XDefaultRootWindow.restype = ctypes.c_ulong
         x11.XWarpPointer.argtypes = [
@@ -190,9 +170,6 @@ def test_stormwind_target_binding_and_interaction_chord_use_guarded_native_keybo
             ctypes.c_int,
         ]
         x11.XSync.argtypes = [ctypes.c_void_p, ctypes.c_int]
-        x11.XCloseDisplay.argtypes = [ctypes.c_void_p]
-        xdisplay = x11.XOpenDisplay(display.encode("ascii"))
-        assert xdisplay
         try:
             root = x11.XDefaultRootWindow(xdisplay)
             assert x11.XWarpPointer(xdisplay, 0, root, 0, 0, 0, 0, 1809, 43) == 1
@@ -427,8 +404,6 @@ def test_stormwind_target_binding_and_interaction_chord_use_guarded_native_keybo
         assert held_keys == ()
         assert held_buttons == ()
     finally:
-        if read_fd >= 0:
-            os.close(read_fd)
         if window_factory is not None and window_factory.window is not None:
             window_factory.close()
         if driver is not None:
@@ -916,30 +891,26 @@ int main(void) {
     subprocess.run(["cc", "-O2", str(source), "-o", str(executable)], check=True)
     tool: PinnedInputTool | None = None
     driver: DesktopDriver | None = None
-    server: subprocess.Popen[str] | None = None
-    read_fd, display_fd = os.pipe()
-    server = subprocess.Popen(
-        ["Xvfb", "-displayfd", str(display_fd), "-screen", "0", "1920x1080x24", "-ac"],
-        pass_fds=(display_fd,),
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-        text=True,
+    server, display, x11, xdisplay = start_private_xvfb(
+        lambda display_fd: (
+            "Xvfb",
+            "-displayfd",
+            str(display_fd),
+            "-screen",
+            "0",
+            "1920x1080x24",
+            "-ac",
+        ),
+        popen_kwargs={"stdout": subprocess.DEVNULL, "stderr": subprocess.PIPE, "text": True},
     )
-    os.close(display_fd)
+    x11.XCloseDisplay(xdisplay)
+    read_fd = -1
     writer_fd = -1
     reader = None
     injector: threading.Thread | None = None
     injector_errors: list[BaseException] = []
     monitor: InputMonitor | None = None
     try:
-        ready, _, _ = select.select([read_fd], [], [], 5.0)
-        assert ready, "private Xvfb did not publish a display number"
-        number = os.read(read_fd, 32).decode("ascii").strip()
-        assert number.isdigit()
-        display = f":{number}"
-        os.close(read_fd)
-        read_fd = -1
-
         xauthority = tmp_path / "private-Xauthority"
         xauthority.touch(mode=0o600)
         xauthority.chmod(0o600)
@@ -1318,6 +1289,11 @@ def _public_status_for_controller(controller: Controller, driver) -> dict:
     daemon._native_baseline_observation = {}
     daemon._native_bootstrap_observation = {}
     daemon._native_handshake = {}
+    daemon._mail_loop_binding = MailLoopBinding()
+    daemon._mail_loop_active_binding = None
+    daemon._mail_loop_control_epoch = 0
+    daemon._mail_loop_last_decision = None
+    daemon._mail_cycle_wait_deadlines = {}
     controller.native_resource_assessment = lambda: {}
     return daemon.status_dict()
 

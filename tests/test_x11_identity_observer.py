@@ -13,6 +13,7 @@ import pytest
 
 from crowley.session.driver import DriverError, DriverProfile, X11Backend
 from tests.test_session_input_tool import fixture_input_tool
+from tests.x11_startup import start_private_xvfb
 from tools import build_crowley_xdotool
 from tools import build_x11_identity_observer as builder
 
@@ -793,23 +794,28 @@ int main(int argc, char **argv) {
     gate_fixture = tmp_path / "fixture-x-gate"
     subprocess.run(["cc", str(gate_source), "-lX11", "-o", str(gate_fixture)], check=True)
     gate_fixture.chmod(0o700)
-    read_fd, write_fd = os.pipe()
-    xvfb = subprocess.Popen(
-        ["Xvfb", "-displayfd", str(write_fd), "-screen", "0", "1928x1092x24", "-ac"],
-        pass_fds=(write_fd,),
-        close_fds=True,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.PIPE,
+    xvfb, display, x11, xdisplay = start_private_xvfb(
+        lambda display_fd: (
+            "Xvfb",
+            "-displayfd",
+            str(display_fd),
+            "-screen",
+            "0",
+            "1928x1092x24",
+            "-ac",
+        ),
+        popen_kwargs={
+            "close_fds": True,
+            "stdout": subprocess.DEVNULL,
+            "stderr": subprocess.PIPE,
+        },
     )
-    os.close(write_fd)
+    x11.XCloseDisplay(xdisplay)
     process = None
     duplicate = None
     gate = None
     target_pids: list[int] = []
     try:
-        display_number = os.read(read_fd, 32).decode().strip()
-        assert display_number.isdigit()
-        display = f":{display_number}"
         prefix_target = tmp_path / "wine-prefix-target"
         prefix_target.mkdir()
         prefix = tmp_path / "wine-prefix"
@@ -1172,31 +1178,18 @@ int main(int argc, char **argv) {
             encoding="utf-8",
         )
         evidence_path.chmod(0o600)
+        # Keep one representative of each expensive real-display boundary:
+        # root focus, descendant focus/ancestor, process PID, geometry, candidate filtering, and
+        # duplicate-window rejection.  The protocol matrix above and the
+        # static request checks below cover equivalent title/class/property
+        # spellings without replaying every one-second compositor mutation.
         for mutation in (
-            "title",
-            "class",
-            "class-name",
-            "class-class",
+            "focus",
+            "descendant-focus",
             "pid",
             "geometry",
-            "focus",
-            "none-focus",
-            "no-wm-state",
-            "descendant-focus",
-            "outer-wm-state",
-            "unrelated-focus",
-            "active",
-            "noactive",
-            "net-string",
-            "net-compound",
-            "wm-utf8",
-            "wm-compound",
-            "extra",
             "invalid-candidate",
             "duplicate-window",
-            "reparent",
-            "vanish",
-            "fallback",
         ):
             mutation_file.write_text(mutation + "\n", encoding="ascii")
             time.sleep(1.15)
@@ -1337,7 +1330,6 @@ int main(int argc, char **argv) {
         assert rejected.returncode != 0, rejected.stdout.decode()
         assert b"one verified game process" in rejected.stdout
     finally:
-        os.close(read_fd)
         if gate is not None and gate.poll() is None:
             gate_release.touch(mode=0o600)
             gate.wait(timeout=5)

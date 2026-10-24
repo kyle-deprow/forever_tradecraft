@@ -8,6 +8,7 @@ ns.Executor = Executor
 
 local MAX_ACTIONS = 50
 local MAX_SELECTION_STATES = 10000
+local MAX_U32 = 4294967295
 local DURATION = { [12] = 1, [24] = 2, [48] = 3 }
 
 local ACTION_FIELDS = {
@@ -62,7 +63,9 @@ local function validAction(action, index)
       return false, "action " .. index .. " has an invalid positive integer"
     end
   elseif action.kind == "mail_collect" then
-    if not finiteInteger(action.maxMessages, true) then return false, "action " .. index .. " has an invalid maxMessages" end
+    if not finiteInteger(action.maxMessages, true) or action.maxMessages > MAX_U32 then
+      return false, "action " .. index .. " has an invalid maxMessages"
+    end
   end
   return true
 end
@@ -73,12 +76,12 @@ local function validateQueue(queue)
     return false, "queue has unknown or missing fields"
   end
   if queue.format ~= 1 then return false, "queue format is invalid" end
-  if type(queue.queueId) ~= "string" or queue.queueId == "" then return false, "queueId is invalid" end
+  if type(queue.queueId) ~= "string" or queue.queueId == "" or #queue.queueId > 192 then return false, "queueId is invalid" end
   if not finiteInteger(queue.generatedAt, true) or not finiteInteger(queue.expiresAt, true) or queue.expiresAt <= queue.generatedAt then
     return false, "queue expiry is invalid"
   end
-  if type(queue.house) ~= "string" or queue.house == "" then return false, "queue house is invalid" end
-  if type(queue.character) ~= "string" or queue.character == "" then return false, "queue character is invalid" end
+  if type(queue.house) ~= "string" or queue.house == "" or #queue.house > 256 then return false, "queue house is invalid" end
+  if type(queue.character) ~= "string" or queue.character == "" or #queue.character > 256 then return false, "queue character is invalid" end
   if type(queue.armed) ~= "boolean" then return false, "queue armed is invalid" end
   if type(queue.actions) ~= "table" then return false, "queue actions is not an array" end
   local count = #queue.actions
@@ -122,6 +125,14 @@ local function isFrameOpen(kind)
   if required == "ah" then return frameOpen.ah or ns.ahOpen == true end
   if required == "profession" and C_TradeSkillUI and type(C_TradeSkillUI.IsTradeSkillReady) == "function" then
     return C_TradeSkillUI.IsTradeSkillReady() == true
+  end
+  if required == "mailbox" then
+    -- MAIL_CLOSED is not reliable on the installed client.  The native frame
+    -- visibility is the admission fact; the event flag is retained only as
+    -- diagnostic state and is deliberately not consulted here.
+    if not MailFrame or type(MailFrame.IsShown) ~= "function" then return false end
+    local ok, shown = pcall(function() return MailFrame:IsShown() end)
+    return ok and shown == true
   end
   return frameOpen[required] == true
 end
@@ -171,6 +182,7 @@ local function advance()
   state.index = state.index + 1
   state.phase, state.inFlight, state.result, state.blocked, state.latched, state.cancelReason, state.cancelAttempted =
     nil, false, nil, false, false, nil, false
+  state.mailIndex, state.mailCount, state.mailProcessed, state.beforeMailCount = nil, nil, nil, nil
   updateButton()
 end
 
@@ -514,35 +526,74 @@ local function resolve(action)
   return false, "unknown_action"
 end
 
-local function click()
+local CLICKABLE_PHASES = {
+  ready_to_confirm = true, must_cancel = true, sell_stacks = true, mail_items = true,
+}
+
+-- This is the single acceptance policy used by both the physical callback and
+-- telemetry.  It intentionally excludes wait phases that would only produce
+-- a refusal (or an in-flight refusal) from clickReady.
+local function clickBranch()
+  if not state or not state.valid or not currentAction() then return false, "none" end
+  if state.phase == nil then return not state.inFlight, "resolve" end
+  if CLICKABLE_PHASES[state.phase] then return true, state.phase end
+  return false, state.phase
+end
+
+local function clickRateAllowed(at)
+  return state.lastClickAt == nil or at - state.lastClickAt >= 1.0
+end
+
+-- The callback and the telemetry projection both use this complete admission
+-- helper.  It includes rate, identity/scanner/blocked, native frame visibility,
+-- and phase acceptance, so clickReady cannot drift into a softer predicate.
+local function clickAdmission(action, at)
+  if not clickRateAllowed(at) then return false, "too_fast" end
+  local admitted, reason = validAndCurrent()
+  if not admitted then return false, reason end
+  if not isFrameOpen(action.kind) then return false, "wrong_frame" end
+  local accepted, branch = clickBranch()
+  if accepted then return true, branch end
+  if branch == "await_price" then return false, "price_pending" end
+  if state.inFlight then return false, "in_flight" end
+  return false, branch
+end
+
+local function click(source)
+  if state then
+    if source == "button" then
+      if (state.clickOrdinal or 0) >= MAX_U32 then error("executor click ordinal exhausted") end
+      state.clickOrdinal = (state.clickOrdinal or 0) + 1
+      state.lastClickSource = "button"
+    elseif source == "directAPI" then
+      state.lastClickSource = "directAPI"
+    end
+  end
   if not state or not state.valid then return end
   local action = currentAction()
   if not action then return end
   local at = GetTime()
-  if state.lastClickAt ~= nil and at - state.lastClickAt < 1.0 then
+  local accepted, branch = clickAdmission(action, at)
+  if not accepted then
     state.lastClickAt = at
-    refuse("too_fast", "too_fast")
+    refuse(branch, branch)
     return
   end
   state.lastClickAt = at
-  local admitted, reason = validAndCurrent()
-  if not admitted then refuse(reason, reason, reason ~= "blocked" and reason ~= "complete") return end
-  if not isFrameOpen(action.kind) then refuse("wrong_frame", "wrong_frame") return end
-  if state.phase == "await_price" then refuse("price_pending", "price_pending") return end
-  if state.phase == "ready_to_confirm" then
+  if branch == "ready_to_confirm" then
     local called, callReason = protected("C_AuctionHouse.ConfirmCommoditiesPurchase", C_AuctionHouse and C_AuctionHouse.ConfirmCommoditiesPurchase, action.itemID, action.quantity)
     if not called then refuse(callReason, callReason) return end
     state.phase = "await_purchase"
     return
   end
-  if state.phase == "must_cancel" then
+  if branch == "must_cancel" then
     local called, callReason = protected("C_AuctionHouse.CancelCommoditiesPurchase", C_AuctionHouse and C_AuctionHouse.CancelCommoditiesPurchase, action.itemID)
     if not called then refuse(callReason, callReason) return end
     state.cancelAttempted = true
     finishStarted("refused", { unitPrice = state.result.detail.unitPrice, totalPrice = state.result.detail.totalPrice, reason = state.cancelReason or "price_above_max" })
     return
   end
-  if state.phase == "sell_stacks" then
+  if branch == "sell_stacks" then
     local slot = state.stacks[state.stackIndex]
     if not slot or not slotMatches(slot) then refuse("slot_changed", "slot_changed") return end
     local called, callReason = protected("C_Container.UseContainerItem", C_Container and C_Container.UseContainerItem, slot.bag, slot.slot)
@@ -552,7 +603,7 @@ local function click()
     observeVendorSell()
     return
   end
-  if state.phase == "mail_items" then
+  if branch == "mail_items" then
     local before = GetInboxNumItems()
     local called, callReason = protected("AutoLootMailItem", AutoLootMailItem, state.mailIndex)
     if not called then refuse(callReason, callReason) return end
@@ -560,7 +611,7 @@ local function click()
     observePostcondition()
     return
   end
-  if state.inFlight then refuse("in_flight", "in_flight") return end
+  if branch ~= "resolve" then return end
   local ok, callReason = resolve(action)
   if not ok then refuse(callReason, callReason) end
 end
@@ -638,7 +689,7 @@ local function makeButton()
   if button.SetScript then
     button:SetScript("OnDragStart", function(self) if self.StartMoving then self:StartMoving() end end)
     button:SetScript("OnDragStop", function(self) if self.StopMovingOrSizing then self:StopMovingOrSizing() end end)
-    button:SetScript("OnClick", click)
+    button:SetScript("OnClick", function() click("button") end)
   end
   button:Hide()
 end
@@ -694,14 +745,85 @@ local function rejectQueue(reason)
 end
 
 local function loadQueue()
-  if type(CROWLEY_QUEUE) ~= "table" then return end
+  if CROWLEY_QUEUE == nil or CROWLEY_QUEUE == false then return end
+  if type(CROWLEY_QUEUE) ~= "table" then rejectQueue("queue is not a table") return end
   local ok, reason = validateQueue(CROWLEY_QUEUE)
   if not ok then rejectQueue(reason) return end
-  state = { queue = CROWLEY_QUEUE, valid = true, index = 1, inFlight = false, blocked = false, latched = false, cancelAttempted = false }
+  state = {
+    queue = CROWLEY_QUEUE, valid = true, index = 1, inFlight = false, blocked = false,
+    latched = false, cancelAttempted = false, clickOrdinal = 0, lastClickSource = "none",
+  }
   ensureExecution()
   reconcile()
   makeButton()
   updateButton()
+end
+
+local function wirePhase(action)
+  if not action then return "complete" end
+  if state.phase == nil then return "ready" end
+  if state.phase == "await_price" or state.phase == "ready_to_confirm" or state.phase == "must_cancel" or
+      state.phase == "await_purchase" or state.phase == "sell_stacks" or state.phase == "sell_wait" or
+      state.phase == "await_vendor_buy" or state.phase == "await_craft" or state.phase == "mail_items" or
+      state.phase == "mail_wait" then
+    return state.phase
+  end
+  error("executor telemetry has an unknown phase")
+end
+
+local function buttonIsShown()
+  if not button or type(button.IsShown) ~= "function" then return false end
+  local ok, shown = pcall(function() return button:IsShown() end)
+  return ok and shown == true
+end
+
+local function clickReady()
+  if not state or not state.valid or not currentAction() or not buttonIsShown() then return false end
+  local accepted = clickAdmission(currentAction(), GetTime())
+  return accepted == true
+end
+
+local function emptyTelemetry(availability)
+  return {
+    availability = availability, queueId = "", house = "", character = "",
+    publishedArmed = false, sessionArmed = false, buttonVisible = false, buttonName = "",
+    currentSeq = 0, currentKind = "", phase = "none", inFlight = false, clickReady = false,
+    workDone = 0, workTotal = 0, blocked = false, latched = false, ambiguous = false,
+    clickOrdinal = 0, lastClickSource = "none", resultCount = 0,
+    lastResult = { seq = 0, kind = "", status = "none" },
+  }
+end
+
+function Executor.Telemetry()
+  if not state then return emptyTelemetry("none") end
+  local results = state.execution and state.execution.results or {}
+  if not state.valid then
+    local value = emptyTelemetry("invalid")
+    value.resultCount = #results
+    value.lastResult = { seq = 0, kind = "queue", status = "refused" }
+    return value
+  end
+  local action = currentAction()
+  local latest = results[#results]
+  local value = {
+    availability = "valid", queueId = state.queue.queueId, house = state.queue.house,
+    character = state.queue.character, publishedArmed = state.queue.armed == true,
+    sessionArmed = sessionArmed == true, buttonVisible = buttonIsShown(),
+    buttonName = button and "CrowleyTradeExecutorButton" or "", currentSeq = action and action.seq or 0,
+    currentKind = action and action.kind or "", phase = wirePhase(action), inFlight = state.inFlight == true,
+    clickReady = clickReady(), workDone = 0, workTotal = 0, blocked = state.blocked == true,
+    latched = state.latched == true, ambiguous = state.ambiguous == true,
+    clickOrdinal = state.clickOrdinal or 0, lastClickSource = state.lastClickSource or "none",
+    resultCount = #results, lastResult = { seq = 0, kind = "", status = "none" },
+  }
+  if action and action.kind == "mail_collect" then
+    value.workDone = state.mailProcessed or 0
+    value.workTotal = state.mailCount or action.maxMessages
+  end
+  if latest then
+    value.lastResult = { seq = latest.seq or 0, kind = latest.kind or "", status = latest.status or "none" }
+  end
+  return value
 end
 
 function Executor.ValidateQueue(queue) return validateQueue(queue) end
@@ -709,7 +831,7 @@ function Executor.Button() return button end
 function Executor.Valid() return state ~= nil and state.valid == true end
 function Executor.Current() return currentAction() end
 function Executor.State() return state end
-function Executor.Click() click() end
+function Executor.Click() click("directAPI") end
 function Executor.SessionArmed() return sessionArmed == true end
 function Executor.Results() return state and state.execution and state.execution.results or nil end
 
@@ -756,7 +878,7 @@ end
 
 -- With Queue.lua's false placeholder, the executor creates no frame and
 -- registers no events, leaving the scanner's live surface untouched.
-if type(CROWLEY_QUEUE) == "table" then
+if CROWLEY_QUEUE ~= nil and CROWLEY_QUEUE ~= false then
   ns.On("ADDON_LOADED", onLoaded)
   ns.On("AUCTION_HOUSE_SHOW", eventFrame)
   ns.On("AUCTION_HOUSE_CLOSED", eventFrame)

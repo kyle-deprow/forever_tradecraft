@@ -10,6 +10,7 @@ from crowley.trading.api import (
     Buy,
     Cancel,
     Craft,
+    CraftingCapabilities,
     ItemFacts,
     ItemSnapshot,
     Level,
@@ -92,7 +93,8 @@ class FakeAccount(AccountView):
     listing_list: list[ListingView] = field(default_factory=list)
     ready: dict[str, bool] = field(default_factory=dict)
     name: str = "test"
-    professions: frozenset[str] = frozenset()
+    professions: frozenset[str] = frozenset({"alchemy"})
+    crafting_capabilities: CraftingCapabilities = CraftingCapabilities()
     pending: int = 0
     transit_map: dict[int, int] = field(default_factory=dict)
 

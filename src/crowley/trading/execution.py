@@ -13,6 +13,7 @@ from crowley.analysis.books import Group, Interval
 from .accounts import Account, LedgerEvent, Listing, Mail
 from .api import AH_CUT, DURATIONS_HOURS, Buy, Cancel, Craft, Intent, Post, VendorBuy, VendorSell
 from .market import Market
+from .requirements import recipe_gate
 
 # All realism constants live in this module so the engine has one auditable source.
 MAIL_DELAY_SECONDS = 3600
@@ -206,9 +207,11 @@ def settle_fills(context: ExecutionContext) -> None:
             listings.extend(
                 (account, listing)
                 for listing in account.listings_by_id.values()
-                if listing.item_id == item_id and listing.quantity > 0 and listing.posted_t < interval_start
+                if listing.item_id == item_id
+                and listing.quantity > 0
+                and listing.posted_step < interval_start
             )
-        listings.sort(key=lambda pair: (pair[1].unit_price, pair[1].posted_t, pair[1].listing_id))
+        listings.sort(key=lambda pair: (pair[1].unit_price, pair[1].posted_step, pair[1].listing_id))
         filled_before = 0
         for account, listing in listings:
             if common_ceiling is not None and listing.unit_price > common_ceiling:
@@ -365,7 +368,8 @@ def _execute_post(context: ExecutionContext, account: Account, intent: Post) -> 
         unit_price=intent.unit_price,
         quantity=intent.quantity,
         original_quantity=intent.quantity,
-        posted_t=context.sweep_index,
+        posted_t=context.t,
+        posted_step=context.sweep_index,
         expires_t=context.t + intent.duration_hours * 3600,
         deposit_paid=required,
     )
@@ -496,6 +500,17 @@ def _execute_craft(context: ExecutionContext, account: Account, intent: Craft) -
         return False
     if not recipe.professions.intersection(account.professions):
         context.reject(account, "profession", intent)
+        return False
+    gate = recipe_gate(recipe, account.professions, account.crafting_capabilities)
+    if gate is not None and gate != "profession":
+        # Capability failures happen before cooldown, time, reagent, or any
+        # balance mutation.  The fine-grained gate is retained for audit data.
+        account.reject(
+            "capability",
+            context.t,
+            intent=type(intent).__name__,
+            details={"gate": gate},
+        )
         return False
     if recipe.cooldown_group and account.cooldowns.get(recipe.cooldown_group, 0) > context.t:
         context.reject(account, "cooldown", intent)

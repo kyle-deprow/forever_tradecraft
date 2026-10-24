@@ -911,15 +911,27 @@ def test_archive_retry_after_checkpoint_loss_reuses_immutable_artifact(tmp_path:
 
 def test_total_accepted_is_unbounded_while_live_rows_stay_bounded(tmp_path: Path) -> None:
     journal = _journal(tmp_path / "session.json", state=ControllerState.WAIT_DUE.value)
+    # Seed a valid durable boundary rather than replaying twenty identical
+    # full 428-item cycles.  The controller still executes the real 20->21
+    # transition, appends the 21st archive, and trims only its live window.
+    seeded = journal.read()
+    seeded["qualification"] = {
+        "streak": 20,
+        "totalAccepted": 20,
+        "cadenceSeedStart": 100,
+        "accepted": [{"uid": f"uid-{index}"} for index in range(20)],
+    }
+    journal.write(seeded)
+    for index in range(20):
+        journal.append_archive("runs", {"uid": f"uid-{index}", "ordinal": index + 1})
+
     controller = Controller(journal, driver=_Driver(), recover_on_restart=False)
-    for index in range(21):
-        started = 100 + index * 900
-        controller.begin_scan(started_at=started)
-        value = _evidence(f"uid-{index}", started)
-        _complete_cycle(controller, value, index)
-        controller.qualify(value, started_at=started)
-        if index < 20:
-            controller.reopen_complete()
+    index = 20
+    started = 100 + index * 900
+    controller.begin_scan(started_at=started)
+    value = _evidence(f"uid-{index}", started)
+    _complete_cycle(controller, value, index)
+    controller.qualify(value, started_at=started)
 
     checkpoint = journal.read()["qualification"]
     assert checkpoint["totalAccepted"] == 21

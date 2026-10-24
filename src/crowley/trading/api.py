@@ -83,6 +83,70 @@ class Recipe:
     cooldown_group: str | None
     cooldown_seconds: int
     learn_evidence: str
+    # ``totems`` are exact item ids which must be held while casting.  The
+    # client calls these spell totems; they are not consumed as reagents.
+    totems: tuple[int, ...] = ()
+    totem_categories: tuple[int, ...] = ()
+    spell_focus: int | None = None
+
+
+@dataclass(frozen=True)
+class CraftingCapabilities:
+    """Explicit, immutable capabilities available to a simulated character.
+
+    Empty sets deliberately mean unavailable.  The engine never infers a tool
+    or station from item names, professions, or recipe text.
+    """
+
+    tool_item_ids: frozenset[int] = frozenset()
+    tool_category_ids: frozenset[int] = frozenset()
+    spell_focus_ids: frozenset[int] = frozenset()
+
+    def __post_init__(self) -> None:
+        for field_name, label, values in (
+            ("tool_item_ids", "tool item", self.tool_item_ids),
+            ("tool_category_ids", "tool category", self.tool_category_ids),
+            ("spell_focus_ids", "spell focus", self.spell_focus_ids),
+        ):
+            if values is None or isinstance(values, (str, bytes, bytearray)):
+                raise TypeError(f"{label} capabilities must be an iterable of ids")
+            try:
+                raw_values = tuple(values)
+            except TypeError as exc:
+                raise TypeError(f"{label} capabilities must be an iterable of ids") from exc
+            seen: set[int] = set()
+            for value in raw_values:
+                if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                    raise ValueError(f"{label} capability ids must be positive integers")
+                if value in seen:
+                    raise ValueError(f"{label} capability ids must not contain duplicates")
+                seen.add(value)
+            canonical = frozenset(raw_values)
+            object.__setattr__(self, field_name, canonical)
+
+    @classmethod
+    def from_values(
+        cls,
+        tool_item_ids: Sequence[int] = (),
+        tool_category_ids: Sequence[int] = (),
+        spell_focus_ids: Sequence[int] = (),
+    ) -> CraftingCapabilities:
+        return cls(
+            tool_item_ids,
+            tool_category_ids,
+            spell_focus_ids,
+        )
+
+    def as_dict(self) -> dict[str, list[int]]:
+        return {
+            "spell_focus_ids": sorted(self.spell_focus_ids),
+            "tool_category_ids": sorted(self.tool_category_ids),
+            "tool_item_ids": sorted(self.tool_item_ids),
+        }
+
+    @property
+    def canonical(self) -> dict[str, list[int]]:
+        return self.as_dict()
 
 
 class MarketView(Protocol):
@@ -109,17 +173,20 @@ class MarketView(Protocol):
 
 @dataclass(frozen=True)
 class ListingView:
+    """An own listing exposed with epoch-second timestamps, never sweep indices."""
+
     listing_id: int
     item_id: int
     unit_price: int
     quantity_remaining: int
-    posted_t: int
-    expires_t: int
+    posted_t: float
+    expires_t: float
 
 
 class AccountView(Protocol):
     name: str
     professions: frozenset[str]
+    crafting_capabilities: CraftingCapabilities
 
     def cash(self) -> int:
         """Copper available to spend now."""

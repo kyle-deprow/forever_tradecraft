@@ -805,11 +805,31 @@ def test_old_generation_cannot_revive_when_new_generation_is_armed(tmp_path: Pat
             time.sleep(0.005)
         assert backend.active_process_groups
         guardian.revoke("human takeover")
-        second = guardian.arm(Evidence())
-        backend.activate_generation(second)
         thread.join(2)
         assert not thread.is_alive()
         assert isinstance(result.get("error"), DriverError)
+        assert backend.active_process_groups == frozenset()
+        assert guardian.active_process_groups == frozenset()
+
+        # Re-arm only after the first action's physical process group has
+        # actually disappeared.  Then issue a real late request with the old
+        # generation; it must be rejected by the new lease fence before any
+        # process is spawned.
+        second = guardian.arm(Evidence())
+        backend.activate_generation(second)
+        late_result: dict[str, BaseException] = {}
+
+        def run_late_old() -> None:
+            try:
+                backend._run(["/bin/sleep", "20"], generation=first, timeout=5)
+            except BaseException as exc:
+                late_result["error"] = exc
+
+        late_thread = threading.Thread(target=run_late_old)
+        late_thread.start()
+        late_thread.join(2)
+        assert not late_thread.is_alive()
+        assert isinstance(late_result.get("error"), DriverError)
         assert backend.active_process_groups == frozenset()
     finally:
         try:

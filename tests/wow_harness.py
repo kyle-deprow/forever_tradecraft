@@ -13,9 +13,12 @@ from pathlib import Path
 from lupa import lua51
 from PIL import Image
 
-from crowley.core.watchlist import load_catalog
+from crowley.core.game_target import GameTarget, packaged_game_target, target_scan_plan
+from crowley.core.watchlist import Catalog, load_catalog
+from tools.generate_launch_target import render_generated_lua
 
 ADDONS = Path(__file__).resolve().parents[1] / "addon"
+TARGET = packaged_game_target()
 _NEXT_AUCTION_ID = 1
 _BYTE_ATLAS_PATH = ADDONS / "Crowley" / "Textures" / "ByteAtlas.tga"
 _BYTE_ATLAS: Image.Image | None = None
@@ -30,7 +33,7 @@ _profile_ms = 0
 
 function time() return _now end
 function GetTime() return _now - 1760000000 end
-function GetBuildInfo() return "1.60.1", "70450", "Oct 1 2026", 16001 end
+function GetBuildInfo() return harness.clientVersion, harness.clientBuild, "Oct 1 2026", harness.interface end
 function debugprofilestop() _profile_ms = _profile_ms + 0.01 return _profile_ms end
 function collectgarbage(option)
   harness.gcCalls = (harness.gcCalls or 0) + 1
@@ -1039,11 +1042,11 @@ class Auction:
 @dataclass
 class WowClient:
     faction: str = "Horde"
-    realm: str = "Normal"
+    realm: str | None = None
     zone: str = "Orgrimmar"
     subzone: str = ""
     auctions: list[Auction] = field(default_factory=list)
-    current_region: int | None = 1
+    current_region: int | None = None
     current_region_name: str | None = "US"
     realm_info: bool = False
     game_rules: bool = True
@@ -1121,8 +1124,14 @@ class WowClient:
     game_menu_available: bool = True
     game_menu_shown: bool = False
     initial_savedvars: dict | None = None
+    target: GameTarget = TARGET
+    catalog: Catalog | None = None
 
     def __post_init__(self) -> None:
+        if self.realm is None:
+            self.realm = self.target.realm
+        if self.current_region is None:
+            self.current_region = self.target.native_region_id
         if self.presentation_width != 1920 or self.presentation_height != 1080:
             raise ValueError("the harness models only the pinned 1920x1080 presentation")
         if self.root_ui_scale <= 0:
@@ -1140,6 +1149,9 @@ class WowClient:
             {
                 "faction": self.faction,
                 "realm": self.realm,
+                "clientVersion": self.target.client_version,
+                "clientBuild": self.target.native_build,
+                "interface": self.target.interface,
                 "zone": self.zone,
                 "subzone": self.subzone,
                 "region": self.current_region,
@@ -1318,7 +1330,15 @@ class WowClient:
             self.lua.globals().CROWLEY_QUEUE = self._to_lua(self.queue)
         for line in (ADDONS / "Crowley" / "Crowley.toc").read_text().splitlines():
             if line.endswith(".lua"):
-                self.run_file(ADDONS / "Crowley" / line)
+                if line == "GeneratedTarget.lua" and self.target != TARGET:
+                    plan = target_scan_plan(self.catalog or load_catalog(), self.target)
+                    source = render_generated_lua(self.target, plan)
+                    chunk = self.lua.globals().loadstring(source, "@GeneratedTarget.lua")
+                    if chunk is None:
+                        raise SyntaxError("failed to load generated target")
+                    chunk("Crowley", self.ns)
+                else:
+                    self.run_file(ADDONS / "Crowley" / line)
 
     def inject_saved_variables(self, value: dict) -> None:
         """Inject SavedVariables after file execution and before ADDON_LOADED."""
@@ -1626,6 +1646,11 @@ class WowClient:
         }
         if frame not in events:
             raise ValueError(f"unknown frame: {frame}")
+        if frame == "mailbox":
+            # Executor admission reads the native MailFrame:IsShown() fact.
+            # Keep the fixture's native visibility and event stream aligned;
+            # tests may still deliberately mutate MAIL_CLOSED independently.
+            self.state.mailOpen = opened
         self.fire(events[frame][0 if opened else 1])
 
     def execution(self, queue_id: str | None = None) -> dict | None:
@@ -1705,12 +1730,12 @@ class WowClient:
             "id": "first-run",
             "revision": 1,
             "catalogHash": "a" * 64,
-            # Keep the fixture on the measured Forever client.  Deliberately
+            # Keep the fixture on the selected packaged client.  Deliberately
             # short plans remain negative fixtures for the production
             # canonical-plan gate; the old false build hid that gate entirely.
-            "targetClientBuild": "1.60.1.70450",
-            "cadenceSeconds": 900,
-            "initialPriceLevels": 20,
+            "targetClientBuild": self.target.full_build,
+            "cadenceSeconds": self.target.cadence_seconds,
+            "initialPriceLevels": self.target.initial_price_levels,
             "itemIDs": sorted(item_ids),
             "pools": {"core": sorted(item_ids), "discovery": []},
         }
@@ -1719,9 +1744,11 @@ class WowClient:
         self.lua.globals().CROWLEY_DATA.scanPlan = self._to_lua(plan)
 
     def set_canonical_plan(self) -> None:
-        """Load the exact shipped 428-ID plan into the native fixture."""
+        """Load the exact packaged plan into the native fixture."""
 
-        self.lua.globals().CROWLEY_DATA.scanPlan = self._to_lua(load_catalog().scan_plan())
+        self.lua.globals().CROWLEY_DATA.scanPlan = self._to_lua(
+            target_scan_plan(self.catalog or load_catalog(), self.target)
+        )
         # This is a harness clock convenience only.  It advances to the next
         # real timer deadline after the current callbacks drain, while the
         # production scanner still enforces its 100/60s send window.  Tests
@@ -1732,12 +1759,13 @@ class WowClient:
     def focus_item(self, item_id: int) -> None:
         """Rotate the canonical order so an adversarial fixture starts here."""
 
-        ids = load_catalog().scan_plan()["itemIDs"]
+        plan = target_scan_plan(self.catalog or load_catalog(), self.target)
+        ids = plan["itemIDs"]
         index = ids.index(item_id)
         previous = ids[index - 1] if index else ids[-1]
         db = self.lua.globals().CrowleyDB
         db.cursorItemID = previous
-        db.cursorPlanHash = load_catalog().scan_plan()["planHash"]
+        db.cursorPlanHash = plan["planHash"]
 
     def _to_lua(self, value):
         if isinstance(value, dict):

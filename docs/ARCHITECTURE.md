@@ -21,6 +21,18 @@
   answer, written below. If an assumption is wrong, the code fails loudly and we fix that
   one path rather than carrying alternatives.
 
+## Launch target
+
+`src/crowley/data/game_target.json` is the strict packaged source for client/build,
+interface, product/executable, installation roots, locale, region/realm/house and
+scan policy. `tools/generate_launch_target.py` renders coordinated Python/Lua/TOC
+artifacts and staged configuration; `--check` detects drift without writing.
+Session and companion startup reject stale explicit identity, path or canonical
+plan values. See [LAUNCH_TARGET.md](LAUNCH_TARGET.md). Current values remain the
+verified beta target; they do not assert launch facts. The exporter supports enUS.
+Routes retain their measured beta provenance and are refused on another target
+until genuinely remeasured. Cadence remains the explicit 900-second policy.
+
 ## Client facts and remaining assumptions
 
 | Assumption | Where | If wrong |
@@ -28,9 +40,9 @@
 | Interface 16001; a plain `Crowley.toc` loads | `addon/*/*.toc` | Addon missing from the list |
 | Commodities and non-equipment use native `MakeItemKey` + `SendSearchQuery`; equipment uses an explicitly zeroed comparison key + `SendSellSearchQuery` | `Scanner.lua` | Native full-sweep verification includes recipe 2555, containers 4238/4240/4241/4245/5765, and equipment 873 |
 | Item-search and commodity-search events follow the observed paths; freshness barriers reject stale, unrelated and foreign results | `Scanner.lua` | Full sweep `beta-normal-alliance-1792040351-Arthur-6643` verified 428 active IDs and native recipe, container, equipment and commodity results; item identity and freshness barriers remain required because result events have no request ID |
-| **Live observed:** `GetCurrentRegion()` returns 110 and `GetCurrentRegionName()` is empty. **Code mapping:** 1=us, 2=kr, 3=eu, 4=tw, 5=cn, 110=beta | `Context.lua`, `house.py` | Unknown numeric IDs fail |
-| **Live observed:** realm is `Classic Beta PvE 2`; `/crowley status` reports `beta-normal-alliance(auto)` after the correction. **Code behavior:** beta auto-attribution maps only that exact realm to normal and rejects other beta realms | `Context.lua`, `house.py` | Avoids merging unverified beta realms |
-| **Assumption:** launch realm labels Normal, PvP, RP and Hardcore identify rulesets | `Context.lua` | Unknown names fail |
+| **Live observed:** `GetCurrentRegion()` returns 110 and `GetCurrentRegionName()` is empty. **Code behavior:** the selected launch target requires its exact native region ID and realm | `Context.lua`, `house.py` | Other native IDs fail unless explicitly overridden |
+| **Live observed:** realm is `Classic Beta PvE 2`; `/crowley status` reports `beta-normal-alliance(auto)` after the correction. **Code behavior:** auto-attribution requires the selected target's exact realm and native region, then uses its declared region/ruleset | `Context.lua`, `house.py` | Avoids merging unverified beta realms |
+| **Launch pending:** realm, native region and ruleset must be verified and entered in the launch target; realm-name heuristics are absent | `game_target.json`, `Context.lua` | Unverified target identity is refused |
 | English zone names identify neutral houses | `Context.lua` | Use `/crowley set faction neutral` |
 | Probe observed `C_AuctionHouse`, `C_EncodingUtil`, and `C_Item`; `C_RealmInfo` absent and `C_GameRules` present | `Probe.lua` | Presence only; behavior remains to verify |
 | **Live observed and fixed:** empty Lua tables serialize as `[]`; the native contract accepts that only for empty collections, requires objects for nonempty keyed collections, normalizes them to dictionaries, and rejects `{}` empty / nonempty arrays | `Scanner.lua`, `scanformat.py` | The earlier 422 row/count mismatch is historical; the original scans now POST 200. No archive payload format changed |
@@ -47,6 +59,7 @@
 | **Assumption (A5):** items without an `ItemSparse` row have no price/name until the client caches them | `client_data.py` | Recorded as `no_sparse_row` |
 | **Observed:** a recipe item teaches through `ItemXItemEffect` → `ItemEffect` with `TriggerType = 6`, whose `SpellID` is the recipe (12958 → 17187, 2555 → 2335) | `client_data.py` | Teaching links missing |
 | **Observed:** recipe availability on Forever is **not** determinable from client data (Season of Discovery recipes ship in the shared client); only learn evidence is stored, availability needs in-game evidence | `client_data.py` | Phantom recipes; models must gate on market evidence |
+| **Model contract:** recipe exact tools, tool categories and spell focus must all be explicitly supplied in immutable capabilities; empty sets mean unavailable. Exact tools are pre-held outside the tradable ledger, without inferred cost or travel | `trading/requirements.py`, `strategies/crafting.py`, `execution.py` | Unobserved station/tool access is never granted; launch capabilities need evidence |
 | **Live observed (2026-10-22, 70450):** keyboard turning (Q/E and arrows) is π rad/s; run speed 7 yd/s; `UnitPosition` z is always 0 (jumps show only as `falling`) | `route_walk.py` | Turns overshoot; route walking must stay closed-loop |
 | **Live observed:** XTEST key input reaches the game up to ~1 s after dispatch on the Wayland/Xwayland desktop, and goes to the compositor-focused window even when the X "active window" is the game | `daemon.py` route walk, operators | Settled fixes must wait ≥1.2 s; every input must be verified in telemetry |
 | **Live observed:** bindings JUMP=SPACE, TURNLEFT=Q, TURNRIGHT=E (arrows are secondary); there is no usable interact key for world objects | `Agent.lua` telemetry | Unbound actions fail telemetry construction |
@@ -144,6 +157,13 @@ trusting a UID path. Legacy archives remain where they were written. New depth a
 reports never use legacy whole-market statistics.
 
 ## Natural interaction executors
+
+The coordinated addon/session source uses strict [schema 6](EXECUTOR_TELEMETRY.md),
+including actual executor queue/arm/readiness/progress facts and a physical-button
+callback ordinal. Schema 5 is refused. The fixed CRS1 frame, CRC and 2,000-byte
+compressed payload cap are unchanged; individual field limits do not override
+that aggregate cap. The beta last ran an older source version; launch deployment
+and native qualification remain pending.
 
 The addon publishes a read-only256x256pixel status surface once per second.
 `session/decoder.py` turns it into strict CRS1 frames with checksum, boot,

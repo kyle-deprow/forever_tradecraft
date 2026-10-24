@@ -37,7 +37,9 @@ from html.parser import HTMLParser
 from pathlib import Path
 from typing import Any
 
-EXPECTED_CLIENT_BUILD = "1.60.1.70450"
+from .game_target import packaged_game_target
+
+EXPECTED_CLIENT_BUILD = packaged_game_target().full_build
 PROFESSION_SKILL_LINES: dict[int, str] = {
     171: "alchemy",
     164: "blacksmithing",

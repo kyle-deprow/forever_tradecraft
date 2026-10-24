@@ -6,6 +6,7 @@
 ## SavedVariables: CrowleyDB
 ## Dependencies: Auctionator, Crowley_Data
 
+GeneratedTarget.lua
 Core.lua
 Context.lua
 Account.lua

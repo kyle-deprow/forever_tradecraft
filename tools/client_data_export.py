@@ -31,11 +31,13 @@ from crowley.core.client_data import (
     manifest_sha256,
     normalize_export,
 )
+from crowley.core.game_target import packaged_game_target
 from crowley.server.db import migrate
 
-PRODUCT = "wow_classic_beta"
-PRODUCT_DIR = "_classic_beta_"
-IMAGE = "crowley-client-data:70450"
+_TARGET = packaged_game_target()
+PRODUCT = _TARGET.product
+PRODUCT_DIR = _TARGET.product_dir
+IMAGE = f"crowley-client-data:{_TARGET.native_build}"
 TABLES = (
     "SkillLine",
     "SkillLineAbility",
@@ -410,6 +412,8 @@ def export_client_data(
             PRODUCT,
             "--productdir",
             PRODUCT_DIR,
+            "--expected-build",
+            EXPECTED_CLIENT_BUILD,
             "--out",
             "/work/out",
             "--cache",
@@ -636,7 +640,11 @@ def _parser() -> argparse.ArgumentParser:
     build = subparsers.add_parser("build")
     build.add_argument("--tag", default=IMAGE)
     export = subparsers.add_parser("export")
-    export.add_argument("--install", required=True)
+    export.add_argument(
+        "--install",
+        default=_TARGET.game_root,
+        help="parent game installation root (defaults to the packaged target)",
+    )
     export.add_argument("--out-root")
     export.add_argument("--image", default=IMAGE)
     load = subparsers.add_parser("load")

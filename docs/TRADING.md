@@ -58,6 +58,44 @@ were audited for the same dependency: `snipe_flip` and `dip_reversion` emit thei
 VendorSell/Post exits before Buy intents, and `vendor_arb` emits its VendorSell
 intents before Buy intents, so none posts or vendor-sells same-step purchases.
 
+### Optional crafting listing policy
+
+The crafting strategy keeps its historical defaults (`listing_duration_hours=24` and
+no post horizon or repricing policy). For an explicit experiment, set the duration to
+12, 24, or 48 hours. Deposit economics use that same duration for candidate valuation
+and the resulting `Post` intent; the execution engine still charges the ordinary D1
+deposit and shared time budget.
+
+`post_horizon_hours`, when set to a finite positive value no larger than 48, caps the
+aggregate currently listed output per item at
+`floor(demand_units_per_day × capacity_share × horizon_hours / 24)`. Existing listings
+are subtracted, and a zero remainder leaves the units in inventory. This is a bounded
+exposure heuristic, not a claim about physical auction stack limits or realized demand;
+it does not alter the separate held-capacity rule for inventory, listings, and mail.
+
+`reprice_after_hours` enables a deliberately conservative cancel-only experiment.
+The strategy considers only its own output listings that are old enough, have at least
+one hour before expiry, and have a trustworthy current strictly-past fair/demand view.
+It cancels only when the current target is at least `reprice_gap` lower (with a strict
+price decrease), clears the vendor floor, and the replacement deposit is affordable
+with net proceeds still above vendor liquidation. Candidates are deterministic (oldest
+listing first, then listing id) and bounded by `max_cancels_per_step` (1–50). A cancel
+loses the old remaining deposit under execution. No replacement `Post` is emitted in
+the same decision: canceled units can be reconsidered on the next sweep, where a new
+post pays its deposit normally. These controls are experimental heuristics, not
+evidence of profitability.
+
+Craft recipes also carry the client's exact tool item ids, required tool-category ids,
+and spell-focus id. A backtest or paper run has an explicit immutable capability set:
+`tool_item_ids`, `tool_category_ids`, and `spell_focus_ids`. Every listed requirement
+must be present; an empty set means unavailable, and capabilities are never inferred
+from names or professions. Tool ids model held tools and are not consumed as reagents.
+The strategy and executor use the same fail-closed gate before any reagent, cooldown,
+time-budget, or balance mutation. This is material for the exported Bronze Tube
+spell 3938 (output item 4371), whose requirements include focus 1 and category 162
+but no exact tool id. Exact tools, when required, are explicit pre-held capabilities
+outside the tradable ledger; no purchase cost or travel is inferred.
+
 The report also records `max_held_over_capacity` per strategy, calculated over the
 step-by-step held-unit observations (inventory, listings, and mail) against the
 strategy's capacity share, plus the five highest-ratio items. Only items with an
@@ -81,6 +119,10 @@ deliberately conservative availability assumption rather than a claim about live
 inventory.
 
 ## Beta backtest results (2026-10-22)
+
+PRE-GATE historical evidence: these tables predate station/tool/category/focus
+enforcement and are retained for historical comparison only. They are not current
+recipe-availability or launch-profit claims.
 
 House `beta-normal-alliance`, client build 1.60.1.70450, 236 recorded sweeps (2026-10-17 to 2026-10-21,
 about 4.4 days of wall time with large collection gaps), 20 g starting capital split equally, 24 h wind-down
@@ -123,8 +165,13 @@ true sales); and the half-period runs are not comparable to the full run because
 ## Paper trading
 
 Paper runs are deterministic shadow ledgers over the immutable recorded sweeps. Create one with
-`python -m crowley.trading paper-create --name NAME --house HOUSE`; `--start now` begins with the next
-recorded sweep. The default portfolio is the seven profitable strategies listed above. Set
+`uv run python -m crowley.trading paper-create --name NAME --house HOUSE`; `--start now` begins with the next
+recorded sweep. The provisional default portfolio is the measured four-strategy order
+`crafting_alchemy`, `crafting_engineering`, `dip_reversion`, `vendor_arb`, with equal weights:
+the first two represent two primary professions, while the latter two require no profession.
+This is a provisional two-profession portfolio, not a beta-rank forecast; its default
+capabilities are empty and therefore fail closed on recipes with explicit requirements.
+Pass `--strategies` for an explicit portfolio. Set
 `CROWLEY_DATABASE_URL` or pass `--database-url` on each command.
 
 Advance a run with `paper-step --name NAME`. Each invocation replays from the fixed start time, verifies all
@@ -135,6 +182,16 @@ trading/analysis source digest or a client build change after the run start. Ins
 realized copper, and decisions with `paper-status --name NAME`.
 
 Paper runs default to `demand_share=0.5`; pass `--demand-share` to choose another value in `(0, 1]`.
+
+Capability assumptions are explicit and persisted with each paper run. Supply a JSON
+file with the three canonical arrays, or equivalent comma-separated options, for
+example `--capabilities-file capabilities.json` or
+`--tool-category-ids 162 --spell-focus-ids 1`. Omitting all
+options is deliberately fail-closed. Backtest reports include the canonical
+capabilities and hash, strategy professions and weights, selected house/build/window,
+capital, demand share, wind-down, and per-strategy recipe gate counts. Migration 009
+adds the capability JSON/hash to `paper_runs`; historical rows receive empty
+capabilities and remain subject to the existing source-digest replay refusal.
 
 Each `paper-step` replays the whole run. On the parent’s machine, 174 steps for seven strategies took about 220
 seconds; replay cost is roughly linear in the number of 15-minute sweeps and exceeds the 15-minute cadence after
@@ -156,6 +213,9 @@ session. Paper-derived queues are always unarmed. The step-by-step test plan is 
 
 ## Two-profession pairs (beta, 2026-10-23)
 
+PRE-GATE historical evidence; rerun with explicit launch capabilities before using
+these comparisons.
+
 A character has two primary professions, so every pair of crafting strategies was backtested with `dip_reversion`
 and `vendor_arb` (20 g split equally, demand share 0.5, 24 h wind-down, build 1.60.1.70450, 5.8 days of sweeps).
 Realized = cash after the wind-down; equity also marks unsold stock, which exceeded 2-day market capacity
@@ -174,7 +234,49 @@ Realized = cash after the wind-down; equity also marks unsold stock, which excee
 | blacksmithing + tailoring | 8.4 g | 459.3 g | 1812 |
 | leatherworking + tailoring | 7.4 g | 113.7 g | 2768 |
 
-Alchemy is the robust core (≈33 g realized in every pairing); tailoring lost money in every pairing. Engineering is the
-best second profession in-model, but its profit includes Bronze Tube, which needs an anvil and a Blacksmith Hammer;
-the engine does not model crafting stations yet, so engineering is provisional until station requirements
-(`SpellCastingRequirements.RequiresSpellFocus`, `SpellTotems`) gate recipes. Gathering professions are not modelled.
+Alchemy was the robust core in this historical run; tailoring lost money in every
+pairing. Engineering's historical result includes recipes that now require explicit
+capabilities, so no current-best second-profession claim is made. Gathering
+professions are not modelled.
+
+## Current gated portfolio and expiry comparison (2026-10-23)
+
+The current comparable run uses 290 sweeps from house `beta-normal-alliance`, build
+`1.60.1.70450`: 20g start, equal weights across two crafting strategies plus
+`dip_reversion` and `vendor_arb`, demand share 0.5, 24h wind-down, and explicit
+empty tool/category/focus capabilities. Alchemy + engineering leads all ten pairs
+at **+60.7899g realized profit**. Engineering profits come from available recipes;
+Bronze Tube remains blocked. This is a provisional paper portfolio, not a launch
+profit forecast or proof of learned recipes/station access.
+
+The same data and strictly-past statistics were replayed with four crafting listing
+policies. The baseline exactly reproduced realized profit, equity and click count
+after the timestamp/step correction. The following are modeled totals across all
+four strategies; only crafting policy parameters change.
+
+| Crafting policy | Realized profit (g) | Clicks | Posts | Cancels | Expired listings | Lost deposits (g) |
+|---|---:|---:|---:|---:|---:|---:|
+| 24h; existing exposure; repricing off | 60.7899 | 3512 | 393 | 0 | 161 | 6.5528 |
+| 12h only | 46.7067 | 3637 | 440 | 0 | 238 | 6.6026 |
+| 12h; 6h exposure cap | 33.6436 | 3754 | 484 | 0 | 204 | 2.7432 |
+| 12h; 6h cap; reprice after 6h / 5% decrease | 49.9877 | 4124 | 570 | 61 | 189 | 3.1955 |
+
+**Keep the existing 24h listing/exposure defaults and leave automatic repricing off.**
+Smaller exposure reduced deposit losses, but these variants returned less realized
+profit, required more clicks, and had higher drawdown. They remain explicit
+programmatic research controls; this comparison does not establish a better live
+policy. No live configuration or existing paper run was changed.
+
+The leading baseline ends at 718.3512g modeled equity, including **637.5613g of
+unrealized marked holdings**, with 52.88% maximum drawdown. The 3512 modeled clicks
+alone imply at least 58.53 minutes at one click per second, excluding crafting,
+walking, UI waits and recovery. This is not measured live time on the AH. Expiries
+above count listings, not units; dividing them by posts is not a unit expiry rate.
+
+Large retained inventories, collection gaps, modeled demand/marks, missing recipe
+learnability evidence and the fresh launch economy limit every conclusion. These
+290-sweep results are not a pure station-gate delta from the older 236-sweep table.
+Reproducible aggregates and source digests are in the
+[pair summary](../.archive/launch-readiness-20261023/gated-pair-summary.json) and
+[policy comparison](../.archive/launch-readiness-20261023/listing-policy-comparison.json).
+Raw books and detailed reports stay private.

@@ -1,6 +1,6 @@
 """Bounded native motion feedback and waypoint control primitives.
 
-The provider consumes the already decoded schema-5 status surface. It never
+The provider consumes the already decoded schema-6 status surface. It never
 manufactures a frame when the addon has not published one, and all higher
 level control is finite, generation-bound, and feedback driven.
 """
@@ -266,14 +266,14 @@ class MotionFrame:
         capture_started_monotonic: float | None = None,
     ) -> MotionFrame:
         if getattr(sample, "kind", None) != "FRESH" or getattr(sample, "frame", None) is None:
-            raise MotionError("native motion requires a fresh schema-5 frame")
+            raise MotionError("native motion requires a fresh schema-6 frame")
         frame = sample.frame
         snapshot_object = getattr(frame, "snapshot", None)
         snapshot = getattr(snapshot_object, "value", None)
         if not isinstance(snapshot, dict):
             raise MotionError("native motion frame has no decoded snapshot")
-        if snapshot.get("schema") != 5:
-            raise MotionError("native motion requires schema 5")
+        if snapshot.get("schema") != 6:
+            raise MotionError("native motion requires schema 6")
         identity_fingerprint = _text(getattr(identity, "fingerprint", ""), "motion.identity")
         motion = snapshot.get("motion")
         context = snapshot.get("context")
@@ -418,7 +418,7 @@ class NativeMotionProvider:
     def __init__(
         self,
         capture: Callable[[], Any],
-        identity: Callable[[], Any],
+        identity: Callable[..., Any],
         *,
         capture_with_deadline: Callable[..., Any] | None = None,
         clock: Callable[[], float] = time.monotonic,
@@ -445,12 +445,18 @@ class NativeMotionProvider:
         while True:
             if deadline is not None and self._clock() >= deadline:
                 raise MotionError("native motion observation exceeded its deadline")
-            identity = self._identity()
+            identity = self._identity(deadline=deadline)
+            if deadline is not None and self._clock() >= deadline:
+                raise MotionError("native motion observation exceeded its deadline")
             capture_started = self._clock()
+            if deadline is not None and capture_started >= deadline:
+                raise MotionError("native motion observation exceeded its deadline")
             if self._capture_with_deadline is None:
                 sample = self._capture()
             else:
                 sample = self._capture_with_deadline(deadline=deadline)
+            if deadline is not None and self._clock() >= deadline:
+                raise MotionError("native motion observation exceeded its deadline")
             if getattr(sample, "kind", None) != "FRESH":
                 remaining = deadline - self._clock()
                 if remaining <= 0:

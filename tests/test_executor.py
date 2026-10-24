@@ -2,9 +2,32 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import pytest
 
+from crowley.core.game_target import packaged_game_target
+from crowley.session.protocol import decode_frame
+
 from .wow_harness import Auction, WowClient
+
+US_TARGET = replace(
+    packaged_game_target(),
+    region="us",
+    native_region_id=1,
+    ruleset="normal",
+    realm="Normal",
+    faction="Horde",
+    house="us-normal-horde",
+)
+
+
+def us_client(**kwargs):
+    kwargs.setdefault("target", US_TARGET)
+    kwargs.setdefault("faction", "Horde")
+    kwargs.setdefault("realm", US_TARGET.realm)
+    kwargs.setdefault("current_region", US_TARGET.native_region_id)
+    return WowClient(**kwargs)
 
 
 def make_queue(actions, *, armed=False, house="us-normal-horde", character="Tester"):
@@ -21,7 +44,7 @@ def make_queue(actions, *, armed=False, house="us-normal-horde", character="Test
 
 
 def load(action, *, armed=False, **kwargs):
-    client = WowClient(queue=make_queue([action], armed=armed, **kwargs))
+    client = us_client(queue=make_queue([action], armed=armed, **kwargs))
     client.login()
     return client
 
@@ -60,11 +83,35 @@ def bag_state(items: list[dict]) -> dict:
 
 
 def test_executor_is_inert_without_a_queue():
-    client = WowClient()
+    client = us_client()
     assert client.executor_button is None
     client.login()
     assert client.executor_button is None
     assert client.ns.Executor.Valid() is False
+    assert client.snapshot_agent()["executor"] == {
+        "availability": "none",
+        "queueId": "",
+        "house": "",
+        "character": "",
+        "publishedArmed": False,
+        "sessionArmed": False,
+        "buttonVisible": False,
+        "buttonName": "",
+        "currentSeq": 0,
+        "currentKind": "",
+        "phase": "none",
+        "inFlight": False,
+        "clickReady": False,
+        "workDone": 0,
+        "workTotal": 0,
+        "blocked": False,
+        "latched": False,
+        "ambiguous": False,
+        "clickOrdinal": 0,
+        "lastClickSource": "none",
+        "resultCount": 0,
+        "lastResult": {"seq": 0, "kind": "", "status": "none"},
+    }
 
 
 @pytest.mark.parametrize(
@@ -95,12 +142,174 @@ def test_executor_is_inert_without_a_queue():
     ],
 )
 def test_invalid_queue_is_rejected_and_records_sequence_zero(bad):
-    client = WowClient(queue=bad)
+    client = us_client(queue=bad)
     client.login()
     execution = client.execution(bad.get("queueId", "<invalid>"))
     assert execution["results"][0]["seq"] == 0
     assert execution["results"][0]["status"] == "refused"
     assert client.executor_button is None
+
+
+def test_executor_telemetry_distinguishes_invalid_queue_and_valid_mail_progress():
+    invalid = us_client(queue={"format": 1, "queueId": "x"})
+    invalid.login()
+    invalid_value = invalid.snapshot_agent()["executor"]
+    assert invalid_value["availability"] == "invalid"
+    assert invalid_value["queueId"] == ""
+    assert invalid_value["resultCount"] == 1
+    assert invalid_value["lastResult"] == {"seq": 0, "kind": "queue", "status": "refused"}
+
+    client = load({"kind": "mail_collect", "maxMessages": 2})
+    client.set_mail_count(2)
+    open_frame(client, "mailbox")
+    ready = client.snapshot_agent()["executor"]
+    assert ready["availability"] == "valid"
+    assert ready["currentSeq"] == 1 and ready["currentKind"] == "mail_collect"
+    assert ready["phase"] == "ready"
+    assert ready["buttonVisible"] is True and ready["clickReady"] is True
+    assert ready["workDone"] == 0 and ready["workTotal"] == 2
+    # The native visibility fact remains true even when the unreliable close
+    # event is delivered; the executor must not hide the button from that event.
+    client.fire("MAIL_CLOSED")
+    assert client.snapshot_agent()["executor"]["buttonVisible"] is True
+
+
+def test_mail_show_event_without_native_mail_frame_is_not_click_ready():
+    client = load({"kind": "mail_collect", "maxMessages": 1})
+    client.set_mail_count(1)
+    # Deliberately publish only the event flag.  MailFrame:IsShown remains
+    # false, so the event cannot authorize a button or protected call.
+    client.fire("MAIL_SHOW")
+    value = client.snapshot_agent()["executor"]
+    assert value["buttonVisible"] is False
+    assert value["clickReady"] is False
+    assert client.snapshot_agent()["mailOpen"] is False
+    client.click_executor(force=True)
+    assert client.protected_calls == []
+
+
+def test_armed_partial_mail_frames_prove_wait_progress_and_one_second_readiness():
+    client = load({"kind": "mail_collect", "maxMessages": 2}, armed=True)
+    client.set_canonical_plan()
+    client.set_mail_count(2)
+    client.set_auto_postconditions(False)
+    open_frame(client, "mailbox")
+    arm(client)
+    client.click_executor()
+    assert client.protected_calls == ["AutoLootMailItem"]
+
+    # Pause on the native postcondition: the first message is started but not
+    # yet observed empty/removed.  This is a real CRS1 FrameBytes decode.
+    client.update_agent()
+    waiting = decode_frame(client.agent_frame).snapshot["executor"]
+    assert waiting["availability"] == "valid"
+    assert waiting["phase"] == "mail_wait"
+    assert waiting["inFlight"] is True
+    assert waiting["clickReady"] is False
+    assert waiting["workDone"] == 0 and waiting["workTotal"] == 2
+    assert waiting["lastResult"] == {"seq": 1, "kind": "mail_collect", "status": "started"}
+
+    # Expose the first message's native empty postcondition, then wait the
+    # actual one-second click-rate interval before checking mail_items.
+    client.set_mail_items([{"money": 0}, {"money": 20}])
+    client.fire("MAIL_INBOX_UPDATE")
+    client.update_agent()
+    too_fast = decode_frame(client.agent_frame).snapshot["executor"]
+    assert too_fast["phase"] == "mail_items"
+    assert too_fast["inFlight"] is True
+    assert too_fast["clickReady"] is False
+    assert too_fast["workDone"] == 1 and too_fast["workTotal"] == 2
+    client.advance(1)
+    client.update_agent()
+    ready = decode_frame(client.agent_frame).snapshot["executor"]
+    assert ready["phase"] == "mail_items"
+    assert ready["inFlight"] is True
+    assert ready["clickReady"] is True
+    assert ready["workDone"] == 1 and ready["workTotal"] == 2
+    assert ready["resultCount"] == 1
+    assert client.protected_calls == ["AutoLootMailItem"]
+
+
+def test_mail_success_advances_to_new_action_with_fresh_frame_progress():
+    client = us_client(
+        queue=make_queue(
+            [
+                {"kind": "mail_collect", "maxMessages": 1},
+                {"kind": "mail_collect", "maxMessages": 2},
+            ],
+            armed=True,
+        )
+    )
+    client.set_canonical_plan()
+    client.login()
+    client.set_mail_count(1)
+    open_frame(client, "mailbox")
+    arm(client)
+    client.click_executor()
+
+    client.update_agent()
+    executor = decode_frame(client.agent_frame).snapshot["executor"]
+    assert executor["currentSeq"] == 2
+    assert executor["currentKind"] == "mail_collect"
+    assert executor["phase"] == "ready"
+    assert executor["inFlight"] is False
+    assert executor["workDone"] == 0
+    assert executor["workTotal"] == 2
+    assert executor["lastResult"] == {"seq": 1, "kind": "mail_collect", "status": "succeeded"}
+
+
+def test_partial_mail_ui_error_roundtrips_progress_on_blocked_ready_state():
+    client = us_client(queue=make_queue([{"kind": "mail_collect", "maxMessages": 2}], armed=True))
+    client.set_canonical_plan()
+    client.login()
+    client.set_mail_count(2)
+    client.set_auto_postconditions(False)
+    open_frame(client, "mailbox")
+    arm(client)
+    client.click_executor()
+
+    client.set_mail_items([{"money": 0}, {"money": 20}])
+    client.fire("MAIL_INBOX_UPDATE")
+    client.fire("UI_ERROR_MESSAGE", 1, "native failure")
+
+    client.update_agent()
+    executor = decode_frame(client.agent_frame).snapshot["executor"]
+    assert executor["currentSeq"] == 1
+    assert executor["currentKind"] == "mail_collect"
+    assert executor["phase"] == "ready"
+    assert executor["inFlight"] is False
+    assert executor["blocked"] is True
+    assert executor["workDone"] == 1 and executor["workTotal"] == 2
+    assert executor["lastResult"] == {"seq": 1, "kind": "mail_collect", "status": "failed"}
+
+
+@pytest.mark.parametrize("queue", [True, "malformed", 17], ids=["true", "string", "number"])
+def test_truthy_non_table_queue_publishes_invalid_executor_telemetry(queue):
+    client = us_client(queue=queue)
+    client.login()
+    value = client.snapshot_agent()["executor"]
+    assert value["availability"] == "invalid"
+    assert value["queueId"] == ""
+    assert value["lastResult"] == {"seq": 0, "kind": "queue", "status": "refused"}
+    assert value["resultCount"] == 1
+
+
+def test_executor_telemetry_physical_button_ordinal_is_not_direct_api_ordinal():
+    direct = load({"kind": "vendor_buy", "itemID": 3371, "quantity": 1})
+    direct.set_merchant_items([{"itemID": 3371}])
+    open_frame(direct, "merchant")
+    direct.click_executor(force=True)
+    direct_value = direct.snapshot_agent()["executor"]
+    assert direct_value["lastClickSource"] == "directAPI"
+    assert direct_value["clickOrdinal"] == 0
+
+    button = load({"kind": "vendor_buy", "itemID": 3371, "quantity": 1})
+    button.set_merchant_items([{"itemID": 3371}])
+    open_frame(button, "merchant")
+    button.click_executor()
+    button_value = button.snapshot_agent()["executor"]
+    assert button_value["lastClickSource"] == "button"
+    assert button_value["clickOrdinal"] == 1
 
 
 def test_unarmed_click_is_a_dry_run_without_protected_calls():
@@ -167,6 +376,79 @@ def test_post_and_cancel_record_native_details():
     cancel.fire("AUCTION_CANCELED", 123)
     assert cancel.protected_calls == ["C_AuctionHouse.CancelAuction"]
     assert result(cancel)["status"] == "succeeded"
+
+
+@pytest.mark.parametrize(
+    ("action", "setup", "event", "event_args", "native_call"),
+    [
+        (
+            {"kind": "post_commodity", "itemID": 2589, "quantity": 2, "unitPrice": 30, "durationHours": 12},
+            lambda client: (
+                client.set_bags(bag_state([{"itemID": 2589, "stackCount": 5}])),
+                client.set_auctions([Auction(2589, "Linen", 1, 100, isCommodity=True)]),
+            ),
+            "AUCTION_HOUSE_AUCTION_CREATED",
+            (),
+            "C_AuctionHouse.PostCommodity",
+        ),
+        (
+            {"kind": "cancel_auction", "auctionID": 123},
+            lambda client: None,
+            "AUCTION_CANCELED",
+            (123,),
+            "C_AuctionHouse.CancelAuction",
+        ),
+    ],
+    ids=("post-commodity", "cancel-auction"),
+)
+def test_started_post_and_cancel_frames_decode_before_native_success(
+    action, setup, event, event_args, native_call
+):
+    client = load(action, armed=True)
+    client.set_canonical_plan()
+    setup(client)
+    open_frame(client, "ah")
+    arm(client)
+    client.click_executor()
+    assert client.protected_calls == [native_call]
+
+    # The native call has started, but no success event has arrived.  The
+    # producer's literal nil Lua phase wires as ready; the consumer accepts
+    # this only for these two actual beginStarted paths and their started proof.
+    client.update_agent()
+    pending = decode_frame(client.agent_frame).snapshot["executor"]
+    assert pending["availability"] == "valid"
+    assert pending["currentSeq"] == 1
+    assert pending["currentKind"] == action["kind"]
+    assert pending["phase"] == "ready"
+    assert pending["inFlight"] is True
+    assert pending["clickReady"] is False
+    assert pending["lastResult"] == {"seq": 1, "kind": action["kind"], "status": "started"}
+
+    # A second physical click is too fast while the native call is still
+    # unresolved.  It appends a same-action blocked result and latches the
+    # executor; the literal ready/inFlight wire state remains valid.
+    client.click_executor()
+    client.update_agent()
+    blocked = decode_frame(client.agent_frame).snapshot["executor"]
+    assert blocked["phase"] == "ready"
+    assert blocked["inFlight"] is True
+    assert blocked["clickReady"] is False
+    assert blocked["blocked"] is False and blocked["ambiguous"] is False
+    assert blocked["latched"] is True
+    assert blocked["lastResult"] == {"seq": 1, "kind": action["kind"], "status": "blocked"}
+
+    client.fire(event, *event_args)
+    client.update_agent()
+    terminal = decode_frame(client.agent_frame).snapshot["executor"]
+    assert terminal["availability"] == "valid"
+    assert terminal["currentSeq"] == 0
+    assert terminal["currentKind"] == ""
+    assert terminal["phase"] == "complete"
+    assert terminal["inFlight"] is False
+    assert terminal["resultCount"] == 2
+    assert terminal["lastResult"] == {"seq": 1, "kind": action["kind"], "status": "blocked"}
+    assert client.execution()["results"][0]["status"] == "succeeded"
 
 
 def test_vendor_stack_mismatch_and_missing_merchant_are_refused():
@@ -352,7 +634,7 @@ def test_each_single_arm_is_still_a_dry_run():
 def test_strict_validation_rejects_bad_fields_as_the_whole_queue(mutation):
     queue = make_queue([{"kind": "vendor_buy", "itemID": 3371, "quantity": 1}])
     mutation(queue)
-    client = WowClient(queue=queue)
+    client = us_client(queue=queue)
     client.login()
     execution = client.execution(queue["queueId"])
     assert len(execution["results"]) == 1
@@ -363,7 +645,7 @@ def test_strict_validation_rejects_bad_fields_as_the_whole_queue(mutation):
 
 def test_more_than_fifty_actions_is_rejected():
     queue = make_queue([{"kind": "vendor_buy", "itemID": 3371, "quantity": 1} for _ in range(51)])
-    client = WowClient(queue=queue)
+    client = us_client(queue=queue)
     client.login()
     execution = client.execution(queue["queueId"])
     assert execution["results"][0]["seq"] == 0
@@ -643,7 +925,7 @@ def test_every_protected_call_captures_its_exact_arguments():
 
 
 def test_protected_harness_stubs_do_not_discard_unexpected_arguments():
-    client = WowClient()
+    client = us_client()
     client.lua.globals().C_AuctionHouse.StartCommoditiesPurchase(2589, 2, "unexpected")
     assert client.protected_call_records[-1] == {
         "name": "C_AuctionHouse.StartCommoditiesPurchase",
@@ -685,7 +967,7 @@ def test_reload_reconciles_success_dry_run_and_ambiguous_started_history():
     arm(original)
     original.click_executor()
     saved = {"executions": {original.execution()["queueId"]: original.execution()}}
-    reloaded = WowClient(
+    reloaded = us_client(
         queue=make_queue([{"kind": "vendor_buy", "itemID": 3371, "quantity": 1}], armed=True),
         initial_savedvars=saved,
     )
@@ -706,7 +988,7 @@ def test_reload_reconciles_success_dry_run_and_ambiguous_started_history():
             }
         }
     }
-    dry = WowClient(queue=queue, initial_savedvars=dry_saved)
+    dry = us_client(queue=queue, initial_savedvars=dry_saved)
     dry.login()
     assert dry.ns.Executor.Current()["seq"] == 1
 
@@ -723,7 +1005,7 @@ def test_reload_reconciles_success_dry_run_and_ambiguous_started_history():
             }
         }
     }
-    blocked = WowClient(queue=ambiguous, initial_savedvars=ambiguous_saved)
+    blocked = us_client(queue=ambiguous, initial_savedvars=ambiguous_saved)
     blocked.login()
     blocked.set_merchant_items([{"itemID": 3371}])
     open_frame(blocked, "merchant")
@@ -761,7 +1043,7 @@ def test_reload_reconciles_ambiguous_history_across_all_sequences():
             }
         }
     }
-    client = WowClient(queue=queue, initial_savedvars=saved)
+    client = us_client(queue=queue, initial_savedvars=saved)
     client.login()
     client.set_merchant_items([{"itemID": 3371}])
     open_frame(client, "merchant")
@@ -836,7 +1118,7 @@ def test_blocked_started_history_is_ambiguous_after_reload_and_cannot_be_skipped
     client.click_executor(force=True)
     saved = {"executions": {client.execution()["queueId"]: client.execution()}}
 
-    reloaded = WowClient(
+    reloaded = us_client(
         queue=make_queue(
             [{"kind": "buy_commodity", "itemID": 2589, "quantity": 1, "maxUnitPrice": 25}], armed=True
         ),
@@ -853,7 +1135,7 @@ def test_blocked_started_history_is_ambiguous_after_reload_and_cannot_be_skipped
     reloaded.slash("skip")
     assert "ambiguous_history" in reloaded.chat[-1]
 
-    again = WowClient(
+    again = us_client(
         queue=make_queue(
             [{"kind": "buy_commodity", "itemID": 2589, "quantity": 1, "maxUnitPrice": 25}], armed=True
         ),
@@ -901,7 +1183,7 @@ def test_blocked_started_history_is_ambiguous_after_reload_and_cannot_be_skipped
             }
         }
     }
-    resumed = WowClient(queue=cancelled, initial_savedvars=cancelled_saved)
+    resumed = us_client(queue=cancelled, initial_savedvars=cancelled_saved)
     resumed.login()
     resumed.set_merchant_items([{"itemID": 3371}])
     open_frame(resumed, "merchant")

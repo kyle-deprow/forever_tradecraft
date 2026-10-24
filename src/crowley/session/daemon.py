@@ -27,8 +27,10 @@ from types import MappingProxyType
 from typing import Any
 
 from crowley.core import savedvars
+from crowley.core.game_target import packaged_game_target, target_scan_plan
 from crowley.core.watchlist import load_catalog
 
+from . import protocol
 from .calibration import (
     LinuxProcStatusVmHwmReset5,
     NativeCalibrationRunner,
@@ -81,6 +83,13 @@ from .executor import (
 )
 from .guardian import GuardianError
 from .journal import Journal, JournalError, stable_file
+from .mail_loop import (
+    MailBudget,
+    MailLoopBinding,
+    MailLoopBoundary,
+    MailOperationBounds,
+    admit_mail_cycle,
+)
 from .model import LunaAdapter, ModelError
 from .motion import (
     DEFAULT_MOVEMENT_CALIBRATION_PULSE_SECONDS,
@@ -121,7 +130,7 @@ from .motion import (
 from .pointer_execution import PointerExecutionError, acquire_click_rate_permit
 from .preferences import load_motion_profile
 from .protocol import ProtocolError, unsigned_delta
-from .route_walk import Pose, RouteFile, check_fix, plan_segment, walk_budget
+from .route_walk import KINEMATICS_PROVENANCE, Pose, RouteFile, check_fix, plan_segment, walk_budget
 from .startup import (
     PASSIVE_STARTUP_TIMEOUT_SECONDS,
     TAKEOVER_DRILL_HUMAN_TIMEOUT_SECONDS,
@@ -133,6 +142,8 @@ from .startup import (
 )
 
 _LOGGER = logging.getLogger(__name__)
+_TARGET = packaged_game_target()
+_CANONICAL_PLAN = target_scan_plan(load_catalog(), _TARGET)
 
 
 def _canonical_semantic_value(value: Any) -> Any:
@@ -1470,6 +1481,19 @@ def _serialized_motion(method):
             raise DriverError("another motion intent is already in flight")
         local = getattr(self, "_motion_deadline_local", None)
         outer = local is None or not hasattr(local, "deadline")
+        authority_local = getattr(self, "_mail_cycle_context", None)
+        if authority_local is None:
+            authority_local = threading.local()
+            self._mail_cycle_context = authority_local
+        authority_set = False
+        requested_cycle = kwargs.get("cycle_id")
+        if (
+            method.__name__ == "execute_executor_click"
+            and isinstance(requested_cycle, str)
+            and requested_cycle
+        ):
+            authority_local.cycle_id = requested_cycle
+            authority_set = True
         try:
             if outer:
                 local = local or threading.local()
@@ -1480,6 +1504,7 @@ def _serialized_motion(method):
                     "calibrate_movement_basis": MOTION_CALIBRATION_OPERATION_SECONDS,
                     "execute_waypoint": MAX_WAYPOINT_SECONDS,
                     "execute_world_click": 60.0,
+                    "execute_executor_click": 60.0,
                 }.get(method.__name__)
                 if method.__name__ == "execute_route_walk":
                     route_name = kwargs.get("route_name", args[0] if args else None)
@@ -1489,7 +1514,21 @@ def _serialized_motion(method):
                 if operation_seconds is None:
                     raise DriverError(f"motion operation {method.__name__!r} has no bounded deadline")
                 try:
+                    requested_deadline = kwargs.get("deadline_monotonic")
+                    if requested_deadline is not None and (
+                        isinstance(requested_deadline, bool)
+                        or not isinstance(requested_deadline, (int, float))
+                        or not math.isfinite(float(requested_deadline))
+                    ):
+                        raise DriverError("motion operation deadline is malformed")
                     local.deadline = self._native_clock() + operation_seconds
+                    if requested_deadline is not None:
+                        local.deadline = min(local.deadline, float(requested_deadline))
+                    cycle_capability = getattr(
+                        getattr(self, "controller", None), "mail_cycle_capability", lambda: None
+                    )()
+                    if cycle_capability is not None:
+                        local.deadline = min(local.deadline, cycle_capability.deadline_monotonic)
                 except Exception:
                     self._invalidate_motion_admission()
                     raise
@@ -1499,6 +1538,11 @@ def _serialized_motion(method):
             if outer:
                 try:
                     del local.deadline
+                except AttributeError:
+                    pass
+            if authority_set:
+                try:
+                    del authority_local.cycle_id
                 except AttributeError:
                     pass
             lock.release()
@@ -1548,7 +1592,17 @@ class SessionDaemon:
             descriptor = open_routes_descriptor(path)
             with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
                 descriptor = None
-                return RouteFile.from_json(handle.read())
+                route_file = RouteFile.from_json(handle.read())
+                target = packaged_game_target()
+                if target.full_build != "1.60.1.70450" or target.route_provenance != KINEMATICS_PROVENANCE:
+                    raise DriverError(
+                        "routes_file is historical beta kinematics and cannot be used for the selected target"
+                    )
+                if route_file.kinematics.provenance != target.route_provenance:
+                    raise DriverError(
+                        "routes_file kinematics provenance is not the verified beta measurement"
+                    )
+                return route_file
         except DriverError:
             raise
         except (OSError, UnicodeError, ValueError) as exc:
@@ -1635,6 +1689,7 @@ class SessionDaemon:
         self._named_capture_sequence = 0
         self._last_addon_sequence = 0
         self._last_addon_boot = ""
+        self._motion_crs: dict[tuple[str, int, str], int] = {}
         self._native_measurement_state: dict[str, Any] | None = None
         # NativeCalibrationRunner reuses the provider's exact crop artifact so
         # it can decode and hash the same bytes.  Keep those private paths
@@ -1694,7 +1749,10 @@ class SessionDaemon:
         self._native_memory_archive_diagnostic: str | None = None
         self._shutdown_event = threading.Event()
         self._motion_intent_lock = threading.RLock()
+        self._executor_continuation_capability: str | None = None
+        self._executor_continuation_wait_deadline: float | None = None
         self._motion_deadline_local = threading.local()
+        self._mail_cycle_context = threading.local()
         self._named_observation_deadline: float | None = None
         self._calibration_lock = threading.Lock()
         self._calibration_state_lock = threading.RLock()
@@ -1782,15 +1840,23 @@ class SessionDaemon:
             upload_deadline_seconds=self.config.upload_deadline_seconds,
             ack_deadline_seconds=self.config.ack_deadline_seconds,
         )
+        # Mail-loop opt-in is deliberately process-local.  It is never loaded
+        # from the journal, so a fresh owner starts disabled and cannot replay
+        # an old queue authorization.
+        self._mail_loop_binding = MailLoopBinding()
+        self._mail_loop_active_binding: MailLoopBinding | None = None
+        self._mail_loop_control_epoch = 0
+        self._mail_loop_last_decision: dict[str, Any] | None = None
+        # One fixed read-only wait bound per started mail attempt. This is
+        # process-local: a fresh owner never retries the physical action, and
+        # a missing bound after restart fails closed immediately rather than
+        # reconstructing or renewing a wait.
+        self._mail_cycle_wait_deadlines: dict[str, float] = {}
         self.motion_provider = NativeMotionProvider(
             self.capture_status,
-            lambda: self._resolve_identity(
+            lambda *, deadline: self._resolve_identity(
                 require_foreground=True,
-                deadline=getattr(
-                    getattr(self, "_motion_deadline_local", None),
-                    "deadline",
-                    None,
-                ),
+                deadline=deadline,
             ),
             capture_with_deadline=self.capture_status,
             clock=self._native_clock,
@@ -1824,6 +1890,7 @@ class SessionDaemon:
         self._last_action_generation = 0
         self._last_motion_snapshot: dict[str, Any] = {}
         self._motion_snapshots: dict[tuple[str, int, str], dict[str, Any]] = {}
+        self._motion_evidence: dict[tuple[str, int, str], bytes] = {}
         self._route_walk_lock = threading.RLock()
         self._route_walk_status: dict[str, Any] = {
             "state": "idle",
@@ -6067,6 +6134,7 @@ class SessionDaemon:
             "enter_world": "arthur_selected",
             "open_ah": "world",
             "logout": "world",
+            "executor_click": "executor_mailbox",
         }.get(action)
         if expected_state is None:
             raise DriverError(f"action {action!r} has no visual anchor scene")
@@ -6079,7 +6147,19 @@ class SessionDaemon:
         if not self.driver.guardian.armed or guardian_generation <= 0:
             raise DriverError("visual anchor requires the current armed input lease")
 
-        before = self.driver.resolve_identity()
+        anchor_deadline = time.monotonic() + 5.0
+        driver_anchor_deadline = self.driver.anchor_observation_deadline
+        if driver_anchor_deadline is not None:
+            if (
+                isinstance(driver_anchor_deadline, bool)
+                or not isinstance(driver_anchor_deadline, (int, float))
+                or not math.isfinite(float(driver_anchor_deadline))
+            ):
+                raise DriverError("driver anchor observation deadline is malformed")
+            anchor_deadline = min(anchor_deadline, float(driver_anchor_deadline))
+        if time.monotonic() >= anchor_deadline:
+            raise DriverError("visual control anchor exceeded its bounded deadline")
+        before = self.driver.resolve_identity(deadline_monotonic=anchor_deadline)
         if before.fingerprint != identity.fingerprint:
             raise DriverError("anchor capture started with a stale client identity")
 
@@ -6097,7 +6177,6 @@ class SessionDaemon:
             "captureMonotonic": captured_at,
         }
         try:
-            anchor_deadline = time.monotonic() + 5.0
             capture_path, digest, captured_at = self._capture_model_artifact(
                 identity, generation, deadline=anchor_deadline
             )
@@ -6110,11 +6189,12 @@ class SessionDaemon:
                     "captureMonotonic": captured_at,
                 }
             )
+            image = capture_path.read_bytes()
             anchor_remaining = anchor_deadline - time.monotonic()
             if anchor_remaining <= 0:
                 raise DriverError("visual control anchor exceeded its bounded deadline")
             observation = self._observe_model(
-                capture_path.read_bytes(),
+                image,
                 timeout=anchor_remaining,
                 requested_state=expected_state,
                 requested_control=expected_control,
@@ -6125,7 +6205,7 @@ class SessionDaemon:
                 "finishedMonotonic": model_finished,
                 "durationSeconds": model_finished - model_started,
             }
-            after = self.driver.resolve_identity()
+            after = self.driver.resolve_identity(deadline_monotonic=anchor_deadline)
             if after.fingerprint != identity.fingerprint:
                 raise DriverError("client identity changed during visual anchor inference")
             if model_finished > anchor_deadline or model_finished - captured_at > 5.0:
@@ -6191,6 +6271,7 @@ class SessionDaemon:
                 generation=guardian_generation,
                 source="native-visual",
                 facts=tuple(sorted(facts.items())),
+                deadline_monotonic=anchor_deadline,
             )
             proof.update(
                 {
@@ -6338,6 +6419,15 @@ class SessionDaemon:
                 "modal": "auction_house",
                 "code": "",
                 "control": "auction_house",
+                "idle": idle,
+            },
+            "executor_mailbox": {
+                "scene": "world",
+                "character": character,
+                "realm": realm,
+                "modal": "mailbox",
+                "code": "",
+                "control": "crowley_executor_button",
                 "idle": idle,
             },
         }
@@ -6834,12 +6924,25 @@ class SessionDaemon:
         *,
         previous: Any | None = None,
         frame_sink: Callable[[Any], None] | None = None,
+        deadline_monotonic: float | None = None,
     ) -> str:
         # The addon publishes the native EditBox projection on its one-Hz
         # telemetry tick.  A command may be typed immediately after the last
         # frame, so consume only a fresh post-type frame within a bounded
         # interval; a duplicate pre-type frame can never prove the buffer.
-        deadline = time.monotonic() + 3.0
+        now = time.monotonic()
+        if deadline_monotonic is not None:
+            if (
+                isinstance(deadline_monotonic, bool)
+                or not isinstance(deadline_monotonic, (int, float))
+                or not math.isfinite(float(deadline_monotonic))
+            ):
+                raise DriverError("command readback deadline is malformed")
+            deadline = min(now + 3.0, float(deadline_monotonic))
+        else:
+            deadline = now + 3.0
+        if deadline <= now:
+            raise DriverError("command readback deadline expired")
         while time.monotonic() < deadline:
             sample = self.capture_status(deadline=deadline)
             if sample.kind == "FRESH" and sample.frame is not None:
@@ -6852,7 +6955,7 @@ class SessionDaemon:
                     except ProtocolError as exc:
                         raise DriverError("command EditBox readback sequence is malformed") from exc
                     if delta == 0:
-                        time.sleep(0.05)
+                        time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
                         continue
                 snapshot = frame.snapshot.value
                 render = snapshot.get("render")
@@ -6870,7 +6973,7 @@ class SessionDaemon:
                 if frame_sink is not None:
                     frame_sink(frame)
                 return value["text"]
-            time.sleep(0.05)
+            time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
         raise DriverError("command readback did not contain a fresh frame")
 
     def _command(self, snapshot: dict[str, Any], command: str) -> bool:
@@ -7014,6 +7117,11 @@ class SessionDaemon:
                 if sample.kind == "FRESH" and sample.frame is not None:
                     self._last_addon_sequence = sample.frame.sequence
                     self._last_addon_boot = sample.frame.boot
+                    self._motion_crs[(sample.frame.boot, sample.frame.sequence, identity.fingerprint)] = int(
+                        sample.frame.crc32
+                    )
+                    while len(self._motion_crs) > 256:
+                        self._motion_crs.pop(next(iter(self._motion_crs)))
                     snapshot = copy.deepcopy(sample.frame.snapshot.value)
                     self._last_motion_snapshot = snapshot
                     key = (sample.frame.boot, sample.frame.sequence, sample.window_identity)
@@ -7021,8 +7129,13 @@ class SessionDaemon:
                     if snapshots is None:
                         snapshots = self._motion_snapshots = {}
                     snapshots[key] = snapshot
+                    raw_bytes = getattr(sample.frame, "raw_bytes", b"")
+                    if isinstance(raw_bytes, bytes) and len(raw_bytes) == protocol.CAPACITY:
+                        self._motion_evidence[key] = bytes(raw_bytes)
                     while len(snapshots) > 256:
                         snapshots.pop(next(iter(snapshots)))
+                    while len(self._motion_evidence) > 256:
+                        self._motion_evidence.pop(next(iter(self._motion_evidence)))
                 return sample
         finally:
             for target in (source, crop):
@@ -7030,6 +7143,27 @@ class SessionDaemon:
                     target.unlink()
                 except FileNotFoundError:
                     pass
+
+    def _motion_frame_from_sample(self, sample: Sample, *, deadline: float | None = None) -> MotionFrame:
+        """Bind a public decoded sample to the existing validated motion path."""
+
+        if sample.kind != "FRESH" or sample.frame is None:
+            raise DriverError("mail completion requires a fresh decoded CRS frame")
+        identity = self._resolve_identity(require_foreground=True, deadline=deadline)
+        if sample.window_identity != identity.fingerprint:
+            raise DriverError("mail completion frame identity changed after capture")
+        try:
+            frame = MotionFrame.from_sample(
+                sample,
+                identity,
+                capture_started_monotonic=sample.capture_monotonic,
+            )
+            self._require_native_gate(frame)
+            frame.require_safe_successor(None, now=self._native_clock())
+            return frame
+        except MotionError as exc:
+            self._invalidate_motion_admission()
+            raise DriverError(str(exc)) from exc
 
     def passive_startup(self) -> RuntimeInputEvidence:
         """Collect fresh read-only readiness without using the input lease."""
@@ -7756,7 +7890,7 @@ class SessionDaemon:
         kwargs["timeout"] = timeout
         return self._call_model_adapter("observe", image, **kwargs)
 
-    def _require_interaction(self, generation: int) -> int:
+    def _require_interaction(self, generation: int, *, allow_executor: bool = False) -> int:
         deadline_local = getattr(self, "_motion_deadline_local", None)
         if deadline_local is not None and hasattr(deadline_local, "deadline"):
             if self._native_clock() >= deadline_local.deadline:
@@ -7772,13 +7906,20 @@ class SessionDaemon:
                 raise DriverError("motion intent requires the current armed input lease")
             if status.action_intent:
                 raise DriverError("another interaction intent is already in flight")
+            cycle = self.controller.mail_cycle_checkpoint()
+            if cycle.get("phase") not in {"none", "complete", "blocked"}:
+                authority = getattr(getattr(self, "_mail_cycle_context", None), "cycle_id", "")
+                if authority != cycle.get("cycleId"):
+                    raise DriverError("mail cycle owns interaction admission")
+            if not allow_executor and getattr(self.controller, "executor_action_active", False):
+                raise DriverError("executor mail action owns the interaction fence")
             return status.lease_generation
 
-    def _require_motion_interaction(self, generation: int) -> int:
+    def _require_motion_interaction(self, generation: int, *, allow_executor: bool = False) -> int:
         """Acquire motion interaction authority and invalidate on setup failure."""
 
         try:
-            return self._require_interaction(generation)
+            return self._require_interaction(generation, allow_executor=allow_executor)
         except Exception:
             self._invalidate_motion_admission()
             raise
@@ -7985,9 +8126,10 @@ class SessionDaemon:
         not_before: float | None = None,
         after_release: bool = False,
         deadline_monotonic: float | None = None,
+        allow_executor: bool = False,
     ) -> MotionFrame:
         try:
-            self._require_motion_interaction(generation)
+            self._require_motion_interaction(generation, allow_executor=allow_executor)
             deadline = self._motion_deadline()
             if deadline_monotonic is not None:
                 if (
@@ -8740,7 +8882,9 @@ class SessionDaemon:
         self._require_native_gate(frame)
 
     @_serialized_motion
-    def execute_route_walk(self, route_name: str, *, generation: int) -> MotionFrame:
+    def execute_route_walk(
+        self, route_name: str, *, generation: int, deadline_monotonic: float | None = None
+    ) -> MotionFrame:
         if self.route_file is None:
             raise DriverError("route walking is not configured")
         if not isinstance(route_name, str) or not route_name:
@@ -8880,6 +9024,808 @@ class SessionDaemon:
             raise DriverError(f"fresh motion frame omitted {expect} state")
         return value
 
+    def _executor_snapshot_for_frame(self, frame: MotionFrame) -> dict[str, Any]:
+        """Return the executor object from the exact decoded motion frame."""
+
+        key = (frame.boot, frame.sequence, frame.identity_fingerprint)
+        snapshots = getattr(self, "_motion_snapshots", {})
+        snapshot = snapshots.get(key) if isinstance(snapshots, dict) else None
+        if not isinstance(snapshot, dict):
+            raise DriverError("executor admission frame has no decoded snapshot")
+        executor = snapshot.get("executor")
+        if not isinstance(executor, dict):
+            raise DriverError("executor admission frame omitted executor telemetry")
+        return copy.deepcopy(executor)
+
+    def _executor_scene_guard(self, frame: MotionFrame) -> dict[str, Any]:
+        """Require the mailbox scene and exact chat/blocking-UI facts."""
+
+        if frame.chat_focused:
+            raise DriverError("executor click is refused while chat input is focused")
+        if not frame.mail_open:
+            raise DriverError("executor click requires the mailbox scene")
+        key = (frame.boot, frame.sequence, frame.identity_fingerprint)
+        snapshot = getattr(self, "_motion_snapshots", {}).get(key)
+        if not isinstance(snapshot, dict) or not self._blocking_ui_is_clear(snapshot):
+            raise DriverError("executor click is refused while blocking UI is shown")
+        return snapshot
+
+    def _executor_crs(self, frame: MotionFrame) -> dict[str, Any]:
+        evidence = self._executor_frame_evidence(frame)
+        return {
+            "boot": frame.boot,
+            "sequence": frame.sequence,
+            "crc32": evidence["crc32"],
+            "identity": frame.identity_fingerprint,
+        }
+
+    def _executor_frame_evidence(self, frame: MotionFrame) -> dict[str, Any]:
+        """Return exact private CRS bytes for one decoded motion frame."""
+
+        key = (frame.boot, frame.sequence, frame.identity_fingerprint)
+        raw = getattr(self, "_motion_evidence", {}).get(key)
+        if not isinstance(raw, bytes) or len(raw) != protocol.CAPACITY:
+            raise DriverError("executor frame has no exact CRS byte evidence")
+        try:
+            decoded = protocol.decode_frame(raw)
+        except protocol.ProtocolError as exc:
+            raise DriverError("executor frame CRS evidence is not re-decodable") from exc
+        mapped_crc = getattr(self, "_motion_crs", {}).get(key)
+        if (
+            decoded.boot != frame.boot
+            or decoded.sequence != frame.sequence
+            or isinstance(mapped_crc, bool)
+            or not isinstance(mapped_crc, int)
+            or mapped_crc != decoded.crc32
+        ):
+            raise DriverError("executor frame CRS evidence does not match its decoded tuple")
+        snapshot = getattr(self, "_motion_snapshots", {}).get(key)
+        if not isinstance(snapshot, dict) or snapshot != decoded.snapshot.value:
+            raise DriverError("executor frame CRS evidence snapshot does not match capture")
+        return {
+            "sha256": hashlib.sha256(raw).hexdigest(),
+            "length": len(raw),
+            "crc32": decoded.crc32,
+            "rawFrameHex": raw.hex(),
+        }
+
+    def _executor_frame_record(self, frame: MotionFrame) -> dict[str, Any]:
+        return {
+            "crs": self._executor_crs(frame),
+            "executor": self._executor_snapshot_for_frame(frame),
+            "evidence": self._executor_frame_evidence(frame),
+        }
+
+    @staticmethod
+    def _executor_receipt_valid(
+        receipt: dict[str, Any] | None,
+        *,
+        generation: int,
+        identity: str,
+        anchor: dict[str, Any],
+    ) -> bool:
+        if not isinstance(receipt, dict):
+            return False
+        required = {
+            "action",
+            "generation",
+            "identity",
+            "admittedAnchorEvidenceHash",
+            "admittedAnchorCaptureId",
+            "admittedAnchorCaptureSequence",
+            "anchorEvidenceHash",
+            "anchorCaptureId",
+            "anchorCaptureSequence",
+            "endpoint",
+            "rateGate",
+            "clickPrecommitMonotonicNs",
+            "clickDispatchStartedMonotonicNs",
+            "pressReleaseMonotonicNs",
+            "clickAckMonotonicNs",
+            "rateRecordMonotonicNs",
+            "guardianCompleted",
+            "receiptFinalizedMonotonicNs",
+        }
+        if not required <= set(receipt):
+            return False
+        endpoint = receipt.get("endpoint")
+        times = [
+            receipt.get("clickPrecommitMonotonicNs"),
+            receipt.get("clickDispatchStartedMonotonicNs"),
+            receipt.get("pressReleaseMonotonicNs"),
+            receipt.get("clickAckMonotonicNs"),
+            receipt.get("rateRecordMonotonicNs"),
+            receipt.get("receiptFinalizedMonotonicNs"),
+        ]
+        return (
+            receipt.get("action") == "executor_click"
+            and receipt.get("generation") == generation
+            and receipt.get("identity") == identity
+            and isinstance(receipt.get("admittedAnchorEvidenceHash"), str)
+            and len(receipt["admittedAnchorEvidenceHash"]) == 64
+            and all(char in "0123456789abcdef" for char in receipt["admittedAnchorEvidenceHash"].lower())
+            and isinstance(receipt.get("admittedAnchorCaptureId"), str)
+            and bool(receipt["admittedAnchorCaptureId"])
+            and isinstance(receipt.get("admittedAnchorCaptureSequence"), int)
+            and not isinstance(receipt["admittedAnchorCaptureSequence"], bool)
+            and receipt.get("admittedAnchorEvidenceHash") == anchor.get("evidenceHash")
+            and receipt.get("admittedAnchorCaptureId") == anchor.get("captureId")
+            and receipt.get("admittedAnchorCaptureSequence") == anchor.get("captureSequence")
+            and isinstance(receipt.get("anchorEvidenceHash"), str)
+            and len(receipt["anchorEvidenceHash"]) == 64
+            and all(char in "0123456789abcdef" for char in receipt["anchorEvidenceHash"].lower())
+            and isinstance(receipt.get("anchorCaptureId"), str)
+            and bool(receipt["anchorCaptureId"])
+            and receipt.get("anchorEvidenceHash") != anchor.get("evidenceHash")
+            and receipt.get("anchorCaptureId") != anchor.get("captureId")
+            and isinstance(receipt.get("anchorCaptureSequence"), int)
+            and not isinstance(receipt.get("anchorCaptureSequence"), bool)
+            and receipt.get("anchorCaptureSequence") > anchor.get("captureSequence", 0)
+            and receipt.get("rateGate") == "canonical-user-session"
+            and receipt.get("guardianCompleted") is True
+            and isinstance(endpoint, (list, tuple))
+            and len(endpoint) == 2
+            and all(isinstance(item, int) and not isinstance(item, bool) for item in endpoint)
+            and all(isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in times)
+            and times == sorted(times)
+        )
+
+    @staticmethod
+    def _executor_anchor_record(anchor: MeasuredAnchor) -> dict[str, Any]:
+        return {
+            "action": anchor.action,
+            "evidenceHash": anchor.evidence_hash,
+            "captureId": anchor.capture_id,
+            "captureSequence": anchor.capture_sequence,
+            "identity": anchor.identity_fingerprint,
+            "generation": anchor.generation,
+            "targetXid": anchor.target_xid,
+            "scene": anchor.scene,
+            "control": dict(anchor.facts).get("control", ""),
+            "bounds": list(anchor.bounds),
+        }
+
+    def _validate_executor_frame(
+        self,
+        executor: dict[str, Any],
+        *,
+        queue_id: str,
+        seq: int,
+        require_ready: bool,
+        require_arms: bool = False,
+        continuation: bool = False,
+    ) -> None:
+        if executor.get("availability") != "valid":
+            raise DriverError("executor queue is not valid")
+        if executor.get("queueId") != queue_id:
+            raise DriverError("executor queue identity does not match the requested queue")
+        if executor.get("currentSeq") != seq or executor.get("currentKind") != "mail_collect":
+            raise DriverError("executor current action does not match the requested mail sequence")
+        if executor.get("house") != self.config.profile.house:
+            raise DriverError("executor queue belongs to another house")
+        if executor.get("character") != self.config.profile.character:
+            raise DriverError("executor queue belongs to another character")
+        if executor.get("buttonName") != "CrowleyTradeExecutorButton" or not executor.get("buttonVisible"):
+            raise DriverError("executor button is not visibly available")
+        if executor.get("blocked") or executor.get("ambiguous"):
+            raise DriverError("executor action is blocked or ambiguous")
+        if continuation:
+            if executor.get("phase") != "mail_items" or executor.get("inFlight") is not True:
+                raise DriverError("mail continuation requires the exact in-flight mail_items phase")
+        elif executor.get("phase") != "ready" or executor.get("inFlight") is not False:
+            raise DriverError("executor initial click requires the exact ready phase")
+        if require_ready and not executor.get("clickReady"):
+            raise DriverError("executor button is not click-ready")
+        if require_arms and not (executor.get("publishedArmed") and executor.get("sessionArmed")):
+            raise DriverError("executor protected click requires both observed arm bits")
+
+    @staticmethod
+    def _executor_pre_state(executor: dict[str, Any]) -> dict[str, Any]:
+        return {
+            key: copy.deepcopy(executor.get(key))
+            for key in (
+                "queueId",
+                "currentSeq",
+                "currentKind",
+                "phase",
+                "workDone",
+                "workTotal",
+                "resultCount",
+                "lastResult",
+                "clickOrdinal",
+                "lastClickSource",
+                "publishedArmed",
+                "sessionArmed",
+                "blocked",
+                "ambiguous",
+            )
+        }
+
+    @staticmethod
+    def _executor_delivery_valid(
+        before: dict[str, Any],
+        after: dict[str, Any],
+        *,
+        queue_id: str,
+        seq: int,
+        continuation: bool,
+    ) -> bool:
+        """Require one exact initial or mail-items click transition."""
+
+        if (
+            after.get("queueId") != queue_id
+            or after.get("clickOrdinal") != before.get("clickOrdinal", 0) + 1
+            or after.get("lastClickSource") != "button"
+        ):
+            return False
+        before_count = before.get("resultCount")
+        after_count = after.get("resultCount")
+        if (
+            isinstance(before_count, bool)
+            or not isinstance(before_count, int)
+            or isinstance(after_count, bool)
+            or not isinstance(after_count, int)
+            or after_count != before_count + (0 if continuation else 1)
+        ):
+            return False
+        last = after.get("lastResult")
+        if not isinstance(last, dict) or last.get("seq") != seq or last.get("kind") != "mail_collect":
+            return False
+        status = last.get("status")
+        current_seq = after.get("currentSeq")
+        current_kind = after.get("currentKind")
+        if status == "started":
+            return (
+                current_seq == seq
+                and current_kind == "mail_collect"
+                and after.get("phase") in {"mail_wait", "mail_items"}
+                and after.get("inFlight") is True
+            )
+        if status not in {"dry_run", "succeeded", "failed", "refused", "skipped", "blocked"}:
+            return False
+        if current_seq == 0 and current_kind == "":
+            return after.get("phase") == "complete"
+        if current_seq == seq and current_kind == "mail_collect":
+            return status in {"failed", "refused", "blocked"} and after.get("blocked") is True
+        if (
+            current_seq == seq + 1
+            and isinstance(current_kind, str)
+            and current_kind
+            in {
+                "buy_commodity",
+                "post_commodity",
+                "cancel_auction",
+                "vendor_sell",
+                "vendor_buy",
+                "craft",
+                "mail_collect",
+            }
+        ):
+            return status in {"dry_run", "succeeded", "skipped"}
+        return False
+
+    def _executor_final_admission(
+        self,
+        *,
+        generation: int,
+        attempt: dict[str, Any],
+        pre_frame: MotionFrame,
+        pre_executor: dict[str, Any],
+        require_arms: bool,
+        continuation: bool,
+    ) -> MotionFrame:
+        """Re-read semantic state at the one-use pre-press boundary."""
+
+        with self.controller.lock:
+            status = self.controller.status()
+            checkpoint = self.controller.executor_click_checkpoint()
+        if (
+            status.generation != generation
+            or status.lease_generation != attempt["leaseGeneration"]
+            or checkpoint is None
+            or checkpoint.get("intent", {}).get("attemptId") != attempt.get("attemptId")
+        ):
+            raise DriverError("executor final admission lost its durable attempt")
+        try:
+            self.driver.guardian.check(attempt["leaseGeneration"])
+        except Exception as exc:
+            raise DriverError("executor Guardian lease changed before blocking capture") from exc
+        current = self._observe_motion(
+            generation,
+            previous=pre_frame,
+            allow_executor=True,
+        )
+        self._executor_scene_guard(current)
+        with self.controller.lock:
+            status_after_capture = self.controller.status()
+            checkpoint_after_capture = self.controller.executor_click_checkpoint()
+        guardian = self.driver.guardian
+        if (
+            status_after_capture.generation != generation
+            or status_after_capture.lease_generation != attempt["leaseGeneration"]
+            or status_after_capture.mode.value != "interaction"
+            or status_after_capture.state is not ControllerState.READY
+            or status_after_capture.stop_requested
+            or checkpoint_after_capture is None
+            or checkpoint_after_capture.get("intent", {}).get("attemptId") != attempt.get("attemptId")
+            or not getattr(guardian, "armed", False)
+            or getattr(guardian, "generation", 0) != attempt["leaseGeneration"]
+        ):
+            raise DriverError("executor final admission changed after blocking capture")
+        try:
+            guardian.check(attempt["leaseGeneration"])
+        except Exception as exc:
+            raise DriverError("executor Guardian lease changed after blocking capture") from exc
+        current_executor = self._executor_snapshot_for_frame(current)
+        self._validate_executor_frame(
+            current_executor,
+            queue_id=attempt["queueId"],
+            seq=attempt["seq"],
+            require_ready=True,
+            require_arms=require_arms,
+            continuation=continuation,
+        )
+        if self._executor_pre_state(current_executor) != self._executor_pre_state(pre_executor):
+            raise DriverError("executor semantic state changed before physical press")
+        if (
+            current.boot != pre_frame.boot
+            or current.identity_fingerprint != pre_frame.identity_fingerprint
+            or current_executor.get("clickOrdinal") != attempt["preClickOrdinal"]
+        ):
+            raise DriverError("executor final admission CRS or click ordinal changed")
+        return current
+
+    @_serialized_motion
+    def execute_executor_click(
+        self,
+        *,
+        queue_id: str,
+        seq: int,
+        confirm_queue_id: str,
+        cycle_id: str = "",
+        generation: int,
+        deadline_monotonic: float | None = None,
+    ) -> dict[str, Any]:
+        """Click one rendered mail executor button through the guarded driver."""
+
+        try:
+            queue_size = len(queue_id.encode("utf-8")) if isinstance(queue_id, str) else -1
+        except UnicodeError as exc:
+            raise DriverError("executor queueId is not valid UTF-8") from exc
+        if not isinstance(queue_id, str) or not queue_id or queue_size > 192:
+            raise DriverError("executor queueId is malformed")
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq <= 0:
+            raise DriverError("executor seq must be positive")
+        try:
+            confirm_size = len(confirm_queue_id.encode("utf-8")) if isinstance(confirm_queue_id, str) else -1
+        except UnicodeError as exc:
+            raise DriverError("executor confirmQueueId is not valid UTF-8") from exc
+        if not isinstance(confirm_queue_id, str) or confirm_size > 192:
+            raise DriverError("executor confirmQueueId is malformed")
+        if not isinstance(cycle_id, str) or len(cycle_id.encode("utf-8")) > 128:
+            raise DriverError("executor cycleId is malformed")
+        mail_capability = None
+        if cycle_id:
+            mail_capability = self.controller.mail_cycle_capability()
+            if mail_capability is None or mail_capability.cycle_id != cycle_id:
+                raise DriverError("mail cycle capability is not owned by this daemon")
+            phase = self.controller.mail_cycle_checkpoint().get("phase")
+            if phase not in {"awaiting_confirmation", "executing"}:
+                raise DriverError("mail cycle is not awaiting an exact executor request")
+        continuation_capability = getattr(self, "_executor_continuation_capability", None)
+        with self.controller.lock:
+            controller_capability = self.controller.executor_continuation_capability()
+            checkpoint = self.controller.executor_click_checkpoint()
+        if continuation_capability != controller_capability:
+            raise DriverError("executor continuation capability is not owned by this daemon")
+        if checkpoint is not None:
+            checkpoint_intent = checkpoint.get("intent")
+            checkpoint_overall = checkpoint.get("overall")
+            if checkpoint_intent is not None:
+                raise DriverError("executor click intent is already in flight")
+            if checkpoint_overall is not None:
+                if continuation_capability is None or checkpoint_overall.get("queueId") != queue_id:
+                    raise DriverError("another executor mail action owns interaction admission")
+                status = self.controller.status()
+                expected_overall = {
+                    "queueId": queue_id,
+                    "seq": seq,
+                    "cycleId": cycle_id,
+                    "generation": generation,
+                    "leaseGeneration": status.lease_generation,
+                }
+                if any(checkpoint_overall.get(key) != expected for key, expected in expected_overall.items()):
+                    raise DriverError("another executor mail action owns interaction admission")
+        cycle_phase = (
+            self.controller.mail_cycle_checkpoint().get("phase") if mail_capability is not None else None
+        )
+        # A started callback can already publish the next mail_items boundary.
+        # That boundary retains the private overall owner for controller
+        # continuity.  The next physical click remains a continuation of
+        # that exact owner, but still requires a fresh exact confirmation;
+        # it is never inferred from the prior request.
+        continuation = continuation_capability is not None
+        if (
+            mail_capability is not None
+            and continuation
+            and cycle_phase not in {"executing", "awaiting_confirmation"}
+        ):
+            raise DriverError("mail continuation is not in an active mail phase")
+        mail_operation_deadline: float | None = None
+        if mail_capability is not None:
+            mail_operation_deadline = min(
+                mail_capability.deadline_monotonic,
+                self._mail_cycle_clock()
+                + mail_capability.budget.mail_click_seconds
+                + mail_capability.budget.mail_postcondition_seconds,
+            )
+            if deadline_monotonic is not None:
+                if (
+                    isinstance(deadline_monotonic, bool)
+                    or not isinstance(deadline_monotonic, (int, float))
+                    or not math.isfinite(float(deadline_monotonic))
+                ):
+                    raise DriverError("executor click deadline is malformed")
+                mail_operation_deadline = min(mail_operation_deadline, float(deadline_monotonic))
+            self._mail_cycle_require_budget(
+                mail_capability,
+                mail_capability.budget.mail_click_seconds + mail_capability.budget.mail_postcondition_seconds,
+                "mail executor click",
+                operation_deadline=mail_operation_deadline,
+            )
+        lease_generation = self._require_motion_interaction(
+            generation, allow_executor=continuation or mail_capability is not None
+        )
+        initial = self._observe_motion(generation, allow_executor=continuation)
+        self._executor_scene_guard(initial)
+        initial_executor = self._executor_snapshot_for_frame(initial)
+        self._validate_executor_frame(
+            initial_executor,
+            queue_id=queue_id,
+            seq=seq,
+            require_ready=True,
+            continuation=continuation,
+        )
+        if confirm_queue_id and confirm_queue_id != queue_id:
+            raise DriverError("executor confirmQueueId must exactly equal queueId")
+        initially_armed = bool(
+            initial_executor.get("publishedArmed") and initial_executor.get("sessionArmed")
+        )
+        if continuation and (not initially_armed or confirm_queue_id != queue_id):
+            raise DriverError("mail continuation requires both arms and exact queue confirmation")
+        if not continuation and initially_armed and not confirm_queue_id:
+            raise DriverError("armed executor click requires exact queue confirmation")
+        protected = continuation or (initially_armed and bool(confirm_queue_id))
+        # An initially unarmed ready action still takes the real measured
+        # button path.  The addon callback records dry_run and advances the
+        # queue without invoking a protected API; the daemon must witness that
+        # causal transition instead of fabricating a result without input.
+        self._require_executor_frame_for_dry_run(initial_executor)
+
+        pre_record = self._executor_frame_record(initial)
+        deadline = self._motion_deadline(limit=None)
+        if mail_operation_deadline is not None:
+            deadline = min(deadline, mail_operation_deadline)
+        if deadline_monotonic is not None:
+            if (
+                isinstance(deadline_monotonic, bool)
+                or not isinstance(deadline_monotonic, (int, float))
+                or not math.isfinite(float(deadline_monotonic))
+            ):
+                raise DriverError("executor click deadline is malformed")
+            deadline = min(deadline, float(deadline_monotonic))
+        self._remaining_motion_budget(deadline)
+        if mail_capability is not None:
+            self._mail_cycle_require_budget(
+                mail_capability,
+                mail_capability.budget.mail_click_seconds + mail_capability.budget.mail_postcondition_seconds,
+                "mail executor click",
+                operation_deadline=deadline,
+            )
+        anchor = self.driver.measure_pointer_anchor(
+            "executor_click",
+            generation=lease_generation,
+            deadline_monotonic=deadline,
+        )
+        attempt = self.controller.begin_executor_click(
+            queue_id=queue_id,
+            seq=seq,
+            generation=generation,
+            lease_generation=lease_generation,
+            cycle_id=cycle_id,
+            pre_crs=self._executor_crs(initial),
+            pre_ordinal=int(initial_executor["clickOrdinal"]),
+            arms={
+                "published": bool(initial_executor["publishedArmed"]),
+                "session": bool(initial_executor["sessionArmed"]),
+            },
+            anchor=self._executor_anchor_record(anchor),
+            confirmation=confirm_queue_id,
+            pre_executor=pre_record["executor"],
+            pre_evidence=pre_record["evidence"],
+            continuation_capability=continuation_capability,
+        )
+        pre_evidence = pre_record["evidence"]
+        receipt: dict[str, Any] | None = None
+        post: MotionFrame | None = None
+        post_record: dict[str, Any] | None = None
+        observation_error = ""
+        finalization_attempted = False
+        self._remaining_motion_budget(deadline)
+        if mail_capability is not None:
+            # Guardian/native admission may tighten the operation
+            # intersection after the public mail-budget check.  Revalidate
+            # the same fixed deadline before any physical dispatch; never
+            # silently replace it with a fresh postcondition window.
+            self._mail_cycle_require_budget(
+                mail_capability,
+                mail_capability.budget.mail_click_seconds + mail_capability.budget.mail_postcondition_seconds,
+                "mail executor click",
+                operation_deadline=deadline,
+            )
+        # Preserve the original operation intersection for the subsequent
+        # read-only mail wait. It is sampled before physical dispatch so a
+        # slow click/feedback path cannot mint a fresh postcondition window.
+        mail_wait_started = self._mail_cycle_clock() if mail_capability is not None else None
+        standalone_wait_started = self._native_clock() if mail_capability is None else None
+        try:
+            receipt = self.driver.run(
+                "executor_click",
+                lease_generation,
+                deadline_monotonic=deadline,
+                precondition=lambda identity: identity.fingerprint == initial.identity_fingerprint,
+                postcondition=lambda identity: identity.fingerprint == initial.identity_fingerprint,
+                _premeasured_anchor=anchor,
+                _final_admission=lambda: self._executor_final_admission(
+                    generation=generation,
+                    attempt=attempt,
+                    pre_frame=initial,
+                    pre_executor=initial_executor,
+                    require_arms=protected,
+                    continuation=continuation,
+                ),
+            )
+            if not self._executor_receipt_valid(
+                receipt,
+                generation=lease_generation,
+                identity=initial.identity_fingerprint,
+                anchor=attempt["anchor"],
+            ):
+                raise DriverError("executor physical receipt is missing or malformed")
+            # A physical release can precede the addon's next publication by
+            # one or more native frames.  Poll only the read-only capture path
+            # under this operation's absolute deadline; never resend input.
+            prior_post = initial
+            delivered = False
+            while True:
+                try:
+                    post = self._observe_motion(
+                        generation,
+                        previous=prior_post,
+                        after_release=True,
+                        deadline_monotonic=deadline,
+                        allow_executor=True,
+                    )
+                    self._executor_scene_guard(post)
+                    post_record = self._executor_frame_record(post)
+                    post_executor = post_record["executor"]
+                    delivered = (
+                        post.boot == initial.boot
+                        and post.identity_fingerprint == initial.identity_fingerprint
+                        and self._executor_delivery_valid(
+                            initial_executor,
+                            post_executor,
+                            queue_id=queue_id,
+                            seq=seq,
+                            continuation=continuation,
+                        )
+                    )
+                    if delivered:
+                        break
+                    pre_ordinal = initial_executor.get("clickOrdinal")
+                    current_ordinal = post_executor.get("clickOrdinal")
+                    pre_count = initial_executor.get("resultCount")
+                    current_count = post_executor.get("resultCount")
+                    # Only an unchanged, exact pre-click projection is a
+                    # retryable stale publication.  Boot/identity, queue,
+                    # sequence, ordinal, source, or result-count changes that
+                    # do not form the exact causal transition are
+                    # contradictions and fail closed immediately.
+                    retryable_stale = (
+                        post.boot == initial.boot
+                        and post.identity_fingerprint == initial.identity_fingerprint
+                        and post_executor.get("queueId") == queue_id
+                        and self._executor_pre_state(post_executor)
+                        == self._executor_pre_state(initial_executor)
+                        and isinstance(pre_ordinal, int)
+                        and not isinstance(pre_ordinal, bool)
+                        and current_ordinal == pre_ordinal
+                        and isinstance(pre_count, int)
+                        and not isinstance(pre_count, bool)
+                        and current_count == pre_count
+                        and post_executor.get("lastClickSource") in {"none", "button"}
+                    )
+                    if not retryable_stale:
+                        observation_error = "executor post-click publication was contradictory"
+                        break
+                    if self._native_clock() >= deadline:
+                        observation_error = "executor post-click publication timed out"
+                        break
+                    prior_post = post
+                except Exception as exc:
+                    observation_error = str(exc)
+                    break
+            if post is None or post_record is None:
+                raise DriverError(f"executor post-click capture failed: {observation_error}")
+            post_executor = post_record["executor"]
+            if not delivered:
+                result = "blocked"
+                terminal_action = False
+            else:
+                last = post_executor.get("lastResult", {})
+                result = str(last.get("status", "started")) if isinstance(last, dict) else "started"
+                if result not in {
+                    "dry_run",
+                    "started",
+                    "blocked",
+                    "succeeded",
+                    "failed",
+                    "refused",
+                    "skipped",
+                }:
+                    result = "blocked"
+                terminal_action = result in {"dry_run", "succeeded", "failed", "refused", "skipped"}
+            # A known physical receipt is retained even when the post-frame is
+            # uncertain; only a witnessed terminal transition clears intent.
+            finalization_attempted = True
+            archived = self.controller.finalize_executor_click(
+                attempt_id=attempt["attemptId"],
+                result=result,
+                post_crs=post_record["crs"],
+                post_executor=post_executor,
+                receipt=receipt,
+                pre_evidence=pre_evidence,
+                post_evidence=post_record["evidence"],
+                terminal_action=terminal_action,
+            )
+            if result == "started":
+                started_phase = post_executor.get("phase")
+                if mail_capability is None:
+                    self._executor_continuation_capability = (
+                        self.controller.executor_continuation_capability()
+                    )
+                    if standalone_wait_started is None:
+                        raise DriverError("standalone executor wait start is missing")
+                    self._executor_continuation_wait_deadline = min(
+                        deadline,
+                        standalone_wait_started + self._NATIVE_FRAME_TIMEOUT_SECONDS,
+                    )
+                else:
+                    # Controller mints one private continuation capability for
+                    # every started callback, including cycle-owned mail
+                    # actions.  Retain the exact token here so a later public
+                    # request can continue the same owner; never synthesize a
+                    # token or treat the prior request as confirmation.
+                    self._executor_continuation_capability = (
+                        self.controller.executor_continuation_capability()
+                    )
+                    if self._executor_continuation_capability is None:
+                        raise DriverError("mail executor continuation capability is missing")
+                if mail_capability is not None and started_phase == "mail_wait":
+                    self._mail_cycle_wait_deadlines[mail_capability.cycle_id] = min(
+                        deadline,
+                        mail_wait_started + mail_capability.budget.mail_postcondition_seconds,
+                    )
+                elif mail_capability is not None and started_phase == "mail_items":
+                    # A postcondition can run synchronously with the protected
+                    # callback.  It is a fresh boundary for the next message,
+                    # not an in-flight wait for the click just archived.
+                    self._mail_cycle_wait_deadlines.pop(mail_capability.cycle_id, None)
+            elif terminal_action or result == "blocked":
+                self._executor_continuation_capability = None
+                self._executor_continuation_wait_deadline = None
+                if mail_capability is not None:
+                    self._mail_cycle_wait_deadlines.pop(mail_capability.cycle_id, None)
+            if mail_capability is not None:
+                self.controller.record_mail_cycle_progress(
+                    capability=mail_capability,
+                    executor=post_executor,
+                )
+                if result == "started":
+                    started_phase = post_executor.get("phase")
+                    if started_phase == "mail_wait":
+                        self.controller.transition_mail_cycle(
+                            "executing", capability=mail_capability, last_executor_seq=seq
+                        )
+                    elif started_phase == "mail_items":
+                        # A first callback may already be in the
+                        # confirmation phase (the usual initial click path)
+                        # or may be observed from an executing wait.  Only
+                        # the latter needs a phase transition; both retain
+                        # the exact admitted sequence and fresh-click gate.
+                        if self.controller.mail_cycle_checkpoint().get("phase") != ("awaiting_confirmation"):
+                            self.controller.transition_mail_cycle(
+                                "awaiting_confirmation",
+                                capability=mail_capability,
+                                last_executor_seq=seq,
+                            )
+                    else:
+                        self.controller.block_mail_cycle(
+                            "started mail executor frame lacks mail_wait/mail_items ownership",
+                            capability=mail_capability,
+                        )
+                        raise DriverError("started mail executor frame has an invalid phase")
+                elif result in {"blocked", "failed", "refused"}:
+                    self.controller.block_mail_cycle(
+                        f"executor click was {result}; no route or retry is permitted",
+                        capability=mail_capability,
+                    )
+                elif terminal_action:
+                    if result not in {"dry_run", "succeeded"}:
+                        self.controller.block_mail_cycle(
+                            f"executor click was {result}; no route or retry is permitted",
+                            capability=mail_capability,
+                        )
+                    else:
+                        self.controller.accept_mail_terminal(
+                            capability=mail_capability,
+                            outcome_id=str(archived["outcomeId"]),
+                        )
+                        self._mail_cycle_wait_deadlines.pop(mail_capability.cycle_id, None)
+            return {"result": result, "attemptId": attempt["attemptId"], "archive": archived}
+        except Exception as exc:
+            # Distinguish physical/observation failure from publication
+            # failure.  Once finalize is attempted, never republish a new
+            # blocked payload under the same outcome ID.
+            if finalization_attempted or isinstance(exc, JournalError):
+                if mail_capability is not None:
+                    try:
+                        self.controller.block_mail_cycle(
+                            "executor outcome publication failed; no route or retry is permitted",
+                            capability=mail_capability,
+                        )
+                    except Exception as block_exc:
+                        raise DriverError(
+                            f"executor outcome failure could not be durably fenced: {block_exc}"
+                        ) from exc
+                raise DriverError(
+                    f"executor outcome publication failed; no retry was attempted: {exc}"
+                ) from exc
+            try:
+                finalization_attempted = True
+                archived = self.controller.finalize_executor_click(
+                    attempt_id=attempt["attemptId"],
+                    result="blocked",
+                    post_crs=None,
+                    receipt=receipt,
+                    pre_evidence=pre_evidence,
+                    post_executor=None,
+                    post_evidence=None,
+                    observation_error=str(exc),
+                    terminal_action=False,
+                )
+            except Exception as archive_exc:
+                raise DriverError(
+                    "executor click failed and its exact blocked outcome could not be archived; "
+                    f"no retry: {archive_exc}"
+                ) from exc
+            if mail_capability is not None:
+                try:
+                    self.controller.block_mail_cycle(
+                        "executor click outcome was lost or uncertain; no retry is permitted",
+                        capability=mail_capability,
+                    )
+                except Exception as block_exc:
+                    raise DriverError(
+                        f"executor click uncertainty could not be durably fenced: {block_exc}"
+                    ) from exc
+            raise DriverError(f"executor click was blocked after durable admission: {exc}") from exc
+
+    @staticmethod
+    def _require_executor_frame_for_dry_run(executor: dict[str, Any]) -> None:
+        if executor.get("clickOrdinal") is None or executor.get("lastClickSource") not in {"none", "button"}:
+            raise DriverError("executor dry-run frame has malformed click witness")
+
     @_serialized_motion
     def execute_world_click(
         self,
@@ -8890,8 +9836,13 @@ class SessionDaemon:
         *,
         expect: str,
         generation: int,
+        deadline_monotonic: float | None = None,
     ) -> MotionFrame:
-        if not isinstance(target_name, str) or not target_name or len(target_name.encode("utf-8")) > 48:
+        try:
+            target_size = len(target_name.encode("utf-8")) if isinstance(target_name, str) else -1
+        except UnicodeError as exc:
+            raise DriverError("world click target name is not valid UTF-8") from exc
+        if not isinstance(target_name, str) or not target_name or target_size > 48:
             raise DriverError("world click target name is malformed")
         if expect != "mailOpen":
             raise DriverError("world click expected state is not allowlisted")
@@ -10364,11 +11315,29 @@ class SessionDaemon:
         previous: Any | None = None,
         timeout: float = 8.0,
         cancellation_check: Callable[[], None] | None = None,
+        deadline_monotonic: float | None = None,
     ) -> tuple[dict[str, Any], Any, float]:
         """Read one advancing ordinary CRS1 frame bound to the same game."""
 
-        deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
+        deadline_clock = (
+            self._mail_cycle_clock
+            if deadline_monotonic is not None and self.controller.mail_cycle_capability() is not None
+            else time.monotonic
+        )
+        now = deadline_clock()
+        if deadline_monotonic is not None:
+            if (
+                isinstance(deadline_monotonic, bool)
+                or not isinstance(deadline_monotonic, (int, float))
+                or not math.isfinite(float(deadline_monotonic))
+            ):
+                raise DriverError("fresh status deadline is malformed")
+            deadline = min(now + timeout, float(deadline_monotonic))
+        else:
+            deadline = now + timeout
+        if deadline <= now:
+            raise DriverError("fresh status deadline expired")
+        while deadline_clock() < deadline:
             if cancellation_check is not None:
                 cancellation_check()
             sample = self.capture_status(deadline=deadline)
@@ -10377,7 +11346,7 @@ class SessionDaemon:
             if sample.window_identity != identity.fingerprint:
                 raise DriverError("fresh command telemetry belongs to another game identity")
             if sample.kind == "NO_CHANGE":
-                time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+                time.sleep(min(0.05, max(0.0, deadline - deadline_clock())))
                 continue
             if sample.kind != "FRESH" or sample.frame is None:
                 raise DriverError("command effect lacks a valid advancing CRS1 frame")
@@ -10401,7 +11370,7 @@ class SessionDaemon:
                 except ProtocolError as exc:
                     raise DriverError("command telemetry sequence is malformed") from exc
                 if delta == 0:
-                    time.sleep(min(0.05, max(0.0, deadline - time.monotonic())))
+                    time.sleep(min(0.05, max(0.0, deadline - deadline_clock())))
                     continue
             current_identity = self.driver.resolve_identity(
                 require_foreground=True, deadline_monotonic=deadline
@@ -10454,13 +11423,48 @@ class SessionDaemon:
         generation: int,
         expected_identity: str,
         dispatch_allowed: Callable[[], None],
+        deadline_monotonic: float | None = None,
     ) -> tuple[dict[str, Any], Any]:
         """Prepare only the exact Stormwind target and session-only binding."""
 
-        identity = self.driver.resolve_identity(require_foreground=True)
+        # Mail-cycle deadlines are admitted in the controller/driver clock
+        # domain.  The daemon's native polling clock may intentionally be
+        # different in deterministic fixtures, so all AH preparation loops
+        # must compare and pass one clock-domain deadline end to end.
+        deadline_clock = (
+            self._mail_cycle_clock
+            if deadline_monotonic is not None and self.controller.mail_cycle_capability() is not None
+            else time.monotonic
+        )
+
+        if deadline_monotonic is not None:
+            if (
+                isinstance(deadline_monotonic, bool)
+                or not isinstance(deadline_monotonic, (int, float))
+                or not math.isfinite(float(deadline_monotonic))
+            ):
+                raise DriverError("auctioneer preparation deadline is malformed")
+            deadline_monotonic = float(deadline_monotonic)
+            if deadline_monotonic <= deadline_clock():
+                raise DriverError("auctioneer preparation deadline expired")
+
+        def bounded_deadline(timeout: float) -> float:
+            # The admitted AH intersection is the bound for every preparation
+            # substep; do not reset a shorter independent timeout after model,
+            # route, or command work has already consumed budget.
+            deadline = (
+                float(deadline_monotonic) if deadline_monotonic is not None else deadline_clock() + timeout
+            )
+            if deadline <= deadline_clock():
+                raise DriverError("auctioneer preparation deadline expired")
+            return deadline
+
+        identity = self.driver.resolve_identity(
+            require_foreground=True, deadline_monotonic=deadline_monotonic
+        )
         if identity.fingerprint != expected_identity:
             raise DriverError("auctioneer command route game identity changed")
-        snapshot, frame, _captured = self._fresh_status_after(identity)
+        snapshot, frame, _captured = self._fresh_status_after(identity, deadline_monotonic=deadline_monotonic)
 
         def effect_frame_after(
             previous: Any,
@@ -10469,14 +11473,15 @@ class SessionDaemon:
             target_ready: bool,
             binding_ready: bool,
         ) -> tuple[dict[str, Any], Any]:
-            deadline = time.monotonic() + 8.0
-            while time.monotonic() < deadline:
+            deadline = bounded_deadline(8.0)
+            while deadline_clock() < deadline:
                 dispatch_allowed()
                 fresh, next_frame, _captured = self._fresh_status_after(
                     identity,
                     previous=previous,
-                    timeout=max(0.001, deadline - time.monotonic()),
+                    timeout=max(0.001, deadline - deadline_clock()),
                     cancellation_check=dispatch_allowed,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 if not world_closed(fresh):
                     raise DriverError("Stormwind scene or blocking UI changed during command readback")
@@ -10531,13 +11536,14 @@ class SessionDaemon:
             )
 
         def wait_for_chat_open(previous: Any) -> tuple[dict[str, Any], Any]:
-            deadline = time.monotonic() + 8.0
-            while time.monotonic() < deadline:
+            deadline = bounded_deadline(8.0)
+            while deadline_clock() < deadline:
                 current, next_frame, _captured = self._fresh_status_after(
                     identity,
                     previous=previous,
-                    timeout=max(0.001, deadline - time.monotonic()),
+                    timeout=max(0.001, deadline - deadline_clock()),
                     cancellation_check=dispatch_allowed,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 if not world_closed(current):
                     raise DriverError("Stormwind scene or blocking UI changed while opening chat")
@@ -10568,16 +11574,18 @@ class SessionDaemon:
                 generation,
                 precondition=identity_guard,
                 postcondition=identity_guard,
+                **({"deadline_monotonic": deadline_monotonic} if deadline_monotonic is not None else {}),
             )
-            deadline = time.monotonic() + 8.0
+            deadline = bounded_deadline(8.0)
             previous = frame
-            while time.monotonic() < deadline:
+            while deadline_clock() < deadline:
                 dispatch_allowed()
                 current, next_frame, _captured = self._fresh_status_after(
                     identity,
                     previous=previous,
-                    timeout=max(0.001, deadline - time.monotonic()),
+                    timeout=max(0.001, deadline - deadline_clock()),
                     cancellation_check=dispatch_allowed,
+                    deadline_monotonic=deadline_monotonic,
                 )
                 if not world_closed(current):
                     raise DriverError("Stormwind scene or blocking UI changed while closing chat")
@@ -10608,6 +11616,7 @@ class SessionDaemon:
                 generation,
                 precondition=identity_guard,
                 postcondition=identity_guard,
+                **({"deadline_monotonic": deadline_monotonic} if deadline_monotonic is not None else {}),
             )
             snapshot, frame = wait_for_chat_open(frame)
 
@@ -10623,7 +11632,11 @@ class SessionDaemon:
             def readback() -> str:
                 dispatch_allowed()
                 captured_frames: list[Any] = []
-                observed = self._read_command_buffer(previous=frame, frame_sink=captured_frames.append)
+                observed = self._read_command_buffer(
+                    previous=frame,
+                    frame_sink=captured_frames.append,
+                    deadline_monotonic=deadline_monotonic,
+                )
                 dispatch_allowed()
                 if len(captured_frames) != 1:
                     raise DriverError("typed command lacks one captured pre-submit EditBox frame")
@@ -10647,6 +11660,7 @@ class SessionDaemon:
                 readback=readback,
                 precondition=identity_guard,
                 postcondition=identity_guard,
+                **({"deadline_monotonic": deadline_monotonic} if deadline_monotonic is not None else {}),
             )
             if len(readback_frames) != 1:
                 raise DriverError("typed command lacks one captured pre-submit EditBox frame")
@@ -10687,7 +11701,10 @@ class SessionDaemon:
         close_empty_chat()
         return snapshot, frame
 
-    def _run_action(self, name: str, snapshot: dict[str, Any], **kwargs: Any) -> None:
+    def _run_action(self, name: str, snapshot: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        allow_mail_cycle = bool(kwargs.pop("allow_mail_cycle", False))
+        requested_deadline = kwargs.pop("deadline_monotonic", None)
+        mail_cycle_deadline: float | None = None
         with self.controller.lock:
             status = self.controller.status()
             if status.state in {
@@ -10698,14 +11715,39 @@ class SessionDaemon:
                 raise DriverError("action dispatch is not allowed in the current state")
             if status.stop_requested:
                 raise DriverError("action dispatch is not allowed after stop")
-            if status.mode.value == "interaction":
+            if status.mode.value == "interaction" and not allow_mail_cycle:
                 raise DriverError("engine action is not allowed in interaction mode")
+            if allow_mail_cycle:
+                cycle = self.controller.mail_cycle_checkpoint()
+                authority = getattr(getattr(self, "_mail_cycle_context", None), "cycle_id", "")
+                capability = self.controller.mail_cycle_capability()
+                if (
+                    cycle.get("phase") not in {"to_auctioneer", "opening_ah"}
+                    or authority != cycle.get("cycleId")
+                    or capability is None
+                    or capability.cycle_id != authority
+                ):
+                    raise DriverError("mail cycle does not own Auction House opening")
+                mail_cycle_deadline = float(capability.deadline_monotonic)
+                if not math.isfinite(mail_cycle_deadline) or mail_cycle_deadline <= self._mail_cycle_clock():
+                    raise DriverError("mail cycle completion deadline expired")
+                if requested_deadline is not None:
+                    if (
+                        isinstance(requested_deadline, bool)
+                        or not isinstance(requested_deadline, (int, float))
+                        or not math.isfinite(float(requested_deadline))
+                    ):
+                        raise DriverError("mail cycle operation deadline is malformed")
+                    mail_cycle_deadline = min(mail_cycle_deadline, float(requested_deadline))
             self.controller.set_action_intent(name, deadline_seconds=self._action_deadline(name))
             self.controller.action_result("preparing")
             controller_generation = status.generation
         generation = self.driver.guardian.generation
         self._last_action_generation = generation
-        expected_identity = self.driver.resolve_identity().fingerprint
+        expected_identity = self.driver.resolve_identity(
+            require_foreground=True,
+            deadline_monotonic=mail_cycle_deadline,
+        ).fingerprint
 
         def dispatch_allowed() -> None:
             with self.controller.lock:
@@ -10716,7 +11758,9 @@ class SessionDaemon:
                     ControllerState.STOPPED,
                 }:
                     raise DriverError("action dispatch was revoked")
-                if current.mode.value == "interaction" or current.action_intent != name:
+                if (
+                    current.mode.value == "interaction" and not allow_mail_cycle
+                ) or current.action_intent != name:
                     raise DriverError("action dispatch was revoked by interaction mode")
                 if (
                     current.lease_generation != self.driver.guardian.generation
@@ -10762,6 +11806,7 @@ class SessionDaemon:
                 generation=generation,
                 expected_identity=expected_identity,
                 dispatch_allowed=dispatch_allowed,
+                deadline_monotonic=mail_cycle_deadline,
             )
             action_snapshot["value"] = prepared
             action_snapshot["frame"] = prepared_frame
@@ -10791,6 +11836,7 @@ class SessionDaemon:
                     previous=action_snapshot["frame"],
                     timeout=5.0,
                     cancellation_check=dispatch_allowed,
+                    deadline_monotonic=mail_cycle_deadline,
                 )
                 self._require_auctioneer_telemetry(current, binding="INTERACTTARGET")
                 if identity.fingerprint != expected_identity:
@@ -10803,14 +11849,24 @@ class SessionDaemon:
                 return True
 
             def auctioneer_postcondition(identity: Any) -> bool:
-                deadline = time.monotonic() + 8.0
-                while time.monotonic() < deadline:
+                postcondition_clock = (
+                    self._mail_cycle_clock if mail_cycle_deadline is not None else time.monotonic
+                )
+                deadline = (
+                    float(mail_cycle_deadline)
+                    if mail_cycle_deadline is not None
+                    else postcondition_clock() + 8.0
+                )
+                if deadline <= postcondition_clock():
+                    raise DriverError("Auction House readback deadline expired")
+                while postcondition_clock() < deadline:
                     dispatch_allowed()
                     current, frame, _captured = self._fresh_status_after(
                         identity,
                         previous=action_snapshot["frame"],
-                        timeout=max(0.001, deadline - time.monotonic()),
+                        timeout=max(0.001, deadline - postcondition_clock()),
                         cancellation_check=dispatch_allowed,
+                        deadline_monotonic=mail_cycle_deadline,
                     )
                     if identity.fingerprint != expected_identity:
                         raise DriverError("game identity changed during Auction House readback")
@@ -10840,6 +11896,8 @@ class SessionDaemon:
 
             action_precondition = auctioneer_precondition
             action_postcondition = auctioneer_postcondition
+        if mail_cycle_deadline is not None:
+            kwargs["deadline_monotonic"] = mail_cycle_deadline
         self.driver.run(
             name,
             generation,
@@ -10857,7 +11915,10 @@ class SessionDaemon:
             if before_observation is None:
                 raise DriverError(f"{name} has no sealed pre-action observation")
             transition_started_at = self._native_clock()
-            identity = self.driver.resolve_identity()
+            identity = self.driver.resolve_identity(
+                require_foreground=True,
+                deadline_monotonic=mail_cycle_deadline,
+            )
             ancestry = tuple(dict.fromkeys((identity.child_xid, identity.xid)))
             try:
                 wait_plan = plan_context_wait(
@@ -10960,6 +12021,7 @@ class SessionDaemon:
         with self.controller.lock:
             if self.controller.status().generation == controller_generation:
                 self.controller.clear_action_intent("complete")
+        return copy.deepcopy(action_snapshot.get("value", {}))
 
     def run_native_calibration(
         self,
@@ -11379,7 +12441,7 @@ class SessionDaemon:
             self.config.data_lua,
             expected_plan_json=self.config.plan_json,
             expected_plan_hash=self.config.plan_hash,
-            expected_client_build=load_catalog().scan_plan()["targetClientBuild"],
+            expected_client_build=_CANONICAL_PLAN["targetClientBuild"],
         )
         scanner = snapshot.get("scanner")
         pending = snapshot.get("pending")
@@ -11513,14 +12575,24 @@ class SessionDaemon:
             ControllerState.INPUT_CALIBRATION,
         }:
             return self.status_dict()
-        # READY interaction is intentionally quiescent.  The recurring engine
-        # must not take a capture/reconciliation turn or rewrite its journal
-        # while an operator is idle; explicit intents own their own fresh
-        # capture and physical-action fence.
+        # READY interaction is intentionally quiescent while an operator is
+        # idle.  A live, process-local mail-cycle capability (or a started
+        # standalone executor continuation) is the narrow exception: its
+        # owner must return through the normal fresh capture/_advance path so
+        # route, completion, and AH proof gates can make progress.  Do not
+        # treat a stale checkpoint or a generic executor-active marker as an
+        # authority to capture or emit input.
+        mail_cycle = self.controller.mail_cycle_checkpoint()
+        mail_cycle_live = self.controller.mail_cycle_capability() is not None and mail_cycle.get(
+            "phase"
+        ) not in {"none", "complete", "blocked"}
+        standalone_continuation = self._executor_continuation_capability is not None
         if (
             status.mode.value == "interaction"
             and status.state == ControllerState.READY
             and not status.action_intent
+            and not mail_cycle_live
+            and not standalone_continuation
         ):
             return self.status_dict()
         if status.state == ControllerState.QUALIFY_PENDING:
@@ -11545,8 +12617,50 @@ class SessionDaemon:
                 self.last_error = str(exc)
                 self._block_if_current(self.last_error, generation)
             return self.status_dict()
+        capture_deadline: float | None = None
+        capture_clock: Callable[[], float] | None = None
+        capture_owner = ""
+        with self.controller.lock:
+            live_cycle = self.controller.mail_cycle_checkpoint()
+            live_capability = self.controller.mail_cycle_capability()
+            if live_capability is not None and live_cycle.get("phase") not in {"none", "complete", "blocked"}:
+                capture_owner = "mail cycle"
+                capture_deadline = live_capability.deadline_monotonic
+                capture_clock = self._mail_cycle_clock
+                if live_cycle.get("phase") == "executing":
+                    wait_deadline = self._mail_cycle_wait_deadlines.get(live_capability.cycle_id)
+                    # A started callback may already carry the fresh
+                    # ``mail_items`` boundary.  Only a validated current
+                    # ``mail_wait`` owns the process-local wait deadline;
+                    # when that record is absent, capture under the fixed
+                    # cycle bound so _mail_loop_step can distinguish the
+                    # settled boundary from an actually unresolved wait.
+                    if wait_deadline is not None:
+                        capture_deadline = min(capture_deadline, wait_deadline)
+            elif self._executor_continuation_capability is not None:
+                capture_owner = "standalone executor"
+                capture_deadline = self._executor_continuation_wait_deadline
+                capture_clock = self._native_clock
+                if capture_deadline is None:
+                    self.controller.block(
+                        "standalone executor wait deadline is missing; no retry is permitted"
+                    )
+                    self.last_error = "standalone executor wait deadline is missing"
+                    return self.status_dict()
+        if capture_deadline is not None and capture_clock is not None and capture_clock() >= capture_deadline:
+            reason = f"{capture_owner} observation deadline expired; no retry is permitted"
+            if capture_owner == "mail cycle" and live_capability is not None:
+                self.controller.block_mail_cycle(reason, capability=live_capability)
+            else:
+                self.controller.block(reason)
+            self.last_error = reason
+            return self.status_dict()
         try:
-            sample = self.capture_status()
+            sample = (
+                self.capture_status(deadline=capture_deadline)
+                if capture_deadline is not None
+                else self.capture_status()
+            )
         except (DriverError, EvidenceError, OSError, ValueError) as exc:
             # Reloads can remove the telemetry canvas while the client loads. The
             # durable expected boot/deadline handles this bounded absence.
@@ -11646,7 +12760,24 @@ class SessionDaemon:
             self.last_error = str(exc)
             self._block_if_current(self.last_error, generation)
             return self.status_dict()
+        if capture_deadline is not None and capture_clock is not None and capture_clock() >= capture_deadline:
+            reason = f"{capture_owner} observation deadline expired; no retry is permitted"
+            if capture_owner == "mail cycle" and live_capability is not None:
+                self.controller.block_mail_cycle(reason, capability=live_capability)
+            else:
+                self.controller.block(reason)
+            self.last_error = reason
+            return self.status_dict()
         if sample.kind == "NO_CHANGE":
+            if (
+                capture_owner == "mail cycle"
+                and live_capability is not None
+                and live_cycle.get("phase") == "executing"
+                and self._mail_cycle_wait_deadlines.get(live_capability.cycle_id) is None
+            ):
+                reason = "mail completion wait evidence is missing; no retry is permitted"
+                self.controller.block_mail_cycle(reason, capability=live_capability)
+                self.last_error = reason
             return self.status_dict()
         if sample.capture_monotonic < 0:
             self.last_error = "stale capture sample"
@@ -11761,6 +12892,800 @@ class SessionDaemon:
                 fence=self.controller.observation_fence(),
             )
 
+    def mail_loop_start(
+        self,
+        *,
+        generation: int,
+        queue_id: str,
+        seq: int,
+        confirm_queue_id: str,
+    ) -> dict[str, Any]:
+        """Enable one process-local queue binding; this does not arm or click."""
+
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+            raise DriverError("mail-loop generation is malformed")
+        try:
+            queue_size = len(queue_id.encode("utf-8")) if isinstance(queue_id, str) else -1
+        except UnicodeError as exc:
+            raise DriverError("mail-loop queueId is not valid UTF-8") from exc
+        if not isinstance(queue_id, str) or not queue_id or queue_size > 192:
+            raise DriverError("mail-loop queueId is malformed")
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq <= 0:
+            raise DriverError("mail-loop seq is malformed")
+        if confirm_queue_id != "":
+            raise DriverError("mail-loop start confirmation must be empty")
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.generation != generation:
+                raise DriverError("stale generation")
+            if status.mode.value != "repeat":
+                raise DriverError("mail-loop start requires repeat mode")
+            if self.controller.mail_cycle_checkpoint().get("phase") not in {"none", "complete", "blocked"}:
+                raise DriverError("mail-loop already owns a live cycle")
+            self._mail_loop_control_epoch += 1
+            reservation_epoch = self._mail_loop_control_epoch
+
+        # The capture is intentionally outside the controller lock.  The
+        # reservation above linearizes it against stop/replacement start; the
+        # commit below rejects any frame captured by a superseded owner.
+        sample = self.capture_status()
+        if sample.kind != "FRESH" or sample.frame is None:
+            raise DriverError("mail-loop start requires a fresh authoritative executor frame")
+        value = sample.frame.snapshot.value
+        validated = protocol.validate_snapshot(value)
+        executor = validated.value.get("executor")
+        context = validated.value.get("context")
+        house = validated.value.get("house")
+        if (
+            not isinstance(executor, dict)
+            or executor.get("availability") != "valid"
+            or executor.get("queueId") != queue_id
+            or executor.get("currentSeq") != seq
+            or executor.get("currentKind") != "mail_collect"
+            or executor.get("phase") != "ready"
+            or executor.get("inFlight") is not False
+            or executor.get("workDone") != 0
+            or isinstance(executor.get("workTotal"), bool)
+            or not isinstance(executor.get("workTotal"), int)
+            or executor.get("workTotal") <= 0
+            or executor.get("blocked") is not False
+            or executor.get("latched") is not False
+            or executor.get("ambiguous") is not False
+            or not isinstance(context, dict)
+            or context.get("character") != self.config.profile.character
+            or context.get("realm") != self.config.profile.realm
+            or not isinstance(house, dict)
+            or house.get("key") != self.config.profile.house
+            or executor.get("house") != self.config.profile.house
+            or executor.get("character") != self.config.profile.character
+        ):
+            raise DriverError("mail-loop start queue is not the current authoritative mail action")
+        with self.controller.lock:
+            status = self.controller.status()
+            if (
+                reservation_epoch != self._mail_loop_control_epoch
+                or status.generation != generation
+                or status.mode.value != "repeat"
+                or self.controller.mail_cycle_checkpoint().get("phase") not in {"none", "complete", "blocked"}
+            ):
+                raise DriverError("mail-loop start reservation is stale")
+            self._mail_loop_binding = MailLoopBinding(
+                enabled=True,
+                generation=generation,
+                queue_id=queue_id,
+                seq=seq,
+                house=self.config.profile.house,
+                character=self.config.profile.character,
+            )
+            self._mail_loop_active_binding = None
+        return self.mail_loop_status()
+
+    def mail_loop_stop(self, *, generation: int) -> dict[str, Any]:
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+            raise DriverError("mail-loop generation is malformed")
+        with self.controller.lock:
+            if self.controller.status().generation != generation:
+                raise DriverError("stale generation")
+            self._mail_loop_control_epoch += 1
+            cycle = self.controller.mail_cycle_checkpoint()
+            try:
+                if cycle.get("phase") not in {"none", "complete", "blocked"}:
+                    self.controller.block_mail_cycle("mail-loop stopped")
+            finally:
+                # Disabling the process-local opt-in is independent of the
+                # archive/revoke result; a control error must not leave the
+                # binding able to admit another cycle in this owner.
+                self._mail_loop_binding = MailLoopBinding()
+                self._mail_loop_active_binding = None
+                self._mail_cycle_wait_deadlines.clear()
+        return self.mail_loop_status()
+
+    def mail_loop_status(self) -> dict[str, Any]:
+        with self.controller.lock:
+            binding = self._mail_loop_binding
+            cycle = self.controller.mail_cycle_checkpoint()
+            # A status query is also used by narrow recovery/control probes
+            # that construct the daemon around an already-owned controller.
+            # Keep the public shape identical when no admission decision has
+            # yet been recorded in that process.
+            last_decision = copy.deepcopy(getattr(self, "_mail_loop_last_decision", {}))
+        return {
+            "enabled": binding.enabled,
+            "generation": binding.generation,
+            "queueId": binding.queue_id,
+            "seq": binding.seq,
+            "house": binding.house,
+            "character": binding.character,
+            "cycle": cycle,
+            "lastDecision": last_decision,
+        }
+
+    def _mail_operation_bounds(self) -> MailOperationBounds:
+        routes = self.route_file.routes if isinstance(self.route_file, RouteFile) else {}
+        to_mailbox = routes.get("auctioneer_to_mailbox")
+        to_auctioneer = routes.get("mailbox_to_auctioneer")
+        if to_mailbox is None or to_auctioneer is None:
+            raise DriverError("mail-loop requires both measured mailbox route files")
+        return MailOperationBounds(
+            route_to_mailbox_seconds=float(walk_budget(to_mailbox)[1]),
+            world_click_seconds=60.0,
+            mail_click_seconds=60.0,
+            mail_postcondition_seconds=float(self._NATIVE_FRAME_TIMEOUT_SECONDS),
+            route_to_auctioneer_seconds=float(walk_budget(to_auctioneer)[1]),
+            ah_reopen_seconds=float(self.config.reload_deadline_seconds),
+            safety_margin_seconds=float(MOTION_POST_RELEASE_RESERVE_SECONDS),
+        )
+
+    def _mail_boundary(self, snapshot: dict[str, Any], status: Any) -> MailLoopBoundary:
+        journal = self.controller.journal.read()
+        evidence = journal.get("current", {}).get("evidence", {})
+        if not isinstance(evidence, dict):
+            evidence = {}
+        seen = frozenset(
+            str(record.get("ackUid"))
+            for record in self.controller.journal.archives("mail_cycle")
+            if isinstance(record, dict) and isinstance(record.get("ackUid"), str) and record.get("ackUid")
+        )
+        return MailLoopBoundary(
+            generation=status.generation,
+            session_mode=status.mode.value,
+            repeat_phase=ControllerState.WAIT_DUE.value,
+            ack_loaded_uid=str(evidence.get("ackLoadedUID", "")),
+            status_last_uid=status.last_uid,
+            seen_ack_uids=seen,
+            unresolved_action=bool(status.action_intent),
+            reconciliation_pending=bool(self.controller.journal.read().get("reconciliationRequired", False)),
+            stop_requested=status.stop_requested,
+            closeout_pending=status.closeout_requested,
+            last_actual_start_at=float(status.started_at) if status.started_at > 0 else None,
+            now=float(snapshot.get("wallTime", 0)),
+        )
+
+    def _measure_mailbox_anchor(
+        self,
+        generation: int,
+        *,
+        operation_bound: float | None = None,
+        operation_deadline: float | None = None,
+    ) -> tuple[float, float]:
+        """Return the measured model-crop center in client-relative pixels."""
+
+        if operation_bound is not None and operation_deadline is not None:
+            raise DriverError("mailbox model observation supplied two operation bounds")
+        if operation_deadline is not None:
+            if (
+                isinstance(operation_deadline, bool)
+                or not isinstance(operation_deadline, (int, float))
+                or not math.isfinite(float(operation_deadline))
+            ):
+                raise DriverError("mailbox model operation deadline is malformed")
+            deadline = min(self._motion_deadline(), float(operation_deadline))
+            self._remaining_motion_budget(deadline)
+        else:
+            deadline = self._motion_deadline(limit=operation_bound)
+        before = self.driver.resolve_identity(require_foreground=True, deadline_monotonic=deadline)
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.generation != generation or status.mode.value != "interaction":
+                raise DriverError("mailbox model observation has stale controller ownership")
+            lease_generation = status.lease_generation
+        if not self.driver.guardian.armed or self.driver.guardian.generation != lease_generation:
+            raise DriverError("mailbox model observation lacks the current Guardian lease")
+        retained_path, image_digest, captured_at = self._capture_model_artifact(
+            before, generation, deadline=deadline
+        )
+        image = retained_path.read_bytes()
+        if hashlib.sha256(image).hexdigest() != image_digest:
+            raise DriverError("retained mailbox model crop hash changed before inference")
+        remaining = self._remaining_motion_budget(deadline) - MOTION_POST_RELEASE_RESERVE_SECONDS
+        if remaining <= 0:
+            raise DriverError("mailbox model observation has no feedback reserve")
+        observation = self._call_model_adapter(
+            "observe",
+            image,
+            target="game-client",
+            verified_crop=self.config.profile.model_crop,
+            requested_state="mailbox_world",
+            requested_control="mailbox_object",
+            timeout=remaining,
+        )
+        if getattr(observation, "state", None) != "mailbox_world":
+            raise DriverError("mailbox model observation did not prove mailbox_world")
+        facts = dict(getattr(observation, "facts", {}))
+        if (
+            facts.get("control") != "mailbox_object"
+            or facts.get("scene") != "world"
+            or facts.get("character") != self.config.profile.character
+            or facts.get("realm") != self.config.profile.realm
+            or facts.get("modal") != ""
+            or facts.get("code") != ""
+            or facts.get("idle") != "true"
+        ):
+            raise DriverError("mailbox model observation lacks the named mailbox control")
+        if self._native_clock() - captured_at > 5.0:
+            raise DriverError("mailbox model observation is stale")
+        bounds = getattr(observation, "anchor", None)
+        crop_x, crop_y, crop_w, crop_h = self.config.profile.model_crop
+        if (
+            not isinstance(bounds, tuple)
+            or len(bounds) != 4
+            or any(isinstance(item, bool) or not isinstance(item, int) for item in bounds)
+            or bounds[2] <= 0
+            or bounds[3] <= 0
+            or bounds[0] < 0
+            or bounds[1] < 0
+            or bounds[0] + bounds[2] > crop_w
+            or bounds[1] + bounds[3] > crop_h
+        ):
+            raise DriverError("mailbox model object bounds are outside the retained crop")
+        hint = (float(crop_x + bounds[0] + bounds[2] // 2), float(crop_y + bounds[1] + bounds[3] // 2))
+        identity = self.driver.resolve_identity(require_foreground=True, deadline_monotonic=deadline)
+        if identity.fingerprint != before.fingerprint or self.driver.guardian.generation != lease_generation:
+            raise DriverError("mailbox model observation changed identity or Guardian lease")
+        if not (0 <= hint[0] < identity.child_geometry[2] and 0 <= hint[1] < identity.child_geometry[3]):
+            raise DriverError("mailbox model object center is outside the verified client")
+        self._mailbox_model_proof = {
+            "path": str(retained_path),
+            "sha256": image_digest,
+            "capturedAt": captured_at,
+            "identity": before.fingerprint,
+            "generation": generation,
+            "leaseGeneration": lease_generation,
+            "bounds": list(bounds),
+            "hint": [hint[0], hint[1]],
+        }
+        self._record_visual_proof(
+            {"kind": "mailbox_anchor", **self._mailbox_model_proof},
+            generation=generation,
+            state=ControllerState.READY,
+        )
+        return hint
+
+    def _admit_mail_loop(self, snapshot: dict[str, Any], status: Any, fence: Any) -> bool:
+        binding = self._mail_loop_binding
+        if not binding.enabled or status.state is not ControllerState.WAIT_DUE:
+            return False
+        capability = None
+        try:
+            validated = protocol.validate_snapshot(snapshot)
+            boundary = self._mail_boundary(snapshot, status)
+            bounds = self._mail_operation_bounds()
+            decision = admit_mail_cycle(validated, binding, boundary, bounds)
+            self._mail_loop_last_decision = {
+                "admitted": decision.admitted,
+                "deferred": decision.deferred,
+                "reason": decision.reason,
+                "queueId": decision.queue_id,
+                "seq": decision.admitted_seq,
+                "ackUid": decision.ack_uid,
+                "mailUnits": decision.mail_units,
+                "effectiveDueAt": decision.effective_due_at,
+                "completionDeadlineAt": decision.completion_deadline_at,
+            }
+            if not decision.admitted:
+                return False
+            with self.controller.lock:
+                if binding is not self._mail_loop_binding or not self._mail_loop_binding.enabled:
+                    raise RuntimeError("mail-loop binding was replaced before admission")
+                capability = self.controller.begin_mail_cycle(
+                    decision=decision,
+                    ack_loaded_uid=boundary.ack_loaded_uid,
+                    status_last_uid=boundary.status_last_uid,
+                    wire_ack_uids=tuple(snapshot.get("loaded", {}).get("ackedIds", ())),
+                    queue_id=binding.queue_id,
+                    seq=binding.seq,
+                    house=binding.house,
+                    character=binding.character,
+                    snapshot=validated,
+                    binding=binding,
+                    bounds=bounds,
+                    expected_generation=status.generation,
+                    expected_lease_generation=status.lease_generation,
+                )
+                self._mail_loop_active_binding = binding
+            self._mail_cycle_context.cycle_id = capability.cycle_id
+            try:
+                self._mail_loop_step(snapshot, capability)
+            finally:
+                try:
+                    del self._mail_cycle_context.cycle_id
+                except AttributeError:
+                    pass
+            return True
+        except (DriverError, RuntimeError, ValueError, KeyError, TypeError, protocol.ProtocolError) as exc:
+            if capability is not None:
+                try:
+                    self.controller.block_mail_cycle(str(exc), capability=capability)
+                except Exception:
+                    pass
+            self._mail_loop_last_decision = {"admitted": False, "deferred": True, "reason": str(exc)}
+            return False
+
+    def _mail_loop_step(self, snapshot: dict[str, Any], capability: Any) -> None:
+        cycle = self.controller.mail_cycle_checkpoint()
+        phase = cycle.get("phase")
+        # A confirmation wait is still a live bounded owner.  Once its fixed
+        # deadline has elapsed, fence the cycle immediately; do not leave a
+        # stale request live until another click or route happens to observe
+        # the expiry.
+        if phase not in {"none", "complete", "blocked"}:
+            if self._mail_cycle_clock() >= capability.deadline_monotonic:
+                self.controller.block_mail_cycle(
+                    "mail cycle completion deadline expired; no retry is permitted",
+                    capability=capability,
+                )
+                raise DriverError("mail cycle completion deadline expired")
+        if phase in {"preparing", "opening_ah"}:
+            raise DriverError(f"mail cycle has an uncertain {phase} physical boundary")
+        budget = capability.budget
+        if phase == "to_mailbox":
+            route_deadline = min(
+                capability.deadline_monotonic,
+                self._mail_cycle_clock() + budget.route_to_mailbox_seconds,
+            )
+            self._mail_cycle_require_budget(
+                capability,
+                budget.route_to_mailbox_seconds,
+                "auctioneer-to-mailbox route",
+                operation_deadline=route_deadline,
+            )
+            self.controller.transition_mail_cycle("preparing", capability=capability)
+            self.execute_route_walk(
+                "auctioneer_to_mailbox",
+                generation=capability.generation,
+                deadline_monotonic=route_deadline,
+            )
+            self.controller.transition_mail_cycle("mailbox_open", capability=capability)
+            phase = "mailbox_open"
+        if phase == "mailbox_open":
+            # Model capture, hover/click, and post-click MAIL_SHOW feedback
+            # share one fixed world-operation deadline.  Never reset a fresh
+            # bound after the model has consumed part of it.
+            world_deadline = min(
+                capability.deadline_monotonic,
+                self._mail_cycle_clock() + budget.world_click_seconds,
+            )
+            self._mail_cycle_require_budget(
+                capability,
+                budget.world_click_seconds,
+                "mailbox world click",
+                operation_deadline=world_deadline,
+            )
+            hint_x, hint_y = self._measure_mailbox_anchor(
+                capability.generation,
+                operation_deadline=world_deadline,
+            )
+            self._mail_cycle_require_budget(
+                capability,
+                budget.world_click_seconds,
+                "mailbox world click",
+                operation_deadline=world_deadline,
+            )
+            self.execute_world_click(
+                "Mailbox",
+                hint_x,
+                hint_y,
+                0.0,
+                expect="mailOpen",
+                generation=capability.generation,
+                deadline_monotonic=world_deadline,
+            )
+            self.controller.transition_mail_cycle("awaiting_confirmation", capability=capability)
+            # The default path is an actual unarmed dry-run: it traverses the
+            # measured button/Guardian/native callback path once, but cannot
+            # invoke a protected API.  Armed operation still waits for a
+            # separate exact executor-click request.
+            fresh = self._observe_motion(
+                capability.generation,
+                allow_executor=True,
+                deadline_monotonic=world_deadline,
+            )
+            self._executor_scene_guard(fresh)
+            executor = self._executor_snapshot_for_frame(fresh)
+            if executor.get("publishedArmed") is False and executor.get("sessionArmed") is False:
+                click_deadline = min(
+                    capability.deadline_monotonic,
+                    self._mail_cycle_clock() + budget.mail_click_seconds + budget.mail_postcondition_seconds,
+                )
+                self._mail_cycle_require_budget(
+                    capability,
+                    budget.mail_click_seconds + budget.mail_postcondition_seconds,
+                    "mail executor click",
+                    operation_deadline=click_deadline,
+                )
+                self.execute_executor_click(
+                    queue_id=capability.queue_id,
+                    seq=capability.admitted_seq,
+                    confirm_queue_id="",
+                    cycle_id=capability.cycle_id,
+                    generation=capability.generation,
+                    deadline_monotonic=click_deadline,
+                )
+        elif phase == "executing":
+            executor = snapshot.get("executor")
+            if not isinstance(executor, dict):
+                raise DriverError("mail completion snapshot lacks executor projection")
+            observed_phase = executor.get("phase")
+            if observed_phase == "mail_items":
+                # The addon can publish the first successful mail-item
+                # boundary in the same callback as the started result.  It
+                # settles the previous wait; no second click is implicit.
+                self.controller.record_mail_cycle_progress(
+                    capability=capability,
+                    executor=executor,
+                )
+                self._mail_cycle_wait_deadlines.pop(capability.cycle_id, None)
+                self.controller.transition_mail_cycle(
+                    "awaiting_confirmation",
+                    capability=capability,
+                    last_executor_seq=capability.admitted_seq,
+                )
+            else:
+                # Missing wait evidence is fail-closed only for an actual
+                # mail_wait boundary.  _observe_mail_completion enforces the
+                # fixed per-attempt deadline and never synthesizes one.
+                self._observe_mail_completion(capability)
+        elif phase == "to_auctioneer":
+            route_deadline = min(
+                capability.deadline_monotonic,
+                self._mail_cycle_clock() + budget.route_to_auctioneer_seconds,
+            )
+            self._mail_cycle_require_budget(
+                capability,
+                budget.route_to_auctioneer_seconds,
+                "mailbox-to-auctioneer route",
+                operation_deadline=route_deadline,
+            )
+            self.execute_route_walk(
+                "mailbox_to_auctioneer",
+                generation=capability.generation,
+                deadline_monotonic=route_deadline,
+            )
+            frame = self._observe_motion(
+                capability.generation,
+                allow_executor=True,
+                deadline_monotonic=route_deadline,
+            )
+            if frame.mail_open:
+                raise DriverError("mailbox remained open after return route")
+            returned_snapshot = self._motion_snapshots.get(
+                (frame.boot, frame.sequence, frame.identity_fingerprint)
+            )
+            if (
+                not isinstance(returned_snapshot, dict)
+                or returned_snapshot.get("mailOpen") is not False
+                or returned_snapshot.get("ahOpen") is not False
+                or not self._blocking_ui_is_clear(returned_snapshot)
+            ):
+                raise DriverError("return route lacks a fresh closed-mailbox world proof")
+            self.controller.transition_mail_cycle("opening_ah", capability=capability)
+            ah_deadline = min(
+                capability.deadline_monotonic,
+                self._mail_cycle_clock() + budget.ah_reopen_seconds,
+            )
+            self._mail_cycle_require_budget(
+                capability,
+                budget.ah_reopen_seconds,
+                "Auction House reopen",
+                operation_deadline=ah_deadline,
+            )
+            ah_snapshot = self._run_action(
+                "open_ah",
+                returned_snapshot,
+                allow_mail_cycle=True,
+                deadline_monotonic=ah_deadline,
+            )
+            proof = {
+                "fresh": True,
+                "ahOpen": ah_snapshot.get("ahOpen"),
+                "mailOpen": ah_snapshot.get("mailOpen"),
+                "identity": self.driver.resolve_identity(
+                    require_foreground=True,
+                    deadline_monotonic=ah_deadline,
+                ).fingerprint,
+                "generation": capability.generation,
+                "leaseGeneration": capability.lease_generation,
+            }
+            # MailFrame:IsShown is the authoritative close fact.  A stale
+            # MAIL_CLOSED event cannot satisfy this terminal boundary.
+            if proof["mailOpen"]:
+                raise DriverError("mail cycle completion observed mailbox still open")
+            self.controller.complete_mail_cycle(capability=capability, ah_open_proof=proof)
+            # The explicit binding covers only this admitted sequence.  A
+            # successor requires a fresh public start request.
+            with self.controller.lock:
+                # Do not erase a replacement start that won the control
+                # epoch race while completion was doing its final native work.
+                if self._mail_loop_binding is self._mail_loop_active_binding:
+                    self._mail_loop_binding = MailLoopBinding()
+                    self._mail_loop_active_binding = None
+                completed_generation = self.controller.status().generation
+            # Re-enter through the ordinary re-arm/reconcile gate.  The
+            # terminal archive never fabricates WAIT_DUE or reuses this
+            # cycle's lease; a fresh Guardian owner must prove the next frame.
+            try:
+                self.controller.resume(expected_generation=completed_generation)
+            except Exception as exc:
+                # The terminal archive is already durable.  A failed
+                # re-arm/reconcile is therefore a blocked recovery boundary,
+                # never permission to route or click again.
+                self.controller.block(f"mail cycle resume failed: {exc}")
+                raise
+
+    def _mail_cycle_clock(self) -> float:
+        """Return the monotonic domain used to admit this cycle.
+
+        Controller admission samples its injected clock, which is also the
+        DesktopDriver deadline domain.  The daemon may use a separate native
+        polling clock for settle observations (notably in deterministic
+        fixtures), so mail operation deadlines must not be rebuilt from that
+        unrelated source.
+        """
+
+        clock = getattr(self.controller, "clock", None)
+        if callable(clock):
+            value = float(clock())
+        else:
+            value = float(self._native_clock())
+        if not math.isfinite(value):
+            raise DriverError("mail cycle clock is not finite")
+        return value
+
+    def _mail_cycle_dispatch_allowed(self, capability: Any) -> None:
+        if self.controller.mail_cycle_capability() is not capability:
+            raise DriverError("mail cycle capability changed")
+        with self.controller.lock:
+            status = self.controller.status()
+            if status.generation != capability.generation or status.state is not ControllerState.READY:
+                raise DriverError("mail cycle controller generation changed")
+            if (
+                not self.driver.guardian.armed
+                or self.driver.guardian.generation != capability.lease_generation
+            ):
+                raise DriverError("mail cycle Guardian lease changed")
+        if self._mail_cycle_clock() >= capability.deadline_monotonic:
+            raise DriverError("mail cycle completion deadline expired")
+
+    def _mail_cycle_require_budget(
+        self,
+        capability: Any,
+        seconds: float,
+        effect: str,
+        *,
+        operation_deadline: float | None = None,
+    ) -> None:
+        """Refuse an effect unless the complete remaining workload still fits.
+
+        ``operation_deadline`` is the already-created absolute bound for the
+        active model/route/click/wait pipeline. Its remainder replaces the
+        full phase estimate; future physical effects retain their complete
+        immutable worst-case reservations.
+        """
+
+        self._mail_cycle_dispatch_allowed(capability)
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or not math.isfinite(float(seconds))
+            or float(seconds) <= 0
+        ):
+            raise DriverError(f"{effect} bound is malformed")
+        now = self._mail_cycle_clock()
+        if operation_deadline is not None:
+            if (
+                isinstance(operation_deadline, bool)
+                or not isinstance(operation_deadline, (int, float))
+                or not math.isfinite(float(operation_deadline))
+            ):
+                raise DriverError(f"{effect} deadline is malformed")
+            operation_deadline = float(operation_deadline)
+            if operation_deadline <= now:
+                raise DriverError(f"{effect} deadline expired")
+        cycle = self.controller.mail_cycle_checkpoint()
+        phase = cycle.get("phase")
+        budget = capability.budget
+        if type(budget) is not MailBudget:
+            raise DriverError("mail cycle admitted budget is not immutable")
+        units = budget.mail_units
+        if isinstance(units, bool) or not isinstance(units, int) or units <= 0:
+            raise DriverError("mail cycle admitted mail-unit bound is malformed")
+        completed = cycle.get("completedUnits")
+        if isinstance(completed, bool) or not isinstance(completed, int) or not 0 <= completed <= units:
+            raise DriverError("mail cycle causal progress is malformed")
+        terminal_settled = isinstance(cycle.get("terminalOutcomeId"), str) and bool(
+            cycle.get("terminalOutcomeId")
+        )
+        remaining_units = 0 if terminal_settled else units - completed
+        world_click = budget.world_click_seconds
+        mail_click = budget.mail_click_seconds
+        postcondition = budget.mail_postcondition_seconds
+        route_to_auctioneer = budget.route_to_auctioneer_seconds
+        ah_reopen = budget.ah_reopen_seconds
+        future_message_work = remaining_units * (mail_click + postcondition)
+        if phase == "executing":
+            wait_deadline = self._mail_cycle_wait_deadlines.get(capability.cycle_id)
+            if wait_deadline is None:
+                raise DriverError("mail completion wait deadline is missing")
+            if operation_deadline is None:
+                operation_deadline = wait_deadline
+            else:
+                operation_deadline = min(operation_deadline, wait_deadline)
+            # The current message has crossed its click boundary. Its fixed
+            # postcondition remainder is active; only later messages retain a
+            # full click+postcondition reservation.
+            future_units = max(0, remaining_units - 1)
+            future_message_work = future_units * (mail_click + postcondition)
+        active_remainder = float(seconds)
+        if operation_deadline is not None:
+            active_remainder = max(0.0, float(operation_deadline) - now)
+        remaining = {
+            "to_mailbox": active_remainder
+            + world_click
+            + future_message_work
+            + route_to_auctioneer
+            + ah_reopen,
+            "preparing": active_remainder
+            + world_click
+            + future_message_work
+            + route_to_auctioneer
+            + ah_reopen,
+            "mailbox_open": active_remainder + future_message_work + route_to_auctioneer + ah_reopen,
+            "awaiting_confirmation": active_remainder
+            + max(0, remaining_units - 1) * (mail_click + postcondition)
+            + route_to_auctioneer
+            + ah_reopen,
+            "executing": active_remainder + future_message_work + route_to_auctioneer + ah_reopen,
+            "to_auctioneer": active_remainder + ah_reopen,
+            "opening_ah": active_remainder,
+        }.get(phase)
+        if remaining is None or not math.isfinite(float(remaining)):
+            raise DriverError(f"mail cycle phase {phase!r} has no bounded remaining workload")
+        # ``now`` is the one coherent sample used for both the active
+        # operation remainder and the final whole-cycle fit.  A second clock
+        # read here could reject an exact-fit operation merely because the
+        # helper itself elapsed between its two checks.
+        if now + float(remaining) > capability.deadline_monotonic:
+            raise DriverError(f"mail cycle deadline cannot fit {effect} and its remaining workload")
+
+    def _observe_mail_completion(self, capability: Any) -> None:
+        deadline = self._mail_cycle_wait_deadlines.get(capability.cycle_id)
+        if deadline is None:
+            # A missing process-local physical-attempt record is an
+            # unresolved ownership boundary. Do not reconstruct a wait from
+            # the broader cycle deadline or authorize another observation.
+            self.controller.block_mail_cycle(
+                "mail completion wait deadline is missing; no retry is permitted",
+                capability=capability,
+            )
+            raise DriverError("mail completion wait deadline is missing")
+        self._mail_cycle_require_budget(
+            capability,
+            capability.budget.mail_postcondition_seconds,
+            "mail completion observation",
+            operation_deadline=deadline,
+        )
+        if self._mail_cycle_clock() >= deadline:
+            self.controller.block_mail_cycle(
+                "mail completion observation deadline expired; no retry is permitted",
+                capability=capability,
+            )
+            raise DriverError("mail completion observation deadline expired")
+        sample = self.capture_status(deadline=deadline)
+        # The capture itself is part of the fixed wait operation. A frame that
+        # arrives at/after its bound cannot authorize another poll or preserve
+        # the cycle as live, even if the overall cycle deadline remains ahead.
+        if self._mail_cycle_clock() >= deadline:
+            self.controller.block_mail_cycle(
+                "mail completion observation deadline expired; no retry is permitted",
+                capability=capability,
+            )
+            raise DriverError("mail completion observation deadline expired")
+        self._mail_cycle_require_budget(
+            capability,
+            capability.budget.mail_postcondition_seconds,
+            "mail completion observation",
+            operation_deadline=deadline,
+        )
+        if sample.kind != "FRESH" or sample.frame is None:
+            return
+        frame = self._motion_frame_from_sample(sample, deadline=deadline)
+        self._executor_scene_guard(frame)
+        executor = self._executor_snapshot_for_frame(frame)
+        last = executor.get("lastResult")
+        if not isinstance(last, dict) or last.get("seq") != capability.admitted_seq:
+            return
+        if last.get("status") not in {"dry_run", "succeeded", "failed", "refused", "skipped"}:
+            return
+        record = self._executor_frame_record(frame)
+        self.controller.record_mail_cycle_progress(
+            capability=capability,
+            executor=executor,
+        )
+        daemon_continuation = self._executor_continuation_capability
+        self.controller.observe_mail_cycle_completion(
+            capability=capability,
+            post_crs=record["crs"],
+            post_executor=executor,
+            post_evidence=record["evidence"],
+        )
+        self._mail_cycle_wait_deadlines.pop(capability.cycle_id, None)
+        # The controller clears its private continuation only after the exact
+        # terminal observation has been durably consumed (or durably blocked).
+        # Clear this daemon's copy only if it is still the same owner; a newer
+        # owner must never be erased by a late completion callback.
+        if (
+            daemon_continuation is not None
+            and self._executor_continuation_capability == daemon_continuation
+            and self.controller.executor_continuation_capability() is None
+        ):
+            self._executor_continuation_capability = None
+            self._executor_continuation_wait_deadline = None
+
+    def _observe_standalone_executor_completion(self) -> bool:
+        """Observe one started standalone mail action without pressing again."""
+
+        continuation = self._executor_continuation_capability
+        if continuation is None:
+            return False
+        checkpoint = self.controller.executor_click_checkpoint()
+        overall = checkpoint.get("overall") if isinstance(checkpoint, dict) else None
+        if not isinstance(overall, dict):
+            raise DriverError("executor continuation checkpoint is unavailable")
+        deadline = self._executor_continuation_wait_deadline
+        if deadline is None:
+            self.controller.block("standalone executor wait deadline is missing; no retry is permitted")
+            raise DriverError("standalone executor wait deadline is missing")
+        if self._native_clock() >= deadline:
+            self.controller.block("standalone executor completion deadline expired; no retry is permitted")
+            raise DriverError("standalone executor completion deadline expired")
+        sample = self.capture_status(deadline=deadline)
+        if self._native_clock() >= deadline:
+            self.controller.block("standalone executor completion deadline expired; no retry is permitted")
+            raise DriverError("standalone executor completion deadline expired")
+        if sample.kind != "FRESH" or sample.frame is None:
+            return False
+        frame = self._motion_frame_from_sample(sample, deadline=deadline)
+        self._executor_scene_guard(frame)
+        executor = self._executor_snapshot_for_frame(frame)
+        last = executor.get("lastResult")
+        if (
+            not isinstance(last, dict)
+            or last.get("seq") != overall.get("seq")
+            or last.get("kind") != "mail_collect"
+            or last.get("status") not in {"dry_run", "succeeded", "failed", "refused", "skipped"}
+        ):
+            return False
+        record = self._executor_frame_record(frame)
+        self.controller.observe_executor_completion(
+            continuation_capability=continuation,
+            post_crs=record["crs"],
+            post_executor=executor,
+            post_evidence=record["evidence"],
+        )
+        self._executor_continuation_capability = None
+        self._executor_continuation_wait_deadline = None
+        return True
+
     def _validate_identity(self, snapshot: dict[str, Any], *, state: ControllerState) -> None:
         context = snapshot.get("context", {})
         house = snapshot.get("house", {})
@@ -11784,7 +13709,7 @@ class SessionDaemon:
         if self.config.plan_hash and plan.get("hash") != self.config.plan_hash:
             raise EvidenceError("telemetry plan hash is not externally pinned")
         cursor = snapshot.get("scanner", {}).get("cursorItemID", 0)
-        configured_ids = frozenset(load_catalog().scan_plan()["itemIDs"])
+        configured_ids = frozenset(_CANONICAL_PLAN["itemIDs"])
         if (
             isinstance(cursor, bool)
             or not isinstance(cursor, int)
@@ -11820,6 +13745,44 @@ class SessionDaemon:
             status = self.controller.status()
             fence = fence or self.controller.observation_fence()
         if status.mode.value == "interaction":
+            cycle = self.controller.mail_cycle_checkpoint()
+            capability = self.controller.mail_cycle_capability()
+            if cycle.get("phase") not in {"none", "complete", "blocked"}:
+                if capability is None:
+                    return self.status_dict()
+                self._mail_cycle_context.cycle_id = capability.cycle_id
+                try:
+                    self._mail_loop_step(snapshot, capability)
+                except (
+                    DriverError,
+                    RuntimeError,
+                    ValueError,
+                    KeyError,
+                    TypeError,
+                    protocol.ProtocolError,
+                ) as exc:
+                    try:
+                        self.controller.block_mail_cycle(str(exc), capability=capability)
+                    except Exception:
+                        pass
+                    self.last_error = str(exc)
+                finally:
+                    try:
+                        del self._mail_cycle_context.cycle_id
+                    except AttributeError:
+                        pass
+                return
+            if self._executor_continuation_capability is not None:
+                # A started standalone mail action owns the interaction lease
+                # while its addon result settles. Observe only; never route,
+                # reconcile, or emit a second click from this wait boundary.
+                self._observe_standalone_executor_completion()
+                return
+            if self.controller.executor_action_active:
+                # A blocked/uncertain executor outcome retains the durable
+                # interaction fence. A fresh owner must reconcile it; this
+                # process never turns it into a retry or ordinary resume.
+                return self.status_dict()
             context = snapshot.get("context", {})
             world_ready = (
                 isinstance(context, dict)
@@ -11998,6 +13961,13 @@ class SessionDaemon:
                 # idle reconciliation frame into a newly initiated scan.
                 self.controller.closeout()
                 return
+            if status.state is ControllerState.WAIT_DUE:
+                admitted_or_fenced = self._admit_mail_loop(snapshot, status, fence)
+                if admitted_or_fenced or self.controller.status().state not in {
+                    ControllerState.READY,
+                    ControllerState.WAIT_DUE,
+                }:
+                    return
             if (
                 phase in {"item", "owned"}
                 and int(scanner.get("startedAt", 0) or 0) > 0
@@ -12092,7 +14062,7 @@ class SessionDaemon:
                     self.config.data_lua,
                     expected_plan_json=self.config.plan_json,
                     expected_plan_hash=self.config.plan_hash,
-                    expected_client_build=load_catalog().scan_plan()["targetClientBuild"],
+                    expected_client_build=_CANONICAL_PLAN["targetClientBuild"],
                 )
                 if status.last_uid in data_ids:
                     data_uid = status.last_uid
@@ -12124,7 +14094,7 @@ class SessionDaemon:
                         self.config.data_lua,
                         expected_plan_json=self.config.plan_json,
                         expected_plan_hash=self.config.plan_hash,
-                        expected_client_build=load_catalog().scan_plan()["targetClientBuild"],
+                        expected_client_build=_CANONICAL_PLAN["targetClientBuild"],
                     ):
                         return
                 companion_uid = status.last_uid
@@ -12374,6 +14344,8 @@ class SessionDaemon:
             "expectedBoot": value.expected_boot,
             "actionIntent": value.action_intent,
             "deadlineAt": value.deadline_at,
+            "executor": self.controller.executor_click_checkpoint(),
+            "mailLoop": self.mail_loop_status(),
             "reconciliationRequired": bool(durable.get("reconciliationRequired", False)),
             "boot": self.last_snapshot.get("boot", ""),
             "sequence": self.last_snapshot.get("sequence", 0),

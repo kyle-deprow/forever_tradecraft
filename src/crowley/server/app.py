@@ -21,6 +21,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.responses import HTMLResponse
 
 from crowley.core.account import AccountFormatError, validate_account_envelope
+from crowley.core.game_target import packaged_game_target, target_scan_plan
 from crowley.core.house import House
 from crowley.core.queue import (
     QueueFormatError,
@@ -37,6 +38,10 @@ from .db import create_pool, migrate
 from .ingest import SweepConflictError, ensure_house, ingest_market_sweep
 
 log = logging.getLogger(__name__)
+_TARGET = packaged_game_target()
+_CANONICAL_CATALOG = load_catalog()
+_CANONICAL_SCAN_PLAN = target_scan_plan(_CANONICAL_CATALOG, _TARGET)
+_REFERENCE_ITEM_IDS = tuple(sorted(item.item_id for item in _CANONICAL_CATALOG.items))
 
 
 @asynccontextmanager
@@ -696,7 +701,7 @@ def latest_account_state(
 
 @app.get("/v1/scan-plan", dependencies=[Authed])
 def scan_plan() -> dict[str, Any]:
-    return load_catalog().scan_plan()
+    return dict(_CANONICAL_SCAN_PLAN)
 
 
 @app.post("/v1/addon-data", dependencies=[Authed])
@@ -719,8 +724,8 @@ def addon_data(body: AddonDataRequest, request: Request) -> dict[str, Any]:
     return {
         "generatedAt": int(time.time()),
         "ackedScans": sorted(acked),
-        "scanPlan": load_catalog().scan_plan(),
-        "referenceItemIDs": sorted(item.item_id for item in load_catalog().items),
+        "scanPlan": dict(_CANONICAL_SCAN_PLAN),
+        "referenceItemIDs": list(_REFERENCE_ITEM_IDS),
         # Filled by the strategy engine in a later phase.
         "shoppingLists": [],
     }

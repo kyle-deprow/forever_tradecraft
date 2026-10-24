@@ -4,20 +4,33 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import json
+import math
 import re
+import secrets
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
+from crowley.core.game_target import packaged_game_target, target_scan_plan
+from crowley.core.watchlist import load_catalog
+
+from . import protocol
 from .calibration import CalibrationError, NativeCalibrationEvidence, NativeMemoryMeasurement
 from .driver import DesktopDriver, DriverError
 from .evidence import BASELINE_MEDIAN_SECONDS, SweepEvidence
 from .journal import Journal, JournalError
+from .mail_loop import MailBudget, MailLoopBinding, MailLoopBoundary, MailOperationBounds, admit_mail_cycle
 from .startup import InvalidationCause, RuntimeInputEvidence, TakeoverDrillRecord
+
+_TARGET = packaged_game_target()
+_CANONICAL_PLAN = target_scan_plan(load_catalog(), _TARGET)
+_PLAN_COUNT = len(_CANONICAL_PLAN["itemIDs"])
 
 
 class _ReadOnlyDriver:
@@ -98,6 +111,691 @@ _ACTION_ALIASES = {
 }
 
 _SCANNER_PHASE_UNSET = object()
+_EXECUTOR_TERMINAL_RESULTS = frozenset({"dry_run", "succeeded", "failed", "refused", "skipped"})
+
+
+def _expected_executor_result_count(pre_executor: dict[str, Any], pre_count: int) -> int:
+    """Return the producer's causal resultCount for one admitted button.
+
+    Crowley's Lua producer appends one result record for the overall action.
+    A later mail_items/mail_wait continuation advances clickOrdinal but keeps
+    that same resultCount; requiring +1 for every mailbox message invents a
+    producer fact and rejects the real multi-message path.
+    """
+
+    if pre_executor.get("phase") in {"mail_items", "mail_wait"}:
+        return pre_count
+    return pre_count + 1
+
+
+_EXECUTOR_INTENT_KEYS = frozenset(
+    {
+        "attemptId",
+        "queueId",
+        "seq",
+        "generation",
+        "leaseGeneration",
+        "cycleId",
+        "preCrs",
+        "preExecutor",
+        "preClickOrdinal",
+        "preArms",
+        "anchor",
+        "confirmation",
+        "preEvidence",
+        "status",
+    }
+)
+_EXECUTOR_OVERALL_KEYS = frozenset({"queueId", "seq", "cycleId", "generation", "leaseGeneration", "status"})
+_EXECUTOR_STAGED_KEYS = frozenset({"archive", "checkpoint"})
+_EXECUTOR_ANCHOR_KEYS = frozenset(
+    {
+        "action",
+        "evidenceHash",
+        "captureId",
+        "captureSequence",
+        "identity",
+        "generation",
+        "targetXid",
+        "scene",
+        "control",
+        "bounds",
+    }
+)
+_EXECUTOR_PROJECTION_KEYS = frozenset(
+    {
+        "availability",
+        "queueId",
+        "house",
+        "character",
+        "publishedArmed",
+        "sessionArmed",
+        "buttonVisible",
+        "buttonName",
+        "currentSeq",
+        "currentKind",
+        "phase",
+        "inFlight",
+        "clickReady",
+        "workDone",
+        "workTotal",
+        "blocked",
+        "latched",
+        "ambiguous",
+        "clickOrdinal",
+        "lastClickSource",
+        "resultCount",
+        "lastResult",
+    }
+)
+
+_MAIL_CYCLE_PHASES = frozenset(
+    {
+        "none",
+        "preparing",
+        "to_mailbox",
+        "mailbox_open",
+        "executing",
+        "awaiting_confirmation",
+        "to_auctioneer",
+        "opening_ah",
+        "complete",
+        "blocked",
+    }
+)
+_MAIL_CYCLE_TRANSITIONS = {
+    "to_mailbox": frozenset({"preparing"}),
+    "preparing": frozenset({"mailbox_open"}),
+    "mailbox_open": frozenset({"awaiting_confirmation"}),
+    # Return-route authority is minted only by accept_mail_terminal after a
+    # durable causal executor outcome has been validated.  A generic phase
+    # transition must never be sufficient to bypass that proof gate.
+    "awaiting_confirmation": frozenset({"executing"}),
+    # A callback can publish the next mail-item boundary synchronously with
+    # the started result.  That settles the owned wait without a second
+    # physical click; the next click remains separately confirmation-gated.
+    "executing": frozenset({"executing", "awaiting_confirmation"}),
+    "to_auctioneer": frozenset({"opening_ah"}),
+    "opening_ah": frozenset(),
+}
+_MAIL_CYCLE_KEYS = frozenset(
+    {
+        "phase",
+        "cycleId",
+        "ackUid",
+        "queueId",
+        "generation",
+        "leaseGeneration",
+        "admittedSeq",
+        "mailUnits",
+        "budget",
+        "completedUnits",
+        "terminalOutcomeId",
+        "lastExecutorSeq",
+        "admittedEffectiveDueAt",
+        "deadlineAt",
+        "reason",
+    }
+)
+_MAIL_BUDGET_KEYS = frozenset(
+    {
+        "mailUnits",
+        "routeToMailboxSeconds",
+        "worldClickSeconds",
+        "mailClickSeconds",
+        "mailPostconditionSeconds",
+        "routeToAuctioneerSeconds",
+        "ahReopenSeconds",
+        "safetyMarginSeconds",
+        "operationalSeconds",
+        "totalSeconds",
+    }
+)
+_MAIL_CYCLE_ARCHIVE_KEYS = frozenset(
+    {
+        "outcomeId",
+        "cycleId",
+        "ackUid",
+        "queueId",
+        "generation",
+        "leaseGeneration",
+        "admittedSeq",
+        "mailUnits",
+        "budget",
+        "completedUnits",
+        "terminalOutcomeId",
+        "lastExecutorSeq",
+        "effectiveDueAt",
+        "deadlineAt",
+        "result",
+        "reason",
+    }
+)
+
+
+def _mail_budget_record(value: MailBudget) -> dict[str, Any]:
+    if type(value) is not MailBudget:
+        raise JournalError("mail cycle budget is not an immutable MailBudget")
+    return {
+        "mailUnits": value.mail_units,
+        "routeToMailboxSeconds": value.route_to_mailbox_seconds,
+        "worldClickSeconds": value.world_click_seconds,
+        "mailClickSeconds": value.mail_click_seconds,
+        "mailPostconditionSeconds": value.mail_postcondition_seconds,
+        "routeToAuctioneerSeconds": value.route_to_auctioneer_seconds,
+        "ahReopenSeconds": value.ah_reopen_seconds,
+        "safetyMarginSeconds": value.safety_margin_seconds,
+        "operationalSeconds": value.operational_seconds,
+        "totalSeconds": value.total_seconds,
+    }
+
+
+def _validate_mail_budget(value: Any, *, expected_units: int | None = None) -> dict[str, Any]:
+    if not isinstance(value, dict) or set(value) != _MAIL_BUDGET_KEYS:
+        raise JournalError("journal mail cycle budget schema is malformed")
+    units = value["mailUnits"]
+    if isinstance(units, bool) or not isinstance(units, int) or units <= 0:
+        raise JournalError("journal mail cycle budget units are malformed")
+    if expected_units is not None and units != expected_units:
+        raise JournalError("journal mail cycle budget units disagree with the cycle")
+    numeric = tuple(key for key in _MAIL_BUDGET_KEYS if key != "mailUnits")
+    for key in numeric:
+        item = value[key]
+        if isinstance(item, bool) or not isinstance(item, (int, float)) or not math.isfinite(float(item)):
+            raise JournalError(f"journal mail cycle budget {key} is malformed")
+        if key.endswith("Seconds") and float(item) <= 0:
+            raise JournalError(f"journal mail cycle budget {key} must be positive")
+    operational = (
+        float(value["routeToMailboxSeconds"])
+        + float(value["worldClickSeconds"])
+        + units * (float(value["mailClickSeconds"]) + float(value["mailPostconditionSeconds"]))
+        + float(value["routeToAuctioneerSeconds"])
+        + float(value["ahReopenSeconds"])
+    )
+    total = operational + float(value["safetyMarginSeconds"])
+    if not math.isclose(operational, float(value["operationalSeconds"]), rel_tol=0.0, abs_tol=1e-9):
+        raise JournalError("journal mail cycle budget operational total disagrees")
+    if not math.isclose(total, float(value["totalSeconds"]), rel_tol=0.0, abs_tol=1e-9):
+        raise JournalError("journal mail cycle budget total disagrees")
+    return copy.deepcopy(value)
+
+
+@dataclass(frozen=True, slots=True)
+class MailCycleCapability:
+    """Opaque same-process authority for one admitted mailbox cycle."""
+
+    cycle_id: str
+    queue_id: str
+    admitted_seq: int
+    mail_units: int
+    budget: MailBudget
+    generation: int
+    lease_generation: int
+    deadline_monotonic: float
+
+
+def _empty_mail_cycle() -> dict[str, Any]:
+    return {
+        "phase": "none",
+        "cycleId": "",
+        "ackUid": "",
+        "queueId": "",
+        "generation": 0,
+        "leaseGeneration": 0,
+        "admittedSeq": 0,
+        "mailUnits": 0,
+        "budget": None,
+        "completedUnits": 0,
+        "terminalOutcomeId": "",
+        "lastExecutorSeq": 0,
+        "admittedEffectiveDueAt": 0.0,
+        "deadlineAt": 0.0,
+        "reason": "",
+    }
+
+
+def _validate_mail_cycle(value: Any, *, allow_none: bool = False) -> dict[str, Any] | None:
+    if value is None and allow_none:
+        return None
+    if not isinstance(value, dict) or set(value) != _MAIL_CYCLE_KEYS:
+        raise JournalError("journal mail cycle schema is malformed")
+    if not isinstance(value["phase"], str) or value["phase"] not in _MAIL_CYCLE_PHASES:
+        raise JournalError("journal mail cycle phase is malformed")
+    for key in ("cycleId", "ackUid", "queueId", "reason"):
+        if not isinstance(value[key], str):
+            raise JournalError(f"journal mail cycle {key} is malformed")
+    for key in (
+        "generation",
+        "leaseGeneration",
+        "admittedSeq",
+        "mailUnits",
+        "completedUnits",
+        "lastExecutorSeq",
+    ):
+        if isinstance(value[key], bool) or not isinstance(value[key], int) or value[key] < 0:
+            raise JournalError(f"journal mail cycle {key} is malformed")
+    if not isinstance(value["terminalOutcomeId"], str):
+        raise JournalError("journal mail cycle terminal outcome identity is malformed")
+    for key in ("admittedEffectiveDueAt", "deadlineAt"):
+        if (
+            isinstance(value[key], bool)
+            or not isinstance(value[key], (int, float))
+            or not math.isfinite(float(value[key]))
+            or float(value[key]) < 0
+        ):
+            raise JournalError(f"journal mail cycle {key} is malformed")
+    if value["phase"] == "none":
+        if value["budget"] is not None:
+            raise JournalError("empty journal mail cycle must not retain a budget")
+    else:
+        _validate_mail_budget(value["budget"], expected_units=value["mailUnits"])
+        if value["completedUnits"] > value["mailUnits"]:
+            raise JournalError("journal mail cycle completed units exceed its admitted bound")
+    if value["phase"] == "none":
+        if value != _empty_mail_cycle():
+            raise JournalError("empty journal mail cycle must use canonical defaults")
+    else:
+        if (
+            not value["cycleId"]
+            or not value["ackUid"]
+            or not value["queueId"]
+            or value["generation"] <= 0
+            or value["leaseGeneration"] <= 0
+            or value["admittedSeq"] <= 0
+            or value["mailUnits"] <= 0
+            or value["lastExecutorSeq"] < 0
+            or value["admittedEffectiveDueAt"] <= 0
+            or value["deadlineAt"] <= 0
+        ):
+            raise JournalError("nonempty journal mail cycle identity is malformed")
+    return copy.deepcopy(value)
+
+
+def _validate_mail_cycle_stage(value: Any, *, allow_none: bool = True) -> dict[str, Any] | None:
+    """Validate the bounded immutable mail outcome recovery marker."""
+
+    if value is None and allow_none:
+        return None
+    if not isinstance(value, dict) or set(value) != {"archive", "checkpoint"}:
+        raise JournalError("journal mail cycle stage schema is malformed")
+    archive = value["archive"]
+    checkpoint = value["checkpoint"]
+    if (
+        not isinstance(archive, dict)
+        or set(archive) != _MAIL_CYCLE_ARCHIVE_KEYS
+        or not isinstance(archive.get("outcomeId"), str)
+        or not archive.get("outcomeId")
+        or not isinstance(archive.get("cycleId"), str)
+        or not archive.get("cycleId")
+        or not isinstance(archive.get("ackUid"), str)
+        or not archive.get("ackUid")
+        or not isinstance(archive.get("queueId"), str)
+        or not archive.get("queueId")
+        or isinstance(archive.get("generation"), bool)
+        or not isinstance(archive.get("generation"), int)
+        or archive.get("generation") <= 0
+        or isinstance(archive.get("leaseGeneration"), bool)
+        or not isinstance(archive.get("leaseGeneration"), int)
+        or archive.get("leaseGeneration") <= 0
+        or isinstance(archive.get("admittedSeq"), bool)
+        or not isinstance(archive.get("admittedSeq"), int)
+        or archive.get("admittedSeq") <= 0
+        or isinstance(archive.get("mailUnits"), bool)
+        or not isinstance(archive.get("mailUnits"), int)
+        or archive.get("mailUnits") <= 0
+        or isinstance(archive.get("completedUnits"), bool)
+        or not isinstance(archive.get("completedUnits"), int)
+        or archive.get("completedUnits") < 0
+        or archive.get("result") not in {"complete", "blocked"}
+        or not isinstance(archive.get("reason"), str)
+        or not isinstance(checkpoint, dict)
+        or checkpoint.get("schema") != 1
+        or not isinstance(checkpoint.get("current"), dict)
+        or not isinstance(checkpoint["current"].get("mailCycle"), dict)
+    ):
+        raise JournalError("journal mail cycle stage contents are malformed")
+    cycle = _validate_mail_cycle(checkpoint["current"]["mailCycle"])
+    assert cycle is not None
+    _validate_mail_budget(archive["budget"], expected_units=archive["mailUnits"])
+    if archive["completedUnits"] > archive["mailUnits"]:
+        raise JournalError("journal mail cycle stage completed units exceed its bound")
+    for archive_key, cycle_key in (
+        ("cycleId", "cycleId"),
+        ("ackUid", "ackUid"),
+        ("queueId", "queueId"),
+        ("generation", "generation"),
+        ("leaseGeneration", "leaseGeneration"),
+        ("admittedSeq", "admittedSeq"),
+        ("mailUnits", "mailUnits"),
+        ("budget", "budget"),
+        ("completedUnits", "completedUnits"),
+        ("terminalOutcomeId", "terminalOutcomeId"),
+        ("lastExecutorSeq", "lastExecutorSeq"),
+        ("effectiveDueAt", "admittedEffectiveDueAt"),
+        ("deadlineAt", "deadlineAt"),
+    ):
+        if archive[archive_key] != cycle[cycle_key]:
+            raise JournalError("journal mail cycle stage disagrees with its checkpoint")
+    expected_phase = "complete" if archive["result"] == "complete" else "blocked"
+    if cycle["phase"] != expected_phase:
+        raise JournalError("journal mail cycle stage result disagrees with its phase")
+    expected_outcome = hashlib.sha256(
+        f"mail-cycle|{archive['cycleId']}|{archive['ackUid']}|"
+        f"{archive['admittedSeq']}|{archive['result']}".encode()
+    ).hexdigest()
+    if archive["outcomeId"] != expected_outcome:
+        raise JournalError("journal mail cycle stage outcome identity is unstable")
+    return copy.deepcopy(value)
+
+
+def _validate_executor_checkpoint(value: Any) -> None:
+    if not isinstance(value, dict) or set(value) != {"intent", "overall", "staged"}:
+        raise JournalError("journal executor checkpoint schema is malformed")
+    intent = value["intent"]
+    overall = value["overall"]
+    staged = value["staged"]
+    if intent is None and overall is None and staged is None:
+        raise JournalError("journal executor checkpoint cannot be empty")
+    if intent is not None:
+        if not isinstance(intent, dict) or set(intent) != _EXECUTOR_INTENT_KEYS:
+            raise JournalError("journal executor intent schema is malformed")
+        if (
+            not isinstance(intent["attemptId"], str)
+            or not intent["attemptId"]
+            or not isinstance(intent["queueId"], str)
+            or not intent["queueId"]
+            or isinstance(intent["seq"], bool)
+            or not isinstance(intent["seq"], int)
+            or intent["seq"] <= 0
+            or isinstance(intent["generation"], bool)
+            or not isinstance(intent["generation"], int)
+            or intent["generation"] <= 0
+            or isinstance(intent["leaseGeneration"], bool)
+            or not isinstance(intent["leaseGeneration"], int)
+            or intent["leaseGeneration"] <= 0
+            or not isinstance(intent["cycleId"], str)
+            or not isinstance(intent["confirmation"], str)
+            or intent["status"] != "pending"
+        ):
+            raise JournalError("journal executor intent identity is malformed")
+        pre_crs = intent["preCrs"]
+        if (
+            not isinstance(pre_crs, dict)
+            or set(pre_crs) != {"boot", "sequence", "crc32", "identity"}
+            or not isinstance(pre_crs["boot"], str)
+            or isinstance(pre_crs["sequence"], bool)
+            or not isinstance(pre_crs["sequence"], int)
+            or pre_crs["sequence"] <= 0
+            or isinstance(pre_crs["crc32"], bool)
+            or not isinstance(pre_crs["crc32"], int)
+            or not isinstance(pre_crs["identity"], str)
+        ):
+            raise JournalError("journal executor preCrs is malformed")
+        projection = intent["preExecutor"]
+        if not isinstance(projection, dict) or set(projection) != _EXECUTOR_PROJECTION_KEYS:
+            raise JournalError("journal executor preExecutor is malformed")
+        last = projection["lastResult"]
+        if (
+            not isinstance(last, dict)
+            or set(last) != {"seq", "kind", "status"}
+            or isinstance(last["seq"], bool)
+            or not isinstance(last["seq"], int)
+            or not isinstance(last["kind"], str)
+            or not isinstance(last["status"], str)
+        ):
+            raise JournalError("journal executor preExecutor lastResult is malformed")
+        if isinstance(intent["preClickOrdinal"], bool) or not isinstance(intent["preClickOrdinal"], int):
+            raise JournalError("journal executor preClickOrdinal is malformed")
+        arms = intent["preArms"]
+        if (
+            not isinstance(arms, dict)
+            or set(arms) != {"published", "session"}
+            or any(not isinstance(item, bool) for item in arms.values())
+        ):
+            raise JournalError("journal executor preArms is malformed")
+        evidence = intent["preEvidence"]
+        if not _valid_executor_evidence(
+            evidence,
+            require_raw=True,
+            expected_crs=pre_crs,
+            expected_executor=projection,
+        ):
+            raise JournalError("journal executor preEvidence is malformed")
+        if not isinstance(intent["anchor"], dict) or set(intent["anchor"]) != _EXECUTOR_ANCHOR_KEYS:
+            raise JournalError("journal executor anchor is malformed")
+    if overall is not None:
+        if not isinstance(overall, dict) or set(overall) != _EXECUTOR_OVERALL_KEYS:
+            raise JournalError("journal executor overall schema is malformed")
+        if (
+            not isinstance(overall["queueId"], str)
+            or not overall["queueId"]
+            or isinstance(overall["seq"], bool)
+            or not isinstance(overall["seq"], int)
+            or overall["seq"] <= 0
+            or not isinstance(overall["cycleId"], str)
+            or isinstance(overall["generation"], bool)
+            or not isinstance(overall["generation"], int)
+            or overall["generation"] <= 0
+            or isinstance(overall["leaseGeneration"], bool)
+            or not isinstance(overall["leaseGeneration"], int)
+            or overall["leaseGeneration"] <= 0
+            or overall["status"] != "in_flight"
+        ):
+            raise JournalError("journal executor overall identity is malformed")
+    if staged is not None:
+        if not isinstance(staged, dict) or set(staged) != _EXECUTOR_STAGED_KEYS:
+            raise JournalError("journal executor staged outcome schema is malformed")
+        archive = staged["archive"]
+        checkpoint = staged["checkpoint"]
+        terminal_observation = isinstance(archive, dict) and archive.get("kind") == "terminal_observation"
+        if (
+            not isinstance(archive, dict)
+            or not isinstance(archive.get("outcomeId"), str)
+            or not archive.get("outcomeId")
+            or not isinstance(archive.get("result"), str)
+            or archive.get("result")
+            not in {"dry_run", "started", "blocked", "succeeded", "failed", "refused", "skipped"}
+            or (
+                not terminal_observation
+                and (not isinstance(archive.get("attemptId"), str) or not archive.get("attemptId"))
+            )
+            or (
+                terminal_observation
+                and (
+                    not isinstance(archive.get("physicalAttemptId"), str)
+                    or not archive.get("physicalAttemptId")
+                    or not isinstance(archive.get("physicalOutcomeId"), str)
+                    or not archive.get("physicalOutcomeId")
+                )
+            )
+        ):
+            raise JournalError("journal executor staged archive is malformed")
+        if not isinstance(checkpoint, dict) or checkpoint.get("schema") != 1:
+            raise JournalError("journal executor staged checkpoint is malformed")
+        current = checkpoint.get("current")
+        if not isinstance(current, dict) or "executor" not in current:
+            raise JournalError("journal executor staged checkpoint current state is malformed")
+        nested = current.get("executor")
+        if nested is not None:
+            _validate_executor_checkpoint(nested)
+            if nested.get("staged") is not None:
+                raise JournalError("journal executor staged checkpoint is recursively staged")
+
+
+def _valid_executor_evidence(
+    value: Any,
+    *,
+    require_raw: bool,
+    expected_crs: dict[str, Any] | None = None,
+    expected_executor: dict[str, Any] | None = None,
+) -> bool:
+    if not isinstance(value, dict):
+        return False
+    base = {"sha256", "length", "crc32"}
+    allowed = base | {"rawFrameHex"}
+    if require_raw and set(value) != allowed:
+        return False
+    if not require_raw and set(value) not in (base, allowed):
+        return False
+    raw_hex = value.get("rawFrameHex")
+    decoded = None
+    if "rawFrameHex" in value:
+        if not isinstance(raw_hex, str) or len(raw_hex) != 4096:
+            return False
+        try:
+            raw = bytes.fromhex(raw_hex)
+            decoded = protocol.decode_frame(raw)
+        except (ValueError, protocol.ProtocolError):
+            return False
+        if (
+            hashlib.sha256(raw).hexdigest() != value.get("sha256")
+            or len(raw) != protocol.CAPACITY
+            or value.get("length") != protocol.CAPACITY
+            or value.get("crc32") != decoded.crc32
+        ):
+            return False
+        if expected_crs is not None and (
+            decoded.boot != expected_crs.get("boot")
+            or decoded.sequence != expected_crs.get("sequence")
+            or decoded.crc32 != expected_crs.get("crc32")
+        ):
+            return False
+        if expected_executor is not None and decoded.snapshot.value.get("executor") != expected_executor:
+            return False
+    valid = (
+        isinstance(value.get("sha256"), str)
+        and len(value["sha256"]) == 64
+        and all(char in "0123456789abcdef" for char in value["sha256"].lower())
+        and isinstance(value.get("length"), int)
+        and not isinstance(value["length"], bool)
+        and value["length"] == 2048
+        and isinstance(value.get("crc32"), int)
+        and not isinstance(value["crc32"], bool)
+    )
+    if not valid:
+        return False
+    return decoded is not None if expected_crs is not None or expected_executor is not None else True
+
+
+def _valid_executor_causal_transition(
+    pre_crs: Any,
+    pre_executor: Any,
+    post_crs: Any,
+    post_executor: Any,
+    *,
+    expected_queue: str | None = None,
+) -> bool:
+    """Validate the immutable causal identity of one executor transition."""
+
+    crs_values = (pre_crs, post_crs)
+    for value in crs_values:
+        if not isinstance(value, dict) or set(value) != {"boot", "sequence", "crc32", "identity"}:
+            return False
+        if (
+            not isinstance(value["boot"], str)
+            or not value["boot"]
+            or isinstance(value["sequence"], bool)
+            or not isinstance(value["sequence"], int)
+            or value["sequence"] <= 0
+            or isinstance(value["crc32"], bool)
+            or not isinstance(value["crc32"], int)
+            or value["crc32"] < 0
+            or not isinstance(value["identity"], str)
+            or not value["identity"]
+        ):
+            return False
+    if post_crs["boot"] != pre_crs["boot"] or post_crs["identity"] != pre_crs["identity"]:
+        return False
+    try:
+        if protocol.unsigned_delta(post_crs["sequence"], pre_crs["sequence"]) <= 0:
+            return False
+    except (TypeError, ValueError, protocol.ProtocolError):
+        return False
+    for projection in (pre_executor, post_executor):
+        if not isinstance(projection, dict) or set(projection) != _EXECUTOR_PROJECTION_KEYS:
+            return False
+        for key in ("queueId", "house", "character"):
+            if not isinstance(projection[key], str) or not projection[key]:
+                return False
+    if (
+        pre_executor["queueId"] != post_executor["queueId"]
+        or pre_executor["house"] != post_executor["house"]
+        or pre_executor["character"] != post_executor["character"]
+        or (expected_queue is not None and pre_executor["queueId"] != expected_queue)
+    ):
+        return False
+    return True
+
+
+def _valid_executor_receipt(value: Any, *, intent: dict[str, Any]) -> bool:
+    if not isinstance(value, dict):
+        return False
+    required = {
+        "action",
+        "generation",
+        "identity",
+        "admittedAnchorEvidenceHash",
+        "admittedAnchorCaptureId",
+        "admittedAnchorCaptureSequence",
+        "anchorEvidenceHash",
+        "anchorCaptureId",
+        "anchorCaptureSequence",
+        "endpoint",
+        "rateGate",
+        "clickPrecommitMonotonicNs",
+        "clickDispatchStartedMonotonicNs",
+        "pressReleaseMonotonicNs",
+        "clickAckMonotonicNs",
+        "rateRecordMonotonicNs",
+        "guardianCompleted",
+        "receiptFinalizedMonotonicNs",
+    }
+    if not required <= set(value) or value["action"] != "executor_click":
+        return False
+    endpoint = value["endpoint"]
+    times = [
+        value[key]
+        for key in (
+            "clickPrecommitMonotonicNs",
+            "clickDispatchStartedMonotonicNs",
+            "pressReleaseMonotonicNs",
+            "clickAckMonotonicNs",
+            "rateRecordMonotonicNs",
+            "receiptFinalizedMonotonicNs",
+        )
+    ]
+    return (
+        value["generation"] == intent["leaseGeneration"]
+        and value["identity"] == intent["preCrs"]["identity"]
+        and isinstance(value.get("admittedAnchorEvidenceHash"), str)
+        and len(value["admittedAnchorEvidenceHash"]) == 64
+        and all(char in "0123456789abcdef" for char in value["admittedAnchorEvidenceHash"].lower())
+        and isinstance(value.get("admittedAnchorCaptureId"), str)
+        and bool(value["admittedAnchorCaptureId"])
+        and isinstance(value.get("admittedAnchorCaptureSequence"), int)
+        and not isinstance(value["admittedAnchorCaptureSequence"], bool)
+        and value["admittedAnchorEvidenceHash"] == intent["anchor"]["evidenceHash"]
+        and value["admittedAnchorCaptureId"] == intent["anchor"]["captureId"]
+        and value["admittedAnchorCaptureSequence"] == intent["anchor"]["captureSequence"]
+        and isinstance(value.get("anchorEvidenceHash"), str)
+        and len(value["anchorEvidenceHash"]) == 64
+        and all(char in "0123456789abcdef" for char in value["anchorEvidenceHash"].lower())
+        and isinstance(value.get("anchorCaptureId"), str)
+        and bool(value["anchorCaptureId"])
+        and value["anchorEvidenceHash"] != intent["anchor"]["evidenceHash"]
+        and value["anchorCaptureId"] != intent["anchor"]["captureId"]
+        and isinstance(value["anchorCaptureSequence"], int)
+        and not isinstance(value["anchorCaptureSequence"], bool)
+        and value["anchorCaptureSequence"] > intent["anchor"]["captureSequence"]
+        and value["rateGate"] == "canonical-user-session"
+        and value["guardianCompleted"] is True
+        and isinstance(endpoint, (list, tuple))
+        and len(endpoint) == 2
+        and all(isinstance(item, int) and not isinstance(item, bool) for item in endpoint)
+        and all(isinstance(item, int) and not isinstance(item, bool) and item > 0 for item in times)
+        and times == sorted(times)
+    )
+
 
 _NATIVE_CONSTRUCTION_CHECKPOINT_KEYS = frozenset(
     {"schema", "B0", "expectedConstructorBoot", "ownerGeneration", "kind", "phase"}
@@ -196,13 +894,19 @@ class Controller:
         driver: DesktopDriver | None = None,
         clock: Callable[[], float] = time.monotonic,
         wall_clock: Callable[[], int] = lambda: int(time.time()),
-        cadence_seconds: int = 900,
-        sweep_cap_seconds: int = 600,
+        cadence_seconds: int = _TARGET.cadence_seconds,
+        sweep_cap_seconds: int = _TARGET.sweep_cap_seconds,
         reload_deadline_seconds: int = 45,
         upload_deadline_seconds: int = 60,
         ack_deadline_seconds: int = 60,
         recover_on_restart: bool = True,
     ):
+        if (
+            isinstance(cadence_seconds, bool)
+            or not isinstance(cadence_seconds, int)
+            or cadence_seconds != _TARGET.cadence_seconds
+        ):
+            raise ValueError(f"cadence_seconds must be {_TARGET.cadence_seconds}")
         self.journal = journal if isinstance(journal, Journal) else Journal(journal)
         self.driver = driver or (DesktopDriver() if recover_on_restart else _ReadOnlyDriver())
         self.clock = clock
@@ -325,6 +1029,54 @@ class Controller:
         self._reload_boot = str(current.get("reloadBoot", ""))
         self._deadline_at = int(current.get("deadlineAt", 0))
         self._evidence_meta: dict[str, Any] = current.get("evidence", {})
+        stored_mail_cycle = current.get("mailCycle", _empty_mail_cycle())
+        self._mail_cycle = _validate_mail_cycle(stored_mail_cycle)
+        if self._mail_cycle is None:
+            self._mail_cycle = _empty_mail_cycle()
+        stored_mail_cycle_stage = current.get("mailCycleStage")
+        self._mail_cycle_stage = _validate_mail_cycle_stage(stored_mail_cycle_stage)
+        self._mail_cycle_staged_archive: dict[str, Any] | None = (
+            copy.deepcopy(self._mail_cycle_stage["archive"]) if self._mail_cycle_stage is not None else None
+        )
+        self._mail_cycle_staged_checkpoint: dict[str, Any] | None = (
+            copy.deepcopy(self._mail_cycle_stage["checkpoint"])
+            if self._mail_cycle_stage is not None
+            else None
+        )
+        self._mail_cycle_capability: MailCycleCapability | None = None
+        # Terminal authority is intentionally process-local.  Durable archive
+        # bytes remain audit/recovery evidence and cannot mint a new return
+        # permission after restart.
+        self._mail_cycle_terminal_authority: str | None = None
+        self._mail_cycle_restart_blocked = bool(
+            self._mail_cycle_staged_archive
+            or self._mail_cycle["phase"] not in {"none", "complete", "blocked"}
+        )
+        stored_executor = current.get("executor")
+        if stored_executor is not None:
+            _validate_executor_checkpoint(stored_executor)
+        self._executor_intent: dict[str, Any] | None = (
+            copy.deepcopy(stored_executor.get("intent"))
+            if isinstance(stored_executor, dict) and isinstance(stored_executor.get("intent"), dict)
+            else None
+        )
+        self._executor_overall: dict[str, Any] | None = (
+            copy.deepcopy(stored_executor.get("overall"))
+            if isinstance(stored_executor, dict) and isinstance(stored_executor.get("overall"), dict)
+            else None
+        )
+        self._executor_owner_token = uuid.uuid4().hex
+        self._executor_capability: str | None = None
+        stored_staged = stored_executor.get("staged") if isinstance(stored_executor, dict) else None
+        self._executor_staged_archive: dict[str, Any] | None = (
+            copy.deepcopy(stored_staged["archive"]) if isinstance(stored_staged, dict) else None
+        )
+        self._executor_staged_checkpoint: dict[str, Any] | None = (
+            copy.deepcopy(stored_staged["checkpoint"]) if isinstance(stored_staged, dict) else None
+        )
+        self._executor_restart_blocked = bool(
+            self._executor_intent or self._executor_overall or self._executor_staged_archive
+        )
         stored_qualification_pending = value.get("qualificationPending")
         self._qualification_pending: dict[str, Any] | None = (
             copy.deepcopy(stored_qualification_pending)
@@ -409,6 +1161,35 @@ class Controller:
             self._save(last_action="restart_invalidate_calibration")
         elif restart_epoch_advanced:
             self._save(last_action="restart_epoch")
+        if recover_on_restart and self._executor_restart_blocked and self._executor_staged_archive is None:
+            # A fresh owner may never reinterpret a persisted physical click
+            # or an in-flight mail action as permission to dispatch again.
+            self._state = ControllerState.BLOCKED
+            self._resume_state = ControllerState.BLOCKED
+            self._blocker = "executor click/action survived restart; explicit reconciliation required"
+            self._save(last_action="executor_restart_blocked")
+        if recover_on_restart and self._mail_cycle["phase"] not in {"none", "complete", "blocked"}:
+            self._block_mail_cycle_locked("mail cycle survived restart; explicit reconciliation required")
+            self._state = ControllerState.BLOCKED
+            self._resume_state = ControllerState.BLOCKED
+            self._restart_uncertain = True
+            self._reconciliation_required = True
+            self._blocker = "mail cycle survived restart; explicit reconciliation required"
+            self._save(last_action="mail_cycle_restart_blocked")
+            try:
+                self._stage_mail_cycle_outcome_locked(
+                    result="blocked",
+                    reason="mail cycle survived restart; explicit reconciliation required",
+                )
+                self._publish_staged_mail_cycle_outcome_locked()
+            except Exception:
+                # The current blocked marker remains durable even when the
+                # archive boundary needs a later fresh-owner repair.
+                self._mail_cycle_restart_blocked = True
+        if self._executor_staged_archive is not None:
+            self._recover_staged_executor_outcome(recover_on_restart=recover_on_restart)
+        if self._mail_cycle_staged_archive is not None:
+            self._recover_staged_mail_cycle_outcome(recover_on_restart=recover_on_restart)
         # Do not infer a missing reference from the current frame during
         # restart.  The dispatch/expect_boot boundary is the only honest
         # source of B0; if it was absent, a save/ack transition cannot later
@@ -557,7 +1338,12 @@ class Controller:
             self._restart_reference_boot = self._frame_boot
         self._action_result = "dispatched"
 
-    def _outcome_checkpoint(self) -> dict[str, Any]:
+    def _outcome_checkpoint(
+        self,
+        *,
+        include_executor_stage: bool = True,
+        include_mail_cycle_stage: bool = True,
+    ) -> dict[str, Any]:
         """Return the bounded controller state committed with an outcome."""
 
         return {
@@ -612,8 +1398,202 @@ class Controller:
                 "reloadBoot": self._reload_boot,
                 "deadlineAt": self._deadline_at,
                 "evidence": self._bounded_evidence(self._evidence_meta),
+                "executor": self._executor_checkpoint(include_staged=include_executor_stage),
+                "mailCycle": copy.deepcopy(self._mail_cycle),
+                "mailCycleStage": (
+                    {
+                        "archive": copy.deepcopy(self._mail_cycle_staged_archive),
+                        "checkpoint": copy.deepcopy(self._mail_cycle_staged_checkpoint),
+                    }
+                    if include_mail_cycle_stage and self._mail_cycle_staged_archive is not None
+                    else None
+                ),
             },
         }
+
+    def _executor_checkpoint(self, *, include_staged: bool = True) -> dict[str, Any] | None:
+        """Return the bounded durable click/overall-action checkpoint."""
+
+        if (
+            self._executor_intent is None
+            and self._executor_overall is None
+            and self._executor_staged_archive is None
+        ):
+            return None
+        checkpoint = {
+            "intent": copy.deepcopy(self._executor_intent),
+            "overall": copy.deepcopy(self._executor_overall),
+            "staged": None,
+        }
+        if include_staged and self._executor_staged_archive is not None:
+            if not isinstance(self._executor_staged_checkpoint, dict):
+                raise JournalError("journal executor staged checkpoint is unavailable")
+            checkpoint["staged"] = {
+                "archive": copy.deepcopy(self._executor_staged_archive),
+                "checkpoint": copy.deepcopy(self._executor_staged_checkpoint),
+            }
+        _validate_executor_checkpoint(checkpoint)
+        return checkpoint
+
+    @staticmethod
+    def _preserve_operator_hold(current: dict[str, Any], checkpoint: dict[str, Any]) -> None:
+        """Keep a later operator pause/stop while replaying an older outcome."""
+
+        state = current.get("state")
+        if not current.get("stopRequested") and state not in {
+            ControllerState.PAUSED.value,
+            ControllerState.STOPPED.value,
+            ControllerState.BLOCKED.value,
+        }:
+            return
+        for key in (
+            "state",
+            "resumeState",
+            "stopRequested",
+            "closeoutRequested",
+            "restartRequiresResume",
+            "blocker",
+            "generation",
+            "leaseGeneration",
+        ):
+            if key in current:
+                checkpoint[key] = copy.deepcopy(current[key])
+
+    def _recover_staged_executor_outcome(self, *, recover_on_restart: bool) -> None:
+        """Publish a durable staged outcome without caller-supplied evidence."""
+
+        with self._mutex:
+            archive = copy.deepcopy(self._executor_staged_archive)
+            checkpoint = copy.deepcopy(self._executor_staged_checkpoint)
+            if not isinstance(archive, dict) or not isinstance(checkpoint, dict):
+                self._state = ControllerState.BLOCKED
+                self._resume_state = ControllerState.BLOCKED
+                self._blocker = "executor outcome staging is incomplete; reconciliation required"
+                self._executor_restart_blocked = True
+                return
+            current = self.journal.read()
+            self._preserve_operator_hold(current, checkpoint)
+            try:
+                self.journal.append_archive_bundle({"executor": archive}, checkpoint=checkpoint)
+            except Exception as exc:
+                self._state = ControllerState.BLOCKED
+                self._resume_state = ControllerState.BLOCKED
+                self._blocker = f"executor outcome recovery is unresolved: {exc}"
+                self._executor_restart_blocked = True
+                try:
+                    self._save(last_action="executor_outcome_recovery_blocked")
+                except Exception:
+                    pass
+                return
+            self._executor_staged_archive = None
+            self._executor_staged_checkpoint = None
+            self._executor_restart_blocked = bool(self._executor_overall)
+            if self._executor_restart_blocked and recover_on_restart:
+                self._state = ControllerState.BLOCKED
+                self._resume_state = ControllerState.BLOCKED
+                self._blocker = "executor click/action survived restart; explicit reconciliation required"
+                self._save(last_action="executor_restart_blocked")
+
+    def _recover_staged_mail_cycle_outcome(self, *, recover_on_restart: bool) -> None:
+        """Replay a complete immutable mail outcome without the old owner."""
+
+        with self._mutex:
+            archive = copy.deepcopy(self._mail_cycle_staged_archive)
+            checkpoint = copy.deepcopy(self._mail_cycle_staged_checkpoint)
+            if not isinstance(archive, dict) or not isinstance(checkpoint, dict):
+                self._mail_cycle_restart_blocked = True
+                self._state = ControllerState.BLOCKED
+                self._resume_state = ControllerState.BLOCKED
+                self._blocker = "mail cycle outcome staging is incomplete; reconciliation required"
+                return
+            current = self.journal.read()
+            self._preserve_operator_hold(current, checkpoint)
+            try:
+                self.journal.append_archive_bundle({"mail_cycle": archive}, checkpoint=checkpoint)
+            except Exception as exc:
+                self._mail_cycle_restart_blocked = True
+                self._state = ControllerState.BLOCKED
+                self._resume_state = ControllerState.BLOCKED
+                self._blocker = f"mail cycle outcome recovery is unresolved: {exc}"
+                try:
+                    self._save(last_action="mail_cycle_outcome_recovery_blocked")
+                except Exception:
+                    pass
+                return
+            self._mail_cycle_staged_archive = None
+            self._mail_cycle_staged_checkpoint = None
+            self._mail_cycle_stage = None
+            self._mail_cycle_restart_blocked = False
+            self._save(last_action="mail_cycle_outcome_recovered")
+
+    def _mail_cycle_outcome_record_locked(self, *, result: str, reason: str) -> dict[str, Any]:
+        if result not in {"complete", "blocked"} or not isinstance(reason, str):
+            raise JournalError("mail cycle outcome result is malformed")
+        outcome_id = hashlib.sha256(
+            f"mail-cycle|{self._mail_cycle['cycleId']}|{self._mail_cycle['ackUid']}|"
+            f"{self._mail_cycle['admittedSeq']}|{result}".encode()
+        ).hexdigest()
+        return {
+            "outcomeId": outcome_id,
+            "cycleId": self._mail_cycle["cycleId"],
+            "ackUid": self._mail_cycle["ackUid"],
+            "queueId": self._mail_cycle["queueId"],
+            "generation": self._mail_cycle["generation"],
+            "leaseGeneration": self._mail_cycle["leaseGeneration"],
+            "admittedSeq": self._mail_cycle["admittedSeq"],
+            "mailUnits": self._mail_cycle["mailUnits"],
+            "budget": copy.deepcopy(self._mail_cycle["budget"]),
+            "completedUnits": self._mail_cycle["completedUnits"],
+            "terminalOutcomeId": self._mail_cycle["terminalOutcomeId"],
+            "lastExecutorSeq": self._mail_cycle["lastExecutorSeq"],
+            "effectiveDueAt": self._mail_cycle["admittedEffectiveDueAt"],
+            "deadlineAt": self._mail_cycle["deadlineAt"],
+            "result": result,
+            "reason": reason,
+        }
+
+    def _stage_mail_cycle_outcome_locked(
+        self,
+        *,
+        result: str,
+        reason: str,
+        checkpoint: dict[str, Any] | None = None,
+    ) -> None:
+        """Persist the full logical outcome before publishing archive views."""
+
+        record = self._mail_cycle_outcome_record_locked(result=result, reason=reason)
+        checkpoint = copy.deepcopy(checkpoint or self._outcome_checkpoint(include_mail_cycle_stage=False))
+        current = checkpoint.setdefault("current", {})
+        current["mailCycleStage"] = None
+        self._mail_cycle_staged_archive = copy.deepcopy(record)
+        self._mail_cycle_staged_checkpoint = copy.deepcopy(checkpoint)
+        self._mail_cycle_stage = {
+            "archive": copy.deepcopy(record),
+            "checkpoint": copy.deepcopy(checkpoint),
+        }
+        _validate_mail_cycle_stage(self._mail_cycle_stage)
+        self._save(last_action=f"mail_cycle_{result}_staged")
+
+    def _publish_staged_mail_cycle_outcome_locked(self) -> dict[str, Any]:
+        archive = copy.deepcopy(self._mail_cycle_staged_archive)
+        checkpoint = copy.deepcopy(self._mail_cycle_staged_checkpoint)
+        if not isinstance(archive, dict) or not isinstance(checkpoint, dict):
+            raise JournalError("mail cycle outcome staging is unavailable")
+        published = self.journal.append_archive_bundle({"mail_cycle": archive}, checkpoint=checkpoint)
+        self._mail_cycle_staged_archive = None
+        self._mail_cycle_staged_checkpoint = None
+        self._mail_cycle_stage = None
+        # A blocked publication is durable audit evidence but remains a
+        # same-owner restart/resume fence.  Complete outcomes may proceed to
+        # ordinary reconciliation after their archive commits.
+        self._mail_cycle_restart_blocked = archive.get("result") == "blocked"
+        try:
+            self._save(last_action="mail_cycle_outcome_published")
+        except Exception:
+            # The bundle checkpoint is already authoritative; a later owner
+            # can replay it without the dead process's in-memory fields.
+            pass
+        return copy.deepcopy(published["mail_cycle"])
 
     def _calibration_gate_state(self) -> ControllerState:
         runtime_evidence = self._runtime_startup_evidence
@@ -995,12 +1975,25 @@ class Controller:
         self._save(last_action="scan_noop_rejected")
         return self.status()
 
-    def _save(self, *, last_action: str = "") -> None:
+    def _save(self, *, last_action: str = "", history_wall: float | None = None) -> None:
         with self._mutex:
+            _validate_mail_cycle(self._mail_cycle)
+            if self._mail_cycle_staged_archive is None:
+                if self._mail_cycle_staged_checkpoint is not None:
+                    raise JournalError("journal mail cycle stage checkpoint is unavailable")
+            else:
+                if not isinstance(self._mail_cycle_staged_checkpoint, dict):
+                    raise JournalError("journal mail cycle stage checkpoint is unavailable")
+                _validate_mail_cycle_stage(
+                    {
+                        "archive": self._mail_cycle_staged_archive,
+                        "checkpoint": self._mail_cycle_staged_checkpoint,
+                    }
+                )
             if last_action and last_action not in {"frame_observed", "frame_before_reload_dispatch"}:
                 self._history.append(
                     {
-                        "at": self.wall_clock(),
+                        "at": self.wall_clock() if history_wall is None else history_wall,
                         "action": last_action,
                         "state": self._state.value,
                         "generation": self._generation,
@@ -1088,6 +2081,16 @@ class Controller:
                         "reloadBoot": self._reload_boot,
                         "deadlineAt": self._deadline_at,
                         "evidence": self._bounded_evidence(self._evidence_meta),
+                        "executor": self._executor_checkpoint(),
+                        "mailCycle": copy.deepcopy(self._mail_cycle),
+                        "mailCycleStage": (
+                            {
+                                "archive": copy.deepcopy(self._mail_cycle_staged_archive),
+                                "checkpoint": copy.deepcopy(self._mail_cycle_staged_checkpoint),
+                            }
+                            if self._mail_cycle_staged_archive is not None
+                            else None
+                        ),
                     },
                 }
             )
@@ -1173,6 +2176,10 @@ class Controller:
         """Bind fresh passive evidence, then use ordinary resume/reconcile fencing."""
 
         with self._mutex:
+            if self._mail_cycle_staged_archive is not None:
+                raise RuntimeError("mail cycle outcome publication is unresolved")
+            if self._mail_cycle_restart_blocked:
+                raise RuntimeError("mail cycle restart/recovery fence is unresolved")
             if expected_generation is not None and expected_generation != self._generation:
                 raise RuntimeError("stale generation")
             if self._state not in {ControllerState.PAUSED, ControllerState.BLOCKED, ControllerState.STOPPED}:
@@ -1197,6 +2204,1487 @@ class Controller:
                 self._action_intent,
                 self._deadline_at,
             )
+
+    def mail_cycle_checkpoint(self) -> dict[str, Any]:
+        """Return the bounded durable cycle evidence without its capability."""
+
+        with self._mutex:
+            return copy.deepcopy(self._mail_cycle)
+
+    def mail_cycle_capability(self) -> MailCycleCapability | None:
+        """Return the opaque live capability for the current process only."""
+
+        with self._mutex:
+            return self._mail_cycle_capability
+
+    def observe_mail_cycle_completion(
+        self,
+        *,
+        capability: MailCycleCapability,
+        post_crs: dict[str, Any],
+        post_executor: dict[str, Any],
+        post_evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Durably consume a terminal addon result without another pointer effect."""
+
+        with self._mutex:
+            if not self._mail_cycle_capability_matches_locked(capability):
+                raise RuntimeError("mail cycle capability is stale or expired")
+            if self._mail_cycle["phase"] != "executing":
+                raise RuntimeError("mail cycle is not awaiting an executor completion")
+            overall = self._executor_overall
+            if not isinstance(overall, dict) or overall.get("cycleId") != capability.cycle_id:
+                raise RuntimeError("executor completion is not owned by this mail cycle")
+            if not isinstance(post_crs, dict) or not isinstance(post_executor, dict):
+                raise ValueError("mail completion lacks exact post-frame evidence")
+            last = post_executor.get("lastResult")
+            if (
+                not isinstance(last, dict)
+                or last.get("seq") != capability.admitted_seq
+                or last.get("kind") != "mail_collect"
+                or last.get("status") not in _EXECUTOR_TERMINAL_RESULTS
+            ):
+                raise ValueError("mail completion is not an exact terminal result")
+            if not isinstance(post_evidence, dict) or not post_evidence.get("rawFrameHex"):
+                raise ValueError("mail completion lacks durable CRS bytes")
+            prior = next(
+                (
+                    record
+                    for record in reversed(self.journal.archives("executor"))
+                    if isinstance(record, dict)
+                    and record.get("cycleId") == capability.cycle_id
+                    and record.get("seq") == capability.admitted_seq
+                    and record.get("result") == "started"
+                ),
+                None,
+            )
+            if not isinstance(prior, dict):
+                raise RuntimeError("mail completion has no prior physical attempt archive")
+            if not _valid_executor_receipt(prior.get("receipt"), intent=prior):
+                raise ValueError("mail completion prior physical receipt is malformed")
+            pre_executor = prior.get("preExecutor")
+            pre_crs = prior.get("preCrs")
+            started_executor = prior.get("postExecutor")
+            started_crs = prior.get("postCrs")
+            if (
+                not isinstance(pre_executor, dict)
+                or not isinstance(pre_crs, dict)
+                or not isinstance(started_executor, dict)
+                or not isinstance(started_crs, dict)
+            ):
+                raise RuntimeError("mail completion prior physical archive is incomplete")
+            if not _valid_executor_causal_transition(
+                pre_crs,
+                pre_executor,
+                post_crs,
+                post_executor,
+                expected_queue=capability.queue_id,
+            ):
+                raise ValueError("mail completion frame is not causally bound to its pre-frame")
+            if (
+                post_crs.get("boot") != started_crs.get("boot")
+                or post_crs.get("identity") != started_crs.get("identity")
+                or post_crs.get("boot") != pre_crs.get("boot")
+                or post_crs.get("identity") != pre_crs.get("identity")
+            ):
+                raise ValueError("mail completion changed client boot or identity")
+            try:
+                if protocol.unsigned_delta(post_crs["sequence"], started_crs["sequence"]) <= 0:
+                    raise ValueError("mail completion frame is not a fresh successor")
+            except (KeyError, TypeError, ValueError, protocol.ProtocolError) as exc:
+                raise ValueError("mail completion frame sequence is not a fresh successor") from exc
+            pre_ordinal = pre_executor.get("clickOrdinal")
+            started_ordinal = started_executor.get("clickOrdinal")
+            post_ordinal = post_executor.get("clickOrdinal")
+            pre_count = pre_executor.get("resultCount")
+            started_count = started_executor.get("resultCount")
+            post_count = post_executor.get("resultCount")
+            started_last = started_executor.get("lastResult")
+            if (
+                isinstance(pre_ordinal, bool)
+                or not isinstance(pre_ordinal, int)
+                or isinstance(started_ordinal, bool)
+                or not isinstance(started_ordinal, int)
+                or isinstance(post_ordinal, bool)
+                or not isinstance(post_ordinal, int)
+                or post_ordinal != pre_ordinal + 1
+                or started_ordinal != post_ordinal
+                or isinstance(pre_count, bool)
+                or not isinstance(pre_count, int)
+                or isinstance(started_count, bool)
+                or not isinstance(started_count, int)
+                or isinstance(post_count, bool)
+                or not isinstance(post_count, int)
+                or started_count != _expected_executor_result_count(pre_executor, pre_count)
+                or post_count != started_count
+                or not isinstance(started_last, dict)
+                or started_last.get("status") != "started"
+                or started_last.get("seq") != capability.admitted_seq
+                or started_last.get("kind") != "mail_collect"
+                or started_executor.get("inFlight") is not True
+                or started_executor.get("phase") not in {"mail_wait", "mail_items"}
+                or post_executor.get("queueId") != overall.get("queueId")
+                or post_executor.get("lastClickSource") != "button"
+            ):
+                raise ValueError("mail completion lacks causal ordinal/result counters")
+            if not _valid_executor_evidence(
+                post_evidence,
+                require_raw=True,
+                expected_crs=post_crs,
+                expected_executor=post_executor,
+            ):
+                raise ValueError("mail completion post evidence is malformed")
+            current_seq = post_executor.get("currentSeq")
+            current_kind = post_executor.get("currentKind")
+            result = str(last["status"])
+            if current_seq == 0 and current_kind == "":
+                successor_valid = post_executor.get("phase") == "complete"
+            elif current_seq == capability.admitted_seq and current_kind == "mail_collect":
+                successor_valid = post_executor.get("blocked") is True and result in {"failed", "refused"}
+            elif current_seq == capability.admitted_seq + 1 and current_kind in {
+                "buy_commodity",
+                "post_commodity",
+                "cancel_auction",
+                "vendor_sell",
+                "vendor_buy",
+                "craft",
+                "mail_collect",
+            }:
+                successor_valid = result in {"dry_run", "succeeded", "skipped"}
+            else:
+                successor_valid = False
+            if not successor_valid:
+                raise ValueError("mail completion successor is not valid")
+            outcome_id = hashlib.sha256(
+                f"mail-observation|{capability.cycle_id}|{capability.admitted_seq}|{post_crs.get('boot')}|{post_crs.get('sequence')}".encode()
+            ).hexdigest()
+            # A terminal observation is a distinct asynchronous archive, not
+            # a second physical receipt.  Copy only the causal identity and
+            # frame evidence; the durable parent remains the sole source of
+            # Guardian/pointer proof.
+            archive = {
+                key: copy.deepcopy(prior[key])
+                for key in (
+                    "queueId",
+                    "seq",
+                    "generation",
+                    "leaseGeneration",
+                    "cycleId",
+                    "preCrs",
+                    "preExecutor",
+                    "preClickOrdinal",
+                    "preArms",
+                    "anchor",
+                    "confirmation",
+                    "preEvidence",
+                )
+            }
+            archive.update(
+                {
+                    "outcomeId": outcome_id,
+                    "kind": "terminal_observation",
+                    "result": result,
+                    "postCrs": copy.deepcopy(post_crs),
+                    "postExecutor": copy.deepcopy(post_executor),
+                    "postEvidence": copy.deepcopy(post_evidence),
+                    "physicalAttemptId": prior.get("attemptId", ""),
+                    "physicalOutcomeId": prior.get("outcomeId", ""),
+                    "terminalAction": True,
+                }
+            )
+            prior_executor_capability = self._executor_capability
+            self._executor_overall = None
+            self._executor_capability = None
+            self._mail_cycle["lastExecutorSeq"] = capability.admitted_seq
+            checkpoint = self._outcome_checkpoint()
+            try:
+                published = self.journal.append_archive_bundle({"executor": archive}, checkpoint=checkpoint)
+            except Exception:
+                self._executor_overall = copy.deepcopy(overall)
+                self._executor_capability = prior_executor_capability
+                self._mail_cycle["phase"] = "executing"
+                raise
+            if result in {"failed", "refused"}:
+                # The exact terminal executor observation is archived first;
+                # the mail-cycle block then fences the ACK and revokes input.
+                self.block_mail_cycle(
+                    f"mail executor result was {result}; no route or retry is permitted",
+                    capability=capability,
+                )
+                return copy.deepcopy(published["executor"])
+            return self.accept_mail_terminal(capability=capability, outcome_id=outcome_id)
+
+    def observe_executor_completion(
+        self,
+        *,
+        continuation_capability: str,
+        post_crs: dict[str, Any],
+        post_executor: dict[str, Any],
+        post_evidence: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Archive a same-process terminal mail result without another click.
+
+        This is the standalone interaction-mode counterpart to
+        ``observe_mail_cycle_completion``.  The private continuation token is
+        process-local; durable bytes can prove what happened but cannot mint a
+        new permission after restart.
+        """
+
+        with self._mutex:
+            if (
+                not isinstance(continuation_capability, str)
+                or not continuation_capability
+                or continuation_capability != self._executor_capability
+            ):
+                raise RuntimeError("executor continuation capability is stale or unowned")
+            overall = self._executor_overall
+            if (
+                not isinstance(overall, dict)
+                or overall.get("cycleId") != ""
+                or overall.get("status") != "in_flight"
+            ):
+                raise RuntimeError("standalone executor completion is not owned")
+            if not isinstance(post_crs, dict) or not isinstance(post_executor, dict):
+                raise ValueError("executor completion lacks exact post-frame evidence")
+            last = post_executor.get("lastResult")
+            if (
+                not isinstance(last, dict)
+                or last.get("seq") != overall.get("seq")
+                or last.get("kind") != "mail_collect"
+                or last.get("status") not in _EXECUTOR_TERMINAL_RESULTS
+            ):
+                raise ValueError("executor completion is not an exact terminal result")
+            if not isinstance(post_evidence, dict) or not post_evidence.get("rawFrameHex"):
+                raise ValueError("executor completion lacks durable CRS bytes")
+            prior = next(
+                (
+                    record
+                    for record in reversed(self.journal.archives("executor"))
+                    if isinstance(record, dict)
+                    and record.get("cycleId") == ""
+                    and record.get("seq") == overall.get("seq")
+                    and record.get("result") == "started"
+                ),
+                None,
+            )
+            if not isinstance(prior, dict):
+                raise RuntimeError("executor completion has no prior physical attempt archive")
+            if not _valid_executor_receipt(prior.get("receipt"), intent=prior):
+                raise ValueError("executor completion prior physical receipt is malformed")
+            pre_executor = prior.get("preExecutor")
+            started_executor = prior.get("postExecutor")
+            started_crs = prior.get("postCrs")
+            if (
+                not isinstance(pre_executor, dict)
+                or not isinstance(started_executor, dict)
+                or not isinstance(started_crs, dict)
+            ):
+                raise RuntimeError("executor completion prior physical archive is incomplete")
+            if not _valid_executor_causal_transition(
+                prior.get("preCrs"),
+                pre_executor,
+                post_crs,
+                post_executor,
+                expected_queue=overall.get("queueId"),
+            ):
+                raise ValueError("executor completion frame is not causally bound to its pre-frame")
+            if post_crs.get("boot") != started_crs.get("boot") or post_crs.get("identity") != started_crs.get(
+                "identity"
+            ):
+                raise ValueError("executor completion changed client boot or identity")
+            try:
+                if protocol.unsigned_delta(post_crs["sequence"], started_crs["sequence"]) <= 0:
+                    raise ValueError("executor completion frame is not a fresh successor")
+            except (KeyError, TypeError, ValueError, protocol.ProtocolError) as exc:
+                raise ValueError("executor completion frame sequence is not a fresh successor") from exc
+            pre_ordinal = pre_executor.get("clickOrdinal")
+            started_ordinal = started_executor.get("clickOrdinal")
+            post_ordinal = post_executor.get("clickOrdinal")
+            pre_count = pre_executor.get("resultCount")
+            started_count = started_executor.get("resultCount")
+            post_count = post_executor.get("resultCount")
+            started_last = started_executor.get("lastResult")
+            if (
+                isinstance(pre_ordinal, bool)
+                or not isinstance(pre_ordinal, int)
+                or isinstance(started_ordinal, bool)
+                or not isinstance(started_ordinal, int)
+                or isinstance(post_ordinal, bool)
+                or not isinstance(post_ordinal, int)
+                or started_ordinal != pre_ordinal + 1
+                or post_ordinal != started_ordinal
+                or isinstance(pre_count, bool)
+                or not isinstance(pre_count, int)
+                or isinstance(started_count, bool)
+                or not isinstance(started_count, int)
+                or isinstance(post_count, bool)
+                or not isinstance(post_count, int)
+                or started_count != _expected_executor_result_count(pre_executor, pre_count)
+                or post_count != started_count
+                or not isinstance(started_last, dict)
+                or started_last.get("seq") != overall.get("seq")
+                or started_last.get("kind") != "mail_collect"
+                or started_last.get("status") != "started"
+                or started_executor.get("inFlight") is not True
+                or started_executor.get("phase") not in {"mail_wait", "mail_items"}
+                or post_executor.get("queueId") != overall.get("queueId")
+                or post_executor.get("clickOrdinal") != started_ordinal
+                or post_executor.get("resultCount") != started_count
+                or post_executor.get("lastClickSource") != "button"
+            ):
+                raise ValueError("executor completion lacks causal ordinal/result counters")
+            current_seq = post_executor.get("currentSeq")
+            current_kind = post_executor.get("currentKind")
+            status = str(last["status"])
+            if current_seq == 0 and current_kind == "":
+                successor_valid = post_executor.get("phase") == "complete"
+            elif current_seq == overall.get("seq") and current_kind == "mail_collect":
+                successor_valid = post_executor.get("blocked") is True and status in {
+                    "failed",
+                    "refused",
+                }
+            elif current_seq == overall.get("seq") + 1 and current_kind in {
+                "buy_commodity",
+                "post_commodity",
+                "cancel_auction",
+                "vendor_sell",
+                "vendor_buy",
+                "craft",
+                "mail_collect",
+            }:
+                successor_valid = status in {"dry_run", "succeeded", "skipped"}
+            else:
+                successor_valid = False
+            if not successor_valid:
+                raise ValueError("executor completion successor is not valid")
+            if not _valid_executor_evidence(
+                post_evidence,
+                require_raw=True,
+                expected_crs=post_crs,
+                expected_executor=post_executor,
+            ):
+                raise ValueError("executor completion post evidence is malformed")
+            outcome_id = hashlib.sha256(
+                f"executor-observation|{overall['queueId']}|{overall['seq']}|"
+                f"{post_crs.get('boot')}|{post_crs.get('sequence')}".encode()
+            ).hexdigest()
+            # Keep the async observation separate from the physical attempt;
+            # it must not inherit the parent's receipt or archive envelope.
+            archive = {
+                key: copy.deepcopy(prior[key])
+                for key in (
+                    "queueId",
+                    "seq",
+                    "generation",
+                    "leaseGeneration",
+                    "cycleId",
+                    "preCrs",
+                    "preExecutor",
+                    "preClickOrdinal",
+                    "preArms",
+                    "anchor",
+                    "confirmation",
+                    "preEvidence",
+                )
+            }
+            archive.update(
+                {
+                    "outcomeId": outcome_id,
+                    "kind": "terminal_observation",
+                    "result": status,
+                    "postCrs": copy.deepcopy(post_crs),
+                    "postExecutor": copy.deepcopy(post_executor),
+                    "postEvidence": copy.deepcopy(post_evidence),
+                    "physicalAttemptId": prior.get("attemptId", ""),
+                    "physicalOutcomeId": prior.get("outcomeId", ""),
+                    "terminalAction": True,
+                }
+            )
+            prior_overall = copy.deepcopy(self._executor_overall)
+            prior_capability = self._executor_capability
+            self._executor_overall = None
+            self._executor_capability = None
+            checkpoint = self._outcome_checkpoint(include_executor_stage=False)
+            self._executor_staged_archive = copy.deepcopy(archive)
+            self._executor_staged_checkpoint = copy.deepcopy(checkpoint)
+            stage_persisted = False
+            try:
+                self._save(last_action="executor_observation_staged")
+                stage_persisted = True
+                published = self.journal.append_archive_bundle({"executor": archive}, checkpoint=checkpoint)
+            except Exception:
+                if stage_persisted:
+                    self._executor_restart_blocked = True
+                else:
+                    self._executor_staged_archive = None
+                    self._executor_staged_checkpoint = None
+                    self._executor_overall = prior_overall
+                    self._executor_capability = prior_capability
+                    self._executor_restart_blocked = True
+                raise
+            self._executor_staged_archive = None
+            self._executor_staged_checkpoint = None
+            self._executor_restart_blocked = False
+            if status in {"failed", "refused"}:
+                self.block(f"standalone mail executor result was {status}; no retry is permitted")
+            return copy.deepcopy(published["executor"])
+
+    def _block_mail_cycle_locked(self, reason: str) -> None:
+        """Close a live mailbox capability without performing a second revoke."""
+
+        if self._mail_cycle["phase"] in {"none", "complete", "blocked"}:
+            return
+        self._mail_cycle["phase"] = "blocked"
+        self._mail_cycle["reason"] = reason
+        self._mail_cycle_capability = None
+        self._mail_cycle_restart_blocked = True
+        self._deadline = 0.0
+        self._deadline_at = 0
+
+    def _publish_blocked_mail_cycle_locked(self, reason: str) -> None:
+        """Durably publish a blocked cycle, including control-error paths."""
+
+        if self._mail_cycle["phase"] != "blocked" or not self._mail_cycle.get("ackUid"):
+            return
+        if self._mail_cycle_staged_archive is None and not self.mail_cycle_ack_seen(
+            self._mail_cycle["ackUid"]
+        ):
+            self._stage_mail_cycle_outcome_locked(result="blocked", reason=reason)
+        if self._mail_cycle_staged_archive is not None:
+            self._publish_staged_mail_cycle_outcome_locked()
+
+    def _record_mail_cycle_control_failure_locked(self, reason: str) -> None:
+        """Fence and archive a cycle when a control revoke itself fails."""
+
+        self._state = ControllerState.BLOCKED
+        self._resume_state = ControllerState.BLOCKED
+        self._restart_uncertain = True
+        self._reconciliation_required = True
+        self._blocker = reason
+        guardian = getattr(self.driver, "guardian", None)
+        if guardian is not None and isinstance(getattr(guardian, "generation", None), int):
+            self._lease_generation = guardian.generation
+        self._publish_blocked_mail_cycle_locked(reason)
+
+    def _fence_mail_cycle_admission_failure_locked(self, reason: str) -> None:
+        """Turn an uncertain first checkpoint into a durable blocked owner."""
+
+        if self._mail_cycle["phase"] in {"none", "complete", "blocked"}:
+            return
+        self._mail_cycle["phase"] = "blocked"
+        self._mail_cycle["reason"] = reason
+        self._mail_cycle_capability = None
+        self._mail_cycle_restart_blocked = True
+        self._state = ControllerState.BLOCKED
+        self._resume_state = ControllerState.BLOCKED
+        self._mode = SessionMode.INTERACTION
+        self._restart_uncertain = True
+        self._reconciliation_required = True
+        self._deadline = 0.0
+        self._deadline_at = 0
+        self._blocker = reason
+        self._planned_revoke = True
+        revoke_error: Exception | None = None
+        try:
+            self._lease_generation = self.driver.revoke(reason)
+        except Exception as exc:
+            revoke_error = exc
+            guardian = getattr(self.driver, "guardian", None)
+            if guardian is not None and isinstance(getattr(guardian, "generation", None), int):
+                self._lease_generation = guardian.generation
+        finally:
+            self._planned_revoke = False
+        publish_error: Exception | None = None
+        try:
+            # Even a failed Guardian release must leave a durable blocked ACK;
+            # otherwise the next tick could interpret the failed admission as
+            # an ordinary defer and retry an uncertain cycle.
+            self._publish_blocked_mail_cycle_locked(reason)
+        except Exception as exc:
+            publish_error = exc
+            self._mail_cycle_restart_blocked = True
+        if revoke_error is not None:
+            if publish_error is not None:
+                raise RuntimeError(
+                    "mail cycle admission revoke failed "
+                    f"({revoke_error}); blocked publication failed ({publish_error})"
+                ) from revoke_error
+            raise revoke_error
+        if publish_error is not None:
+            raise publish_error
+
+    def _mail_cycle_capability_matches_locked(self, capability: MailCycleCapability) -> bool:
+        return (
+            isinstance(capability, MailCycleCapability)
+            and capability is self._mail_cycle_capability
+            and self._mail_cycle["phase"] not in {"none", "complete", "blocked"}
+            and capability.cycle_id == self._mail_cycle["cycleId"]
+            and capability.queue_id == self._mail_cycle["queueId"]
+            and capability.admitted_seq == self._mail_cycle["admittedSeq"]
+            and capability.generation == self._generation
+            and capability.lease_generation == self._lease_generation
+            and self.clock() < capability.deadline_monotonic
+        )
+
+    def begin_mail_cycle(
+        self,
+        *,
+        decision: Any,
+        ack_loaded_uid: str,
+        status_last_uid: str,
+        wire_ack_uids: list[str] | tuple[str, ...],
+        queue_id: str,
+        seq: int,
+        house: str,
+        character: str,
+        snapshot: protocol.Snapshot,
+        binding: MailLoopBinding,
+        bounds: MailOperationBounds,
+        expected_generation: int | None = None,
+        expected_lease_generation: int | None = None,
+    ) -> MailCycleCapability:
+        """Atomically admit one pure-policy mail decision into interaction mode."""
+
+        with self._mutex:
+            if self._mail_cycle_staged_archive is not None:
+                raise RuntimeError("mail cycle outcome publication is unresolved")
+            if expected_generation is not None and expected_generation != self._generation:
+                raise RuntimeError("stale mail cycle generation")
+            if self._mail_cycle["phase"] not in {"none", "complete", "blocked"}:
+                raise RuntimeError("another mail cycle owns interaction admission")
+            if self._mail_cycle["phase"] == "blocked" and self._mail_cycle.get("ackUid") == ack_loaded_uid:
+                raise RuntimeError("the blocked mail cycle ACK cannot be retried")
+            if self._mail_cycle["phase"] == "blocked" and self._mail_cycle.get("ackUid"):
+                if not self.mail_cycle_ack_seen(self._mail_cycle["ackUid"]):
+                    raise RuntimeError("blocked mail cycle publication is unresolved")
+            if self._state is not ControllerState.WAIT_DUE or self._mode is not SessionMode.REPEAT:
+                raise RuntimeError("mail cycle requires repeat WAIT_DUE")
+            if self._stop_requested or self._closeout_requested or self._restart_uncertain:
+                raise RuntimeError("mail cycle has an unresolved controller boundary")
+            if self._reconciliation_required or self._pending or self._action_intent:
+                raise RuntimeError("mail cycle has unresolved controller work")
+            if self._executor_intent is not None or self._executor_overall is not None:
+                raise RuntimeError("mail cycle has unresolved executor work")
+            lease_generation = self._lease_generation
+            if expected_lease_generation is not None and expected_lease_generation != lease_generation:
+                raise RuntimeError("stale mail cycle lease generation")
+            guardian = getattr(self.driver, "guardian", None)
+            if (
+                guardian is None
+                or not getattr(guardian, "armed", False)
+                or getattr(guardian, "generation", 0) != lease_generation
+            ):
+                raise RuntimeError("mail cycle requires the current armed lease")
+            if (
+                not getattr(decision, "admitted", False)
+                or getattr(decision, "queue_id", None) != queue_id
+                or getattr(decision, "admitted_seq", None) != seq
+                or not isinstance(getattr(decision, "ack_uid", None), str)
+                or not getattr(decision, "ack_uid", "")
+            ):
+                raise RuntimeError("mail cycle decision is not the exact current action")
+            current_ack = self._evidence_meta.get("ackLoadedUID", "")
+            if current_ack != ack_loaded_uid or self._last_uid != status_last_uid:
+                raise RuntimeError("mail cycle ACK is not the controller-owned current evidence")
+            if type(snapshot) is not protocol.Snapshot:
+                raise RuntimeError("mail cycle requires a validated protocol Snapshot")
+            if type(binding) is not MailLoopBinding or type(bounds) is not MailOperationBounds:
+                raise RuntimeError("mail cycle admission policy inputs are malformed")
+            if (
+                not isinstance(ack_loaded_uid, str)
+                or not isinstance(status_last_uid, str)
+                or not ack_loaded_uid
+                or ack_loaded_uid != status_last_uid
+                or ack_loaded_uid != decision.ack_uid
+                or not isinstance(wire_ack_uids, (list, tuple))
+                or tuple(wire_ack_uids) != tuple(snapshot.value.get("loaded", {}).get("ackedIds", ()))
+                or ack_loaded_uid not in snapshot.value.get("loaded", {}).get("ackedIds", ())
+            ):
+                raise RuntimeError("mail cycle ACK evidence is not exact")
+            # Capture one coherent clock pair before rebuilding the live
+            # policy boundary. Re-reading wall time after policy admission
+            # could turn a rollback into extra operation authority.
+            admission_wall = float(self.wall_clock())
+            admission_monotonic = float(self.clock())
+            if not math.isfinite(admission_wall) or not math.isfinite(admission_monotonic):
+                raise RuntimeError("mail cycle admission clocks are not finite")
+            live_seen = frozenset(
+                record.get("ackUid")
+                for record in self.journal.archives("mail_cycle")
+                if isinstance(record, dict) and isinstance(record.get("ackUid"), str) and record.get("ackUid")
+            )
+            live_boundary = MailLoopBoundary(
+                generation=self._generation,
+                session_mode=self._mode.value,
+                repeat_phase=self._state.value,
+                ack_loaded_uid=str(current_ack),
+                status_last_uid=self._last_uid,
+                seen_ack_uids=live_seen,
+                unresolved_action=bool(
+                    self._action_intent or self._executor_intent or self._executor_overall
+                ),
+                reconciliation_pending=self._reconciliation_required,
+                stop_requested=self._stop_requested,
+                closeout_pending=self._closeout_requested,
+                last_actual_start_at=(float(self._started_at) if self._started_at > 0 else None),
+                now=admission_wall,
+            )
+            live_decision = admit_mail_cycle(snapshot, binding, live_boundary, bounds)
+            if not live_decision.admitted or live_decision != decision:
+                raise RuntimeError("mail cycle policy decision changed before atomic admission")
+            if self.mail_cycle_ack_seen(ack_loaded_uid):
+                raise RuntimeError("mail cycle ACK has already reached a terminal outcome")
+            if (
+                not isinstance(queue_id, str)
+                or not queue_id
+                or not isinstance(house, str)
+                or not house
+                or not isinstance(character, str)
+                or not character
+                or isinstance(seq, bool)
+                or not isinstance(seq, int)
+                or seq <= 0
+            ):
+                raise RuntimeError("mail cycle queue identity is malformed")
+            effective_due = getattr(decision, "effective_due_at", None)
+            deadline_wall = getattr(decision, "completion_deadline_at", None)
+            if (
+                isinstance(effective_due, bool)
+                or not isinstance(effective_due, (int, float))
+                or not math.isfinite(float(effective_due))
+                or float(effective_due) <= 0
+                or isinstance(deadline_wall, bool)
+                or not isinstance(deadline_wall, (int, float))
+                or not math.isfinite(float(deadline_wall))
+                or float(deadline_wall) <= admission_wall
+            ):
+                raise RuntimeError("mail cycle deadline is not finite and positive")
+            remaining = float(deadline_wall) - admission_wall
+            budget = getattr(decision, "budget", None)
+            if type(budget) is not MailBudget or not isinstance(
+                getattr(budget, "total_seconds", None), (int, float)
+            ):
+                raise RuntimeError("mail cycle decision has no finite operation budget")
+            budget_record = _mail_budget_record(budget)
+            _validate_mail_budget(budget_record, expected_units=int(decision.mail_units))
+            if admission_wall + float(budget.total_seconds) > float(effective_due):
+                raise RuntimeError("mail cycle operation budget no longer fits its due boundary")
+            deadline_monotonic = admission_monotonic + remaining
+            if not math.isfinite(deadline_monotonic) or deadline_monotonic <= admission_monotonic:
+                raise RuntimeError("mail cycle deadline has expired")
+            cycle_id = uuid.uuid4().hex
+            self._mail_cycle = {
+                "phase": "to_mailbox",
+                "cycleId": cycle_id,
+                "ackUid": ack_loaded_uid,
+                "queueId": queue_id,
+                "generation": self._generation,
+                "leaseGeneration": lease_generation,
+                "admittedSeq": seq,
+                "mailUnits": int(decision.mail_units),
+                "budget": budget_record,
+                "completedUnits": 0,
+                "terminalOutcomeId": "",
+                "lastExecutorSeq": 0,
+                "admittedEffectiveDueAt": float(effective_due),
+                "deadlineAt": float(deadline_wall),
+                "reason": "",
+            }
+            _validate_mail_cycle(self._mail_cycle)
+            self._mail_cycle_capability = MailCycleCapability(
+                cycle_id=cycle_id,
+                queue_id=queue_id,
+                admitted_seq=seq,
+                mail_units=int(decision.mail_units),
+                budget=budget,
+                generation=self._generation,
+                lease_generation=lease_generation,
+                deadline_monotonic=deadline_monotonic,
+            )
+            self._mail_cycle_terminal_authority = None
+            self._mode = SessionMode.INTERACTION
+            self._state = ControllerState.READY
+            self._resume_state = ControllerState.WAIT_DUE
+            self._deadline = deadline_monotonic
+            self._deadline_at = int(float(deadline_wall))
+            self._blocker = ""
+            try:
+                self._save(last_action="mail_cycle_begin", history_wall=admission_wall)
+            except Exception as exc:
+                # The write may have replaced the journal before surfacing an
+                # error.  Never restore WAIT_DUE or let the next tick scan:
+                # fence this exact candidate, revoke the owner, and publish a
+                # stable blocked ACK.  A fresh owner therefore sees either
+                # the blocked checkpoint or the still-live nonterminal marker,
+                # both of which refuse automatic admission.
+                try:
+                    self._fence_mail_cycle_admission_failure_locked(str(exc))
+                except Exception as fence_exc:
+                    # The fence routine has already attempted revoke and the
+                    # blocked staging/publication path before surfacing its
+                    # control error.  Preserve that concrete exception type
+                    # (not a generic wrapper) so callers can distinguish the
+                    # Guardian failure while the durable blocked ACK remains
+                    # the recovery authority.
+                    raise fence_exc from exc
+                raise
+            return self._mail_cycle_capability
+
+    def transition_mail_cycle(
+        self,
+        phase: str,
+        *,
+        capability: MailCycleCapability,
+        last_executor_seq: int | None = None,
+    ) -> dict[str, Any]:
+        with self._mutex:
+            if phase not in _MAIL_CYCLE_PHASES - {"none", "complete", "blocked"}:
+                raise ValueError("mail cycle phase is not a live transition")
+            if not self._mail_cycle_capability_matches_locked(capability):
+                raise RuntimeError("mail cycle capability is stale or expired")
+            current_phase = self._mail_cycle["phase"]
+            if phase not in _MAIL_CYCLE_TRANSITIONS.get(current_phase, frozenset()):
+                raise RuntimeError(f"mail cycle phase cannot transition {current_phase}->{phase}")
+            if last_executor_seq is not None:
+                if isinstance(last_executor_seq, bool) or not isinstance(last_executor_seq, int):
+                    raise ValueError("mail cycle executor sequence is malformed")
+                if last_executor_seq != self._mail_cycle["admittedSeq"]:
+                    raise ValueError("mail cycle executor sequence is not the admitted sequence")
+                self._mail_cycle["lastExecutorSeq"] = last_executor_seq
+            self._mail_cycle["phase"] = phase
+            _validate_mail_cycle(self._mail_cycle)
+            try:
+                self._save(last_action=f"mail_cycle_{phase}")
+            except Exception:
+                self._mail_cycle["phase"] = current_phase
+                self._mail_cycle_capability = None
+                self._mail_cycle_restart_blocked = True
+                raise
+            return copy.deepcopy(self._mail_cycle)
+
+    def _validate_mail_terminal_archive_locked(
+        self, capability: MailCycleCapability, outcome_id: str
+    ) -> dict[str, Any]:
+        """Validate one already durable causal executor terminal outcome.
+
+        This is deliberately archive-backed: a caller cannot manufacture
+        return authority by passing a receipt or projection to the controller.
+        The raw post frame remains the source of the terminal sequence/kind,
+        successor, click ordinal, and result-count witnesses.
+        """
+
+        if not isinstance(outcome_id, str) or not outcome_id:
+            raise ValueError("mail terminal outcome identity is malformed")
+        record = next(
+            (
+                item
+                for item in reversed(self.journal.archives("executor"))
+                if isinstance(item, dict) and item.get("outcomeId") == outcome_id
+            ),
+            None,
+        )
+        if not isinstance(record, dict):
+            raise RuntimeError("mail terminal outcome is not durably archived")
+        if (
+            record.get("cycleId") != capability.cycle_id
+            or record.get("queueId") != capability.queue_id
+            or record.get("seq") != capability.admitted_seq
+            or record.get("generation") != capability.generation
+            or record.get("leaseGeneration") != capability.lease_generation
+            or record.get("result") not in {"dry_run", "succeeded"}
+            or record.get("terminalAction") is not True
+        ):
+            raise RuntimeError("mail terminal outcome identity or result is not exact")
+        post_crs = record.get("postCrs")
+        post_executor = record.get("postExecutor")
+        post_evidence = record.get("postEvidence")
+        pre_crs = record.get("preCrs")
+        pre_executor = record.get("preExecutor")
+        pre_evidence = record.get("preEvidence")
+        if (
+            not isinstance(post_crs, dict)
+            or not isinstance(post_executor, dict)
+            or not isinstance(post_evidence, dict)
+            or not isinstance(pre_crs, dict)
+            or not isinstance(pre_executor, dict)
+            or not isinstance(pre_evidence, dict)
+        ):
+            raise RuntimeError("mail terminal outcome lacks complete pre/post evidence")
+        if not _valid_executor_evidence(
+            pre_evidence,
+            require_raw=True,
+            expected_crs=pre_crs,
+            expected_executor=pre_executor,
+        ):
+            raise RuntimeError("mail terminal outcome pre evidence is malformed")
+        if record.get("kind") == "terminal_observation":
+            physical_outcome_id = record.get("physicalOutcomeId")
+            physical_attempt_id = record.get("physicalAttemptId")
+            parent = next(
+                (
+                    item
+                    for item in reversed(self.journal.archives("executor"))
+                    if isinstance(item, dict) and item.get("outcomeId") == physical_outcome_id
+                ),
+                None,
+            )
+            if (
+                not isinstance(physical_outcome_id, str)
+                or not physical_outcome_id
+                or not isinstance(physical_attempt_id, str)
+                or not physical_attempt_id
+                or not isinstance(parent, dict)
+                or parent.get("result") != "started"
+                or parent.get("attemptId") != physical_attempt_id
+                or parent.get("cycleId") != record.get("cycleId")
+                or parent.get("queueId") != record.get("queueId")
+                or parent.get("seq") != record.get("seq")
+                or parent.get("generation") != record.get("generation")
+                or parent.get("leaseGeneration") != record.get("leaseGeneration")
+                or any(record.get(key) != parent.get(key) for key in ("preCrs", "preExecutor", "preEvidence"))
+                or "receipt" in record
+                or not _valid_executor_receipt(parent.get("receipt"), intent=parent)
+            ):
+                raise RuntimeError("mail terminal outcome physical proof is not exact")
+        elif not _valid_executor_receipt(record.get("receipt"), intent=record):
+            raise RuntimeError("mail terminal outcome receipt is malformed")
+        if not _valid_executor_causal_transition(
+            pre_crs,
+            pre_executor,
+            post_crs,
+            post_executor,
+            expected_queue=capability.queue_id,
+        ):
+            raise RuntimeError("mail terminal outcome is not causally bound to its pre-frame")
+        last = post_executor.get("lastResult")
+        if (
+            not isinstance(last, dict)
+            or last.get("seq") != capability.admitted_seq
+            or last.get("kind") != "mail_collect"
+            or last.get("status") != record.get("result")
+        ):
+            raise RuntimeError("mail terminal outcome is not the admitted terminal action")
+        pre_ordinal = pre_executor.get("clickOrdinal")
+        post_ordinal = post_executor.get("clickOrdinal")
+        pre_count = pre_executor.get("resultCount")
+        post_count = post_executor.get("resultCount")
+        if (
+            isinstance(pre_ordinal, bool)
+            or not isinstance(pre_ordinal, int)
+            or isinstance(post_ordinal, bool)
+            or not isinstance(post_ordinal, int)
+            or post_ordinal != pre_ordinal + 1
+            or isinstance(pre_count, bool)
+            or not isinstance(pre_count, int)
+            or isinstance(post_count, bool)
+            or not isinstance(post_count, int)
+            or post_count != _expected_executor_result_count(pre_executor, pre_count)
+            or post_executor.get("lastClickSource") != "button"
+        ):
+            raise RuntimeError("mail terminal outcome lacks causal click counters")
+        current_seq = post_executor.get("currentSeq")
+        current_kind = post_executor.get("currentKind")
+        if current_seq == 0 and current_kind == "":
+            successor_valid = post_executor.get("phase") == "complete"
+        elif current_seq == capability.admitted_seq + 1 and current_kind in {
+            "buy_commodity",
+            "post_commodity",
+            "cancel_auction",
+            "vendor_sell",
+            "vendor_buy",
+            "craft",
+            "mail_collect",
+        }:
+            successor_valid = post_executor.get("phase") == "ready" and post_executor.get("inFlight") is False
+        else:
+            successor_valid = False
+        if not successor_valid:
+            raise RuntimeError("mail terminal outcome successor is not valid")
+        if not _valid_executor_evidence(
+            post_evidence,
+            require_raw=True,
+            expected_crs=post_crs,
+            expected_executor=post_executor,
+        ):
+            raise RuntimeError("mail terminal outcome raw evidence is malformed")
+        return copy.deepcopy(record)
+
+    def accept_mail_terminal(self, *, capability: MailCycleCapability, outcome_id: str) -> dict[str, Any]:
+        """Mint return-route authority from one durable terminal executor proof."""
+
+        with self._mutex:
+            if not self._mail_cycle_capability_matches_locked(capability):
+                raise RuntimeError("mail cycle capability is stale or expired")
+            if self._mail_cycle["phase"] not in {"awaiting_confirmation", "executing"}:
+                raise RuntimeError("mail cycle is not awaiting a terminal executor outcome")
+            archive = self._validate_mail_terminal_archive_locked(capability, outcome_id)
+            prior_cycle = copy.deepcopy(self._mail_cycle)
+            prior_authority = self._mail_cycle_terminal_authority
+            self._mail_cycle["phase"] = "to_auctioneer"
+            self._mail_cycle["terminalOutcomeId"] = outcome_id
+            self._mail_cycle["lastExecutorSeq"] = capability.admitted_seq
+            self._mail_cycle_terminal_authority = outcome_id
+            try:
+                _validate_mail_cycle(self._mail_cycle)
+                self._save(last_action="mail_cycle_terminal_accepted")
+            except Exception:
+                self._mail_cycle = prior_cycle
+                self._mail_cycle_terminal_authority = prior_authority
+                raise
+            return archive
+
+    def record_mail_cycle_progress(
+        self,
+        *,
+        capability: MailCycleCapability,
+        executor: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Persist only causal progress from the owned executor frame."""
+
+        with self._mutex:
+            if not self._mail_cycle_capability_matches_locked(capability):
+                raise RuntimeError("mail cycle capability is stale or expired")
+            if not isinstance(executor, dict):
+                raise ValueError("mail cycle progress frame is malformed")
+            queue_id = executor.get("queueId")
+            work_done = executor.get("workDone")
+            work_total = executor.get("workTotal")
+            if (
+                isinstance(work_done, bool)
+                or not isinstance(work_done, int)
+                or isinstance(work_total, bool)
+                or not isinstance(work_total, int)
+                or work_done < 0
+            ):
+                raise ValueError("mail cycle progress bounds are malformed")
+            last = executor.get("lastResult")
+            status = last.get("status") if isinstance(last, dict) else ""
+            seq = last.get("seq") if isinstance(last, dict) else None
+            kind = last.get("kind") if isinstance(last, dict) else None
+            if (
+                not isinstance(last, dict)
+                or seq != capability.admitted_seq
+                or kind != "mail_collect"
+                or status not in {"started", *_EXECUTOR_TERMINAL_RESULTS}
+            ):
+                raise ValueError("mail cycle progress result is not the admitted action")
+            terminal = (
+                status in _EXECUTOR_TERMINAL_RESULTS
+                and seq == capability.admitted_seq
+                and kind == "mail_collect"
+            )
+            if (
+                (queue_id != capability.queue_id and not terminal)
+                or (work_total <= 0 and not terminal)
+                or work_done > work_total
+                or (work_total > capability.mail_units and not terminal)
+            ):
+                raise ValueError("mail cycle progress bounds are malformed")
+            if terminal:
+                # ``mailUnits`` is the admitted maxMessages upper bound, not
+                # an observed inbox count.  A dry-run can collect zero and a
+                # real inbox can contain fewer messages; retain only the
+                # causal progress published by the addon frame.
+                completed = work_done
+            else:
+                completed = work_done
+            if completed < self._mail_cycle["completedUnits"]:
+                # A successful terminal callback advances the addon action
+                # before publishing its successor.  That transition clears
+                # the native mail counters, so a terminal frame may truthfully
+                # report workDone=0 after earlier mail_items progress.  Keep
+                # the already durable observed count; never infer additional
+                # units from the reset.  Failed/refused/started frames and
+                # malformed successors remain strict regressions.
+                current_seq = executor.get("currentSeq")
+                current_kind = executor.get("currentKind")
+                successor_reset = (
+                    terminal
+                    and status in {"dry_run", "succeeded"}
+                    and work_done == 0
+                    and executor.get("inFlight") is False
+                    and (
+                        (current_seq == 0 and current_kind == "" and executor.get("phase") == "complete")
+                        or (
+                            current_seq == capability.admitted_seq + 1
+                            and current_kind
+                            in {
+                                "buy_commodity",
+                                "post_commodity",
+                                "cancel_auction",
+                                "vendor_sell",
+                                "vendor_buy",
+                                "craft",
+                                "mail_collect",
+                            }
+                            and executor.get("phase") == "ready"
+                        )
+                    )
+                )
+                if not successor_reset:
+                    raise ValueError("mail cycle progress regressed")
+                completed = self._mail_cycle["completedUnits"]
+            self._mail_cycle["completedUnits"] = min(capability.mail_units, completed)
+            _validate_mail_cycle(self._mail_cycle)
+            self._save(last_action="mail_cycle_progress")
+            return copy.deepcopy(self._mail_cycle)
+
+    def block_mail_cycle(
+        self, reason: str, *, capability: MailCycleCapability | None = None
+    ) -> ControllerStatus:
+        with self._mutex:
+            if not isinstance(reason, str) or not reason:
+                raise ValueError("mail cycle block reason is required")
+            if capability is not None and (
+                not isinstance(capability, MailCycleCapability)
+                or capability.cycle_id != self._mail_cycle.get("cycleId")
+                or capability.generation != self._generation
+                or capability.lease_generation != self._lease_generation
+            ):
+                raise RuntimeError("mail cycle capability is stale")
+            if self._mail_cycle["phase"] in {"none", "complete", "blocked"}:
+                return self.status()
+            self._mail_cycle["phase"] = "blocked"
+            self._mail_cycle["reason"] = reason
+            self._mail_cycle_capability = None
+            self._mail_cycle_terminal_authority = None
+            self._mail_cycle_restart_blocked = True
+            self._planned_revoke = True
+            revoke_error: Exception | None = None
+            try:
+                self._lease_generation = self.driver.revoke(reason)
+            except Exception as exc:
+                # Guardian release/revoke failures are themselves an
+                # uncertain boundary.  Preserve the blocked ACK before
+                # re-raising so a later owner cannot infer permission from a
+                # missing archive.
+                revoke_error = exc
+                guardian = getattr(self.driver, "guardian", None)
+                if guardian is not None and isinstance(getattr(guardian, "generation", None), int):
+                    self._lease_generation = guardian.generation
+            finally:
+                self._planned_revoke = False
+            self._state = ControllerState.BLOCKED
+            self._resume_state = ControllerState.BLOCKED
+            self._mode = SessionMode.INTERACTION
+            self._reconciliation_required = True
+            self._restart_uncertain = True
+            self._deadline = 0.0
+            self._deadline_at = 0
+            self._blocker = reason
+            self._publish_blocked_mail_cycle_locked(reason)
+            if revoke_error is not None:
+                raise revoke_error
+            return self.status()
+
+    def complete_mail_cycle(
+        self,
+        *,
+        capability: MailCycleCapability,
+        ah_open_proof: dict[str, Any],
+    ) -> dict[str, Any]:
+        with self._mutex:
+            if not self._mail_cycle_capability_matches_locked(capability):
+                raise RuntimeError("mail cycle capability is stale or expired")
+            if self._mail_cycle["phase"] != "opening_ah":
+                raise RuntimeError("mail cycle is not ready for completion")
+            terminal_outcome_id = self._mail_cycle.get("terminalOutcomeId")
+            if (
+                not isinstance(terminal_outcome_id, str)
+                or not terminal_outcome_id
+                or terminal_outcome_id != self._mail_cycle_terminal_authority
+                or self._mail_cycle.get("lastExecutorSeq") != capability.admitted_seq
+            ):
+                raise RuntimeError("mail cycle completion lacks accepted terminal executor proof")
+            if (
+                not isinstance(ah_open_proof, dict)
+                or set(ah_open_proof)
+                != {"fresh", "ahOpen", "mailOpen", "identity", "generation", "leaseGeneration"}
+                or ah_open_proof.get("fresh") is not True
+                or ah_open_proof.get("ahOpen") is not True
+                or ah_open_proof.get("mailOpen") is not False
+                or not isinstance(ah_open_proof.get("identity"), str)
+                or not ah_open_proof.get("identity")
+                or ah_open_proof.get("generation") != self._generation
+                or ah_open_proof.get("leaseGeneration") != self._lease_generation
+            ):
+                raise RuntimeError("mail cycle completion lacks a fresh AH-open/mail-closed proof")
+            self._mail_cycle["phase"] = "complete"
+            self._mail_cycle_capability = None
+            self._mail_cycle_terminal_authority = None
+            self._mail_cycle_restart_blocked = True
+            self._generation += 1
+            self._mode = SessionMode.REPEAT
+            self._state = ControllerState.PAUSED
+            self._resume_state = ControllerState.WAIT_DUE
+            self._reconciliation_required = True
+            self._restart_uncertain = False
+            self._blocker = "mail cycle complete; explicit resume required"
+            self._deadline = 0.0
+            self._deadline_at = 0
+            checkpoint = self._outcome_checkpoint()
+            # Stage the complete immutable logical payload before the archive
+            # bundle.  A publication failure therefore never rewrites success
+            # as a blocked record and a fresh owner can replay this exact data.
+            self._stage_mail_cycle_outcome_locked(result="complete", reason="", checkpoint=checkpoint)
+            try:
+                published = self._publish_staged_mail_cycle_outcome_locked()
+            except Exception:
+                self._mail_cycle_restart_blocked = True
+                self._state = ControllerState.BLOCKED
+                self._resume_state = ControllerState.BLOCKED
+                self._reconciliation_required = True
+                self._restart_uncertain = True
+                self._blocker = "mail cycle completion publication failed"
+                raise
+            self._planned_revoke = True
+            try:
+                self._lease_generation = self.driver.revoke("mail cycle complete")
+            except Exception as exc:
+                # The complete logical outcome is already durable.  A failed
+                # lease release therefore becomes a blocked reconciliation
+                # boundary, never permission to route or click again.
+                self._mail_cycle_restart_blocked = True
+                self._state = ControllerState.BLOCKED
+                self._resume_state = ControllerState.BLOCKED
+                self._reconciliation_required = True
+                self._restart_uncertain = True
+                self._blocker = f"mail cycle completion revoke failed: {exc}"
+                guardian = getattr(self.driver, "guardian", None)
+                if guardian is not None and isinstance(getattr(guardian, "generation", None), int):
+                    self._lease_generation = guardian.generation
+                try:
+                    self._save(last_action="mail_cycle_complete_revoke_failed")
+                except Exception:
+                    pass
+                raise
+            finally:
+                self._planned_revoke = False
+            self._mail_cycle_restart_blocked = False
+            self._save(last_action="mail_cycle_complete")
+            return copy.deepcopy(published)
+
+    def mail_cycle_ack_seen(self, ack_uid: str) -> bool:
+        if not isinstance(ack_uid, str) or not ack_uid:
+            raise ValueError("mail cycle ACK UID is required")
+        records = self.journal.archives("mail_cycle")
+        return any(
+            isinstance(record, dict)
+            and record.get("ackUid") == ack_uid
+            and record.get("result") in {"complete", "blocked"}
+            for record in records
+        )
+
+    @property
+    def executor_action_active(self) -> bool:
+        with self._mutex:
+            return self._executor_overall is not None
+
+    def executor_click_checkpoint(self) -> dict[str, Any] | None:
+        """Return a detached executor checkpoint for daemon admission/tests."""
+
+        with self._mutex:
+            return copy.deepcopy(self._executor_checkpoint())
+
+    def executor_continuation_capability(self) -> str | None:
+        """Return the private same-process capability for a started mail action."""
+
+        with self._mutex:
+            return self._executor_capability
+
+    def begin_executor_click(
+        self,
+        *,
+        queue_id: str,
+        seq: int,
+        generation: int,
+        lease_generation: int,
+        cycle_id: str,
+        pre_crs: dict[str, Any],
+        pre_ordinal: int,
+        arms: dict[str, bool],
+        anchor: dict[str, Any],
+        confirmation: str,
+        pre_executor: dict[str, Any],
+        pre_evidence: dict[str, Any],
+        continuation_capability: str | None = None,
+    ) -> dict[str, Any]:
+        """Persist one physical executor attempt before any pointer motion."""
+
+        if not isinstance(queue_id, str) or not queue_id:
+            raise ValueError("executor queueId is required")
+        if isinstance(seq, bool) or not isinstance(seq, int) or seq <= 0:
+            raise ValueError("executor seq must be positive")
+        if isinstance(generation, bool) or not isinstance(generation, int) or generation <= 0:
+            raise ValueError("executor generation must be positive")
+        if (
+            isinstance(lease_generation, bool)
+            or not isinstance(lease_generation, int)
+            or lease_generation <= 0
+        ):
+            raise ValueError("executor lease generation must be positive")
+        if not isinstance(cycle_id, str):
+            raise ValueError("executor cycleId must be a string")
+        if not isinstance(confirmation, str):
+            raise ValueError("executor confirmation must be a string")
+        if not isinstance(pre_crs, dict) or set(pre_crs) != {"boot", "sequence", "crc32", "identity"}:
+            raise ValueError("executor pre-click CRS is malformed")
+        if isinstance(pre_ordinal, bool) or not isinstance(pre_ordinal, int) or pre_ordinal < 0:
+            raise ValueError("executor pre-click ordinal is malformed")
+        if (
+            not isinstance(arms, dict)
+            or set(arms) != {"published", "session"}
+            or any(not isinstance(value, bool) for value in arms.values())
+        ):
+            raise ValueError("executor arm observations are malformed")
+        if not isinstance(anchor, dict) or not anchor:
+            raise ValueError("executor anchor proof is required")
+        if not isinstance(pre_executor, dict) or set(pre_executor) != _EXECUTOR_PROJECTION_KEYS:
+            raise ValueError("executor pre-state projection is malformed")
+        if not _valid_executor_evidence(
+            pre_evidence,
+            require_raw=True,
+            expected_crs=pre_crs,
+            expected_executor=pre_executor,
+        ):
+            raise ValueError("executor pre-frame evidence is malformed")
+        if continuation_capability is not None and not isinstance(continuation_capability, str):
+            raise ValueError("executor continuation capability is malformed")
+        with self._mutex:
+            if self._executor_restart_blocked:
+                raise RuntimeError("executor action is blocked after restart")
+            if self._executor_intent is not None:
+                raise RuntimeError("an executor click intent is already in flight")
+            if self._executor_overall is not None:
+                expected_overall = {
+                    "queueId": queue_id,
+                    "seq": seq,
+                    "cycleId": cycle_id,
+                    "generation": generation,
+                    "leaseGeneration": lease_generation,
+                }
+                if (
+                    continuation_capability is None
+                    or continuation_capability != self._executor_capability
+                    or any(
+                        self._executor_overall.get(key) != expected
+                        for key, expected in expected_overall.items()
+                    )
+                ):
+                    raise RuntimeError("another executor mail action owns interaction admission")
+            elif continuation_capability is not None:
+                raise RuntimeError("executor continuation capability is not active")
+            if self._generation != generation:
+                raise RuntimeError("stale executor generation")
+            if self._mode is not SessionMode.INTERACTION or self._state is not ControllerState.READY:
+                raise RuntimeError("executor click requires READY interaction mode")
+            if self._lease_generation != lease_generation:
+                raise RuntimeError("stale executor lease generation")
+            guardian = self.driver.guardian
+            if (
+                not getattr(guardian, "armed", False)
+                or getattr(guardian, "generation", 0) != lease_generation
+            ):
+                raise RuntimeError("executor click requires the current armed lease")
+            payload = {
+                "queueId": queue_id,
+                "seq": seq,
+                "generation": generation,
+                "leaseGeneration": lease_generation,
+                "cycleId": cycle_id,
+                "preCrs": copy.deepcopy(pre_crs),
+                "preExecutor": copy.deepcopy(pre_executor),
+                "preClickOrdinal": pre_ordinal,
+                "preArms": copy.deepcopy(arms),
+                "anchor": copy.deepcopy(anchor),
+                "confirmation": confirmation,
+                "preEvidence": copy.deepcopy(pre_evidence),
+                "status": "pending",
+            }
+            attempt_id = hashlib.sha256(
+                json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+            ).hexdigest()
+            payload["attemptId"] = attempt_id
+            prior_intent = self._executor_intent
+            prior_overall = self._executor_overall
+            prior_history = copy.deepcopy(self._history)
+            self._executor_intent = payload
+            if self._executor_overall is None:
+                self._executor_overall = {
+                    "queueId": queue_id,
+                    "seq": seq,
+                    "cycleId": cycle_id,
+                    "generation": generation,
+                    "leaseGeneration": lease_generation,
+                    "status": "in_flight",
+                }
+            try:
+                self._save(last_action="executor_intent")
+            except Exception:
+                # A failed pre-dispatch checkpoint is an uncertain durability
+                # boundary.  Do not let the in-memory owner continue as if
+                # its intent were safely persisted; a fresh owner must be the
+                # only path allowed to reconcile a possibly replaced journal.
+                self._executor_intent = prior_intent
+                self._executor_overall = prior_overall
+                self._history = prior_history
+                self._executor_restart_blocked = True
+                raise
+            return copy.deepcopy(payload)
+
+    def finalize_executor_click(
+        self,
+        *,
+        attempt_id: str,
+        result: str,
+        post_crs: dict[str, Any] | None,
+        receipt: dict[str, Any] | None,
+        terminal_action: bool,
+        post_executor: dict[str, Any] | None = None,
+        pre_evidence: dict[str, Any] | None = None,
+        post_evidence: dict[str, Any] | None = None,
+        observation_error: str = "",
+    ) -> dict[str, Any]:
+        """Archive one physical witness atomically; never dispatches itself."""
+
+        if result not in {"dry_run", "started", "blocked", "succeeded", "failed", "refused", "skipped"}:
+            raise ValueError("executor result is not supported")
+        with self._mutex:
+            intent = self._executor_intent
+            if not isinstance(intent, dict) or intent.get("attemptId") != attempt_id:
+                raise RuntimeError("executor click intent is missing or stale")
+            if result not in {"blocked", "failed", "refused", "skipped"} and (
+                not isinstance(post_crs, dict)
+                or not isinstance(post_executor, dict)
+                or not isinstance(receipt, dict)
+                or not isinstance(post_evidence, dict)
+            ):
+                raise ValueError("executor delivered result requires complete post evidence and receipt")
+            if pre_evidence is None:
+                pre_evidence = copy.deepcopy(intent.get("preEvidence"))
+            if not _valid_executor_evidence(
+                pre_evidence,
+                require_raw=result not in {"blocked"},
+                expected_crs=intent.get("preCrs"),
+                expected_executor=intent.get("preExecutor"),
+            ):
+                raise ValueError("executor outcome requires complete pre evidence")
+            if result not in {
+                "blocked",
+                "failed",
+                "refused",
+                "skipped",
+            } and not _valid_executor_causal_transition(
+                intent.get("preCrs"),
+                intent.get("preExecutor"),
+                post_crs,
+                post_executor,
+                expected_queue=intent.get("queueId"),
+            ):
+                raise ValueError("executor post outcome is not causally bound to its pre-frame")
+            if result not in {"blocked", "failed", "refused", "skipped"} and not _valid_executor_evidence(
+                post_evidence,
+                require_raw=True,
+                expected_crs=post_crs,
+                expected_executor=post_executor,
+            ):
+                raise ValueError("executor post evidence is malformed")
+            if result not in {"blocked", "failed", "refused", "skipped"} and not _valid_executor_receipt(
+                receipt, intent=intent
+            ):
+                raise ValueError("executor physical receipt is malformed")
+            if self._executor_staged_archive is not None:
+                staged = copy.deepcopy(self._executor_staged_archive)
+                staged_checkpoint = copy.deepcopy(self._executor_staged_checkpoint)
+                if staged.get("attemptId") != attempt_id:
+                    raise RuntimeError("executor outcome has a different staged attempt")
+                if not isinstance(staged_checkpoint, dict):
+                    raise RuntimeError("executor staged checkpoint is unavailable")
+                self._preserve_operator_hold(self.journal.read(), staged_checkpoint)
+                prior_intent = self._executor_intent
+                prior_overall = self._executor_overall
+                prior_capability = self._executor_capability
+                try:
+                    published = self.journal.append_archive_bundle(
+                        {"executor": staged}, checkpoint=staged_checkpoint
+                    )
+                except Exception:
+                    self._executor_intent = prior_intent
+                    self._executor_overall = prior_overall
+                    self._executor_capability = prior_capability
+                    raise
+                self._executor_staged_archive = None
+                self._executor_staged_checkpoint = None
+                self._executor_restart_blocked = False
+                return copy.deepcopy(published["executor"])
+            outcome_id = hashlib.sha256(f"executor|{attempt_id}".encode()).hexdigest()
+            archive = copy.deepcopy(intent)
+            archive.update(
+                {
+                    "outcomeId": outcome_id,
+                    "result": result,
+                    "postCrs": copy.deepcopy(post_crs),
+                    "postExecutor": copy.deepcopy(post_executor),
+                    "receipt": copy.deepcopy(receipt),
+                    "preEvidence": copy.deepcopy(pre_evidence),
+                    "postEvidence": copy.deepcopy(post_evidence),
+                    "observationError": observation_error,
+                    "terminalAction": bool(terminal_action),
+                }
+            )
+            prior_intent = self._executor_intent
+            prior_overall = self._executor_overall
+            prior_capability = self._executor_capability
+            if terminal_action:
+                self._executor_intent = None
+                self._executor_overall = None
+                self._executor_capability = None
+            else:
+                self._executor_intent = None
+                if self._executor_overall is None:
+                    self._executor_overall = {
+                        "queueId": intent["queueId"],
+                        "seq": intent["seq"],
+                        "cycleId": intent.get("cycleId", ""),
+                        "generation": intent["generation"],
+                        "leaseGeneration": intent["leaseGeneration"],
+                        "status": "in_flight",
+                    }
+                if result == "started":
+                    if self._executor_capability is None:
+                        self._executor_capability = secrets.token_urlsafe(32)
+                else:
+                    self._executor_capability = None
+            checkpoint = self._outcome_checkpoint(include_executor_stage=False)
+            self._executor_staged_archive = copy.deepcopy(archive)
+            self._executor_staged_checkpoint = copy.deepcopy(checkpoint)
+            stage_persisted = False
+            try:
+                # Stage the complete immutable outcome and its resulting
+                # controller checkpoint before any archive boundary.  If this
+                # write fails, the original intent remains durable and a fresh
+                # owner blocks; it must not fabricate a known success.
+                self._save(last_action="executor_outcome_staged")
+                stage_persisted = True
+                published = self.journal.append_archive_bundle({"executor": archive}, checkpoint=checkpoint)
+            except Exception:
+                if stage_persisted:
+                    # A durable stage is now the only retry authority.  Keep
+                    # it in memory for this owner and let a fresh owner
+                    # recover the same bytes from the journal checkpoint.
+                    self._executor_restart_blocked = True
+                else:
+                    self._executor_staged_archive = None
+                    self._executor_staged_checkpoint = None
+                    self._executor_intent = prior_intent
+                    self._executor_overall = prior_overall
+                    self._executor_capability = prior_capability
+                    self._executor_restart_blocked = True
+                raise
+            self._executor_staged_archive = None
+            self._executor_staged_checkpoint = None
+            self._executor_restart_blocked = False
+            return copy.deepcopy(published["executor"])
 
     def set_action_intent(
         self,
@@ -1837,6 +4325,8 @@ class Controller:
                 raise RuntimeError("stale generation")
             if self._state not in {ControllerState.READY, ControllerState.WAIT_DUE}:
                 raise RuntimeError(f"cannot enter interaction from {self._state}")
+            if self._mail_cycle["phase"] not in {"none", "complete", "blocked"}:
+                raise RuntimeError("mail cycle already owns interaction admission")
             if not self._native_calibrated or not self._input_calibrated or self._input_evidence is None:
                 raise RuntimeError("interaction mode requires completed native and input calibration")
             guardian = getattr(self.driver, "guardian", None)
@@ -1865,6 +4355,8 @@ class Controller:
                 return self.status()
             if self._mode != SessionMode.INTERACTION:
                 raise RuntimeError("controller is not in interaction mode")
+            if self._mail_cycle["phase"] not in {"none", "complete", "blocked"}:
+                raise RuntimeError("mail cycle owns interaction admission")
             if self._state not in {
                 ControllerState.ARMED,
                 ControllerState.RECONCILE,
@@ -1901,15 +4393,26 @@ class Controller:
                 raise RuntimeError("stale generation")
             if self._mode != SessionMode.INTERACTION:
                 raise RuntimeError("controller is not in interaction mode")
+            # A public interaction stop is also a cycle cancellation boundary;
+            # never leave a live mailbox capability behind a revoked lease.
+            mail_cycle_was_live = self._mail_cycle["phase"] not in {"none", "complete", "blocked"}
+            self._block_mail_cycle_locked("interaction mode exited")
             self._planned_revoke = True
             try:
                 self._lease_generation = self.driver.revoke("interaction mode exited")
+            except Exception as exc:
+                self._record_mail_cycle_control_failure_locked(
+                    f"interaction exit guardian revoke failed: {exc}"
+                )
+                raise
             finally:
                 self._planned_revoke = False
             self._mode = SessionMode.REPEAT
             self._generation += 1
             self._state = ControllerState.PAUSED
             self._resume_state = ControllerState.PAUSED
+            if mail_cycle_was_live:
+                self._publish_blocked_mail_cycle_locked("interaction mode exited")
             self._save(last_action="interaction_exit")
             return self.status()
 
@@ -2547,6 +5050,10 @@ class Controller:
         with self._mutex:
             if expected_generation is not None and self._generation != expected_generation:
                 raise RuntimeError("stale generation")
+            if self._mail_cycle_staged_archive is not None:
+                raise RuntimeError("mail cycle outcome publication is unresolved")
+            if self._mail_cycle_restart_blocked:
+                raise RuntimeError("mail cycle restart/recovery fence is unresolved")
             if self._state not in {ControllerState.PAUSED, ControllerState.BLOCKED, ControllerState.STOPPED}:
                 raise RuntimeError(f"cannot resume from {self._state}")
             if self._resume_state == ControllerState.QUALIFY_PENDING and isinstance(
@@ -2672,6 +5179,8 @@ class Controller:
 
     def pause(self, reason: str = "explicit pause") -> ControllerStatus:
         with self._mutex:
+            mail_cycle_was_live = self._mail_cycle["phase"] not in {"none", "complete", "blocked"}
+            self._block_mail_cycle_locked(reason)
             if not (
                 self._state in {ControllerState.PAUSED, ControllerState.BLOCKED}
                 and self._resume_state
@@ -2682,6 +5191,10 @@ class Controller:
             self._planned_revoke = True
             try:
                 self._lease_generation = self.driver.guardian.revoke(reason)
+            except Exception as exc:
+                if mail_cycle_was_live:
+                    self._record_mail_cycle_control_failure_locked(f"mail cycle pause revoke failed: {exc}")
+                raise
             finally:
                 self._planned_revoke = False
             if self._action_intent and self._action_result not in {
@@ -2693,6 +5206,8 @@ class Controller:
                 self._reconciliation_required = True
             self._state = ControllerState.PAUSED
             self._blocker = reason
+            if mail_cycle_was_live:
+                self._publish_blocked_mail_cycle_locked(reason)
             self._save(last_action="pause")
             self._archive(
                 "interventions",
@@ -3170,11 +5685,17 @@ class Controller:
 
     def stop(self) -> ControllerStatus:
         with self._mutex:
+            mail_cycle_was_live = self._mail_cycle["phase"] not in {"none", "complete", "blocked"}
+            self._block_mail_cycle_locked("stop requested")
             self._generation += 1
             self._stop_requested = True
             self._planned_revoke = True
             try:
                 self._lease_generation = self.driver.guardian.revoke("stop requested")
+            except Exception as exc:
+                if mail_cycle_was_live:
+                    self._record_mail_cycle_control_failure_locked(f"mail cycle stop revoke failed: {exc}")
+                raise
             finally:
                 self._planned_revoke = False
             prior_intent = self._action_intent
@@ -3206,6 +5727,8 @@ class Controller:
                 self._state = ControllerState.STOPPED
             if not prior_intent or prior_result in {"", "complete", "abandoned_after_restart"}:
                 self._begin_intent("stop")
+            if mail_cycle_was_live:
+                self._publish_blocked_mail_cycle_locked("stop requested")
             self._save(last_action="stop")
             self._archive(
                 "interventions",
@@ -3215,6 +5738,10 @@ class Controller:
 
     def closeout(self) -> ControllerStatus:
         with self._mutex:
+            if self._mail_cycle["phase"] not in {"none", "complete", "blocked"} or (
+                self._mail_cycle_staged_archive is not None
+            ):
+                raise RuntimeError("closeout is refused while a mail cycle owns interaction")
             self._generation += 1
             self._closeout_requested = True
             if self._state in {ControllerState.WAIT_DUE, ControllerState.READY} or (
@@ -3801,9 +6328,9 @@ class Controller:
             evidence.stable_verified
             and exact_stable
             and int(evidence.envelope.get("startedAt", -1)) == int(started_at)
-            and evidence.observations == 428
-            and evidence.attempted == 428
-            and evidence.full + evidence.bounded == 428
+            and evidence.observations == _PLAN_COUNT
+            and evidence.attempted == _PLAN_COUNT
+            and evidence.full + evidence.bounded == _PLAN_COUNT
             and evidence.incomplete == 0
             and evidence.unqueried == 0
             and evidence.priced > 0
@@ -4000,10 +6527,10 @@ class Controller:
 
     @staticmethod
     def _validate_item_evidence(evidence: SweepEvidence) -> tuple[bool, set[str]]:
-        """Check the complete 428-item accounting proof at qualification."""
+        """Check the complete target-plan accounting proof at qualification."""
 
         entries = evidence.item_evidence
-        if not isinstance(entries, dict) or len(entries) != 428:
+        if not isinstance(entries, dict) or len(entries) != _PLAN_COUNT:
             return False, set()
         categories = {"commodity", "recipe", "container", "equipment"}
         observed: set[str] = set()
@@ -4113,6 +6640,8 @@ class Controller:
                 return self.status()
             if not isinstance(invalidation_cause, InvalidationCause):
                 invalidation_cause = InvalidationCause.UNKNOWN
+            mail_cycle_was_live = self._mail_cycle["phase"] not in {"none", "complete", "blocked"}
+            self._block_mail_cycle_locked(reason)
             if isinstance(self._qualification_pending, dict) and not self._evidence_meta.get(
                 "outcomeArchived"
             ):
@@ -4123,6 +6652,12 @@ class Controller:
                 self._planned_revoke = True
                 try:
                     self._lease_generation = self.driver.revoke(reason)
+                except Exception as exc:
+                    if mail_cycle_was_live:
+                        self._record_mail_cycle_control_failure_locked(
+                            f"mail cycle qualification block revoke failed: {exc}"
+                        )
+                    raise
                 finally:
                     self._planned_revoke = False
                 self._resume_state = ControllerState.QUALIFY_PENDING
@@ -4133,6 +6668,8 @@ class Controller:
                 self._deadline = 0.0
                 self._deadline_at = 0
                 self._blocker = reason
+                if mail_cycle_was_live:
+                    self._publish_blocked_mail_cycle_locked(reason)
                 self._archive(
                     "interventions",
                     {
@@ -4172,6 +6709,10 @@ class Controller:
             self._planned_revoke = True
             try:
                 self.driver.revoke(reason)
+            except Exception as exc:
+                if mail_cycle_was_live:
+                    self._record_mail_cycle_control_failure_locked(f"mail cycle block revoke failed: {exc}")
+                raise
             finally:
                 self._planned_revoke = False
             self._lease_generation = self.driver.guardian.generation
@@ -4182,6 +6723,8 @@ class Controller:
             self._state = ControllerState.BLOCKED
             self._streak = 0
             self._cadence_seed_start = None
+            if mail_cycle_was_live:
+                self._publish_blocked_mail_cycle_locked(reason)
             self._archive(
                 "interventions",
                 {

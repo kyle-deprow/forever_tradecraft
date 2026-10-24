@@ -13,9 +13,11 @@ from collections import Counter
 from functools import lru_cache
 from importlib import resources
 from pathlib import Path
-from typing import Literal, get_args
+from typing import Any, Literal, get_args
 
 from pydantic import BaseModel, ConfigDict, Field, HttpUrl, model_validator
+
+from .game_target import FIXED_COLLECTION_CADENCE_SECONDS
 
 Status = Literal["active", "research", "excluded"]
 Category = Literal[
@@ -101,8 +103,16 @@ class Catalog(CatalogModel):
         canonical = json.dumps(self.model_dump(mode="json"), sort_keys=True, separators=(",", ":"))
         return hashlib.sha256(canonical.encode()).hexdigest()
 
-    def scan_plan(self) -> dict:
+    def scan_plan(self, *, cadence_seconds: int = FIXED_COLLECTION_CADENCE_SECONDS) -> dict:
         """Only active IDs enter the plan; research/excluded entries remain reviewable."""
+        if (
+            isinstance(cadence_seconds, bool)
+            or not isinstance(cadence_seconds, int)
+            or cadence_seconds != FIXED_COLLECTION_CADENCE_SECONDS
+        ):
+            raise ValueError(
+                f"cadence_seconds must use the fixed collection policy {FIXED_COLLECTION_CADENCE_SECONDS}"
+            )
         active = [item for item in self.items if item.status == "active"]
         body = {
             "schemaVersion": 2,
@@ -110,7 +120,7 @@ class Catalog(CatalogModel):
             "revision": self.revision,
             "catalogHash": self.catalog_hash,
             "targetClientBuild": self.client_build,
-            "cadenceSeconds": 900,
+            "cadenceSeconds": cadence_seconds,
             "initialPriceLevels": self.initial_price_levels,
             "itemIDs": [item.item_id for item in active],
             "pools": {
@@ -125,10 +135,19 @@ class Catalog(CatalogModel):
         }
 
 
-@lru_cache(maxsize=1)
-def load_catalog() -> Catalog:
-    source = resources.files("crowley.data").joinpath("first_run.json")
+def _read_catalog(source: Any) -> Catalog:
     return Catalog.model_validate_json(source.read_text(encoding="utf-8"))
+
+
+@lru_cache(maxsize=2)
+def load_catalog(*, enforce_target: bool = True) -> Catalog:
+    source = resources.files("crowley.data").joinpath("first_run.json")
+    catalog = _read_catalog(source)
+    if enforce_target:
+        from .game_target import packaged_game_target
+
+        packaged_game_target().validate_catalog(catalog)
+    return catalog
 
 
 def main() -> None:
@@ -150,7 +169,13 @@ def main() -> None:
         else load_catalog()
     )
     if args.command == "export":
-        print(json.dumps(catalog.scan_plan(), indent=2))
+        if args.catalog is None:
+            from .game_target import target_scan_plan
+
+            plan = target_scan_plan(catalog)
+        else:
+            plan = catalog.scan_plan()
+        print(json.dumps(plan, indent=2))
     elif args.command == "summary":
         active = [item for item in catalog.items if item.status == "active"]
         print(f"{catalog.id} revision {catalog.revision}; client build {catalog.client_build}")

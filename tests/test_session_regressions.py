@@ -23,6 +23,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+from crowley.core.game_target import packaged_game_target, target_scan_plan
 from crowley.core.luawriter import render_assignment
 from crowley.core.scanformat import (
     ScanFormatError,
@@ -43,6 +44,33 @@ from crowley.session.model import LunaAdapter, ModelError
 from crowley.session.protocol import decode_frame, encode_frame, pack_cells
 
 
+def _executor_none() -> dict:
+    return {
+        "availability": "none",
+        "queueId": "",
+        "house": "",
+        "character": "",
+        "publishedArmed": False,
+        "sessionArmed": False,
+        "buttonVisible": False,
+        "buttonName": "",
+        "currentSeq": 0,
+        "currentKind": "",
+        "phase": "none",
+        "inFlight": False,
+        "clickReady": False,
+        "workDone": 0,
+        "workTotal": 0,
+        "blocked": False,
+        "latched": False,
+        "ambiguous": False,
+        "clickOrdinal": 0,
+        "lastClickSource": "none",
+        "resultCount": 0,
+        "lastResult": {"seq": 0, "kind": "", "status": "none"},
+    }
+
+
 def _snapshot(
     *,
     wall: int = 1_000,
@@ -60,7 +88,7 @@ def _snapshot(
     started = wall if active else 0
     due = started + 900 if active else wall
     return {
-        "schema": 5,
+        "schema": 6,
         "boot": boot,
         "sequence": sequence,
         "wallTime": wall,
@@ -88,6 +116,7 @@ def _snapshot(
         "ahOpen": ah_open,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "executor": _executor_none(),
         "blockingUI": {
             "staticPopupAvailable": True,
             "staticPopupShown": False,
@@ -225,7 +254,10 @@ class _FakeDriver:
         self.guardian = SimpleNamespace(generation=0)
         self.guardian.revoke = self.revoke
 
-    def resolve_identity(self) -> SimpleNamespace:
+    def resolve_identity(
+        self, *, require_foreground: bool = True, deadline_monotonic: float | None = None
+    ) -> SimpleNamespace:
+        del require_foreground, deadline_monotonic
         return SimpleNamespace(fingerprint="fake-client")
 
     def run(self, name: str, generation: int, **kwargs: object) -> None:
@@ -336,9 +368,17 @@ def _config(
 
 def test_session_config_accepts_canonical_short_build_and_rejects_previous_build(tmp_path: Path) -> None:
     plan = load_catalog().scan_plan()
-    saved = tmp_path / "Crowley.lua"
+    fixture_target = replace(
+        packaged_game_target(),
+        game_root=str(tmp_path / "game"),
+        wine_prefix=str(tmp_path / "wine"),
+    )
+    wow_root = Path(fixture_target.game_root) / fixture_target.product_dir
+    saved = wow_root / "WTF/Account/Test/SavedVariables/Crowley.lua"
     companion = tmp_path / "companion-state.json"
-    data = tmp_path / "Data.lua"
+    data = wow_root / "Interface/AddOns/Crowley_Data/Data.lua"
+    saved.parent.mkdir(parents=True)
+    data.parent.mkdir(parents=True)
     for path in (saved, companion, data):
         path.write_text("", encoding="utf-8")
 
@@ -347,7 +387,11 @@ def test_session_config_accepts_canonical_short_build_and_rejects_previous_build
             "\n".join(
                 (
                     "[profile]",
-                    'wine_prefix = "/tmp/crowley-test-wine"',
+                    f'wine_prefix = "{fixture_target.wine_prefix}"',
+                    f'window_class = "{fixture_target.window_class}"',
+                    f'executable = "{fixture_target.executable}"',
+                    f'realm = "{fixture_target.realm}"',
+                    f'house = "{fixture_target.house}"',
                     "canvas_crop = [80, 48, 256, 256]",
                     "model_crop = [80, 48, 1760, 984]",
                     f'client_build = "{client_build}"',
@@ -365,7 +409,7 @@ def test_session_config_accepts_canonical_short_build_and_rejects_previous_build
 
     accepted_path = tmp_path / "accepted.toml"
     write_config(accepted_path, "70450")
-    accepted = load_config(accepted_path)
+    accepted = load_config(accepted_path, expected_target=fixture_target)
     assert accepted.client_build == "70450"
     assert accepted.client_version == "1.60.1"
 
@@ -373,7 +417,63 @@ def test_session_config_accepts_canonical_short_build_and_rejects_previous_build
         rejected_path = tmp_path / f"rejected-{rejected_build}.toml"
         write_config(rejected_path, rejected_build)
         with pytest.raises(ValueError, match="70450/interface 16001"):
-            load_config(rejected_path)
+            load_config(rejected_path, expected_target=fixture_target)
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("wine_prefix", "/tmp/stale-wine-prefix"),
+        ("window_class", "stale-window-class"),
+        ("executable", "Stale.exe"),
+        ("realm", "Stale realm"),
+        ("house", "us-normal-horde"),
+    ],
+)
+def test_session_config_rejects_stale_packaged_identity(tmp_path: Path, field: str, replacement: str) -> None:
+    target = replace(
+        packaged_game_target(),
+        game_root=str(tmp_path / "game"),
+        wine_prefix=str(tmp_path / "wine"),
+    )
+    wow_root = Path(target.game_root) / target.product_dir
+    saved = wow_root / "WTF/Account/Test/SavedVariables/Crowley.lua"
+    data = wow_root / "Interface/AddOns/Crowley_Data/Data.lua"
+    companion = tmp_path / "companion-state.json"
+    saved.parent.mkdir(parents=True)
+    data.parent.mkdir(parents=True)
+    for path in (saved, data, companion):
+        path.write_text("", encoding="utf-8")
+    plan = target_scan_plan(load_catalog(), target)
+    values = {
+        "wine_prefix": target.wine_prefix,
+        "window_class": target.window_class,
+        "executable": target.executable,
+        "realm": target.realm,
+        "house": target.house,
+    }
+    values[field] = replacement
+    config = tmp_path / f"stale-{field}.toml"
+    config.write_text(
+        "\n".join(
+            (
+                "[profile]",
+                *(f'{name} = "{value}"' for name, value in values.items()),
+                'client_build = "70450"',
+                f"plan_count = {len(plan['itemIDs'])}",
+                f'plan_hash = "{plan["planHash"]}"',
+                f"plan_json = {json.dumps(plan['planJSON'])}",
+                "",
+                "[session]",
+                f'saved_variables = "{saved}"',
+                f'companion_state = "{companion}"',
+                f'data_lua = "{data}"',
+            )
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValueError, match="packaged launch target"):
+        load_config(config, expected_target=target)
 
 
 def _retained_input_evidence(tmp_path: Path) -> InputCalibrationEvidence:

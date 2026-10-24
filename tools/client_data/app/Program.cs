@@ -21,6 +21,7 @@ string Required(string key) => opt.TryGetValue(key, out var value) ? value : thr
 var wow = Required("wow");
 var product = Required("product");
 var productDir = Required("productdir");
+var expectedBuild = Required("expected-build");
 var outDir = Required("out");
 var cacheDir = Required("cache");
 var dbdDir = Required("dbd");
@@ -42,7 +43,7 @@ var activeRows = buildInfoLines.Skip(1).Select(line => line.TrimEnd('\r').Split(
 if (activeRows.Count != 1) throw new InvalidDataException($"expected one active {product} row, got {activeRows.Count}");
 var buildInfo = activeRows[0];
 var version = buildInfo["Version"];
-if (version != "1.60.1.70450") throw new InvalidDataException($"client build {version} is not 1.60.1.70450");
+if (version != expectedBuild) throw new InvalidDataException($"client build {version} is not {expectedBuild}");
 var buildNumber = int.Parse(version.Split('.')[3], CultureInfo.InvariantCulture);
 var flavorPath = Path.Combine(wow, productDir, ".flavor.info");
 var flavorLines = File.ReadAllLines(flavorPath);

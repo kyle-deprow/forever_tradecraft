@@ -5,10 +5,12 @@ local _, ns = ...
 local Scanner = {}
 ns.Scanner = Scanner
 
-local CADENCE = 900
+local TARGET = ns.GeneratedTarget
+if type(TARGET) ~= "table" then error("generated launch target is not loaded") end
+local CADENCE = TARGET.cadenceSeconds
 local ITEM_TIMEOUT = 30
 local OWNED_TIMEOUT = 30
-local SWEEP_TIMEOUT = 600
+local SWEEP_TIMEOUT = TARGET.sweepCapSeconds
 local MAX_PAGES = 10
 local MAX_SAFE = 9007199254740991
 local UINT32_MODULUS = 4294967296
@@ -16,19 +18,20 @@ local UINT32_MAX = UINT32_MODULUS - 1
 local WRAPPED_TIME_LEFT_MIN = UINT32_MODULUS - 300
 local QUERY_TRACE_VERSION = 1
 local QUERY_TRACE_CAP = 256
-local CANONICAL_PLAN_HASH = "f1745d85c071b350ebea242add2a7b38e3f53df5bcc8a6df1f19002f995a31d4"
-local CANONICAL_CLIENT_BUILD = "1.60.1.70450"
-local CANONICAL_CLIENT_VERSION, CANONICAL_BUILD = string.match(CANONICAL_CLIENT_BUILD, "^(.*)%.(%d+)$")
-local CANONICAL_INTERFACE = 16001
-local CANONICAL_COUNT = 428
-local CANONICAL_LEVELS = 20
-local CANONICAL_SCHEMA = 2
-local CANONICAL_ID = "first-run"
-local CANONICAL_REVISION = 2
-local CANONICAL_CATALOG_HASH = "90918db5cc912e889553b5ddd422b829f3c6cb3773ab6da56a2e79a5a8db04f3"
+local CANONICAL_PLAN_HASH = TARGET.planHash
+local CANONICAL_CLIENT_BUILD = TARGET.fullBuild
+local CANONICAL_CLIENT_VERSION = TARGET.clientVersion
+local CANONICAL_BUILD = TARGET.nativeBuild
+local CANONICAL_INTERFACE = TARGET.interface
+local CANONICAL_COUNT = TARGET.count
+local CANONICAL_LEVELS = TARGET.initialPriceLevels
+local CANONICAL_SCHEMA = TARGET.schema
+local CANONICAL_ID = TARGET.id
+local CANONICAL_REVISION = TARGET.revision
+local CANONICAL_CATALOG_HASH = TARGET.catalogHash
 -- One compact, source-catalog-derived representation: each entry is the positive
 -- delta from the prior item ID and its canonical pool (0=core, 1=discovery).
-local CANONICAL_PLAN_ENTRIES = "118:0,41:0,571:0,35:0,9:0,9:0,2:0,2:0,31:0,40:0,15:1,56:0,277:0,4:0,78:0,187:0,54:0,176:0,5:0,594:0,9:0,5:0,1:0,128:0,2:0,1:0,2:0,1:0,1:0,1:0,4:0,96:1,34:0,3:0,178:0,1:0,1:0,3:0,1:0,49:1,10:0,1:0,2:0,2:0,1:0,1:0,92:0,62:0,1:0,185:0,173:0,1:0,1:0,1:0,11:0,14:0,2:0,2:0,4:0,4:1,75:0,8:0,8:0,89:0,1:0,1:0,136:0,105:0,1:0,1:0,1:0,2:0,1:0,1:0,2:0,3:1,27:0,1:0,1:0,1:0,4:0,64:0,303:0,1:0,1:0,1:0,1:0,1:0,2:0,2:0,1:0,4:0,20:0,27:1,12:0,1:0,1:0,31:0,1:0,1:0,3:0,15:0,2:0,2:0,2:0,1:0,7:0,4:0,2:0,5:0,5:0,2:0,5:0,1:0,7:0,2:0,3:0,9:1,176:0,33:0,842:0,7:0,10:1,14:0,2:0,4:0,130:0,1:0,2:0,5:1,123:0,10:1,221:0,1:0,40:0,5:0,2:1,105:0,62:1,78:0,2:0,12:0,5:0,18:1,2:1,30:0,1:0,2:0,9:0,1:0,151:0,135:0,4:1,1:0,1:1,51:0,2:1,351:0,1:0,1:0,1:0,1:0,4:0,1:0,1:0,1:0,2:0,1:0,1:0,594:0,2:1,231:0,1:0,1:0,1:0,54:0,1:0,4:0,1:0,4:1,93:0,81:0,3:0,14:0,1:0,1:0,1:0,1:0,1:0,1:0,192:0,3:0,176:0,287:0,5:0,2:0,1:0,6:0,1:0,105:0,110:0,111:0,34:0,4:0,50:0,35:1,3:1,6:1,746:0,235:0,1:0,212:0,7:0,2:0,41:0,10:0,1:0,1:0,1:0,47:1,12:0,24:1,4:0,290:0,1:0,1:0,38:0,20:0,84:0,1:0,1:0,50:0,1:0,2:0,1:0,1:0,35:0,1:0,1:0,1:0,1:0,109:0,1:0,82:0,1:0,383:0,283:0,169:0,10:0,1:0,22:1,120:0,1:0,1:0,2:0,1:0,1:0,39:0,239:0,1:0,1:0,10:0,37:1,107:0,1:0,3:0,5:0,2:0,148:1,464:0,1:0,20:0,1:0,2:0,9:0,1:0,1:0,1:0,1:0,2:0,2:0,1:0,1:0,1:0,1:0,1:0,9:1,9:1,1:1,1:1,1:1,1:1,1:1,3:1,1:1,1:1,1:1,2:1,20:1,236:0,1:0,2:0,1:0,1:0,129:0,37:0,2:0,3:0,1:0,10:1,3:1,1:1,100:0,1:0,1:0,107:0,72:0,29:0,85:0,1:0,1:0,1:0,124:1,31:1,11:1,897:0,2:0,1:0,2:0,2:0,1:0,1:0,1:0,147:0,428:0,1:0,1:0,3:0,44:1,1:1,9:1,60:1,2:1,89:0,1:0,1:0,48:1,804:0,1200:0,6:0,369:0,22:1,788:0,567:0,416:0,28:0,295:0,1:0,1:0,1:0,4:1,1:1,316:0,1:0,27:1,54:0,64:0,2:1,1027:0,2:0,59:1,1:1,224931:0,1:0,1:0,545:0,1029:0,9:0,450:0,117:0,8:0,10:0,1:0,14:0,1:0,4:0,1:0,1:0,1:0,912:0,2:0,34:1,2:1,551:0,5:0,1:0,6:0,32:1,5:1,1:1,6:1,302:0,1145:0,1:0,15:0,1:0,9:0,1:0,24:0,1:0,295:1,1:1,27:1,1:1,130:1,722:0,1:1,2:0,1:1,305:0,62:0,44:0,54:0,1590:1,2:1,4:1,5065:0,3410:1"
+local CANONICAL_PLAN_ENTRIES = TARGET.planEntries
 local PRE_LOGOUT_FENCE_COMMAND = "/crowley session fence"
 local SCHEDULE_TRACE_VERSION = 1
 local SCHEDULE_TRACE_CAP = 64
@@ -294,11 +297,11 @@ local function canonicalPlanJSON()
   if canonicalPlanText then return canonicalPlanText end
   local definition = canonicalPlanDefinition()
   if not definition then return nil end
-  canonicalPlanText = '{"cadenceSeconds":900,"catalogHash":"' .. CANONICAL_CATALOG_HASH ..
-    '","id":"' .. CANONICAL_ID .. '","initialPriceLevels":20,"itemIDs":' ..
+  canonicalPlanText = '{"cadenceSeconds":' .. CADENCE .. ',"catalogHash":"' .. CANONICAL_CATALOG_HASH ..
+    '","id":"' .. CANONICAL_ID .. '","initialPriceLevels":' .. CANONICAL_LEVELS .. ',"itemIDs":' ..
     canonicalNumberArray(definition.itemIDs) .. ',"pools":{"core":' ..
     canonicalNumberArray(definition.pools.core) .. ',"discovery":' ..
-    canonicalNumberArray(definition.pools.discovery) .. '},"revision":' .. CANONICAL_REVISION .. ',"schemaVersion":2,"targetClientBuild":"' ..
+    canonicalNumberArray(definition.pools.discovery) .. '},"revision":' .. CANONICAL_REVISION .. ',"schemaVersion":' .. CANONICAL_SCHEMA .. ',"targetClientBuild":"' ..
     CANONICAL_CLIENT_BUILD .. '"}'
   return canonicalPlanText
 end

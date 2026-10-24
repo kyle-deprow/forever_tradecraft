@@ -48,6 +48,25 @@ DEFAULT_STATE: dict[str, Any] = {
         "action": "",
         "deadlineAt": 0,
         "evidence": {},
+        "executor": None,
+        "mailCycle": {
+            "phase": "none",
+            "cycleId": "",
+            "ackUid": "",
+            "queueId": "",
+            "generation": 0,
+            "leaseGeneration": 0,
+            "admittedSeq": 0,
+            "mailUnits": 0,
+            "budget": None,
+            "completedUnits": 0,
+            "terminalOutcomeId": "",
+            "lastExecutorSeq": 0,
+            "admittedEffectiveDueAt": 0.0,
+            "deadlineAt": 0.0,
+            "reason": "",
+        },
+        "mailCycleStage": None,
     },
     "telemetry": {},
     # The live checkpoint above is intentionally bounded.  These append-only
@@ -58,6 +77,8 @@ DEFAULT_STATE: dict[str, Any] = {
         "cadence": {"count": 0, "lastOrdinal": 0},
         "acknowledgements": {"count": 0, "lastOrdinal": 0},
         "interventions": {"count": 0, "lastOrdinal": 0},
+        "executor": {"count": 0, "lastOrdinal": 0},
+        "mail_cycle": {"count": 0, "lastOrdinal": 0},
     },
 }
 
@@ -333,6 +354,21 @@ class Journal:
             if isinstance(manifest.get("checkpoint"), dict):
                 current_sequence = value.get("commitSequence", 0)
                 incoming_sequence = manifest.get("commitSequence", 0)
+                checkpoint = _copy(manifest["checkpoint"])
+                current_state = value.get("state")
+                if value.get("stopRequested") or current_state in {"PAUSED", "STOPPED", "BLOCKED"}:
+                    for key in (
+                        "state",
+                        "resumeState",
+                        "stopRequested",
+                        "closeoutRequested",
+                        "restartRequiresResume",
+                        "blocker",
+                        "generation",
+                        "leaseGeneration",
+                    ):
+                        if key in value:
+                            checkpoint[key] = _copy(value[key])
                 if (
                     isinstance(current_sequence, int)
                     and not isinstance(current_sequence, bool)
@@ -340,7 +376,7 @@ class Journal:
                     and not isinstance(incoming_sequence, bool)
                     and incoming_sequence > current_sequence
                 ):
-                    for key, item in manifest["checkpoint"].items():
+                    for key, item in checkpoint.items():
                         # Archive counters belong to the immutable artifacts
                         # just repaired above.  A caller-supplied checkpoint
                         # may carry stale/default metadata; copying it here

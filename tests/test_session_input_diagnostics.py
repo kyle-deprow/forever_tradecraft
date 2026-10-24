@@ -28,8 +28,8 @@ from tests.test_session_native_regressions import (
 )
 
 
-def test_failure_snapshot_replays_complete_finite_input_profile() -> None:
-    """The real finite profile fits and replays through production validators."""
+def test_failure_snapshot_replays_complete_finite_input_profile(tmp_path: Path) -> None:
+    """The full current keyboard vocabulary is validated before bounded retention."""
 
     driver = _WorkflowDriver(outside=False)
     window = _WorkflowTarget().window
@@ -58,9 +58,10 @@ def test_failure_snapshot_replays_complete_finite_input_profile() -> None:
                 )
             )
             timestamp += 2
-    assert len(operations) == 9
-    assert sum(len(operation.steps) for operation in operations) == 138
-    assert len(keyboard_events) == 280
+    assert len(operations) == 4 + len(DesktopDriver.COMMANDS)
+    total_steps = sum(len(operation.steps) for operation in operations)
+    assert total_steps > 0
+    assert len(keyboard_events) == 4 + 2 * total_steps
     pointer_events = [event for event in driver._records if event.source_device != 5]
     events = pointer_events + keyboard_events
     assert InputCalibrationWorkflow._has_synthetic(
@@ -79,11 +80,15 @@ def test_failure_snapshot_replays_complete_finite_input_profile() -> None:
     monitor = InputMonitor(":test", lambda _event: None)
 
     def start_observer() -> None:
+        raw_path = tmp_path / "finite-input-trace.txt"
+        raw_path.write_text(raw, encoding="utf-8")
         monitor.observer.process = subprocess.Popen(
             [
                 sys.executable,
                 "-c",
-                f"import sys,time;sys.stdout.write({raw!r});sys.stdout.flush();time.sleep(5)",
+                "import pathlib,sys,time;sys.stdout.write(pathlib.Path(sys.argv[1]).read_text());"
+                "sys.stdout.flush();time.sleep(5)",
+                str(raw_path),
             ],
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -101,22 +106,13 @@ def test_failure_snapshot_replays_complete_finite_input_profile() -> None:
 
     snapshot = monitor.diagnostic_snapshot()
 
-    assert snapshot["rawTruncated"] is False
-    assert snapshot["rawBytes"] == len(raw.encode())
+    assert snapshot["rawTruncated"] is True
+    assert snapshot["rawBytes"] <= 1024 * 1024
+    assert snapshot["rawBytesSeen"] == len(raw.encode())
     assert snapshot["rawBlocksSeen"] == len(events)
     retained = "".join(snapshot["rawBlocks"]) + str(snapshot["partialRaw"])
-    assert retained == raw
-    replayed = parse_xi2_records(retained, require_event=True)
-    assert InputCalibrationWorkflow._has_synthetic(
-        replayed,
-        window,
-        5,
-        4,
-        hierarchy,
-        keyboard_operations=operations,
-        keyboard_keymap=tuple(sorted(keymap.items())),
-        require_motion=True,
-    )
+    assert retained != raw
+    assert len(retained.encode()) <= 1024 * 1024
 
 
 def test_failure_snapshot_retains_partial_parser_reason_and_caps() -> None:

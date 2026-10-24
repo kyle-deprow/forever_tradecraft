@@ -13,12 +13,110 @@ import pytest
 from psycopg.types.json import Jsonb
 
 from crowley.analysis.books import Book, Group
+from crowley.trading import __main__ as trading_cli
 from crowley.trading import paper
-from crowley.trading.api import Buy, Craft, ItemFacts, Recipe, VendorBuy
-from crowley.trading.data import vendor_supply_ids
+from crowley.trading.api import Buy, Craft, CraftingCapabilities, ItemFacts, Recipe, VendorBuy
+from crowley.trading.data import load_recipes, vendor_supply_ids
 from crowley.trading.engine import run_backtest
+from crowley.trading.requirements import capabilities_hash
+from crowley.trading.strategies import build
 
 DB_URL = os.environ.get("CROWLEY_TEST_DATABASE_URL")
+
+
+def test_paper_defaults_use_the_provisional_measured_four_strategy_order(monkeypatch, capsys):
+    expected = ("crafting_alchemy", "crafting_engineering", "dip_reversion", "vendor_arb")
+    assert paper.DEFAULT_STRATEGIES == expected
+    assert paper._parse_strategies(None) == list(expected)
+    assert paper._parse_strategies(("crafting_blacksmithing",)) == ["crafting_blacksmithing"]
+
+    calls = []
+
+    def fake_create_run(*args, **kwargs):
+        calls.append((args, kwargs))
+        return 17
+
+    monkeypatch.setattr(trading_cli, "create_run", fake_create_run)
+    assert trading_cli.main(["paper-create", "--database-url", "db", "--name", "n", "--house", "h"]) == 0
+    assert calls[-1][1]["strategies"] == ",".join(expected)
+    assert "paper_run_created=n id=17" in capsys.readouterr().out
+
+    assert (
+        trading_cli.main(
+            [
+                "paper-create",
+                "--database-url",
+                "db",
+                "--name",
+                "override",
+                "--house",
+                "h",
+                "--strategies",
+                "crafting_blacksmithing",
+            ]
+        )
+        == 0
+    )
+    assert calls[-1][1]["strategies"] == "crafting_blacksmithing"
+
+
+class _MockResult:
+    def __init__(self, *, row=None, rows=None):
+        self._row = row
+        self._rows = rows if rows is not None else []
+
+    def fetchone(self):
+        return self._row
+
+    def fetchall(self):
+        return self._rows
+
+
+class _MockPaperConnection:
+    def __init__(self):
+        self.insert_args = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_value, traceback):
+        return False
+
+    def transaction(self):
+        from contextlib import nullcontext
+
+        return nullcontext(self)
+
+    def execute(self, query, args=()):
+        normalized = query.lstrip()
+        if normalized.startswith("SELECT id FROM paper_runs"):
+            return _MockResult(row=None)
+        if "FROM houses" in query:
+            return _MockResult(row=(7,))
+        if "FROM market_sweeps" in query:
+            return _MockResult(rows=[("1.60.1", 70450, 101, 1_700_000_000)])
+        if normalized.startswith("INSERT INTO paper_runs"):
+            self.insert_args = args
+            return _MockResult(row=(42,))
+        raise AssertionError(f"unexpected paper SQL: {query}")
+
+
+def test_create_run_default_insert_has_canonical_four_strategy_config(monkeypatch):
+    connection = _MockPaperConnection()
+    monkeypatch.setattr(paper.psycopg, "connect", lambda _url: connection)
+    assert paper.create_run("mock", name="default", house="house", start=1) == 42
+    assert connection.insert_args is not None
+    names = list(connection.insert_args[5].obj)
+    weights = list(connection.insert_args[6].obj)
+    assert names == ["crafting_alchemy", "crafting_engineering", "dip_reversion", "vendor_arb"]
+    assert weights == ["1", "1", "1", "1"]
+    capabilities = connection.insert_args[9].obj
+    assert capabilities == {"spell_focus_ids": [], "tool_category_ids": [], "tool_item_ids": []}
+
+    assert build(names[0]).professions == frozenset({"alchemy"})
+    assert build(names[1]).professions == frozenset({"engineering"})
+    assert build(names[2]).professions == frozenset()
+    assert build(names[3]).professions == frozenset()
 
 
 class Script:
@@ -238,8 +336,63 @@ def test_paper_step_replays_the_old_latest_step_when_a_sweep_arrives(monkeypatch
                 """,
                 (export_id, item_id),
             )
+            conn.execute(
+                """
+                INSERT INTO client_recipes
+                    (export_id, spell_id, name, kind, learn_kind, learn_evidence)
+                VALUES (%s, 3938, 'Station test', 'item', 'skill_line', 'no_teaching_item')
+                """,
+                (export_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO client_recipe_skill_lines
+                    (export_id, spell_id, ability_id, skill_line_id, profession,
+                     min_rank, yellow, green_derived, grey, acquire_method, flags)
+                VALUES (%s, 3938, 3938, 164, 'engineering', 1, 1, 1, 1, 0, 0)
+                """,
+                (export_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO client_recipe_outputs
+                    (export_id, spell_id, item_id, base_quantity, variance, yield_kind)
+                VALUES (%s, 3938, %s, 1, 0, 'fixed')
+                """,
+                (export_id, item_id),
+            )
+            conn.execute(
+                """
+                INSERT INTO client_recipe_totems (export_id, spell_id, ordinal, totem_id)
+                VALUES (%s, 3938, 0, 3938)
+                """,
+                (export_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO client_recipe_totem_categories
+                    (export_id, spell_id, ordinal, category_id)
+                VALUES (%s, 3938, 0, 162)
+                """,
+                (export_id,),
+            )
+            conn.execute(
+                """
+                INSERT INTO client_recipe_spell_focus (export_id, spell_id, spell_focus_id)
+                VALUES (%s, 3938, 1)
+                """,
+                (export_id,),
+            )
+
+    with psycopg.connect(DB_URL) as conn:
+        loaded = load_recipes(conn, house_key, build_name)
+    assert loaded[0].spell_id == 3938
+    assert loaded[0].totems == (3938,)
+    assert loaded[0].totem_categories == (162,)
+    assert loaded[0].spell_focus == 1
 
     try:
+        capabilities = CraftingCapabilities.from_values([3938], [162], [1])
         paper.create_run(
             DB_URL,
             name=run_name,
@@ -249,7 +402,15 @@ def test_paper_step_replays_the_old_latest_step_when_a_sweep_arrives(monkeypatch
             strategies=["paper_test"],
             weights=[1],
             client_build=build_name,
+            capabilities=capabilities,
         )
+        with psycopg.connect(DB_URL) as conn:
+            persisted = conn.execute(
+                "SELECT capabilities, capabilities_hash FROM paper_runs WHERE name = %s",
+                (run_name,),
+            ).fetchone()
+        assert persisted[0] == capabilities.canonical
+        assert persisted[1] == capabilities_hash(capabilities)
         custom_build = paper.build
         monkeypatch.setattr(paper, "build", registered_build)
         with pytest.raises(ValueError, match="unknown strategy"):
@@ -286,6 +447,22 @@ def test_paper_step_replays_the_old_latest_step_when_a_sweep_arrives(monkeypatch
         assert "latest_t=1800000000" in status
         assert "pending (outcome not final):" in status
         assert "pending intent strategy=paper_test ordinal=0" in status
+        assert f"capabilities_hash={capabilities_hash(capabilities)}" in status
+
+        with psycopg.connect(DB_URL) as conn:
+            with conn.transaction():
+                conn.execute(
+                    "UPDATE paper_runs SET capabilities_hash = %s WHERE name = %s",
+                    ("0" * 64, run_name),
+                )
+        with pytest.raises(paper.PaperError, match="capabilities"):
+            paper.step_run(DB_URL, run_name)
+        with psycopg.connect(DB_URL) as conn:
+            with conn.transaction():
+                conn.execute(
+                    "UPDATE paper_runs SET capabilities_hash = %s WHERE name = %s",
+                    (capabilities_hash(capabilities), run_name),
+                )
         with psycopg.connect(DB_URL) as conn:
             before_steps = conn.execute(
                 """

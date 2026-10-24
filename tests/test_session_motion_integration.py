@@ -13,6 +13,7 @@ from types import SimpleNamespace
 import pytest
 from PIL import Image
 
+import crowley.session.daemon as daemon_module
 import crowley.session.driver as driver_module
 from crowley.session import Controller, ControllerState, DesktopDriver, SessionConfig, SessionMode
 from crowley.session.calibration import InputCalibrationEvidence
@@ -46,6 +47,33 @@ from .wow_harness import WowClient
 
 class _Identity:
     fingerprint = "client-motion"
+
+
+def _executor_none() -> dict:
+    return {
+        "availability": "none",
+        "queueId": "",
+        "house": "",
+        "character": "",
+        "publishedArmed": False,
+        "sessionArmed": False,
+        "buttonVisible": False,
+        "buttonName": "",
+        "currentSeq": 0,
+        "currentKind": "",
+        "phase": "none",
+        "inFlight": False,
+        "clickReady": False,
+        "workDone": 0,
+        "workTotal": 0,
+        "blocked": False,
+        "latched": False,
+        "ambiguous": False,
+        "clickOrdinal": 0,
+        "lastClickSource": "none",
+        "resultCount": 0,
+        "lastResult": {"seq": 0, "kind": "", "status": "none"},
+    }
 
 
 class _MotionMonitor:
@@ -708,9 +736,10 @@ def _motion_sample(
     chat_focused: bool = False,
 ) -> Sample:
     snapshot = {
-        "schema": 5,
+        "schema": 6,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "executor": _executor_none(),
         "blockingUI": {
             "staticPopupAvailable": True,
             "staticPopupShown": False,
@@ -899,7 +928,9 @@ def _ipc_motion_fixture(
     provider = daemon.motion_provider
     provider._capture = lambda: capture()  # type: ignore[attr-defined]
     provider._capture_with_deadline = capture  # type: ignore[attr-defined]
-    provider._identity = lambda: driver.resolve_identity()  # type: ignore[attr-defined]
+    provider._identity = lambda *, deadline: driver.resolve_identity(  # type: ignore[attr-defined]
+        deadline_monotonic=deadline
+    )
 
     class Model:
         def cancel(self) -> None:
@@ -1049,7 +1080,9 @@ def _actual_native_ipc_fixture(
     provider = daemon.motion_provider
     provider._capture = lambda: capture()  # type: ignore[attr-defined]
     provider._capture_with_deadline = capture  # type: ignore[attr-defined]
-    provider._identity = lambda: driver.resolve_identity()  # type: ignore[attr-defined]
+    provider._identity = lambda *, deadline: driver.resolve_identity(  # type: ignore[attr-defined]
+        deadline_monotonic=deadline
+    )
     daemon._test_native_client = client
     daemon._test_native_capture_state = state
     return daemon, controller, driver, backend, ipc, generation
@@ -2574,9 +2607,10 @@ def test_session_ipc_interaction_stop_revokes_inflight_physical_process(tmp_path
 
 def _frame(*, facing: float = 0.0) -> MotionFrame:
     snapshot = {
-        "schema": 5,
+        "schema": 6,
         "hover": {"kind": "none", "name": ""},
         "mailOpen": False,
+        "executor": _executor_none(),
         "blockingUI": {
             "staticPopupAvailable": True,
             "staticPopupShown": False,
@@ -2654,7 +2688,7 @@ def test_route_observer_binds_egocentric_heading_to_nonzero_native_facing() -> N
     deadline_local = threading.local()
     deadline_local.deadline = 30.0
     daemon._motion_deadline_local = deadline_local
-    daemon._require_interaction = lambda _generation: 1
+    daemon._require_interaction = lambda _generation, **_kwargs: 1
     daemon.movement_basis = MovementBasis(
         identity_fingerprint="client-motion",
         boot="boot-motion",
@@ -2797,6 +2831,130 @@ def test_model_crop_forwards_absolute_deadline_to_production_capture(tmp_path) -
     assert seen == [11.0]
 
 
+def _pointer_anchor_deadline_fixture(monkeypatch: pytest.MonkeyPatch):
+    now = [100.0]
+    real_time = time
+    real_monotonic = real_time.monotonic
+
+    class DaemonTimeProxy:
+        def monotonic(self) -> float:
+            return now[0]
+
+        def __getattr__(self, name: str) -> object:
+            return getattr(real_time, name)
+
+    monkeypatch.setattr(daemon_module, "time", DaemonTimeProxy())
+    assert real_time.monotonic is real_monotonic
+
+    identity = SimpleNamespace(
+        fingerprint="client-motion",
+        child_xid=22,
+        xid=11,
+        child_geometry=(0, 0, 640, 480),
+    )
+    status = SimpleNamespace(generation=3, state=ControllerState.READY)
+    daemon = SessionDaemon.__new__(SessionDaemon)
+    daemon.config = SimpleNamespace(
+        profile=SimpleNamespace(
+            character="Arthur",
+            realm="Classic Beta PvE 2",
+            model_crop=(0, 0, 640, 480),
+        )
+    )
+    daemon.controller = SimpleNamespace(lock=threading.RLock(), status=lambda: status)
+    daemon._configured_anchor_provider = None
+    daemon._named_capture_sequence = 0
+    daemon._record_visual_proof = lambda *args, **kwargs: None
+
+    class TimedCapture:
+        def read_bytes(self) -> bytes:
+            now[0] = 105.0
+            return b"retained-capture"
+
+        def __str__(self) -> str:
+            return "retained-capture.png"
+
+    capture = TimedCapture()
+    daemon._capture_model_artifact = lambda *args, **kwargs: (capture, "d" * 64, 100.0)
+
+    def resolve_identity(*, deadline_monotonic: float | None = None) -> SimpleNamespace:
+        assert deadline_monotonic == pytest.approx(105.0)
+        return identity
+
+    def build_measured_anchor(**kwargs: object) -> SimpleNamespace:
+        assert kwargs["deadline_monotonic"] == pytest.approx(105.0)
+        return SimpleNamespace(
+            capture_sequence=1,
+            bounds=(40, 30, 80, 60),
+            target_xid=22,
+            target_ancestry=(11, 22),
+            evidence_hash="anchor-proof",
+        )
+
+    daemon.driver = SimpleNamespace(
+        ANCHOR_CONTROLS={"executor_click": "crowley_executor_button"},
+        anchor_observation_deadline=None,
+        guardian=SimpleNamespace(armed=True, generation=7),
+        backend=object(),
+        resolve_identity=resolve_identity,
+        build_measured_anchor=build_measured_anchor,
+    )
+    return daemon, identity, now
+
+
+def test_pointer_anchor_read_slack_expiry_does_not_call_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon, identity, _now = _pointer_anchor_deadline_fixture(monkeypatch)
+    model_calls: list[float] = []
+
+    def observe_model(*args: object, timeout: float, **kwargs: object) -> object:
+        del args, kwargs
+        model_calls.append(timeout)
+        return SimpleNamespace(
+            state="executor_mailbox",
+            facts=daemon._named_facts(
+                "executor_mailbox", character="Arthur", realm="Classic Beta PvE 2", idle="true"
+            ),
+            anchor=(40, 30, 80, 60),
+        )
+
+    daemon._observe_model = observe_model
+    with pytest.raises(DriverError, match="bounded deadline"):
+        daemon._measure_pointer_anchor(identity, "executor_click")
+    assert model_calls == []
+
+
+def test_pointer_anchor_model_receives_post_read_remaining_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
+    daemon, identity, now = _pointer_anchor_deadline_fixture(monkeypatch)
+    model_timeouts: list[float] = []
+
+    class PartialCapture:
+        def read_bytes(self) -> bytes:
+            now[0] = 101.5
+            return b"retained-capture"
+
+        def __str__(self) -> str:
+            return "retained-capture.png"
+
+    capture = PartialCapture()
+    daemon._capture_model_artifact = lambda *args, **kwargs: (capture, "d" * 64, 100.0)
+
+    def observe_model(image: bytes, *, timeout: float, **kwargs: object) -> object:
+        assert image == b"retained-capture"
+        model_timeouts.append(timeout)
+        now[0] = 102.0
+        return SimpleNamespace(
+            state="executor_mailbox",
+            facts=daemon._named_facts(
+                "executor_mailbox", character="Arthur", realm="Classic Beta PvE 2", idle="true"
+            ),
+            anchor=(40, 30, 80, 60),
+        )
+
+    daemon._observe_model = observe_model
+    daemon._measure_pointer_anchor(identity, "executor_click")
+    assert model_timeouts == [pytest.approx(3.5)]
+
+
 def test_native_provider_forwards_one_absolute_deadline_to_production_capture() -> None:
     motion = _frame()
     sample = Sample(
@@ -2806,9 +2964,10 @@ def test_native_provider_forwards_one_absolute_deadline_to_production_capture() 
             sequence=motion.sequence,
             snapshot=SimpleNamespace(
                 value={
-                    "schema": 5,
+                    "schema": 6,
                     "hover": {"kind": "none", "name": ""},
                     "mailOpen": False,
+                    "executor": _executor_none(),
                     "blockingUI": {
                         "staticPopupAvailable": True,
                         "staticPopupShown": False,
@@ -2880,7 +3039,7 @@ def test_native_provider_forwards_one_absolute_deadline_to_production_capture() 
 
     provider = NativeMotionProvider(
         lambda: sample,
-        lambda: _Identity(),
+        lambda **_kwargs: _Identity(),
         capture_with_deadline=capture,
         clock=lambda: 10.1,
     )

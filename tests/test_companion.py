@@ -1,9 +1,11 @@
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import httpx
 import pytest
 
+from crowley.companion import config as companion_config
 from crowley.companion.config import CompanionSettings
 from crowley.companion.sync import Companion, State
 from crowley.core import savedvars
@@ -33,8 +35,15 @@ def write_savedvars(path, scans, probe=None, reference=None, account=None, execu
 @pytest.fixture
 def companion(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
-    settings = CompanionSettings(wow_dir=tmp_path, server_url="http://test", api_token="test-token")
-    saved = tmp_path / "WTF/Account/Test/SavedVariables/Crowley.lua"
+    target = replace(
+        companion_config._TARGET,
+        game_root=str(tmp_path),
+        wine_prefix=str(tmp_path / "wine"),
+    )
+    monkeypatch.setattr(companion_config, "_TARGET", target)
+    wow_dir = tmp_path / target.product_dir
+    settings = CompanionSettings(wow_dir=wow_dir, server_url="http://test", api_token="test-token")
+    saved = wow_dir / "WTF/Account/Test/SavedVariables/Crowley.lua"
     saved.parent.mkdir(parents=True)
     settings.data_lua.parent.mkdir(parents=True)
     instance = Companion(settings)
@@ -43,6 +52,17 @@ def companion(tmp_path, monkeypatch):
         yield instance, saved
     finally:
         instance.client.close()
+
+
+def test_companion_settings_reject_stale_target_identity():
+    from crowley.core.game_target import packaged_game_target
+
+    target = packaged_game_target()
+    expected_wow_dir = Path(target.game_root) / target.product_dir
+    with pytest.raises(ValueError, match="wow_dir"):
+        CompanionSettings(wow_dir=Path("/tmp/stale-wow"), api_token="test-token")
+    with pytest.raises(ValueError, match="house_key"):
+        CompanionSettings(wow_dir=expected_wow_dir, house_key="us-normal-horde", api_token="test-token")
 
 
 @pytest.mark.parametrize("failure", ["s1", "s2", "probe"])

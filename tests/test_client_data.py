@@ -199,6 +199,7 @@ def test_export_cli_checks_build_and_refuses_overwrite(
         assert "--network" in command and command[command.index("--network") + 1] == "none"
         assert "--read-only" in command
         assert f"{install.resolve()}:/wow:ro" in command
+        assert command[command.index("--expected-build") + 1] == module.EXPECTED_CLIENT_BUILD
         staging = Path(command[command.index("-v") + 3].split(":", 1)[0])
         shutil.copytree(FIXTURE, staging, dirs_exist_ok=True)
         manifest = json.loads((staging / "manifest.json").read_text())

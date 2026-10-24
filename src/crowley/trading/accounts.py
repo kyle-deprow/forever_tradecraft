@@ -7,7 +7,8 @@ from dataclasses import dataclass, field
 from fractions import Fraction
 from typing import Any
 
-from .api import AccountView, ListingView
+from .api import AccountView, CraftingCapabilities, ListingView
+from .requirements import EMPTY_CAPABILITIES
 
 
 @dataclass
@@ -26,7 +27,8 @@ class Listing:
     unit_price: int
     quantity: int
     original_quantity: int
-    posted_t: int
+    posted_t: float
+    posted_step: int
     expires_t: float
     deposit_paid: int
     deposit_refunded: int = 0
@@ -38,7 +40,7 @@ class Listing:
             unit_price=self.unit_price,
             quantity_remaining=self.quantity,
             posted_t=self.posted_t,
-            expires_t=int(self.expires_t),
+            expires_t=self.expires_t,
         )
 
 
@@ -88,6 +90,11 @@ class Account:
     closed_trades: list[dict[str, Any]] = field(default_factory=list)
     clicks: int = 0
     cooldowns: dict[str, float] = field(default_factory=dict)
+    crafting_capabilities: CraftingCapabilities = EMPTY_CAPABILITIES
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.crafting_capabilities, CraftingCapabilities):
+            raise TypeError("crafting_capabilities must be CraftingCapabilities")
 
     def add_inventory(
         self, item_id: int, quantity: int, *, unit_cost: int | Fraction | None = None, t: float = 0
@@ -116,11 +123,19 @@ class Account:
     def add_fee(self, key: str, amount: int) -> None:
         self.fees[key] = self.fees.get(key, 0) + amount
 
-    def reject(self, reason: str, t: float, *, intent: str | None = None) -> None:
+    def reject(
+        self,
+        reason: str,
+        t: float,
+        *,
+        intent: str | None = None,
+        details: Mapping[str, Any] | None = None,
+    ) -> None:
         self.rejections[reason] = self.rejections.get(reason, 0) + 1
-        self.ledger.append(
-            LedgerEvent(t, "rejection", reason=reason, details={"intent": intent} if intent else {})
-        )
+        event_details = dict(details or {})
+        if intent:
+            event_details["intent"] = intent
+        self.ledger.append(LedgerEvent(t, "rejection", reason=reason, details=event_details))
 
     def pending_cash(self) -> int:
         return sum(parcel.cash for parcel in self.mail)
@@ -170,6 +185,7 @@ class _AccountView:
         self._now = now
         self.name = account.name
         self.professions = account.professions
+        self.crafting_capabilities = account.crafting_capabilities
 
     def cash(self) -> int:
         return self._account.cash_balance

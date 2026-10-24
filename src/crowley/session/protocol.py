@@ -17,6 +17,9 @@ from collections.abc import Collection
 from dataclasses import dataclass
 from typing import Any
 
+from crowley.core.game_target import packaged_game_target, target_scan_plan
+from crowley.core.watchlist import load_catalog
+
 MAGIC = b"CRS1"
 VERSION = 1
 ENCODING = 1
@@ -31,6 +34,12 @@ HALF_U32 = 0x80000000
 POSITION_LIMIT = 1_000_000.0
 FACING_LIMIT = 2.0 * math.pi
 SPEED_LIMIT = 1_000.0
+_TARGET = packaged_game_target()
+_PLAN = target_scan_plan(load_catalog(), _TARGET)
+PLAN_COUNT = len(_PLAN["itemIDs"])
+PLAN_CADENCE = _TARGET.cadence_seconds
+PLAN_CAP = _TARGET.sweep_cap_seconds
+PLAN_LEVELS = _TARGET.initial_price_levels
 
 
 class ProtocolError(ValueError):
@@ -54,6 +63,9 @@ class Frame:
     uptime_ms: int
     crc32: int
     payload_length: int
+    # Exact validated 2048-byte CRS bytes.  This is private provenance only;
+    # it is never serialized into the wire snapshot or exposed as telemetry.
+    raw_bytes: bytes = b""
 
 
 def _error(path: str, message: str) -> ProtocolError:
@@ -247,6 +259,257 @@ def _uid(value: Any, path: str, *, empty: bool = False) -> str:
     return _string(value, path, empty=empty, limit=192)
 
 
+_EXECUTOR_KINDS = {
+    "buy_commodity",
+    "post_commodity",
+    "cancel_auction",
+    "vendor_sell",
+    "vendor_buy",
+    "craft",
+    "mail_collect",
+}
+_EXECUTOR_PHASES = {
+    "none",
+    "ready",
+    "complete",
+    "await_price",
+    "ready_to_confirm",
+    "must_cancel",
+    "await_purchase",
+    "sell_stacks",
+    "sell_wait",
+    "await_vendor_buy",
+    "await_craft",
+    "mail_items",
+    "mail_wait",
+}
+_EXECUTOR_RESULTS = {"none", "dry_run", "started", "blocked", "succeeded", "failed", "refused", "skipped"}
+_EXECUTOR_SOURCES = {"none", "button", "directAPI"}
+_EXECUTOR_CLICK_PHASES = {"ready", "ready_to_confirm", "must_cancel", "sell_stacks", "mail_items"}
+
+
+def _validate_executor(value: Any) -> None:
+    executor = _keys(
+        value,
+        {
+            "availability",
+            "queueId",
+            "house",
+            "character",
+            "publishedArmed",
+            "sessionArmed",
+            "buttonVisible",
+            "buttonName",
+            "currentSeq",
+            "currentKind",
+            "phase",
+            "inFlight",
+            "clickReady",
+            "workDone",
+            "workTotal",
+            "blocked",
+            "latched",
+            "ambiguous",
+            "clickOrdinal",
+            "lastClickSource",
+            "resultCount",
+            "lastResult",
+        },
+        "executor",
+    )
+    availability = executor["availability"]
+    if not isinstance(availability, str) or availability not in {"none", "invalid", "valid"}:
+        raise _error("executor.availability", "must be none, invalid, or valid")
+    queue_id = _uid(executor["queueId"], "executor.queueId", empty=True)
+    _string(executor["house"], "executor.house", empty=True)
+    _string(executor["character"], "executor.character", empty=True)
+    _boolean(executor["publishedArmed"], "executor.publishedArmed")
+    _boolean(executor["sessionArmed"], "executor.sessionArmed")
+    button_visible = _boolean(executor["buttonVisible"], "executor.buttonVisible")
+    button_name = _string(executor["buttonName"], "executor.buttonName", empty=True, limit=64)
+    current_seq = _integer(executor["currentSeq"], "executor.currentSeq")
+    current_kind = executor["currentKind"]
+    if not isinstance(current_kind, str) or current_kind not in {"", *_EXECUTOR_KINDS}:
+        raise _error("executor.currentKind", "invalid action kind")
+    phase = executor["phase"]
+    if not isinstance(phase, str) or phase not in _EXECUTOR_PHASES:
+        raise _error("executor.phase", "invalid executor phase")
+    for field in ("inFlight", "clickReady", "blocked", "latched", "ambiguous"):
+        _boolean(executor[field], f"executor.{field}")
+    work_done = _integer(executor["workDone"], "executor.workDone")
+    work_total = _integer(executor["workTotal"], "executor.workTotal")
+    click_ordinal = _integer(executor["clickOrdinal"], "executor.clickOrdinal")
+    source = executor["lastClickSource"]
+    if not isinstance(source, str) or source not in _EXECUTOR_SOURCES:
+        raise _error("executor.lastClickSource", "invalid click source")
+    result_count = _integer(executor["resultCount"], "executor.resultCount")
+    last_result = _keys(executor["lastResult"], {"seq", "kind", "status"}, "executor.lastResult")
+    result_seq = _integer(last_result["seq"], "executor.lastResult.seq")
+    result_kind = last_result["kind"]
+    if not isinstance(result_kind, str) or result_kind not in {"", "queue", *_EXECUTOR_KINDS}:
+        raise _error("executor.lastResult.kind", "invalid result kind")
+    result_status = last_result["status"]
+    if not isinstance(result_status, str) or result_status not in _EXECUTOR_RESULTS:
+        raise _error("executor.lastResult.status", "invalid result status")
+
+    if button_name not in {"", "CrowleyTradeExecutorButton"}:
+        raise _error("executor.buttonName", "must identify the Crowley executor button")
+    if button_visible and button_name != "CrowleyTradeExecutorButton":
+        raise _error("executor.buttonName", "visible executor button requires its native name")
+    if source == "button" and click_ordinal == 0:
+        raise _error("executor.lastClickSource", "button source requires a positive ordinal")
+    if source == "none" and click_ordinal != 0:
+        raise _error("executor.lastClickSource", "none source requires ordinal zero")
+    if work_done > work_total:
+        raise _error("executor.workDone", "cannot exceed workTotal")
+    if executor["ambiguous"] and not executor["blocked"]:
+        raise _error("executor.ambiguous", "ambiguous executor history must be blocked")
+
+    if availability == "none":
+        expected = {
+            "queueId": "",
+            "house": "",
+            "character": "",
+            "publishedArmed": False,
+            "sessionArmed": False,
+            "buttonVisible": False,
+            "buttonName": "",
+            "currentSeq": 0,
+            "currentKind": "",
+            "phase": "none",
+            "inFlight": False,
+            "clickReady": False,
+            "workDone": 0,
+            "workTotal": 0,
+            "blocked": False,
+            "latched": False,
+            "ambiguous": False,
+            "clickOrdinal": 0,
+            "lastClickSource": "none",
+            "resultCount": 0,
+            "lastResult": {"seq": 0, "kind": "", "status": "none"},
+        }
+        scalar_match = all(executor[key] == expected[key] for key in expected if key != "lastResult")
+        if not scalar_match or last_result != expected["lastResult"]:
+            raise _error("executor", "none availability has non-empty state")
+        return
+
+    if availability == "invalid":
+        if any(
+            (executor[key] != expected)
+            for key, expected in {
+                "queueId": "",
+                "house": "",
+                "character": "",
+                "publishedArmed": False,
+                "sessionArmed": False,
+                "buttonVisible": False,
+                "buttonName": "",
+                "currentSeq": 0,
+                "currentKind": "",
+                "phase": "none",
+                "inFlight": False,
+                "clickReady": False,
+                "workDone": 0,
+                "workTotal": 0,
+                "blocked": False,
+                "latched": False,
+                "ambiguous": False,
+                "clickOrdinal": 0,
+                "lastClickSource": "none",
+            }.items()
+        ):
+            raise _error("executor", "invalid availability has non-empty queue state")
+        if result_count < 1 or last_result != {"seq": 0, "kind": "queue", "status": "refused"}:
+            raise _error("executor", "invalid availability requires a queue refusal witness")
+        return
+
+    if not queue_id or not executor["house"] or not executor["character"]:
+        raise _error("executor", "valid availability requires queue identity")
+    if current_seq == 0:
+        if current_kind != "" or phase != "complete" or executor["inFlight"] or executor["clickReady"]:
+            raise _error("executor", "completed queue has an active action")
+    else:
+        if current_kind not in _EXECUTOR_KINDS or phase in {"none", "complete"}:
+            raise _error("executor", "active queue action has invalid kind or phase")
+        phase_kind = {
+            "await_price": "buy_commodity",
+            "ready_to_confirm": "buy_commodity",
+            "must_cancel": "buy_commodity",
+            "await_purchase": "buy_commodity",
+            "sell_stacks": "vendor_sell",
+            "sell_wait": "vendor_sell",
+            "await_vendor_buy": "vendor_buy",
+            "await_craft": "craft",
+            "mail_items": "mail_collect",
+            "mail_wait": "mail_collect",
+        }.get(phase)
+        if phase_kind is not None and current_kind != phase_kind:
+            raise _error("executor", "phase is incompatible with current action kind")
+    if phase == "ready" and executor["inFlight"]:
+        if not (
+            current_kind in {"post_commodity", "cancel_auction"}
+            and not executor["clickReady"]
+            and not executor["blocked"]
+            and not executor["ambiguous"]
+            and result_count >= 1
+            and last_result == {"seq": current_seq, "kind": current_kind, "status": "started"}
+            and not executor["latched"]
+        ) and not (
+            current_kind in {"post_commodity", "cancel_auction"}
+            and not executor["clickReady"]
+            and not executor["blocked"]
+            and not executor["ambiguous"]
+            and result_count >= 1
+            and last_result == {"seq": current_seq, "kind": current_kind, "status": "blocked"}
+            and executor["latched"]
+        ):
+            raise _error("executor.phase", "ready action cannot be in flight")
+    if phase == "complete" and (executor["inFlight"] or executor["blocked"] or executor["latched"]):
+        raise _error("executor.phase", "complete action cannot retain active flags")
+    if executor["clickReady"]:
+        if not button_visible or current_seq == 0 or phase not in _EXECUTOR_CLICK_PHASES:
+            raise _error("executor.clickReady", "ready click requires a visible actionable button")
+        if phase == "ready" and executor["inFlight"]:
+            raise _error("executor.clickReady", "ready click cannot be in flight")
+        if executor["blocked"] or executor["ambiguous"]:
+            raise _error("executor.clickReady", "blocked or ambiguous action cannot be click-ready")
+        if executor["latched"] and not (
+            current_kind == "buy_commodity" and phase == "must_cancel" and executor["inFlight"]
+        ):
+            raise _error(
+                "executor.clickReady", "latched click-ready action is not an allowed commodity cancellation"
+            )
+    if current_kind == "mail_collect":
+        if current_seq:
+            if work_total < 1 or work_done >= work_total:
+                raise _error("executor.workDone", "active mail action must retain work below workTotal")
+            if phase in {"mail_items", "mail_wait"} and not executor["inFlight"]:
+                raise _error("executor.phase", "mail postcondition phase must be in flight")
+            if phase == "ready" and work_done > 0:
+                if (
+                    not executor["blocked"]
+                    or executor["ambiguous"]
+                    or executor["latched"]
+                    or executor["clickReady"]
+                    or last_result
+                    not in (
+                        {"seq": current_seq, "kind": current_kind, "status": "failed"},
+                        {"seq": current_seq, "kind": current_kind, "status": "blocked"},
+                    )
+                ):
+                    raise _error(
+                        "executor.workDone", "partial ready mail action requires its terminal refusal witness"
+                    )
+    elif work_done != 0 or work_total != 0:
+        raise _error("executor.work", "non-mail action cannot publish mail progress")
+    if result_count == 0:
+        if last_result != {"seq": 0, "kind": "", "status": "none"}:
+            raise _error("executor.lastResult", "empty result history requires the none sentinel")
+    elif result_status == "none" or result_kind in {"", "queue"} or result_seq == 0:
+        raise _error("executor.lastResult", "valid result history requires an action result")
+
+
 def _uid_array(value: Any, path: str) -> list[str]:
     if not isinstance(value, list):
         raise _error(path, "expected array")
@@ -273,6 +536,7 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
             "ahOpen",
             "hover",
             "mailOpen",
+            "executor",
             "auctioneer",
             "blockingUI",
             "scanner",
@@ -285,8 +549,8 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
         },
         "snapshot",
     )
-    if _integer(top["schema"], "schema", minimum=5, maximum=5) != 5:
-        raise _error("schema", "must be 5")
+    if _integer(top["schema"], "schema", minimum=6, maximum=6) != 6:
+        raise _error("schema", "must be 6")
     _string(top["boot"], "boot", limit=96)
     # The addon increments before its first publication; zero is reserved for
     # an absent/uninitialized frame and cannot establish freshness.
@@ -395,14 +659,22 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
     _string(plan["hash"], "plan.hash")
     if not re.fullmatch(r"[0-9a-f]{64}", plan["hash"]):
         raise _error("plan.hash", "must be lowercase SHA-256 hex")
-    if _integer(plan["count"], "plan.count", minimum=1) != 428:
-        raise _error("plan.count", "must be 428")
+    if _integer(plan["count"], "plan.count", minimum=1) != PLAN_COUNT:
+        raise _error("plan.count", f"must be {PLAN_COUNT}")
     if (
-        _integer(plan["cadenceSeconds"], "plan.cadenceSeconds", minimum=900, maximum=900) != 900
-        or _integer(plan["sweepCapSeconds"], "plan.sweepCapSeconds", minimum=600, maximum=600) != 600
-        or _integer(plan["initialPriceLevels"], "plan.initialPriceLevels", minimum=20, maximum=20) != 20
+        _integer(plan["cadenceSeconds"], "plan.cadenceSeconds", minimum=PLAN_CADENCE, maximum=PLAN_CADENCE)
+        != PLAN_CADENCE
+        or _integer(plan["sweepCapSeconds"], "plan.sweepCapSeconds", minimum=PLAN_CAP, maximum=PLAN_CAP)
+        != PLAN_CAP
+        or _integer(
+            plan["initialPriceLevels"], "plan.initialPriceLevels", minimum=PLAN_LEVELS, maximum=PLAN_LEVELS
+        )
+        != PLAN_LEVELS
     ):
-        raise _error("plan", "cadence, cap, and retained levels must be 900/600/20")
+        raise _error(
+            "plan",
+            f"cadence, cap, and retained levels must be {PLAN_CADENCE}/{PLAN_CAP}/{PLAN_LEVELS}",
+        )
 
     _boolean(top["ahOpen"], "ahOpen")
     hover = _keys(top["hover"], {"kind", "name"}, "hover")
@@ -412,6 +684,7 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
     if (hover["kind"] == "none") != (hover_name == ""):
         raise _error("hover", "name must be empty exactly when kind is none")
     _boolean(top["mailOpen"], "mailOpen")
+    _validate_executor(top["executor"])
     auctioneer = _keys(
         top["auctioneer"],
         {
@@ -512,8 +785,8 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
             raise _error("plan.itemIDs", "configured item IDs are invalid")
         if cursor_item_id and cursor_item_id not in configured_ids:
             raise _error("scanner.cursorItemID", "cursor is outside the configured plan")
-    if planned != 428:
-        raise _error("scanner.planned", "must be 428")
+    if planned != PLAN_COUNT:
+        raise _error("scanner.planned", f"must be {PLAN_COUNT}")
     if phase in {"ready", "scheduled", "blocked"} and (active_id or started):
         raise _error("scanner", "inactive phase cannot have active ID/start")
     if phase == "scheduled" and due == 0:
@@ -523,7 +796,7 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
     if phase in {"item", "owned"}:
         # The existing scanner creates its UID only at Finish.  The empty string is
         # an explicit wire sentinel; Lua nil must never be used for this field.
-        if active_id or started == 0 or due != started + 900 or not 1 <= ordinal <= planned:
+        if active_id or started == 0 or due != started + PLAN_CADENCE or not 1 <= ordinal <= planned:
             raise _error("scanner", "active phase timing/ordinal invariant failed")
         if not started <= wall_time <= due:
             raise _error("scanner", "active phase is outside its cadence interval")
@@ -548,7 +821,7 @@ def validate_snapshot(value: Any, *, plan_item_ids: Collection[int] | None = Non
             raise _error("lastSaved", "empty UID requires zero counters")
     elif (
         finished == 0
-        or last_planned != 428
+        or last_planned != PLAN_COUNT
         or attempted > last_planned
         or failures < last_planned - attempted
         or failures > last_planned
@@ -677,7 +950,16 @@ def decode_frame(frame: bytes, *, plan_item_ids: Collection[int] | None = None) 
         or snapshot["uptimeMs"] != uptime_ms
     ):
         raise ProtocolError("header and JSON freshness fields disagree")
-    return Frame(snapshot, snapshot["boot"], sequence, wall_time, uptime_ms, expected_crc, payload_length)
+    return Frame(
+        snapshot,
+        snapshot["boot"],
+        sequence,
+        wall_time,
+        uptime_ms,
+        expected_crc,
+        payload_length,
+        bytes(frame),
+    )
 
 
 def pack_cells(frame: bytes) -> list[list[int]]:

@@ -1,0 +1,11 @@
+bringing up nodes...
+bringing up nodes...
+
+.......................................................................  [100%]
+=============================== warnings summary ===============================
+tests/test_session_pointer_execution.py::test_process_death_after_go_boundary_preserves_spacing_for_next_owner
+  /home/dev/.local/share/uv/python/cpython-3.12.12-linux-x86_64-gnu/lib/python3.12/multiprocessing/popen_fork.py:66: DeprecationWarning: This process (pid=165323) is multi-threaded, use of fork() may lead to deadlocks in the child.
+    self.pid = os.fork()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+71 passed, 1 warning in 3.19s

@@ -463,6 +463,7 @@ class ClickRatePermit:
         self._boot_id = boot_id
         self._acquired_monotonic = float(acquired_monotonic)
         self._precommitted = False
+        self._deadline_blocked = False
         self._recorded = False
         self._closed = False
 
@@ -476,9 +477,17 @@ class ClickRatePermit:
 
         return self._acquired_monotonic
 
-    def precommit(self) -> int:
+    def precommit(self, *, deadline_monotonic: float | None = None) -> int:
         if self._closed or self._precommitted:
             raise PointerExecutionError("click timing permit is closed or already committed")
+        if deadline_monotonic is not None and (
+            isinstance(deadline_monotonic, bool)
+            or not isinstance(deadline_monotonic, (int, float))
+            or not math.isfinite(float(deadline_monotonic))
+        ):
+            raise PointerExecutionError("click timing deadline is malformed")
+        if deadline_monotonic is not None and time.monotonic() >= float(deadline_monotonic):
+            raise PointerExecutionError("click timing deadline expired before durable precommit")
         now = time.monotonic_ns()
         state = {
             "version": 1,
@@ -492,10 +501,15 @@ class ClickRatePermit:
             state["lastPressMonotonicNs"] = last_press
         _write_state(self._directory, state)
         self._precommitted = True
+        if deadline_monotonic is not None and time.monotonic() >= float(deadline_monotonic):
+            # Keep the conservative durable reservation.  The caller must
+            # refuse the physical press, but may not roll timing state back.
+            self._deadline_blocked = True
+            raise PointerExecutionError("click timing deadline expired after durable precommit")
         return now
 
     def record_press(self) -> int:
-        if self._closed or not self._precommitted or self._recorded:
+        if self._closed or not self._precommitted or self._recorded or self._deadline_blocked:
             raise PointerExecutionError("click timing press cannot be recorded in this permit state")
         actual = time.monotonic_ns()
         state = {

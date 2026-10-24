@@ -1,0 +1,19 @@
+{
+  "command": [
+    "uv",
+    "run",
+    "pytest",
+    "-n0",
+    "-q",
+    "tests/test_server.py",
+    "tests/test_client_data.py",
+    "tests/test_trading_paper.py",
+    "tests/test_trading_requirements.py",
+    "tests/test_trading_engine.py",
+    "tests/test_trading_strategies.py",
+    "tests/test_launch_target.py",
+    "tests/test_companion.py"
+  ],
+  "exit_code": 0,
+  "wall_seconds": 34.076
+}

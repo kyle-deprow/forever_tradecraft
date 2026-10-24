@@ -1,0 +1,6 @@
+{
+  "src/crowley/session/driver.py": "56e0f89a3b508b041165574903337b49b7d8a0d728e5ad59027fed895e9944ba",
+  "src/crowley/session/pointer_execution.py": "b1dadbb9a6c12d1792d35d612e710512708c2369708aed76fb1fb18d39cd4e10",
+  "tests/test_session_driver_actions.py": "1b5d2071ab0cb4913d5f2858133a71a3cb34c322b9689f713a711586029cb7d9",
+  "tests/test_session_pointer_execution.py": "e71de30d81fdc022384967ba0678ba4e1068ad264905b2e35c44769c963a479e"
+}

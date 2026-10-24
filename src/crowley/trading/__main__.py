@@ -15,6 +15,7 @@ import psycopg
 
 from crowley.core.queue import QueueFormatError
 
+from .api import CraftingCapabilities
 from .data import load_client_data, load_commodity_books, precompute_statistics
 from .engine import run_backtest
 from .paper import DEFAULT_STRATEGIES, PaperError, create_run, database_url, status_run, step_run
@@ -29,6 +30,7 @@ from .queue_cli import (
     status as queue_status,
 )
 from .report import text_summary, write_report
+from .requirements import capabilities_from_mapping, capabilities_hash
 from .strategies import build
 
 
@@ -52,6 +54,48 @@ def _weights(value: str | None) -> list[Fraction] | None:
     if not parts or any(not part for part in parts):
         raise ValueError("--weights must be a comma-separated list")
     return [Fraction(part) for part in parts]
+
+
+def _capability_ids(value: str | None, label: str) -> list[int] | None:
+    if value is None:
+        return None
+    parts = [part.strip() for part in value.split(",")]
+    if any(not part for part in parts):
+        raise ValueError(f"{label} must be a comma-separated list of positive integer ids")
+    result: list[int] = []
+    for part in parts:
+        if not part.isdigit() or int(part) <= 0:
+            raise ValueError(f"{label} must contain positive integer ids")
+        result.append(int(part))
+    return result
+
+
+def _capabilities(
+    path: Path | None,
+    tool_item_ids: str | None,
+    tool_category_ids: str | None,
+    spell_focus_ids: str | None,
+) -> CraftingCapabilities:
+    # Always start with the canonical empty object.  A file is validated as a
+    # complete canonical object before explicit CLI fields override it.
+    values: dict[str, object] = {
+        "tool_item_ids": [],
+        "tool_category_ids": [],
+        "spell_focus_ids": [],
+    }
+    if path is not None:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(loaded, dict):
+            raise ValueError("--capabilities-file must contain a JSON object")
+        parsed = capabilities_from_mapping(loaded)
+        values = parsed.canonical
+    overrides = {
+        "tool_item_ids": _capability_ids(tool_item_ids, "--tool-item-ids"),
+        "tool_category_ids": _capability_ids(tool_category_ids, "--tool-category-ids"),
+        "spell_focus_ids": _capability_ids(spell_focus_ids, "--spell-focus-ids"),
+    }
+    values.update({key: value for key, value in overrides.items() if value is not None})
+    return capabilities_from_mapping(values)
 
 
 def _row_value(row, key: str, index: int):
@@ -139,6 +183,10 @@ def main(argv: list[str] | None = None) -> int:
     backtest.add_argument("--demand-share", type=Fraction, default=Fraction(1))
     backtest.add_argument("--build", help="full client build, for example 1.60.1.70450")
     backtest.add_argument("--out", required=True)
+    backtest.add_argument("--capabilities-file", type=Path)
+    backtest.add_argument("--tool-item-ids")
+    backtest.add_argument("--tool-category-ids")
+    backtest.add_argument("--spell-focus-ids")
     paper_create = subparsers.add_parser("paper-create")
     paper_create.add_argument("--database-url")
     paper_create.add_argument("--name", required=True)
@@ -149,6 +197,10 @@ def main(argv: list[str] | None = None) -> int:
     paper_create.add_argument("--weights")
     paper_create.add_argument("--demand-share", type=Fraction, default=Fraction("0.5"))
     paper_create.add_argument("--build", dest="client_build")
+    paper_create.add_argument("--capabilities-file", type=Path)
+    paper_create.add_argument("--tool-item-ids")
+    paper_create.add_argument("--tool-category-ids")
+    paper_create.add_argument("--spell-focus-ids")
     paper_step = subparsers.add_parser("paper-step")
     paper_step.add_argument("--database-url")
     paper_step.add_argument("--name", required=True)
@@ -235,6 +287,12 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.command == "paper-create":
         try:
+            capabilities = _capabilities(
+                args.capabilities_file,
+                args.tool_item_ids,
+                args.tool_category_ids,
+                args.spell_focus_ids,
+            )
             run_id = create_run(
                 args.database_url or os.environ.get("CROWLEY_DATABASE_URL"),
                 name=args.name,
@@ -245,8 +303,9 @@ def main(argv: list[str] | None = None) -> int:
                 weights=args.weights,
                 demand_share=args.demand_share,
                 client_build=args.client_build,
+                capabilities=capabilities,
             )
-        except (PaperError, RuntimeError, ValueError, psycopg.Error) as exc:
+        except (PaperError, RuntimeError, ValueError, OSError, psycopg.Error) as exc:
             parser.error(str(exc))
         print(f"paper_run_created={args.name} id={run_id}")
         return 0
@@ -272,6 +331,12 @@ def main(argv: list[str] | None = None) -> int:
     if not names or any(not name for name in names):
         parser.error("--strategies must be a comma-separated list")
     try:
+        capabilities = _capabilities(
+            args.capabilities_file,
+            args.tool_item_ids,
+            args.tool_category_ids,
+            args.spell_focus_ids,
+        )
         strategies = [build(name) for name in names]
         weights = _weights(args.weights)
         capital = int(args.capital_gold * 10_000)
@@ -310,10 +375,18 @@ def main(argv: list[str] | None = None) -> int:
             None,
             wind_down_hours=args.wind_down_hours,
             demand_share=args.demand_share,
+            capabilities=capabilities,
         )
         result.metadata.update(
             {
+                "house": args.house,
                 "client_build": client_build,
+                "window": {"start": args.start, "end": args.end, "build": args.build},
+                "capital_copper": capital,
+                "capabilities": capabilities.canonical,
+                "capabilities_hash": capabilities_hash(capabilities),
+                "wind_down_hours": args.wind_down_hours,
+                "demand_share": args.demand_share,
                 "selected_sweeps": len(selected_sweeps),
                 "excluded_sweeps_by_window": excluded_by_window,
                 "excluded_sweeps_by_build": excluded_by_build,
@@ -322,7 +395,7 @@ def main(argv: list[str] | None = None) -> int:
         )
         write_report(result, args.out)
         print(text_summary(result.report()))
-    except (PaperError, RuntimeError, ValueError, psycopg.Error) as exc:
+    except (PaperError, RuntimeError, ValueError, OSError, psycopg.Error) as exc:
         parser.error(str(exc))
     return 0
 

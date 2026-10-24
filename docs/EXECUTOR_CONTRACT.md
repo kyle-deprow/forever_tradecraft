@@ -80,3 +80,45 @@ attempted action: `{ seq, kind, status, at, detail }` with `status` ∈ {`dry_ru
 `failed`, `refused`, `skipped`} (`blocked` is a nonterminal event with a `reason`) and `detail` holding observed values (unitPrice/totalPrice for buys, deposit for posts, cancel cost,
 bag/slot used, merchant index, error event text). The companion uploads each queue's execution record once it changes;
 the server stores it and reconciles it against the queue.
+
+## Live telemetry
+
+The coordinated addon/session source uses strict [telemetry schema 6](EXECUTOR_TELEMETRY.md).
+The executor publishes actual queue identity, separate published/session arm bits,
+button visibility/readiness, per-message progress, latest result and a button-only
+click ordinal. A direct Lua API call cannot establish hardware callback delivery.
+Wrong queue identity stays visible as a refusal fact; operation admission rejects
+it before input. Schema 5 frames are refused by the schema 6 consumer.
+
+The daemon's guarded click and mailbox-cycle status, including launch-only native
+qualification, is tracked in [HANDOFF.md](HANDOFF.md). No telemetry projection
+alone authorizes arming, a protected call, or retry after an uncertain effect.
+
+## Guarded daemon button click
+
+The offline-reviewed `executor-click` command operates only the current
+`mail_collect` sequence from interaction `READY` with the current input lease.
+Its exact IPC request is:
+
+```json
+{"command":"executor_click","generation":12,"queueId":"<full queue ID>","seq":1,"confirmQueueId":"","cycleId":""}
+```
+
+Empty confirmation selects dry-run-only admission. If both addon arms are observed,
+each physical click requires a new request with `confirmQueueId` equal to the full
+queue ID. An in-flight `mail_items` continuation also requires the same process's
+private owner bound to queue, sequence, cycle, generation and lease. The request's
+IDs identify work; they do not create that owner.
+
+Before motion, the private journal retains the exact decoded pre-frame bytes and
+executor state. Admission repeats after human pointer motion and refreshed anchor
+measurement, immediately before rate precommit and press. The immutable per-call
+receipt binds the actual refreshed anchor, endpoint, physical release, rate record
+and Guardian completion. A fresh matching post-frame must prove one new button
+ordinal and the exact result transition. Direct Lua calls cannot satisfy it.
+
+The physical attempt and the overall mail action have separate durable states:
+`started/mail_wait` can finish the witnessed click while retaining action ownership.
+Unknown input or lost results block across restart. Staged outcomes recover from
+disk without redispatch. These offline proofs do not qualify rendered bounds,
+native callback delivery or protected APIs on the launch client.

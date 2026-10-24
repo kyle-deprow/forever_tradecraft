@@ -13,6 +13,10 @@ from crowley.core.house import House
 from crowley.core.luawriter import render_assignment
 
 MAX_SAFE_INTEGER = 9_007_199_254_740_991
+MAX_QUEUE_ID_BYTES = 192
+MAX_HOUSE_BYTES = 256
+MAX_CHARACTER_BYTES = 256
+MAX_MESSAGES = 0xFFFFFFFF
 MAX_ACTIONS = 50
 ACTION_KINDS = frozenset(
     {
@@ -57,8 +61,8 @@ def _keys(value: Any, expected: set[str], where: str) -> None:
         raise QueueFormatError(f"{where} is missing fields: {sorted(missing)}")
 
 
-def _int(value: Any, where: str, *, minimum: int = 1) -> int:
-    if isinstance(value, bool) or not isinstance(value, int) or value < minimum or value > MAX_SAFE_INTEGER:
+def _int(value: Any, where: str, *, minimum: int = 1, maximum: int = MAX_SAFE_INTEGER) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < minimum or value > maximum:
         raise QueueFormatError(f"{where} must be a positive safe integer")
     return value
 
@@ -66,6 +70,17 @@ def _int(value: Any, where: str, *, minimum: int = 1) -> int:
 def _string(value: Any, where: str) -> str:
     if not isinstance(value, str) or not value:
         raise QueueFormatError(f"{where} must be a non-empty string")
+    return value
+
+
+def _bounded_string(value: Any, where: str, maximum_bytes: int) -> str:
+    value = _string(value, where)
+    try:
+        size = len(value.encode("utf-8"))
+    except UnicodeEncodeError as exc:
+        raise QueueFormatError(f"{where} must be valid UTF-8") from exc
+    if size > maximum_bytes:
+        raise QueueFormatError(f"{where} exceeds {maximum_bytes} UTF-8 bytes")
     return value
 
 
@@ -84,8 +99,8 @@ def _timestamp(value: Any, where: str) -> int:
     return value
 
 
-def _validate_house(value: Any) -> str:
-    value = _string(value, "queue.house")
+def _validate_house(value: Any, where: str = "queue.house", *, bounded: bool = True) -> str:
+    value = _bounded_string(value, where, MAX_HOUSE_BYTES) if bounded else _string(value, where)
     try:
         return House.parse(value).key
     except ValueError as exc:
@@ -128,7 +143,7 @@ def _validate_action(action: Any, index: int) -> dict[str, Any]:
         _int(action["recipeID"], f"{where}.recipeID")
         _int(action["times"], f"{where}.times")
     elif kind == "mail_collect":
-        _int(action["maxMessages"], f"{where}.maxMessages")
+        _int(action["maxMessages"], f"{where}.maxMessages", maximum=MAX_MESSAGES)
     return action
 
 
@@ -142,13 +157,13 @@ def validate_queue(raw: dict[str, Any]) -> dict[str, Any]:
     _keys(raw, QUEUE_FIELDS, "queue")
     if _int(raw["format"], "queue.format") != 1:
         raise QueueFormatError("unsupported queue format")
-    queue_id = _string(raw["queueId"], "queue.queueId")
+    queue_id = _bounded_string(raw["queueId"], "queue.queueId", MAX_QUEUE_ID_BYTES)
     generated_at = _timestamp(raw["generatedAt"], "queue.generatedAt")
     expires_at = _timestamp(raw["expiresAt"], "queue.expiresAt")
     if expires_at <= generated_at:
         raise QueueFormatError("queue.expiresAt must be greater than queue.generatedAt")
     house = _validate_house(raw["house"])
-    character = _string(raw["character"], "queue.character")
+    character = _bounded_string(raw["character"], "queue.character", MAX_CHARACTER_BYTES)
     _bool(raw["armed"], "queue.armed")
     actions = raw["actions"]
     if actions == {}:
@@ -209,7 +224,7 @@ def build_queue(
         return validate_queue(queue)
     try:
         house = _validate_house(spec.get("house"))
-        character = _string(spec.get("character"), "queue.character")
+        character = _bounded_string(spec.get("character"), "queue.character", MAX_CHARACTER_BYTES)
         expires_at = spec["expiresAt"]
         actions = spec["actions"]
     except KeyError as exc:
@@ -254,7 +269,7 @@ def validate_execution_record(raw: dict[str, Any], queue: dict[str, Any] | None 
 
     _keys(raw, EXECUTION_FIELDS, "execution")
     queue_id = _string(raw["queueId"], "execution.queueId")
-    house = _validate_house(raw["house"])
+    house = _validate_house(raw["house"], bounded=False)
     character = _string(raw["character"], "execution.character")
     action_map: dict[int, dict[str, Any]] | None = None
     if queue is not None:
@@ -309,7 +324,11 @@ build = build_queue
 
 __all__ = [
     "ACTION_KINDS",
+    "MAX_CHARACTER_BYTES",
     "MAX_ACTIONS",
+    "MAX_HOUSE_BYTES",
+    "MAX_MESSAGES",
+    "MAX_QUEUE_ID_BYTES",
     "RESULT_STATUSES",
     "TERMINAL_STATUSES",
     "QueueFormatError",
